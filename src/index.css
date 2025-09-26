@@ -8,8 +8,8 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* SportsMaps Brand Identity - Verde */
-    --background: 110 30% 98%;
+    /* SportsMaps Brand Identity - Verde Esmeralda */
+    --background: 0 0% 100%;
     --foreground: 140 10% 8%;
 
     --card: 0 0% 100%;
@@ -18,24 +18,28 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 140 10% 8%;
 
-    /* Primary: Brand Green (#38e07b) */
-    --primary: 147 79% 56%;
-    --primary-foreground: 0 0% 0%;
-    --primary-glow: 147 79% 66%;
+    /* Primary: Verde Esmeralda (#04A462) */
+    --primary: 147 96% 33%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 147 85% 45%;
 
-    /* Secondary: Dark Green (#264532) */
-    --secondary: 140 32% 22%;
-    --secondary-foreground: 0 0% 100%;
+    /* Secondary: Verde más claro para fondos */
+    --secondary: 147 20% 95%;
+    --secondary-foreground: 140 35% 15%;
     
-    /* Background variations */
-    --background-dark: 140 50% 7%;
-    --background-light: 110 30% 98%;
+    /* Background variations - menos oscuro */
+    --background-dark: 140 25% 12%;
+    --background-light: 0 0% 100%;
     
-    /* Text colors */
+    /* Text colors - mejorados para contraste */
     --text-dark-primary: 0 0% 100%;
-    --text-dark-secondary: 147 35% 65%;
+    --text-dark-secondary: 147 25% 75%;
     --text-light-primary: 140 35% 8%;
     --text-light-secondary: 140 25% 45%;
+    
+    /* Orange gradient accent */
+    --accent-orange: 38 92% 50%;
+    --accent-orange-light: 45 93% 58%;
     
     /* Muted tones */
     --muted: 147 25% 95%;
@@ -55,7 +59,8 @@ All colors MUST be HSL.
     --gradient-hero: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
     --gradient-performance: linear-gradient(45deg, hsl(var(--primary)), hsl(var(--secondary)));
     --gradient-elevation: linear-gradient(180deg, hsl(var(--muted)), hsl(var(--background)));
-    --gradient-dark-bg: linear-gradient(180deg, hsl(var(--background-dark)), hsl(140 50% 5%));
+    --gradient-orange: linear-gradient(90deg, hsl(var(--accent-orange)), hsl(var(--accent-orange-light)));
+    --gradient-dark-bg: linear-gradient(180deg, hsl(var(--background-dark)), hsl(140 25% 8%));
     
     --shadow-elevation: 0 25px 50px -12px hsl(var(--primary) / 0.15);
     --shadow-performance: 0 10px 40px -10px hsl(var(--primary) / 0.2);

@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MapPin, Star, Calendar } from "lucide-react";
+import { MapPin, Star, Calendar, ArrowLeft } from "lucide-react";
 import Logo from "@/components/Logo";
 
 interface ExploreProps {
@@ -56,6 +56,66 @@ const Explore = ({ onNavigate }: ExploreProps) => {
       image: "https://images.unsplash.com/photo-1506629905607-d7d39e2ee9bb?q=80&w=2000&auto=format&fit=crop",
       tags: ["Yoga", "Mindfulness", "Cali"],
       location: "Cali"
+    },
+    {
+      id: 4,
+      title: "Escuela de Natación AquaTech",
+      instructor: "María Fernanda López",
+      rating: 4.9,
+      reviews: 87,
+      description: "Clases de natación para todas las edades. Técnica profesional y preparación para competencias.",
+      price: 48000,
+      image: "https://images.unsplash.com/photo-1530549387789-4c1017266635?q=80&w=2000&auto=format&fit=crop",
+      tags: ["Natación", "Técnica", "Cartagena"],
+      location: "Cartagena"
+    },
+    {
+      id: 5,
+      title: "Club de Tenis Elite",
+      instructor: "Andrés Rodríguez",
+      rating: 4.6,
+      reviews: 203,
+      description: "Entrenamiento profesional de tenis. Clases individuales y grupales con seguimiento personalizado.",
+      price: 75000,
+      image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?q=80&w=2000&auto=format&fit=crop",
+      tags: ["Tenis", "Elite", "Bogotá"],
+      location: "Bogotá"
+    },
+    {
+      id: 6,
+      title: "Academia de Atletismo Velocidad",
+      instructor: "Caterine Ibargüen",
+      rating: 4.8,
+      reviews: 165,
+      description: "Entrenamiento de atletismo enfocado en velocidad y resistencia. Preparación para competencias.",
+      price: 42000,
+      image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=2000&auto=format&fit=crop",
+      tags: ["Atletismo", "Velocidad", "Medellín"],
+      location: "Medellín"
+    },
+    {
+      id: 7,
+      title: "Escuela de Voleibol Spike",
+      instructor: "Camilo Torres",
+      rating: 4.5,
+      reviews: 92,
+      description: "Clases de voleibol para principiantes y avanzados. Técnica, estrategia y trabajo en equipo.",
+      price: 38000,
+      image: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?q=80&w=2000&auto=format&fit=crop",
+      tags: ["Voleibol", "Equipo", "Cali"],
+      location: "Cali"
+    },
+    {
+      id: 8,
+      title: "Centro de Artes Marciales Bushido",
+      instructor: "Sensei Takeshi Yamamoto",
+      rating: 4.7,
+      reviews: 118,
+      description: "Karate tradicional y defensa personal. Disciplina, respeto y técnica milenaria japonesa.",
+      price: 52000,
+      image: "https://images.unsplash.com/photo-1555597673-b21d5c935865?q=80&w=2000&auto=format&fit=crop",
+      tags: ["Karate", "Artes Marciales", "Bucaramanga"],
+      location: "Bucaramanga"
     }
   ];
 
@@ -65,13 +125,23 @@ const Explore = ({ onNavigate }: ExploreProps) => {
       <header className="sticky top-0 z-50 bg-background-dark/80 backdrop-blur-sm border-b border-secondary">
         <div className="container mx-auto px-4">
           <div className="flex h-20 items-center justify-between">
-            <button 
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-              onClick={() => onNavigate("landing")}
-            >
-              <Logo size="md" />
-              <h1 className="text-xl font-bold">SportMaps</h1>
-            </button>
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => onNavigate("landing")}
+                className="text-text-dark-primary hover:bg-secondary/20"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <button 
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                onClick={() => onNavigate("landing")}
+              >
+                <Logo size="md" />
+                <h1 className="text-xl font-bold">SportMaps</h1>
+              </button>
+            </div>
             <div className="flex items-center gap-3">
               <Button 
                 variant="hero" 
