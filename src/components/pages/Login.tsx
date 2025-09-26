@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Eye, EyeOff } from "lucide-react";
+import Logo from "@/components/Logo";
 
 interface LoginProps {
   onNavigate: (page: string) => void;
@@ -33,9 +34,7 @@ const Login = ({ onNavigate }: LoginProps) => {
         {/* Header */}
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="h-12 w-12 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-              <span className="text-xl font-bold">SM</span>
-            </div>
+            <Logo size="lg" />
           </div>
           <h2 className="text-3xl font-bold text-foreground">Bienvenido de nuevo</h2>
           <p className="text-muted-foreground mt-2">

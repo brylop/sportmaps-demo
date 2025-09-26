@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X, ArrowLeft } from "lucide-react";
 import { useState } from "react";
+import Logo from "@/components/Logo";
 
 interface LayoutProps {
   children: ReactNode;
@@ -39,9 +40,7 @@ const Layout = ({
         <div className="fixed inset-0 bg-background z-50 p-6 md:hidden">
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-3 text-2xl font-bold">
-              <div className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                SM
-              </div>
+              <Logo size="md" />
               <h1 className="tracking-tight">SportMaps</h1>
             </div>
             <Button variant="ghost" size="icon" onClick={toggleMobileMenu}>
@@ -123,9 +122,7 @@ const Layout = ({
                 className="flex items-center gap-3 text-xl md:text-2xl font-bold hover:opacity-80 transition-opacity"
                 onClick={() => handleNavigation("landing")}
               >
-                <div className="h-7 w-7 md:h-8 md:w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                  SM
-                </div>
+                <Logo size="md" />
                 <h1 className="tracking-tight">SportMaps</h1>
               </button>
 

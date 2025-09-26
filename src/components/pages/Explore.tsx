@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MapPin, Star, Calendar } from "lucide-react";
+import Logo from "@/components/Logo";
 
 interface ExploreProps {
   onNavigate: (page: string) => void;
@@ -68,9 +69,7 @@ const Explore = ({ onNavigate }: ExploreProps) => {
               className="flex items-center gap-3 hover:opacity-80 transition-opacity"
               onClick={() => onNavigate("landing")}
             >
-              <div className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                SM
-              </div>
+              <Logo size="md" />
               <h1 className="text-xl font-bold">SportMaps</h1>
             </button>
             <div className="flex items-center gap-3">

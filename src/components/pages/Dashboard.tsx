@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import Logo from "@/components/Logo";
 import { 
   Calendar, 
   TrendingUp, 
@@ -52,9 +53,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                 className="flex items-center gap-3 text-xl font-bold hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate("landing")}
               >
-                <div className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                  SM
-                </div>
+                <Logo size="md" />
                 <span>SportMaps</span>
               </button>
               
