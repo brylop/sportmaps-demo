@@ -4,6 +4,9 @@ import Layout from "@/components/Layout";
 import Landing from "@/components/pages/Landing";
 import Login from "@/components/pages/Login";
 import RoleSelection from "@/components/pages/RoleSelection";
+import AthleteRegister from "@/components/pages/AthleteRegister";
+import CoachRegister from "@/components/pages/CoachRegister";
+import SchoolRegister from "@/components/pages/SchoolRegister";
 import Dashboard from "@/components/pages/Dashboard";
 import Explore from "@/components/pages/Explore";
 import Ecosystem from "@/components/pages/Ecosystem";
@@ -28,6 +31,23 @@ const Index = () => {
       
       case "login":
         return <Login onNavigate={handleNavigation} />;
+      
+      case "role-selection":
+        return (
+          <RoleSelection 
+            onNavigate={handleNavigation} 
+            onRoleSelect={handleRoleSelection}
+          />
+        );
+      
+      case "athlete-register":
+        return <AthleteRegister onNavigate={handleNavigation} />;
+      
+      case "coach-register":
+        return <CoachRegister onNavigate={handleNavigation} />;
+      
+      case "school-register":
+        return <SchoolRegister onNavigate={handleNavigation} />;
       
       case "register":
         return (
@@ -85,7 +105,7 @@ const Index = () => {
   };
 
   // Pages that don't need the layout wrapper
-  const noLayoutPages = ["explore"];
+  const noLayoutPages = ["explore", "role-selection", "athlete-register", "coach-register", "school-register"];
   
   if (noLayoutPages.includes(currentPage)) {
     return (
