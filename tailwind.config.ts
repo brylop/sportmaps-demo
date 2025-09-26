@@ -24,6 +24,12 @@ export default {
           foreground: "hsl(var(--primary-foreground))",
           glow: "hsl(var(--primary-glow))",
         },
+        "background-dark": "hsl(var(--background-dark))",
+        "background-light": "hsl(var(--background-light))",
+        "text-dark-primary": "hsl(var(--text-dark-primary))",
+        "text-dark-secondary": "hsl(var(--text-dark-secondary))",
+        "text-light-primary": "hsl(var(--text-light-primary))",
+        "text-light-secondary": "hsl(var(--text-light-secondary))",
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",

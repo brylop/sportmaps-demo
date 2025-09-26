@@ -1,32 +1,113 @@
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
-import TechSpecs from "@/components/TechSpecs";
-import { Button } from "@/components/ui/button";
-import { ArrowUp } from "lucide-react";
+import { useState } from "react";
+import { Toaster } from "@/components/ui/toaster";
+import Layout from "@/components/Layout";
+import Landing from "@/components/pages/Landing";
+import Login from "@/components/pages/Login";
+import RoleSelection from "@/components/pages/RoleSelection";
+import Dashboard from "@/components/pages/Dashboard";
+import Explore from "@/components/pages/Explore";
+import Ecosystem from "@/components/pages/Ecosystem";
 
 const Index = () => {
-  return (
-    <div className="min-h-screen bg-background">
-      <Hero />
-      <Features />
-      <TechSpecs />
+  const [currentPage, setCurrentPage] = useState("landing");
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+
+  const handleNavigation = (page: string) => {
+    setCurrentPage(page);
+  };
+
+  const handleRoleSelection = (role: string) => {
+    setSelectedRole(role);
+  };
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case "landing":
+        return <Landing onNavigate={handleNavigation} />;
       
-      {/* Footer CTA */}
-      <section className="py-20 bg-gradient-hero">
-        <div className="container px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-primary-foreground mb-6">
-            ¿Listo para Redefinir tu Entrenamiento?
-          </h2>
-          <p className="text-lg text-primary-foreground/90 mb-8 max-w-2xl mx-auto">
-            Únete a la comunidad de atletas que han descubierto el futuro de la exploración deportiva.
-          </p>
-          <Button variant="elevation" size="xl" className="bg-background text-foreground hover:bg-background/90">
-            <ArrowUp className="w-5 h-5" />
-            Comenzar Ahora
-          </Button>
-        </div>
-      </section>
-    </div>
+      case "login":
+        return <Login onNavigate={handleNavigation} />;
+      
+      case "register":
+        return (
+          <RoleSelection 
+            onNavigate={handleNavigation} 
+            onRoleSelect={handleRoleSelection}
+          />
+        );
+      
+      case "dashboard":
+        return <Dashboard onNavigate={handleNavigation} />;
+      
+      case "explore":
+        return <Explore onNavigate={handleNavigation} />;
+      
+      case "ecosystem":
+        return <Ecosystem onNavigate={handleNavigation} />;
+      
+      // Placeholder pages
+      case "about":
+        return (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-4">Nuestra Historia</h1>
+              <p className="text-muted-foreground mb-6">Página en construcción</p>
+              <button 
+                onClick={() => handleNavigation("landing")}
+                className="text-primary hover:underline"
+              >
+                Volver al inicio
+              </button>
+            </div>
+          </div>
+        );
+      
+      case "contact":
+        return (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-4">Contacto</h1>
+              <p className="text-muted-foreground mb-6">Página en construcción</p>
+              <button 
+                onClick={() => handleNavigation("landing")}
+                className="text-primary hover:underline"
+              >
+                Volver al inicio
+              </button>
+            </div>
+          </div>
+        );
+      
+      default:
+        return <Landing onNavigate={handleNavigation} />;
+    }
+  };
+
+  // Pages that don't need the layout wrapper
+  const noLayoutPages = ["explore"];
+  
+  if (noLayoutPages.includes(currentPage)) {
+    return (
+      <>
+        {renderPage()}
+        <Toaster />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Layout
+        currentPage={currentPage}
+        onNavigate={handleNavigation}
+        showBackButton={currentPage === "login" || currentPage === "register"}
+        backTarget="landing"
+      >
+        {renderPage()}
+      </Layout>
+      <Toaster />
+    </>
   );
 };
 
