@@ -1,15 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Try multiple environment variable patterns used by Lovable and Vite
-const supabaseUrl = 
-  import.meta.env.VITE_SUPABASE_URL || 
-  import.meta.env.SUPABASE_URL ||
-  'https://luebjarufsiadojhvxgi.supabase.co'; // Your project URL as fallback
-
-const supabaseAnonKey = 
-  import.meta.env.VITE_SUPABASE_ANON_KEY || 
-  import.meta.env.SUPABASE_ANON_KEY ||
-  import.meta.env.SUPABASE_KEY;
+// Supabase configuration
+const supabaseUrl = 'https://luebjarufsiadojhvxgi.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZWJqYXJ1ZnNpYWRvamh2eGdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MTU2NTgsImV4cCI6MjA3NDQ5MTY1OH0.yfmAH4N9UboL4p6UqK-_tQnfhBHlTQrXCrwRokALix4';
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Available env vars:', import.meta.env);
