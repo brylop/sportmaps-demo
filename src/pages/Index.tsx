@@ -14,6 +14,7 @@ import Contact from "@/components/pages/Contact";
 import SchoolSearch from "@/components/pages/SchoolSearch";
 import Shop from "@/components/pages/Shop";
 import Wellness from "@/components/pages/Wellness";
+import UserProfile from "@/components/pages/UserProfile";
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState("landing");
@@ -64,6 +65,9 @@ const Index = () => {
       case "dashboard":
         return <Dashboard onNavigate={handleNavigation} />;
       
+      case "profile":
+        return <UserProfile onNavigate={handleNavigation} />;
+      
       case "explore":
         return <Explore onNavigate={handleNavigation} />;
       
@@ -112,6 +116,7 @@ const Index = () => {
     "coach-register", 
     "school-register",
     "dashboard",
+    "profile",
     "schoolsearch",
     "shop",
     "wellness"

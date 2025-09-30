@@ -84,6 +84,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
               className="w-10 h-10 rounded-full bg-cover bg-center cursor-pointer ring-2 ring-primary/20 hover:ring-primary/40 transition-all"
               style={{ backgroundImage: "url('https://images.unsplash.com/photo-1543466835-00a7907e9de1?q=80&w=800&auto=format&fit=crop')" }}
               onClick={() => onNavigate("profile")}
+              title="Ver mi perfil"
             />
           </div>
         </div>
