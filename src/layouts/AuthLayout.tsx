@@ -24,17 +24,9 @@ export default function AuthLayout() {
             </div>
           </header>
 
+          {/* Main content */}
           <main className="flex-1 p-6 overflow-auto">
-            {profile ? (
-              <Outlet />
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center space-y-4">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-                  <p className="text-muted-foreground">Configurando tu perfil...</p>
-                </div>
-              </div>
-            )}
+            <Outlet />
           </main>
         </div>
       </div>

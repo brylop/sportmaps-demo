@@ -133,34 +133,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (!mounted) return;
-        
+
+        // Synchronous updates only
         setSession(session);
         setUser(session?.user || null);
-        
+
+        // Defer Supabase fetches to avoid deadlocks
         if (session?.user) {
-          try {
-            const userProfile = await fetchProfile(session.user.id);
-            if (mounted) {
-              if (userProfile) {
-                setProfile(userProfile);
-              } else {
-                const created = await createProfile(session.user.id, {
-                  full_name: session.user.user_metadata?.full_name || 'Usuario',
-                  role: 'athlete',
-                });
-                setProfile(created as UserProfile);
+          setTimeout(async () => {
+            try {
+              const userProfile = await fetchProfile(session.user!.id);
+              if (mounted) {
+                if (userProfile) {
+                  setProfile(userProfile);
+                } else {
+                  const created = await createProfile(session.user!.id, {
+                    full_name: session.user!.user_metadata?.full_name || 'Usuario',
+                    role: 'athlete',
+                  });
+                  setProfile(created as UserProfile);
+                }
               }
+            } catch (error) {
+              console.error('Deferred profile load/create failed:', error);
+            } finally {
+              if (mounted) setLoading(false);
             }
-          } catch (error) {
-            console.error('Failed to load/create profile:', error);
-          }
+          }, 0);
         } else {
           setProfile(null);
-        }
-        
-        if (mounted) {
           setLoading(false);
         }
       }
