@@ -10,6 +10,7 @@ import SchoolRegister from "@/components/pages/SchoolRegister";
 import Dashboard from "@/components/pages/Dashboard";
 import Explore from "@/components/pages/Explore";
 import Ecosystem from "@/components/pages/Ecosystem";
+import Contact from "@/components/pages/Contact";
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState("landing");
@@ -84,20 +85,7 @@ const Index = () => {
         );
       
       case "contact":
-        return (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <h1 className="text-3xl font-bold mb-4">Contacto</h1>
-              <p className="text-muted-foreground mb-6">Página en construcción</p>
-              <button 
-                onClick={() => handleNavigation("landing")}
-                className="text-primary hover:underline"
-              >
-                Volver al inicio
-              </button>
-            </div>
-          </div>
-        );
+        return <Contact onNavigate={handleNavigation} />;
       
       default:
         return <Landing onNavigate={handleNavigation} />;
