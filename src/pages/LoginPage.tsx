@@ -21,7 +21,6 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedDemoRole, setSelectedDemoRole] = useState<string | null>(null);
   const { user, signIn } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -41,7 +40,7 @@ export default function LoginPage() {
       title: 'Entrenador',
       description: 'Clases y agenda',
       icon: GraduationCap,
-      gradient: 'from-green-500 to-green-600',
+      gradient: 'from-emerald-500 to-emerald-600',
     },
     {
       id: 'school',
@@ -76,10 +75,6 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       await signIn(data.email, data.password);
-      // If a demo role was selected, navigate with that context
-      if (selectedDemoRole) {
-        navigate('/dashboard', { state: { demoRole: selectedDemoRole } });
-      }
     } catch (error) {
       // Error is handled in the context
     } finally {
@@ -87,19 +82,60 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemoRoleSelect = (roleId: string) => {
-    setSelectedDemoRole(roleId);
+  const handleDemoAccess = (roleId: string) => {
+    // Navigate to dashboard with demo mode
+    navigate('/dashboard', { state: { demoMode: true, demoRole: roleId } });
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-          <CardDescription className="text-center">
-            Accede a tu cuenta de SportMaps
-          </CardDescription>
-        </CardHeader>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4 py-12">
+      <div className="w-full max-w-5xl space-y-6">
+        {/* Demo Section - Top */}
+        <Card className="w-full bg-gradient-to-br from-primary/5 to-secondary/5">
+          <CardContent className="p-8">
+            <div className="text-center mb-6">
+              <h3 className="text-2xl font-bold mb-2">Explorar Perfiles Demo</h3>
+              <p className="text-muted-foreground">
+                Selecciona un rol para ver su perfil y funcionalidades específicas
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {demoRoles.map((role) => {
+                const Icon = role.icon;
+                
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    onClick={() => handleDemoAccess(role.id)}
+                    className="relative overflow-hidden rounded-xl p-6 text-center transition-all duration-300 border-2 border-border hover:border-primary hover:shadow-performance hover:scale-105 bg-background"
+                  >
+                    <div className={`absolute inset-0 bg-gradient-to-br ${role.gradient} opacity-10 transition-opacity hover:opacity-20`} />
+                    <div className="relative z-10 flex flex-col items-center gap-3">
+                      <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${role.gradient} flex items-center justify-center shadow-lg`}>
+                        <Icon className="w-8 h-8 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-base mb-1">{role.title}</p>
+                        <p className="text-xs text-muted-foreground">{role.description}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Login Section - Bottom */}
+        <Card className="w-full max-w-md mx-auto">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
+            <CardDescription className="text-center">
+              ¿Ya tienes cuenta? Accede con tus credenciales
+            </CardDescription>
+          </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
@@ -147,56 +183,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <Separator className="my-6" />
-
-          <div className="space-y-4">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold mb-1">Explorar Perfiles Demo</h3>
-              <p className="text-sm text-muted-foreground">
-                Selecciona un rol para ver su perfil y funcionalidades específicas
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {demoRoles.map((role) => {
-                const Icon = role.icon;
-                const isSelected = selectedDemoRole === role.id;
-                
-                return (
-                  <button
-                    key={role.id}
-                    type="button"
-                    onClick={() => handleDemoRoleSelect(role.id)}
-                    className={`relative overflow-hidden rounded-lg p-4 text-left transition-all duration-300 border-2 ${
-                      isSelected
-                        ? 'border-primary shadow-performance scale-105'
-                        : 'border-border hover:border-primary/50 hover:shadow-card'
-                    }`}
-                  >
-                    <div className={`absolute inset-0 bg-gradient-to-br ${role.gradient} opacity-10 transition-opacity ${
-                      isSelected ? 'opacity-20' : ''
-                    }`} />
-                    <div className="relative z-10 flex flex-col items-center text-center gap-2">
-                      <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${role.gradient} flex items-center justify-center`}>
-                        <Icon className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-sm">{role.title}</p>
-                        <p className="text-xs text-muted-foreground">{role.description}</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {selectedDemoRole && (
-              <div className="text-center text-sm text-primary animate-in fade-in duration-300">
-                ✓ Rol seleccionado. Inicia sesión para acceder al demo completo
-              </div>
-            )}
-          </div>
-
           <div className="mt-6 text-center text-sm space-y-2">
             <div>
               ¿No tienes cuenta?{' '}
@@ -212,6 +198,7 @@ export default function LoginPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
