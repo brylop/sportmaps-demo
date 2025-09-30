@@ -20,6 +20,8 @@ import StatsPage from "./pages/StatsPage";
 import MessagesPage from "./pages/MessagesPage";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
+import SchoolDetailPage from "./pages/SchoolDetailPage";
+import MyEnrollmentsPage from "./pages/MyEnrollmentsPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -59,6 +61,8 @@ const App = () => (
               <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
               <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
               <Route path="explore" element={<ExplorePage />} />
+              <Route path="schools/:id" element={<SchoolDetailPage />} />
+              <Route path="enrollments" element={<MyEnrollmentsPage />} />
               <Route path="shop" element={<div className="p-6"><h1 className="text-2xl font-bold">Tienda - En construcción</h1></div>} />
               <Route path="wellness" element={<div className="p-6"><h1 className="text-2xl font-bold">Bienestar - En construcción</h1></div>} />
               

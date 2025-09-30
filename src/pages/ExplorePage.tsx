@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,89 +15,27 @@ import {
   Search,
   MapPin,
   Star,
-  Users,
   Trophy,
-  Filter,
   X
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-
-interface School {
-  id: string;
-  name: string;
-  description: string | null;
-  city: string;
-  address: string;
-  phone: string;
-  email: string;
-  sports: string[] | null;
-  amenities: string[] | null;
-  rating: number;
-  total_reviews: number;
-  verified: boolean;
-  logo_url: string | null;
-  cover_image_url: string | null;
-}
+import { useSchools } from '@/hooks/useSchools';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { EmptyState } from '@/components/common/EmptyState';
 
 export default function ExplorePage() {
-  const [schools, setSchools] = useState<School[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCity, setSelectedCity] = useState<string>('all');
   const [selectedSport, setSelectedSport] = useState<string>('all');
   const navigate = useNavigate();
-  const { toast } = useToast();
 
-  useEffect(() => {
-    fetchSchools();
-  }, []);
-
-  const fetchSchools = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('schools')
-        .select('*')
-        .order('rating', { ascending: false });
-
-      if (error) throw error;
-      setSchools(data || []);
-    } catch (error: any) {
-      console.error('Error fetching schools:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar las escuelas',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredSchools = schools.filter((school) => {
-    const matchesSearch = !searchQuery ||
-      school.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      school.city.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesCity = selectedCity === 'all' || school.city === selectedCity;
-    
-    const matchesSport = selectedSport === 'all' ||
-      (school.sports && school.sports.includes(selectedSport));
-
-    return matchesSearch && matchesCity && matchesSport;
+  const { schools, loading, cities, sports } = useSchools({
+    searchQuery,
+    city: selectedCity,
+    sport: selectedSport,
   });
 
-  const cities = Array.from(new Set(schools.map(s => s.city))).sort();
-  const allSports = Array.from(
-    new Set(schools.flatMap(s => s.sports || []))
-  ).sort();
-
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <LoadingSpinner fullScreen text="Cargando escuelas..." />;
   }
 
   return (
@@ -148,7 +85,7 @@ export default function ExplorePage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los deportes</SelectItem>
-                {allSports.map((sport) => (
+                {sports.map((sport) => (
                   <SelectItem key={sport} value={sport}>
                     {sport}
                   </SelectItem>
@@ -207,22 +144,26 @@ export default function ExplorePage() {
       {/* Results Count */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {filteredSchools.length} {filteredSchools.length === 1 ? 'escuela encontrada' : 'escuelas encontradas'}
+          {schools.length} {schools.length === 1 ? 'escuela encontrada' : 'escuelas encontradas'}
         </p>
       </div>
 
       {/* Schools Grid */}
-      {filteredSchools.length === 0 ? (
-        <Card className="p-12 text-center">
-          <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-lg font-semibold mb-2">No se encontraron escuelas</h3>
-          <p className="text-muted-foreground">
-            Intenta ajustar tus filtros de búsqueda
-          </p>
-        </Card>
+      {schools.length === 0 ? (
+        <EmptyState
+          icon={Trophy}
+          title="No se encontraron escuelas"
+          description="Intenta ajustar tus filtros de búsqueda"
+          actionLabel="Limpiar filtros"
+          onAction={() => {
+            setSearchQuery('');
+            setSelectedCity('all');
+            setSelectedSport('all');
+          }}
+        />
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {filteredSchools.map((school) => (
+          {schools.map((school) => (
             <Card
               key={school.id}
               className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
