@@ -14,6 +14,420 @@ export type Database = {
   }
   public: {
     Tables: {
+      activities: {
+        Row: {
+          activity_type: string
+          created_at: string
+          description: string | null
+          duration_minutes: number | null
+          id: string
+          location: string | null
+          program_id: string | null
+          scheduled_at: string
+          status: Database["public"]["Enums"]["activity_status"]
+          title: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          activity_type: string
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          id?: string
+          location?: string | null
+          program_id?: string | null
+          scheduled_at: string
+          status?: Database["public"]["Enums"]["activity_status"]
+          title: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          activity_type?: string
+          created_at?: string
+          description?: string | null
+          duration_minutes?: number | null
+          id?: string
+          location?: string | null
+          program_id?: string | null
+          scheduled_at?: string
+          status?: Database["public"]["Enums"]["activity_status"]
+          title?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activities_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      enrollments: {
+        Row: {
+          created_at: string
+          end_date: string | null
+          id: string
+          program_id: string | null
+          start_date: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          program_id?: string | null
+          start_date: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          program_id?: string | null
+          start_date?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrollments_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          read: boolean | null
+          recipient_id: string | null
+          sender_id: string | null
+          subject: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          read?: boolean | null
+          recipient_id?: string | null
+          sender_id?: string | null
+          subject: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          read?: boolean | null
+          recipient_id?: string | null
+          sender_id?: string | null
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          link: string | null
+          message: string
+          read: boolean | null
+          title: string
+          type: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          link?: string | null
+          message: string
+          read?: boolean | null
+          title: string
+          type?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          link?: string | null
+          message?: string
+          read?: boolean | null
+          title?: string
+          type?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          date_of_birth: string | null
+          full_name: string
+          id: string
+          phone: string | null
+          role: Database["public"]["Enums"]["user_role"]
+          sportmaps_points: number
+          subscription_tier: Database["public"]["Enums"]["subscription_tier"]
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          full_name: string
+          id: string
+          phone?: string | null
+          role?: Database["public"]["Enums"]["user_role"]
+          sportmaps_points?: number
+          subscription_tier?: Database["public"]["Enums"]["subscription_tier"]
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          date_of_birth?: string | null
+          full_name?: string
+          id?: string
+          phone?: string | null
+          role?: Database["public"]["Enums"]["user_role"]
+          sportmaps_points?: number
+          subscription_tier?: Database["public"]["Enums"]["subscription_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      programs: {
+        Row: {
+          active: boolean | null
+          age_max: number | null
+          age_min: number | null
+          created_at: string
+          current_participants: number | null
+          description: string | null
+          id: string
+          image_url: string | null
+          max_participants: number | null
+          name: string
+          price_monthly: number
+          schedule: string | null
+          school_id: string | null
+          sport: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          age_max?: number | null
+          age_min?: number | null
+          created_at?: string
+          current_participants?: number | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          max_participants?: number | null
+          name: string
+          price_monthly: number
+          schedule?: string | null
+          school_id?: string | null
+          sport: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          age_max?: number | null
+          age_min?: number | null
+          created_at?: string
+          current_participants?: number | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          max_participants?: number | null
+          name?: string
+          price_monthly?: number
+          schedule?: string | null
+          school_id?: string | null
+          sport?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "programs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reviews: {
+        Row: {
+          comment: string | null
+          created_at: string
+          id: string
+          rating: number
+          school_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating: number
+          school_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating?: number
+          school_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schools: {
+        Row: {
+          address: string
+          amenities: string[] | null
+          city: string
+          cover_image_url: string | null
+          created_at: string
+          description: string | null
+          email: string
+          id: string
+          logo_url: string | null
+          name: string
+          owner_id: string | null
+          phone: string
+          rating: number | null
+          sports: string[] | null
+          total_reviews: number | null
+          updated_at: string
+          verified: boolean | null
+          website: string | null
+        }
+        Insert: {
+          address: string
+          amenities?: string[] | null
+          city: string
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          email: string
+          id?: string
+          logo_url?: string | null
+          name: string
+          owner_id?: string | null
+          phone: string
+          rating?: number | null
+          sports?: string[] | null
+          total_reviews?: number | null
+          updated_at?: string
+          verified?: boolean | null
+          website?: string | null
+        }
+        Update: {
+          address?: string
+          amenities?: string[] | null
+          city?: string
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          email?: string
+          id?: string
+          logo_url?: string | null
+          name?: string
+          owner_id?: string | null
+          phone?: string
+          rating?: number | null
+          sports?: string[] | null
+          total_reviews?: number | null
+          updated_at?: string
+          verified?: boolean | null
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schools_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       spm_users: {
         Row: {
           avatar_url: string | null
@@ -58,7 +472,16 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      activity_status: "scheduled" | "in_progress" | "completed" | "cancelled"
+      subscription_tier: "free" | "basic" | "premium" | "enterprise"
+      user_role:
+        | "athlete"
+        | "parent"
+        | "coach"
+        | "school"
+        | "wellness_professional"
+        | "store_owner"
+        | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -185,6 +608,18 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      activity_status: ["scheduled", "in_progress", "completed", "cancelled"],
+      subscription_tier: ["free", "basic", "premium", "enterprise"],
+      user_role: [
+        "athlete",
+        "parent",
+        "coach",
+        "school",
+        "wellness_professional",
+        "store_owner",
+        "admin",
+      ],
+    },
   },
 } as const
