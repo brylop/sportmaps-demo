@@ -18,6 +18,8 @@ import SettingsPage from "./pages/SettingsPage";
 import TeamsPage from "./pages/TeamsPage";
 import StatsPage from "./pages/StatsPage";
 import MessagesPage from "./pages/MessagesPage";
+import ExplorePage from "./pages/ExplorePage";
+import ProfilePage from "./pages/ProfilePage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -45,6 +47,7 @@ const App = () => (
             }>
               {/* Main routes */}
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="profile" element={<ProfilePage />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />
@@ -55,7 +58,7 @@ const App = () => (
               <Route path="stats" element={<StatsPage />} />
               <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
               <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
-              <Route path="explore" element={<div className="p-6"><h1 className="text-2xl font-bold">Explorar Escuelas - En construcción</h1></div>} />
+              <Route path="explore" element={<ExplorePage />} />
               <Route path="shop" element={<div className="p-6"><h1 className="text-2xl font-bold">Tienda - En construcción</h1></div>} />
               <Route path="wellness" element={<div className="p-6"><h1 className="text-2xl font-bold">Bienestar - En construcción</h1></div>} />
               
