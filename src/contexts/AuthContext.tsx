@@ -45,7 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching profile:', error);
+        throw error;
+      }
+      
+      if (!data) {
+        console.warn('No profile found for user:', userId);
+        return null;
+      }
+      
       return data as UserProfile;
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -86,35 +95,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
+      
       setSession(session);
       setUser(session?.user || null);
       
       if (session?.user) {
-        const userProfile = await fetchProfile(session.user.id);
-        if (userProfile) setProfile(userProfile);
+        try {
+          const userProfile = await fetchProfile(session.user.id);
+          if (mounted && userProfile) {
+            setProfile(userProfile);
+          }
+        } catch (error) {
+          console.error('Failed to load profile:', error);
+        }
       }
-      setLoading(false);
+      
+      if (mounted) {
+        setLoading(false);
+      }
+    }).catch((error) => {
+      console.error('Session error:', error);
+      if (mounted) setLoading(false);
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!mounted) return;
+        
         setSession(session);
         setUser(session?.user || null);
         
         if (session?.user) {
-          const userProfile = await fetchProfile(session.user.id);
-          if (userProfile) setProfile(userProfile);
+          try {
+            const userProfile = await fetchProfile(session.user.id);
+            if (mounted && userProfile) {
+              setProfile(userProfile);
+            }
+          } catch (error) {
+            console.error('Failed to load profile:', error);
+          }
         } else {
           setProfile(null);
         }
-        setLoading(false);
+        
+        if (mounted) {
+          setLoading(false);
+        }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string, userData: Partial<UserProfile>) => {

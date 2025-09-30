@@ -25,8 +25,14 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (!profile) {
-    // User exists but no profile - this shouldn't happen
-    return <Navigate to="/complete-profile" replace />;
+    // User exists but no profile - show loading or error
+    console.error('User authenticated but profile not found');
+    return (
+      <div className="min-h-screen flex items-center justify-center flex-col gap-4">
+        <p className="text-muted-foreground">Cargando perfil de usuario...</p>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
