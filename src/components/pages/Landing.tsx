@@ -33,12 +33,14 @@ import {
 } from "lucide-react";
 import heroImage from "@/assets/hero-sportsmaps.jpg";
 import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 interface LandingProps {
-  onNavigate: (page: string) => void;
+  onNavigate?: (page: string) => void;
 }
 
 const Landing = ({ onNavigate }: LandingProps) => {
+  const navigate = useNavigate();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -48,7 +50,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       subtitle: "Reserva ahora tu práctica libre",
       cta: "Reservar Ahora",
       image: heroImage,
-      action: () => onNavigate("schoolsearch"),
+      action: () => navigate("/explore"),
       gradient: "from-primary/90 to-primary/70"
     },
     {
@@ -56,7 +58,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       subtitle: "Escuelas deportivas para todas las edades",
       cta: "Ver Escuelas",
       image: heroImage,
-      action: () => onNavigate("schoolsearch"),
+      action: () => navigate("/explore"),
       gradient: "from-blue-600/90 to-blue-500/70"
     },
     {
@@ -64,16 +66,16 @@ const Landing = ({ onNavigate }: LandingProps) => {
       subtitle: "Las mejores marcas al mejor precio",
       cta: "Ir a Tienda",
       image: heroImage,
-      action: () => onNavigate("shop"),
+      action: () => navigate("/shop"),
       gradient: "from-orange-600/90 to-orange-500/70"
     }
   ];
 
   const quickLinks = [
-    { icon: School, label: "Escuelas Deportivas", action: () => onNavigate("schoolsearch") },
-    { icon: Dumbbell, label: "Prácticas Libres", action: () => onNavigate("schoolsearch") },
-    { icon: Heart, label: "Planes de Gimnasio", action: () => onNavigate("wellness") },
-    { icon: ShoppingBag, label: "Tienda", action: () => onNavigate("shop") }
+    { icon: School, label: "Escuelas Deportivas", action: () => navigate("/explore") },
+    { icon: Dumbbell, label: "Prácticas Libres", action: () => navigate("/explore") },
+    { icon: Heart, label: "Planes de Gimnasio", action: () => navigate("/wellness") },
+    { icon: ShoppingBag, label: "Tienda", action: () => navigate("/shop") }
   ];
 
   useEffect(() => {
@@ -93,7 +95,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       description: "Programas para todas las edades desde bebés hasta adultos mayores",
       features: ["Fútbol", "Natación", "Tenis", "Baloncesto", "Artes Marciales", "+20 disciplinas"],
       color: "primary",
-      action: () => onNavigate("schoolsearch")
+      action: () => navigate("/explore")
     },
     {
       icon: ShoppingBag,
@@ -101,7 +103,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       description: "Equipamiento profesional de marcas reconocidas",
       features: ["Calzado", "Ropa", "Tecnología", "Suplementos", "Accesorios"],
       color: "secondary",
-      action: () => onNavigate("shop")
+      action: () => navigate("/shop")
     },
     {
       icon: Heart,
@@ -109,7 +111,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       description: "Servicios especializados para tu recuperación y rendimiento",
       features: ["Fisioterapia", "Nutrición", "Psicología", "Recuperación", "Masajes"],
       color: "accent",
-      action: () => onNavigate("wellness")
+      action: () => navigate("/wellness")
     }
   ];
 
@@ -203,7 +205,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate("landing")}>
+            <Link to="/" className="flex items-center gap-2 cursor-pointer">
               <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center">
                 <Trophy className="h-7 w-7 text-white" />
               </div>
@@ -211,7 +213,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
                 <div className="font-bold text-xl text-foreground">SportMaps</div>
                 <div className="text-xs text-muted-foreground">Ecosistema Deportivo</div>
               </div>
-            </div>
+            </Link>
 
             {/* Search Bar */}
             <div className="flex-1 max-w-xl mx-8 hidden lg:block">
@@ -231,7 +233,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={() => onNavigate("shop")}
+                onClick={() => navigate("/shop")}
                 className="hidden md:flex"
               >
                 <ShoppingBag className="h-4 w-4 mr-2" />
@@ -240,16 +242,16 @@ const Landing = ({ onNavigate }: LandingProps) => {
               <Button 
                 variant="ghost"
                 size="sm"
-                onClick={() => onNavigate("login")}
+                asChild
               >
-                Ingresar
+                <Link to="/login">Ingresar</Link>
               </Button>
               <Button 
                 variant="default"
                 size="sm"
-                onClick={() => onNavigate("register")}
+                asChild
               >
-                Registrarse
+                <Link to="/register">Registrarse</Link>
               </Button>
             </div>
           </div>
@@ -368,16 +370,18 @@ const Landing = ({ onNavigate }: LandingProps) => {
                 variant="elevation" 
                 size="xl" 
                 className="bg-white text-foreground hover:bg-white/90"
-                onClick={() => onNavigate("register")}
+                asChild
               >
-                <Calendar className="w-5 h-5 mr-2" />
-                Registrarse Gratis
+                <Link to="/register">
+                  <Calendar className="w-5 h-5 mr-2" />
+                  Registrarse Gratis
+                </Link>
               </Button>
               <Button 
                 variant="outline" 
                 size="xl" 
                 className="border-white text-white hover:bg-white/10"
-                onClick={() => onNavigate("schoolsearch")}
+                onClick={() => navigate("/explore")}
               >
                 <MapPin className="w-5 h-5 mr-2" />
                 Explorar Escuelas
@@ -405,7 +409,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
             </div>
             <div>
               <button 
-                onClick={() => onNavigate("contact")}
+                onClick={() => {/* FAQ section - to be implemented */}}
                 className="flex flex-col items-center gap-2 mx-auto group"
               >
                 <HelpCircle className="h-6 w-6 text-primary group-hover:scale-110 transition-transform" />

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 interface UserProfile {
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
         .from('spm_users')
@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (error) throw error;
-      return data;
+      return data as UserProfile;
     } catch (error) {
       console.error('Error fetching profile:', error);
       return null;
@@ -75,12 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user || null);
       
       if (session?.user) {
-        fetchProfile(session.user.id).then(setProfile);
+        const userProfile = await fetchProfile(session.user.id);
+        if (userProfile) setProfile(userProfile);
       }
       setLoading(false);
     });
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (session?.user) {
           const userProfile = await fetchProfile(session.user.id);
-          setProfile(userProfile);
+          if (userProfile) setProfile(userProfile);
         } else {
           setProfile(null);
         }
@@ -106,9 +107,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, userData: Partial<UserProfile>) => {
     try {
+      const redirectUrl = `${window.location.origin}/`;
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            full_name: userData.full_name,
+            role: userData.role,
+          }
+        }
       });
 
       if (error) throw error;
@@ -116,8 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.user) {
         await createProfile(data.user.id, { ...userData, email });
         toast({
-          title: "Registro exitoso",
-          description: "Por favor verifica tu email para activar tu cuenta.",
+          title: "¡Registro exitoso!",
+          description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
         });
       }
     } catch (error: any) {
@@ -186,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       const updatedProfile = await fetchProfile(user.id);
-      setProfile(updatedProfile);
+      if (updatedProfile) setProfile(updatedProfile);
 
       toast({
         title: "Perfil actualizado",
