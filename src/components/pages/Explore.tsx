@@ -36,19 +36,68 @@ interface ExploreProps {
 const Explore = ({ onNavigate }: ExploreProps) => {
   const [activeRole, setActiveRole] = useState<string>("padre");
 
-  // Datos demo del perfil del usuario
-  const userProfile = {
-    name: "Carlos Andrés Martínez",
-    email: "carlos.martinez@demo.com",
-    phone: "+57 300 123 4567",
-    location: "Bogotá, Colombia",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop",
-    memberSince: "Enero 2024",
-    points: 1250,
-    level: "Gold",
-    completedActivities: 45,
-    rating: 4.8
+  // Perfiles demo específicos para cada rol
+  const profilesByRole = {
+    padre: {
+      name: "Carlos Andrés Martínez",
+      email: "carlos.martinez@demo.com",
+      phone: "+57 300 123 4567",
+      location: "Bogotá, Colombia",
+      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop",
+      memberSince: "Enero 2024",
+      points: 1250,
+      level: "Gold Member",
+      badge: "Padre Activo",
+      stat1: { label: "Hijos Registrados", value: "2" },
+      stat2: { label: "Actividades", value: "12" },
+      description: "Padre de 2 niños deportistas"
+    },
+    entrenador: {
+      name: "Juan Carlos Rodríguez",
+      email: "jc.rodriguez@demo.com",
+      phone: "+57 310 456 7890",
+      location: "Medellín, Colombia",
+      avatar: "https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=400&auto=format&fit=crop",
+      memberSince: "Marzo 2023",
+      points: 3850,
+      level: "Pro Coach",
+      badge: "Entrenador Verificado",
+      stat1: { label: "Alumnos", value: "30" },
+      stat2: { label: "Clases", value: "156" },
+      description: "Entrenador profesional de fútbol"
+    },
+    escuela: {
+      name: "Academia Deportiva Elite",
+      email: "admin@elite-sports.com",
+      phone: "+57 601 234 5678",
+      location: "Cali, Colombia",
+      avatar: "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&auto=format&fit=crop",
+      memberSince: "Mayo 2022",
+      points: 8500,
+      level: "Premium",
+      badge: "Escuela Certificada",
+      stat1: { label: "Estudiantes", value: "340" },
+      stat2: { label: "Programas", value: "18" },
+      description: "Centro deportivo de alto rendimiento"
+    },
+    proveedor: {
+      name: "SportGear Colombia",
+      email: "ventas@sportgear.com",
+      phone: "+57 320 987 6543",
+      location: "Barranquilla, Colombia",
+      avatar: "https://images.unsplash.com/photo-1556906781-9a412961c28c?w=400&auto=format&fit=crop",
+      memberSince: "Julio 2021",
+      points: 12400,
+      level: "Distribuidor Oficial",
+      badge: "Proveedor Verificado",
+      stat1: { label: "Productos", value: "342" },
+      stat2: { label: "Ventas/mes", value: "8.5M" },
+      description: "Proveedor de equipamiento deportivo"
+    }
   };
+
+  // Obtener perfil actual según el rol seleccionado
+  const currentProfile = profilesByRole[activeRole as keyof typeof profilesByRole];
 
   // Contenido para Padres
   const renderPadreContent = () => (
@@ -644,69 +693,17 @@ const Explore = ({ onNavigate }: ExploreProps) => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Perfil Demo del Usuario */}
-        <Card className="mb-8 overflow-hidden">
-          <div className="h-32 bg-gradient-to-r from-primary to-primary/60" />
-          <CardContent className="relative pt-0">
-            <div className="flex flex-col md:flex-row gap-6 items-start md:items-end">
-              <Avatar className="w-32 h-32 border-4 border-background -mt-16">
-                <AvatarImage src={userProfile.avatar} />
-                <AvatarFallback>CM</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 space-y-3 md:pb-2">
-                <div>
-                  <h2 className="text-3xl font-bold">{userProfile.name}</h2>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className="bg-yellow-500/20 text-yellow-700">
-                      {userProfile.level}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">
-                      Miembro desde {userProfile.memberSince}
-                    </span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span>{userProfile.email}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{userProfile.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span>{userProfile.location}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-4 md:pb-2">
-                <div className="text-center p-3 rounded-lg bg-muted">
-                  <Star className="h-5 w-5 text-yellow-500 mx-auto mb-1" />
-                  <p className="text-xl font-bold">{userProfile.points}</p>
-                  <p className="text-xs text-muted-foreground">Puntos</p>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-muted">
-                  <Award className="h-5 w-5 text-primary mx-auto mb-1" />
-                  <p className="text-xl font-bold">{userProfile.completedActivities}</p>
-                  <p className="text-xs text-muted-foreground">Actividades</p>
-                </div>
-              </div>
+        {/* Selector de Rol Demo */}
+        <Card className="mb-6 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+          <CardContent className="py-6">
+            <div className="text-center mb-4">
+              <h2 className="text-2xl font-bold mb-2">Explorar Perfiles Demo</h2>
+              <p className="text-muted-foreground">
+                Selecciona un rol para ver su perfil y funcionalidades específicas
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Tabs de Roles */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Explorar por Rol</CardTitle>
-            <CardDescription>
-              Visualiza funcionalidades específicas para cada tipo de usuario (Datos Demo)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
             <Tabs value={activeRole} onValueChange={setActiveRole} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
                 <TabsTrigger value="padre" className="flex items-center gap-2">
                   <Users className="h-4 w-4" />
                   Padre
@@ -724,23 +721,90 @@ const Explore = ({ onNavigate }: ExploreProps) => {
                   Proveedor
                 </TabsTrigger>
               </TabsList>
-
-              <TabsContent value="padre" className="mt-6">
-                {renderPadreContent()}
-              </TabsContent>
-
-              <TabsContent value="entrenador" className="mt-6">
-                {renderEntrenadorContent()}
-              </TabsContent>
-
-              <TabsContent value="escuela" className="mt-6">
-                {renderEscuelasContent()}
-              </TabsContent>
-
-              <TabsContent value="proveedor" className="mt-6">
-                {renderProveedorContent()}
-              </TabsContent>
             </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* Perfil Demo Dinámico según Rol */}
+        <Card className="mb-8 overflow-hidden">
+          <div className="h-32 bg-gradient-to-r from-primary to-primary/60" />
+          <CardContent className="relative pt-0">
+            <div className="flex flex-col md:flex-row gap-6 items-start md:items-end">
+              <Avatar className="w-32 h-32 border-4 border-background -mt-16">
+                <AvatarImage src={currentProfile.avatar} />
+                <AvatarFallback>{currentProfile.name.substring(0, 2)}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-3 md:pb-2">
+                <div>
+                  <h2 className="text-3xl font-bold">{currentProfile.name}</h2>
+                  <p className="text-muted-foreground mb-2">{currentProfile.description}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-yellow-500/20 text-yellow-700">
+                      {currentProfile.level}
+                    </Badge>
+                    <Badge variant="outline" className="border-primary text-primary">
+                      {currentProfile.badge}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      • Miembro desde {currentProfile.memberSince}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span>{currentProfile.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{currentProfile.phone}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <span>{currentProfile.location}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-4 md:pb-2">
+                <div className="text-center p-3 rounded-lg bg-muted">
+                  <Star className="h-5 w-5 text-yellow-500 mx-auto mb-1" />
+                  <p className="text-xl font-bold">{currentProfile.points}</p>
+                  <p className="text-xs text-muted-foreground">Puntos</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted">
+                  <Award className="h-5 w-5 text-primary mx-auto mb-1" />
+                  <p className="text-xl font-bold">{currentProfile.stat1.value}</p>
+                  <p className="text-xs text-muted-foreground">{currentProfile.stat1.label}</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted">
+                  <TrendingUp className="h-5 w-5 text-green-500 mx-auto mb-1" />
+                  <p className="text-xl font-bold">{currentProfile.stat2.value}</p>
+                  <p className="text-xs text-muted-foreground">{currentProfile.stat2.label}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Funcionalidades Específicas del Rol */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {activeRole === "padre" && <Users className="h-5 w-5 text-primary" />}
+              {activeRole === "entrenador" && <GraduationCap className="h-5 w-5 text-primary" />}
+              {activeRole === "escuela" && <Building2 className="h-5 w-5 text-primary" />}
+              {activeRole === "proveedor" && <ShoppingBag className="h-5 w-5 text-primary" />}
+              Panel de {activeRole.charAt(0).toUpperCase() + activeRole.slice(1)}
+            </CardTitle>
+            <CardDescription>
+              Funcionalidades y herramientas disponibles (Datos Demo)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {activeRole === "padre" && renderPadreContent()}
+            {activeRole === "entrenador" && renderEntrenadorContent()}
+            {activeRole === "escuela" && renderEscuelasContent()}
+            {activeRole === "proveedor" && renderProveedorContent()}
           </CardContent>
         </Card>
 
