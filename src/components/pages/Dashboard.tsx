@@ -61,7 +61,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                 <button className="font-medium text-primary">Inicio</button>
                 <button 
                   className="font-medium hover:text-primary transition-colors"
-                  onClick={() => onNavigate("explore")}
+                  onClick={() => onNavigate("schoolsearch")}
                 >
                   Explorar
                 </button>
@@ -184,10 +184,10 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
         <div className="mt-8 flex flex-wrap gap-4 justify-center">
           <Button 
             variant="hero" 
-            onClick={() => onNavigate("explore")}
+            onClick={() => onNavigate("schoolsearch")}
           >
             <MapPin className="w-4 h-4 mr-2" />
-            Explorar más clases
+            Explorar escuelas
           </Button>
           <Button 
             variant="outline"

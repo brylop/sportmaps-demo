@@ -11,6 +11,9 @@ import Dashboard from "@/components/pages/Dashboard";
 import Explore from "@/components/pages/Explore";
 import Ecosystem from "@/components/pages/Ecosystem";
 import Contact from "@/components/pages/Contact";
+import SchoolSearch from "@/components/pages/SchoolSearch";
+import Shop from "@/components/pages/Shop";
+import Wellness from "@/components/pages/Wellness";
 
 const Index = () => {
   const [currentPage, setCurrentPage] = useState("landing");
@@ -64,6 +67,15 @@ const Index = () => {
       case "explore":
         return <Explore onNavigate={handleNavigation} />;
       
+      case "schoolsearch":
+        return <SchoolSearch onNavigate={handleNavigation} />;
+      
+      case "shop":
+        return <Shop onNavigate={handleNavigation} />;
+      
+      case "wellness":
+        return <Wellness onNavigate={handleNavigation} />;
+      
       case "ecosystem":
         return <Ecosystem onNavigate={handleNavigation} />;
       
@@ -93,7 +105,17 @@ const Index = () => {
   };
 
   // Pages that don't need the layout wrapper
-  const noLayoutPages = ["explore", "role-selection", "athlete-register", "coach-register", "school-register"];
+  const noLayoutPages = [
+    "explore", 
+    "role-selection", 
+    "athlete-register", 
+    "coach-register", 
+    "school-register",
+    "dashboard",
+    "schoolsearch",
+    "shop",
+    "wellness"
+  ];
   
   if (noLayoutPages.includes(currentPage)) {
     return (
