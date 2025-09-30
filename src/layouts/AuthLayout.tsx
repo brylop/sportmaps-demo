@@ -2,6 +2,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { Outlet } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
@@ -23,9 +24,17 @@ export default function AuthLayout() {
             </div>
           </header>
 
-          {/* Main content */}
           <main className="flex-1 p-6 overflow-auto">
-            <Outlet />
+            {profile ? (
+              <Outlet />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center space-y-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                  <p className="text-muted-foreground">Configurando tu perfil...</p>
+                </div>
+              </div>
+            )}
           </main>
         </div>
       </div>

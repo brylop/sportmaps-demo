@@ -24,18 +24,8 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!profile) {
-    // User exists but no profile - show loading or error
-    console.error('User authenticated but profile not found');
-    return (
-      <div className="min-h-screen flex items-center justify-center flex-col gap-4">
-        <p className="text-muted-foreground">Cargando perfil de usuario...</p>
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (allowedRoles && !allowedRoles.includes(profile.role)) {
+  // Allow access even without profile - it will be created automatically
+  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
     // User doesn't have permission
     return <Navigate to="/unauthorized" replace />;
   }
