@@ -1,19 +1,6 @@
-import { useState } from "react";
-import { 
-  Home, 
-  Users, 
-  Calendar, 
-  Trophy, 
-  BarChart3, 
-  Settings, 
-  UserPlus,
-  Shield,
-  Bell,
-  LogOut
-} from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
-
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { LogOut } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -23,151 +10,139 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarTrigger,
-  useSidebar,
   SidebarFooter,
-} from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-
-// Menu items by role
-const getMenuItems = (role: string) => {
-  const baseItems = [
-    { title: "Dashboard", url: "/dashboard", icon: Home },
-    { title: "Calendario", url: "/calendar", icon: Calendar },
-    { title: "Estadísticas", url: "/stats", icon: BarChart3 },
-  ];
-
-  const roleSpecificItems = {
-    player: [
-      { title: "Mi Perfil", url: "/profile", icon: Users },
-      { title: "Mis Equipos", url: "/my-teams", icon: Trophy },
-    ],
-    coach: [
-      { title: "Mis Equipos", url: "/teams", icon: Users },
-      { title: "Jugadores", url: "/players", icon: UserPlus },
-      { title: "Partidos", url: "/matches", icon: Trophy },
-    ],
-    parent: [
-      { title: "Mis Hijos", url: "/children", icon: Users },
-      { title: "Actividades", url: "/activities", icon: Calendar },
-    ],
-    admin: [
-      { title: "Usuarios", url: "/admin/users", icon: Shield },
-      { title: "Clubs", url: "/admin/clubs", icon: Users },
-      { title: "Sistema", url: "/admin/system", icon: Settings },
-    ],
-  };
-
-  return [...baseItems, ...(roleSpecificItems[role as keyof typeof roleSpecificItems] || [])];
-};
+  useSidebar,
+  SidebarHeader
+} from '@/components/ui/sidebar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { getNavigationByRole } from '@/config/navigation';
+import { UserRole } from '@/types/dashboard';
+import Logo from './Logo';
 
 export function AppSidebar() {
+  const { user, profile, signOut } = useAuth();
   const { state } = useSidebar();
-  const { profile, signOut } = useAuth();
-  const location = useLocation();
-  const currentPath = location.pathname;
-
+  
   if (!profile) return null;
 
-  const menuItems = getMenuItems(profile.role);
-  const isActive = (path: string) => currentPath === path;
-  const isExpanded = menuItems.some((item) => isActive(item.url));
+  const isCollapsed = state === 'collapsed';
+  const navigationGroups = getNavigationByRole(profile.role as UserRole);
 
-  const getNavClass = ({ isActive }: { isActive: boolean }) =>
-    isActive 
-      ? "bg-primary/10 text-primary font-medium border-r-2 border-primary" 
-      : "hover:bg-muted/50 text-muted-foreground hover:text-foreground";
-
-  const handleSignOut = async () => {
-    await signOut();
+  // Get user initials for avatar fallback
+  const getUserInitials = () => {
+    if (profile.full_name) {
+      return profile.full_name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+    }
+    return profile.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
-  const isCollapsed = state === "collapsed";
+  const getRoleBadge = () => {
+    const roleLabels: Record<string, string> = {
+      athlete: 'Deportista',
+      parent: 'Padre',
+      coach: 'Entrenador',
+      school: 'Escuela',
+      wellness_professional: 'Bienestar',
+      store_owner: 'Tienda',
+      admin: 'Admin'
+    };
+    return roleLabels[profile.role] || profile.role;
+  };
 
   return (
-    <Sidebar
-      className={isCollapsed ? "w-14" : "w-60"}
-      collapsible="icon"
-    >
+    <Sidebar collapsible="icon" className={isCollapsed ? 'w-14' : 'w-60'}>
+      {/* Header with Logo */}
+      <SidebarHeader className="border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Logo size="sm" />
+          {!isCollapsed && (
+            <span className="font-bold text-lg bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
+              SportMaps
+            </span>
+          )}
+        </div>
+      </SidebarHeader>
+
       <SidebarContent>
         {/* User Profile Section */}
         {!isCollapsed && (
-          <div className="p-4 border-b">
+          <div className="px-4 py-3 border-b">
             <div className="flex items-center gap-3">
               <Avatar className="h-10 w-10">
-                <AvatarImage src={profile.avatar_url || ""} />
-                <AvatarFallback>
-                  {profile.full_name ? profile.full_name.charAt(0).toUpperCase() : profile.email.charAt(0).toUpperCase()}
+                <AvatarImage src={profile.avatar_url || undefined} />
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  {getUserInitials()}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
                   {profile.full_name || profile.email}
                 </p>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {profile.role}
-                </p>
+                <Badge variant="secondary" className="text-xs">
+                  {getRoleBadge()}
+                </Badge>
               </div>
             </div>
           </div>
         )}
 
-        {/* Navigation Menu */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Navegación</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
-                      end 
-                      className={({ isActive }) => getNavClass({ isActive })}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      {!isCollapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Quick Actions */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Acciones</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <NavLink to="/notifications" className={({ isActive }) => getNavClass({ isActive })}>
-                    <Bell className="h-4 w-4" />
-                    {!isCollapsed && <span>Notificaciones</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <NavLink to="/settings" className={({ isActive }) => getNavClass({ isActive })}>
-                    <Settings className="h-4 w-4" />
-                    {!isCollapsed && <span>Configuración</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {/* Navigation Groups */}
+        {navigationGroups.map((group, groupIndex) => (
+          <SidebarGroup key={groupIndex}>
+            {!isCollapsed && <SidebarGroupLabel>{group.title}</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton asChild tooltip={item.title}>
+                        <NavLink
+                          to={item.href}
+                          end
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 transition-colors ${
+                              isActive
+                                ? 'bg-primary/10 text-primary font-medium border-r-2 border-primary'
+                                : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
+                            }`
+                          }
+                        >
+                          <Icon className="h-4 w-4" />
+                          {!isCollapsed && (
+                            <>
+                              <span className="flex-1">{item.title}</span>
+                              {item.badge && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {item.badge}
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
       {/* Footer with Sign Out */}
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="border-t p-2">
         <Button
           variant="ghost"
           size="sm"
-          onClick={handleSignOut}
+          onClick={() => signOut()}
           className="w-full justify-start text-muted-foreground hover:text-foreground"
         >
           <LogOut className="h-4 w-4" />
