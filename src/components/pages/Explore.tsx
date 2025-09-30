@@ -1,11 +1,32 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MapPin, Star, Calendar, ArrowLeft } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
+import { 
+  User, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Calendar,
+  Users,
+  Award,
+  TrendingUp,
+  Heart,
+  Star,
+  Clock,
+  GraduationCap,
+  ShoppingBag,
+  Package,
+  BarChart3,
+  BookOpen,
+  Dumbbell,
+  Building2,
+  UserCheck,
+  ArrowLeft
+} from "lucide-react";
 import Logo from "@/components/Logo";
 
 interface ExploreProps {
@@ -13,124 +34,583 @@ interface ExploreProps {
 }
 
 const Explore = ({ onNavigate }: ExploreProps) => {
-  const [filters, setFilters] = useState({
-    sport: "all",
-    location: "",
-    age: "all",
-    price: "all"
-  });
+  const [activeRole, setActiveRole] = useState<string>("padre");
 
-  const searchResults = [
-    {
-      id: 1,
-      title: "Academia de Fútbol Juvenil",
-      instructor: "Carlos Valderrama",
-      rating: 4.8,
-      reviews: 124,
-      description: "Clases para niños y jóvenes de 6 a 17 años. Entrenamientos técnicos y tácticos con metodología europea.",
-      price: 45000,
-      image: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Fútbol", "Sub-12", "Bogotá"],
-      location: "Bogotá"
-    },
-    {
-      id: 2,
-      title: "Escuela de Baloncesto Elite",
-      instructor: "Juan Pablo Ángel",
-      rating: 4.9,
-      reviews: 98,
-      description: "Programa de desarrollo de habilidades para jóvenes talentos. Entrenamientos intensivos y seguimiento personalizado.",
-      price: 55000,
-      image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Baloncesto", "Sub-15", "Medellín"],
-      location: "Medellín"
-    },
-    {
-      id: 3,
-      title: "Yoga y Mindfulness Deportivo",
-      instructor: "Ana María García",
-      rating: 4.7,
-      reviews: 156,
-      description: "Sesiones de yoga especializadas para atletas. Mejora tu flexibilidad, concentración y recuperación.",
-      price: 35000,
-      image: "https://images.unsplash.com/photo-1506629905607-d7d39e2ee9bb?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Yoga", "Mindfulness", "Cali"],
-      location: "Cali"
-    },
-    {
-      id: 4,
-      title: "Escuela de Natación AquaTech",
-      instructor: "María Fernanda López",
-      rating: 4.9,
-      reviews: 87,
-      description: "Clases de natación para todas las edades. Técnica profesional y preparación para competencias.",
-      price: 48000,
-      image: "https://images.unsplash.com/photo-1530549387789-4c1017266635?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Natación", "Técnica", "Cartagena"],
-      location: "Cartagena"
-    },
-    {
-      id: 5,
-      title: "Club de Tenis Elite",
-      instructor: "Andrés Rodríguez",
-      rating: 4.6,
-      reviews: 203,
-      description: "Entrenamiento profesional de tenis. Clases individuales y grupales con seguimiento personalizado.",
-      price: 75000,
-      image: "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Tenis", "Elite", "Bogotá"],
-      location: "Bogotá"
-    },
-    {
-      id: 6,
-      title: "Academia de Atletismo Velocidad",
-      instructor: "Caterine Ibargüen",
-      rating: 4.8,
-      reviews: 165,
-      description: "Entrenamiento de atletismo enfocado en velocidad y resistencia. Preparación para competencias.",
-      price: 42000,
-      image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Atletismo", "Velocidad", "Medellín"],
-      location: "Medellín"
-    },
-    {
-      id: 7,
-      title: "Escuela de Voleibol Spike",
-      instructor: "Camilo Torres",
-      rating: 4.5,
-      reviews: 92,
-      description: "Clases de voleibol para principiantes y avanzados. Técnica, estrategia y trabajo en equipo.",
-      price: 38000,
-      image: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Voleibol", "Equipo", "Cali"],
-      location: "Cali"
-    },
-    {
-      id: 8,
-      title: "Centro de Artes Marciales Bushido",
-      instructor: "Sensei Takeshi Yamamoto",
-      rating: 4.7,
-      reviews: 118,
-      description: "Karate tradicional y defensa personal. Disciplina, respeto y técnica milenaria japonesa.",
-      price: 52000,
-      image: "https://images.unsplash.com/photo-1555597673-b21d5c935865?q=80&w=2000&auto=format&fit=crop",
-      tags: ["Karate", "Artes Marciales", "Bucaramanga"],
-      location: "Bucaramanga"
-    }
-  ];
+  // Datos demo del perfil del usuario
+  const userProfile = {
+    name: "Carlos Andrés Martínez",
+    email: "carlos.martinez@demo.com",
+    phone: "+57 300 123 4567",
+    location: "Bogotá, Colombia",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop",
+    memberSince: "Enero 2024",
+    points: 1250,
+    level: "Gold",
+    completedActivities: 45,
+    rating: 4.8
+  };
+
+  // Contenido para Padres
+  const renderPadreContent = () => (
+    <div className="space-y-6">
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Mis Hijos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Mis Hijos
+            </CardTitle>
+            <CardDescription>Seguimiento de actividades deportivas</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+              <Avatar>
+                <AvatarImage src="https://images.unsplash.com/photo-1514315384763-ba401779410f?w=100" />
+                <AvatarFallback>SA</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <h4 className="font-semibold">Sofía Martínez</h4>
+                <p className="text-sm text-muted-foreground">12 años • Fútbol, Natación</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Progress value={75} className="h-2 flex-1" />
+                  <span className="text-xs text-muted-foreground">75%</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+              <Avatar>
+                <AvatarImage src="https://images.unsplash.com/photo-1519340241574-2cec6aef0c01?w=100" />
+                <AvatarFallback>DM</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <h4 className="font-semibold">Daniel Martínez</h4>
+                <p className="text-sm text-muted-foreground">9 años • Baloncesto</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <Progress value={60} className="h-2 flex-1" />
+                  <span className="text-xs text-muted-foreground">60%</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Próximas Actividades */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-primary" />
+              Próximas Actividades
+            </CardTitle>
+            <CardDescription>Esta semana</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+              <Clock className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="font-semibold">Clase de Fútbol - Sofía</h4>
+                <p className="text-sm text-muted-foreground">Mañana a las 9:00 AM</p>
+                <Badge variant="secondary" className="mt-1 bg-primary/20 text-primary">
+                  Academia Juvenil
+                </Badge>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+              <Clock className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="font-semibold">Natación - Sofía</h4>
+                <p className="text-sm text-muted-foreground">Miércoles a las 4:00 PM</p>
+                <Badge variant="secondary" className="mt-1">Club Acuático</Badge>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+              <Clock className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="font-semibold">Baloncesto - Daniel</h4>
+                <p className="text-sm text-muted-foreground">Viernes a las 3:30 PM</p>
+                <Badge variant="secondary" className="mt-1">Centro Deportivo</Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Estadísticas de Rendimiento */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            Rendimiento Mensual
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Award className="h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-2xl font-bold">12</p>
+              <p className="text-sm text-muted-foreground">Clases Completadas</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Heart className="h-8 w-8 text-red-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">92%</p>
+              <p className="text-sm text-muted-foreground">Asistencia</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Star className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">4.8</p>
+              <p className="text-sm text-muted-foreground">Calificación</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <TrendingUp className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">+15%</p>
+              <p className="text-sm text-muted-foreground">Mejora</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Acciones Rápidas */}
+      <div className="flex flex-wrap gap-3">
+        <Button variant="default" size="lg">
+          <Calendar className="h-4 w-4 mr-2" />
+          Reservar Clase
+        </Button>
+        <Button variant="outline" size="lg">
+          <Users className="h-4 w-4 mr-2" />
+          Ver Progreso
+        </Button>
+        <Button variant="outline" size="lg">
+          <ShoppingBag className="h-4 w-4 mr-2" />
+          Comprar Equipo
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Contenido para Entrenadores
+  const renderEntrenadorContent = () => (
+    <div className="space-y-6">
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Mis Clases */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <GraduationCap className="h-5 w-5 text-primary" />
+              Mis Clases Activas
+            </CardTitle>
+            <CardDescription>Gestión de grupos y horarios</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <div className="flex justify-between items-start mb-2">
+                <h4 className="font-semibold">Fútbol Sub-12</h4>
+                <Badge className="bg-green-500/20 text-green-700">Activa</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mb-2">Lunes y Miércoles • 9:00 - 10:30 AM</p>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="flex items-center gap-1">
+                  <Users className="h-4 w-4" />
+                  18 alumnos
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  8 semanas
+                </span>
+              </div>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50">
+              <div className="flex justify-between items-start mb-2">
+                <h4 className="font-semibold">Fútbol Avanzado</h4>
+                <Badge variant="secondary">Programada</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mb-2">Martes y Jueves • 4:00 - 6:00 PM</p>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="flex items-center gap-1">
+                  <Users className="h-4 w-4" />
+                  12 alumnos
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  12 semanas
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Alumnos Destacados */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Award className="h-5 w-5 text-primary" />
+              Alumnos Destacados
+            </CardTitle>
+            <CardDescription>Top performers del mes</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+              <Avatar>
+                <AvatarImage src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100" />
+                <AvatarFallback>JR</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <h4 className="font-semibold">Juan Rodríguez</h4>
+                <p className="text-sm text-muted-foreground">Mejora del 25%</p>
+              </div>
+              <Star className="h-5 w-5 text-yellow-500 fill-current" />
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+              <Avatar>
+                <AvatarImage src="https://images.unsplash.com/photo-1514315384763-ba401779410f?w=100" />
+                <AvatarFallback>MG</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <h4 className="font-semibold">María García</h4>
+                <p className="text-sm text-muted-foreground">100% asistencia</p>
+              </div>
+              <Heart className="h-5 w-5 text-red-500 fill-current" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Estadísticas del Entrenador */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Estadísticas de Rendimiento
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Users className="h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-2xl font-bold">30</p>
+              <p className="text-sm text-muted-foreground">Alumnos Totales</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <BookOpen className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">5</p>
+              <p className="text-sm text-muted-foreground">Clases Activas</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Star className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">4.9</p>
+              <p className="text-sm text-muted-foreground">Calificación</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Award className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">156</p>
+              <p className="text-sm text-muted-foreground">Clases Impartidas</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Acciones */}
+      <div className="flex flex-wrap gap-3">
+        <Button variant="default" size="lg">
+          <Calendar className="h-4 w-4 mr-2" />
+          Programar Clase
+        </Button>
+        <Button variant="outline" size="lg">
+          <Users className="h-4 w-4 mr-2" />
+          Gestionar Alumnos
+        </Button>
+        <Button variant="outline" size="lg">
+          <BarChart3 className="h-4 w-4 mr-2" />
+          Ver Reportes
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Contenido para Escuelas
+  const renderEscuelasContent = () => (
+    <div className="space-y-6">
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Instalaciones */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              Instalaciones Activas
+            </CardTitle>
+            <CardDescription>Gestión de espacios deportivos</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <h4 className="font-semibold mb-2">Cancha de Fútbol Principal</h4>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>Capacidad: 100 personas</span>
+                <Badge className="bg-green-500/20 text-green-700">Disponible</Badge>
+              </div>
+              <div className="mt-2">
+                <Progress value={75} className="h-2" />
+                <p className="text-xs text-muted-foreground mt-1">75% ocupación hoy</p>
+              </div>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50">
+              <h4 className="font-semibold mb-2">Piscina Olímpica</h4>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>8 carriles • 50m</span>
+                <Badge variant="secondary">En uso</Badge>
+              </div>
+              <div className="mt-2">
+                <Progress value={90} className="h-2" />
+                <p className="text-xs text-muted-foreground mt-1">90% ocupación hoy</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Programas */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Dumbbell className="h-5 w-5 text-primary" />
+              Programas Deportivos
+            </CardTitle>
+            <CardDescription>Actividades disponibles</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div>
+                <h4 className="font-semibold">Fútbol Juvenil</h4>
+                <p className="text-sm text-muted-foreground">45 estudiantes</p>
+              </div>
+              <Badge>3 grupos</Badge>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div>
+                <h4 className="font-semibold">Natación</h4>
+                <p className="text-sm text-muted-foreground">38 estudiantes</p>
+              </div>
+              <Badge>2 grupos</Badge>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div>
+                <h4 className="font-semibold">Baloncesto</h4>
+                <p className="text-sm text-muted-foreground">30 estudiantes</p>
+              </div>
+              <Badge>2 grupos</Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Estadísticas de la Escuela */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            Estadísticas del Centro
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Users className="h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-2xl font-bold">340</p>
+              <p className="text-sm text-muted-foreground">Estudiantes</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <UserCheck className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">25</p>
+              <p className="text-sm text-muted-foreground">Entrenadores</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <BookOpen className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">18</p>
+              <p className="text-sm text-muted-foreground">Programas</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Star className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">4.7</p>
+              <p className="text-sm text-muted-foreground">Calificación</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Acciones */}
+      <div className="flex flex-wrap gap-3">
+        <Button variant="default" size="lg">
+          <Calendar className="h-4 w-4 mr-2" />
+          Gestionar Horarios
+        </Button>
+        <Button variant="outline" size="lg">
+          <Users className="h-4 w-4 mr-2" />
+          Ver Inscripciones
+        </Button>
+        <Button variant="outline" size="lg">
+          <Building2 className="h-4 w-4 mr-2" />
+          Administrar Instalaciones
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Contenido para Proveedores
+  const renderProveedorContent = () => (
+    <div className="space-y-6">
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Productos Destacados */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-primary" />
+              Productos Destacados
+            </CardTitle>
+            <CardDescription>Top ventas del mes</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+              <div className="w-16 h-16 rounded-lg bg-cover bg-center flex-shrink-0"
+                style={{ backgroundImage: "url('https://images.unsplash.com/photo-1551537482-f2075a1d41f2?w=100')" }}
+              />
+              <div className="flex-1">
+                <h4 className="font-semibold">Balón Nike Pro</h4>
+                <p className="text-sm text-muted-foreground">145 vendidos</p>
+                <p className="text-primary font-bold">$85.000</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+              <div className="w-16 h-16 rounded-lg bg-cover bg-center flex-shrink-0"
+                style={{ backgroundImage: "url('https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=100')" }}
+              />
+              <div className="flex-1">
+                <h4 className="font-semibold">Tenis Adidas Ultra</h4>
+                <p className="text-sm text-muted-foreground">98 vendidos</p>
+                <p className="text-primary font-bold">$320.000</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Ventas Recientes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5 text-primary" />
+              Ventas Recientes
+            </CardTitle>
+            <CardDescription>Últimas 24 horas</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div>
+                <h4 className="font-semibold">Pedido #1247</h4>
+                <p className="text-sm text-muted-foreground">Hace 2 horas</p>
+              </div>
+              <div className="text-right">
+                <p className="font-bold text-primary">$450.000</p>
+                <Badge className="bg-green-500/20 text-green-700">Completado</Badge>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+              <div>
+                <h4 className="font-semibold">Pedido #1246</h4>
+                <p className="text-sm text-muted-foreground">Hace 5 horas</p>
+              </div>
+              <div className="text-right">
+                <p className="font-bold text-primary">$280.000</p>
+                <Badge variant="secondary">En proceso</Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Estadísticas de Ventas */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Estadísticas de Ventas
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <ShoppingBag className="h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-2xl font-bold">$8.5M</p>
+              <p className="text-sm text-muted-foreground">Ventas del Mes</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Package className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">342</p>
+              <p className="text-sm text-muted-foreground">Productos</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <Users className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">1,250</p>
+              <p className="text-sm text-muted-foreground">Clientes</p>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-muted/50">
+              <TrendingUp className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-2xl font-bold">+23%</p>
+              <p className="text-sm text-muted-foreground">Crecimiento</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Inventario Bajo */}
+      <Card className="border-orange-200 bg-orange-50/50 dark:bg-orange-950/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+            <Package className="h-5 w-5" />
+            Alerta de Inventario
+          </CardTitle>
+          <CardDescription>Productos con bajo stock</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Balones de Fútbol #5</span>
+            <Badge variant="outline" className="border-orange-500 text-orange-700">
+              8 unidades
+            </Badge>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm">Guayos Talla 38</span>
+            <Badge variant="outline" className="border-orange-500 text-orange-700">
+              5 unidades
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Acciones */}
+      <div className="flex flex-wrap gap-3">
+        <Button variant="default" size="lg">
+          <Package className="h-4 w-4 mr-2" />
+          Agregar Producto
+        </Button>
+        <Button variant="outline" size="lg">
+          <ShoppingBag className="h-4 w-4 mr-2" />
+          Ver Pedidos
+        </Button>
+        <Button variant="outline" size="lg">
+          <BarChart3 className="h-4 w-4 mr-2" />
+          Reportes
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-background-dark text-text-dark-primary">
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-background-dark/80 backdrop-blur-sm border-b border-secondary">
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4">
-          <div className="flex h-20 items-center justify-between">
+          <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
               <Button 
                 variant="ghost" 
                 size="icon"
                 onClick={() => onNavigate("landing")}
-                className="text-text-dark-primary hover:bg-secondary/20"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -144,14 +624,14 @@ const Explore = ({ onNavigate }: ExploreProps) => {
             </div>
             <div className="flex items-center gap-3">
               <Button 
-                variant="hero" 
+                variant="outline" 
                 size="sm"
                 onClick={() => onNavigate("register")}
               >
                 Registrarse
               </Button>
               <Button 
-                variant="secondary" 
+                variant="default" 
                 size="sm"
                 onClick={() => onNavigate("login")}
               >
@@ -162,137 +642,125 @@ const Explore = ({ onNavigate }: ExploreProps) => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-10">
-        <div className="grid lg:grid-cols-4 gap-10">
-          {/* Filters Sidebar */}
-          <aside className="lg:col-span-1">
-            <h2 className="text-xl font-bold mb-6">Filtros</h2>
-            <div className="space-y-6">
-              <div>
-                <Label className="text-sm text-text-dark-secondary mb-2 block">Deporte</Label>
-                <Select value={filters.sport} onValueChange={(value) => setFilters(prev => ({ ...prev, sport: value }))}>
-                  <SelectTrigger className="w-full bg-secondary border-none text-text-dark-primary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="football">Fútbol</SelectItem>
-                    <SelectItem value="basketball">Baloncesto</SelectItem>
-                    <SelectItem value="yoga">Yoga</SelectItem>
-                    <SelectItem value="athletics">Atletismo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-sm text-text-dark-secondary mb-2 block">Ubicación</Label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-dark-secondary" />
-                  <Input
-                    placeholder="Bogotá, Colombia"
-                    value={filters.location}
-                    onChange={(e) => setFilters(prev => ({ ...prev, location: e.target.value }))}
-                    className="pl-10 bg-secondary border-none text-text-dark-primary"
-                  />
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Perfil Demo del Usuario */}
+        <Card className="mb-8 overflow-hidden">
+          <div className="h-32 bg-gradient-to-r from-primary to-primary/60" />
+          <CardContent className="relative pt-0">
+            <div className="flex flex-col md:flex-row gap-6 items-start md:items-end">
+              <Avatar className="w-32 h-32 border-4 border-background -mt-16">
+                <AvatarImage src={userProfile.avatar} />
+                <AvatarFallback>CM</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-3 md:pb-2">
+                <div>
+                  <h2 className="text-3xl font-bold">{userProfile.name}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className="bg-yellow-500/20 text-yellow-700">
+                      {userProfile.level}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      Miembro desde {userProfile.memberSince}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span>{userProfile.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span>{userProfile.phone}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <span>{userProfile.location}</span>
+                  </div>
                 </div>
               </div>
-
-              <div>
-                <Label className="text-sm text-text-dark-secondary mb-2 block">Edad</Label>
-                <Select value={filters.age} onValueChange={(value) => setFilters(prev => ({ ...prev, age: value }))}>
-                  <SelectTrigger className="w-full bg-secondary border-none text-text-dark-primary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
-                    <SelectItem value="4-7">4-7 años</SelectItem>
-                    <SelectItem value="8-12">8-12 años</SelectItem>
-                    <SelectItem value="13-17">13-17 años</SelectItem>
-                    <SelectItem value="adults">Adultos</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="flex gap-4 md:pb-2">
+                <div className="text-center p-3 rounded-lg bg-muted">
+                  <Star className="h-5 w-5 text-yellow-500 mx-auto mb-1" />
+                  <p className="text-xl font-bold">{userProfile.points}</p>
+                  <p className="text-xs text-muted-foreground">Puntos</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted">
+                  <Award className="h-5 w-5 text-primary mx-auto mb-1" />
+                  <p className="text-xl font-bold">{userProfile.completedActivities}</p>
+                  <p className="text-xs text-muted-foreground">Actividades</p>
+                </div>
               </div>
+            </div>
+          </CardContent>
+        </Card>
 
-              <div>
-                <Label className="text-sm text-text-dark-secondary mb-2 block">Precio</Label>
-                <Select value={filters.price} onValueChange={(value) => setFilters(prev => ({ ...prev, price: value }))}>
-                  <SelectTrigger className="w-full bg-secondary border-none text-text-dark-primary">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="0-30">Hasta $30.000</SelectItem>
-                    <SelectItem value="30-60">$30.000 - $60.000</SelectItem>
-                    <SelectItem value="60-100">$60.000 - $100.000</SelectItem>
-                    <SelectItem value="100+">Más de $100.000</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        {/* Tabs de Roles */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Explorar por Rol</CardTitle>
+            <CardDescription>
+              Visualiza funcionalidades específicas para cada tipo de usuario (Datos Demo)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={activeRole} onValueChange={setActiveRole} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 mb-6">
+                <TabsTrigger value="padre" className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Padre
+                </TabsTrigger>
+                <TabsTrigger value="entrenador" className="flex items-center gap-2">
+                  <GraduationCap className="h-4 w-4" />
+                  Entrenador
+                </TabsTrigger>
+                <TabsTrigger value="escuela" className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Escuela
+                </TabsTrigger>
+                <TabsTrigger value="proveedor" className="flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4" />
+                  Proveedor
+                </TabsTrigger>
+              </TabsList>
 
-              <Button variant="hero" size="lg" className="w-full">
-                Aplicar Filtros
+              <TabsContent value="padre" className="mt-6">
+                {renderPadreContent()}
+              </TabsContent>
+
+              <TabsContent value="entrenador" className="mt-6">
+                {renderEntrenadorContent()}
+              </TabsContent>
+
+              <TabsContent value="escuela" className="mt-6">
+                {renderEscuelasContent()}
+              </TabsContent>
+
+              <TabsContent value="proveedor" className="mt-6">
+                {renderProveedorContent()}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* CTA Final */}
+        <Card className="mt-8 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+          <CardContent className="py-8 text-center">
+            <h3 className="text-2xl font-bold mb-2">¿Listo para comenzar?</h3>
+            <p className="text-muted-foreground mb-6">
+              Únete a SportMaps y accede a todas las funcionalidades
+            </p>
+            <div className="flex flex-wrap gap-3 justify-center">
+              <Button size="lg" onClick={() => onNavigate("register")}>
+                Crear Cuenta Gratis
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => onNavigate("landing")}>
+                Volver al Inicio
               </Button>
             </div>
-          </aside>
-
-          {/* Results */}
-          <section className="lg:col-span-3">
-            <h2 className="text-2xl font-bold mb-6">Resultados para "Clases de Deporte"</h2>
-            <div className="space-y-6">
-              {searchResults.map((result) => (
-                <Card key={result.id} className="bg-secondary border-none hover:shadow-performance transition-all duration-300 hover:-translate-y-1">
-                  <CardContent className="p-0">
-                    <div className="flex flex-col md:flex-row gap-6">
-                      <div 
-                        className="w-full md:w-1/3 h-48 bg-cover bg-center rounded-t-lg md:rounded-l-lg md:rounded-t-none"
-                        style={{ backgroundImage: `url(${result.image})` }}
-                      />
-                      <div className="flex-1 p-6 flex flex-col justify-between">
-                        <div>
-                          <h3 className="text-xl font-bold text-text-dark-primary mb-1">{result.title}</h3>
-                          <p className="text-sm text-text-dark-secondary mb-2">
-                            con <span className="text-text-dark-primary font-medium">{result.instructor}</span>
-                          </p>
-                          <div className="flex items-center gap-2 mb-3">
-                            <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                            <span className="text-sm text-text-dark-primary">
-                              {result.rating} ({result.reviews} reseñas)
-                            </span>
-                          </div>
-                          <p className="text-sm text-text-dark-secondary mb-4 leading-relaxed">
-                            {result.description}
-                          </p>
-                          <div className="flex flex-wrap gap-2 mb-4">
-                            {result.tags.map((tag, index) => (
-                              <Badge 
-                                key={index} 
-                                className="bg-primary/20 text-primary border-none"
-                              >
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-lg font-bold text-text-dark-primary">
-                              ${result.price.toLocaleString()}
-                              <span className="text-sm font-normal text-text-dark-secondary">/sesión</span>
-                            </p>
-                          </div>
-                          <Button variant="hero" size="lg">
-                            <Calendar className="w-4 h-4 mr-2" />
-                            Ver disponibilidad
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-        </div>
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
