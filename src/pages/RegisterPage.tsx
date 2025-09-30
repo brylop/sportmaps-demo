@@ -17,7 +17,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().optional(),
-  role: z.string().min(1, 'Selecciona un rol'),
+  role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'admin']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
@@ -53,7 +53,7 @@ export default function RegisterPage() {
         email: data.email,
         full_name: data.fullName,
         phone: data.phone,
-        role: data.role as 'player' | 'coach' | 'parent',
+        role: data.role as any,
       });
     } catch (error) {
       // Error is handled in the context
@@ -117,9 +117,12 @@ export default function RegisterPage() {
                   <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="player">Jugador/Atleta</SelectItem>
-                  <SelectItem value="coach">Entrenador/Coach</SelectItem>
-                  <SelectItem value="parent">Padre/Madre</SelectItem>
+                  <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
+                  <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
+                  <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
+                  <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
+                  <SelectItem value="wellness_professional">💚 Profesional de Bienestar</SelectItem>
+                  <SelectItem value="store_owner">🏪 Tienda/Vendedor</SelectItem>
                 </SelectContent>
               </Select>
               {errors.role && (

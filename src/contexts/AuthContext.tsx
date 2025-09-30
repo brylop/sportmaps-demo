@@ -8,7 +8,7 @@ interface UserProfile {
   email: string;
   full_name: string | null;
   phone: string | null;
-  role: 'player' | 'coach' | 'parent' | 'admin';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin';
   avatar_url: string | null;
   metadata: any;
 }
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: userData.email || '',
           full_name: userData.full_name || null,
           phone: userData.phone || null,
-          role: userData.role || 'player',
+          role: userData.role || 'athlete',
           avatar_url: userData.avatar_url || null,
           metadata: userData.metadata || {}
         })

@@ -482,7 +482,7 @@ export default function DashboardPage() {
 
   const getDashboardComponent = () => {
     switch (profile.role) {
-      case 'player':
+      case 'athlete':
         return <PlayerDashboard />;
       case 'coach':
         return <CoachDashboard />;
@@ -490,6 +490,10 @@ export default function DashboardPage() {
         return <ParentDashboard />;
       case 'admin':
         return <AdminDashboard />;
+      case 'school':
+      case 'wellness_professional':
+      case 'store_owner':
+        return <CoachDashboard />; // Temporalmente usan el mismo dashboard
       default:
         return <PlayerDashboard />;
     }
