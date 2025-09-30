@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Loader2, Eye, EyeOff, Users, GraduationCap, School, User } from 'lucide-react';
+import { getDemoUser } from '@/lib/demo-credentials';
+import { useToast } from '@/hooks/use-toast';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -21,9 +22,11 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { user, signIn } = useAuth();
+  const [isDemoLoading, setIsDemoLoading] = useState<string | null>(null);
+  const { user, signIn, signUp } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const from = location.state?.from?.pathname || '/dashboard';
 
@@ -82,9 +85,53 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemoAccess = (roleId: string) => {
-    // Navigate to dashboard with demo mode
-    navigate('/dashboard', { state: { demoMode: true, demoRole: roleId } });
+  const handleDemoAccess = async (roleId: string) => {
+    const demoUser = getDemoUser(roleId);
+    if (!demoUser) return;
+
+    setIsDemoLoading(roleId);
+    
+    try {
+      // First try to sign in with existing demo user
+      try {
+        await signIn(demoUser.email, demoUser.password);
+        toast({
+          title: "Acceso demo exitoso",
+          description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
+        });
+        navigate('/dashboard');
+      } catch (signInError: any) {
+        // If sign in fails, create the demo user
+        if (signInError.message.includes('Invalid') || signInError.message.includes('not found')) {
+          await signUp(demoUser.email, demoUser.password, {
+            email: demoUser.email,
+            full_name: demoUser.fullName,
+            role: demoUser.role as any,
+            metadata: { isDemo: true, description: demoUser.description }
+          });
+          
+          // Try signing in again after creating the user
+          await signIn(demoUser.email, demoUser.password);
+          
+          toast({
+            title: "Demo creado y activado",
+            description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
+          });
+          navigate('/dashboard');
+        } else {
+          throw signInError;
+        }
+      }
+    } catch (error: any) {
+      console.error('Error accessing demo:', error);
+      toast({
+        title: "Error al acceder al demo",
+        description: error.message || "Por favor intenta de nuevo",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDemoLoading(null);
+    }
   };
 
   return (
@@ -109,12 +156,17 @@ export default function LoginPage() {
                     key={role.id}
                     type="button"
                     onClick={() => handleDemoAccess(role.id)}
-                    className="relative overflow-hidden rounded-xl p-6 text-center transition-all duration-300 border-2 border-border hover:border-primary hover:shadow-performance hover:scale-105 bg-background"
+                    disabled={isDemoLoading === role.id}
+                    className="relative overflow-hidden rounded-xl p-6 text-center transition-all duration-300 border-2 border-border hover:border-primary hover:shadow-performance hover:scale-105 bg-background disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <div className={`absolute inset-0 bg-gradient-to-br ${role.gradient} opacity-10 transition-opacity hover:opacity-20`} />
                     <div className="relative z-10 flex flex-col items-center gap-3">
                       <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${role.gradient} flex items-center justify-center shadow-lg`}>
-                        <Icon className="w-8 h-8 text-white" />
+                        {isDemoLoading === role.id ? (
+                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                        ) : (
+                          <Icon className="w-8 h-8 text-white" />
+                        )}
                       </div>
                       <div>
                         <p className="font-bold text-base mb-1">{role.title}</p>
