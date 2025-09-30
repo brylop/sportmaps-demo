@@ -1,73 +1,39 @@
-# Welcome to your Lovable project
+# SportMaps ⚽🏀🎾
 
-## Project info
+**Plataforma integral de gestión deportiva** con React, TypeScript, Tailwind CSS y Supabase.
 
-**URL**: https://lovable.dev/projects/060ec51a-93a6-494c-aded-932d6153eb9e
+## 🚀 Inicio Rápido
 
-## How can I edit this code?
+### Usuarios Demo
+Accede desde `/login` con:
+- **Padre**: `padre@sportmaps-demo.com`
+- **Entrenador**: `entrenador@sportmaps-demo.com`
+- **Escuela**: `escuela@sportmaps-demo.com`
+- **Deportista**: `deportista@sportmaps-demo.com`
 
-There are several ways of editing your application.
+**Contraseña**: `DemoSportMaps2024!`
 
-**Use Lovable**
+## 🌟 Características
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/060ec51a-93a6-494c-aded-932d6153eb9e) and start prompting.
+- ✅ **9 páginas funcionales** - Dashboard, Calendario, Equipos, Stats, Mensajes, Notificaciones, Configuración
+- ✅ **7 roles** con dashboards personalizados
+- ✅ **Sistema RBAC** completo con permisos granulares
+- ✅ **Navegación adaptativa** según rol
+- ✅ **Design system** profesional
+- ✅ **Animaciones** suaves y modernas
 
-Changes made via Lovable will be committed automatically to this repo.
+## 📚 Documentación
 
-**Use your preferred IDE**
+- 📖 [Guía Rápida](./QUICKSTART.md)
+- 🏗️ [Arquitectura](./ARCHITECTURE.md)
+- 🔒 [Seguridad](./SECURITY.md)
+- ✨ [Mejores Prácticas](./BEST_PRACTICES.md)
+- 🛠️ [Guía Desarrollo](./README_DEV.md)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## 🛠️ Stack
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+React 18 • TypeScript • Tailwind CSS • Supabase • shadcn/ui • Vite
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/060ec51a-93a6-494c-aded-932d6153eb9e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Ver [QUICKSTART.md](./QUICKSTART.md) para comenzar en 5 minutos.

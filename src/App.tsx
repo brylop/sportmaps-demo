@@ -15,6 +15,9 @@ import DashboardPage from "./pages/DashboardPage";
 import CalendarPage from "./pages/CalendarPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import SettingsPage from "./pages/SettingsPage";
+import TeamsPage from "./pages/TeamsPage";
+import StatsPage from "./pages/StatsPage";
+import MessagesPage from "./pages/MessagesPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -45,10 +48,11 @@ const App = () => (
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="messages" element={<MessagesPage />} />
               
               {/* Athlete routes */}
-              <Route path="teams" element={<div className="p-6"><h1 className="text-2xl font-bold">Mis Equipos - En construcción</h1></div>} />
-              <Route path="stats" element={<div className="p-6"><h1 className="text-2xl font-bold">Estadísticas - En construcción</h1></div>} />
+              <Route path="teams" element={<TeamsPage />} />
+              <Route path="stats" element={<StatsPage />} />
               <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
               <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
               <Route path="explore" element={<div className="p-6"><h1 className="text-2xl font-bold">Explorar Escuelas - En construcción</h1></div>} />
@@ -60,7 +64,6 @@ const App = () => (
               <Route path="academic-progress" element={<div className="p-6"><h1 className="text-2xl font-bold">Progreso Académico - En construcción</h1></div>} />
               <Route path="attendance" element={<div className="p-6"><h1 className="text-2xl font-bold">Asistencias - En construcción</h1></div>} />
               <Route path="payments" element={<div className="p-6"><h1 className="text-2xl font-bold">Pagos - En construcción</h1></div>} />
-              <Route path="messages" element={<div className="p-6"><h1 className="text-2xl font-bold">Mensajes - En construcción</h1></div>} />
               
               {/* Coach routes */}
               <Route path="results" element={<div className="p-6"><h1 className="text-2xl font-bold">Resultados - En construcción</h1></div>} />
