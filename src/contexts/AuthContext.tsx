@@ -107,11 +107,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         try {
           const userProfile = await fetchProfile(session.user.id);
-          if (mounted && userProfile) {
-            setProfile(userProfile);
+          if (mounted) {
+            if (userProfile) {
+              setProfile(userProfile);
+            } else {
+              const created = await createProfile(session.user.id, {
+                full_name: session.user.user_metadata?.full_name || 'Usuario',
+                role: 'athlete',
+              });
+              setProfile(created as UserProfile);
+            }
           }
         } catch (error) {
-          console.error('Failed to load profile:', error);
+          console.error('Failed to load/create profile:', error);
         }
       }
       
@@ -134,11 +142,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           try {
             const userProfile = await fetchProfile(session.user.id);
-            if (mounted && userProfile) {
-              setProfile(userProfile);
+            if (mounted) {
+              if (userProfile) {
+                setProfile(userProfile);
+              } else {
+                const created = await createProfile(session.user.id, {
+                  full_name: session.user.user_metadata?.full_name || 'Usuario',
+                  role: 'athlete',
+                });
+                setProfile(created as UserProfile);
+              }
             }
           } catch (error) {
-            console.error('Failed to load profile:', error);
+            console.error('Failed to load/create profile:', error);
           }
         } else {
           setProfile(null);
