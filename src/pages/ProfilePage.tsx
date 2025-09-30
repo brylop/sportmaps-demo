@@ -28,14 +28,13 @@ import {
 import { useToast } from '@/hooks/use-toast';
 
 export default function ProfilePage() {
-  const { profile, updateProfile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
     full_name: profile?.full_name || '',
-    email: profile?.email || '',
     phone: profile?.phone || '',
     avatar_url: profile?.avatar_url || '',
   });
@@ -44,7 +43,6 @@ export default function ProfilePage() {
     if (profile) {
       setFormData({
         full_name: profile.full_name || '',
-        email: profile.email || '',
         phone: profile.phone || '',
         avatar_url: profile.avatar_url || '',
       });
@@ -74,7 +72,6 @@ export default function ProfilePage() {
   const handleCancel = () => {
     setFormData({
       full_name: profile?.full_name || '',
-      email: profile?.email || '',
       phone: profile?.phone || '',
       avatar_url: profile?.avatar_url || '',
     });
@@ -195,11 +192,9 @@ export default function ProfilePage() {
               <Input
                 id="email"
                 type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                disabled={!isEditing}
+                value={user?.email || ''}
+                disabled
+                className="bg-muted"
               />
             </div>
 

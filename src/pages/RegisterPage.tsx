@@ -50,7 +50,6 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       await signUp(data.email, data.password, {
-        email: data.email,
         full_name: data.fullName,
         phone: data.phone,
         role: data.role as any,

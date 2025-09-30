@@ -40,7 +40,7 @@ export function AppSidebar() {
         .toUpperCase()
         .slice(0, 2);
     }
-    return profile.email?.slice(0, 2).toUpperCase() || 'U';
+    return user?.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
   const getRoleBadge = () => {
@@ -83,7 +83,7 @@ export function AppSidebar() {
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {profile.full_name || profile.email}
+                  {profile.full_name || user?.email}
                 </p>
                 <Badge variant="secondary" className="text-xs">
                   {getRoleBadge()}

@@ -21,8 +21,8 @@ import {
   Save
 } from 'lucide-react';
 
-export default function SettingsPage() {
-  const { profile, updateProfile } = useAuth();
+export default function ProfilePage() {
+  const { user, profile, updateProfile } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -75,7 +75,7 @@ export default function SettingsPage() {
         .toUpperCase()
         .slice(0, 2);
     }
-    return profile?.email?.slice(0, 2).toUpperCase() || 'U';
+    return user?.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
   const getRoleBadge = () => {
@@ -172,7 +172,7 @@ export default function SettingsPage() {
                   <Input
                     id="email"
                     type="email"
-                    value={profile.email}
+                    value={user?.email || ''}
                     disabled
                     className="bg-muted"
                   />

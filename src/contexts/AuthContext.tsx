@@ -5,12 +5,16 @@ import { useToast } from '@/hooks/use-toast';
 
 interface UserProfile {
   id: string;
-  email: string;
   full_name: string | null;
   phone: string | null;
   role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin';
   avatar_url: string | null;
-  metadata: any;
+  bio: string | null;
+  date_of_birth: string | null;
+  sportmaps_points: number;
+  subscription_tier: 'free' | 'basic' | 'premium';
+  created_at: string;
+  updated_at: string;
 }
 
 interface AuthContextType {
@@ -36,10 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
-        .from('spm_users')
+        .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data as UserProfile;
@@ -51,19 +55,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const createProfile = async (userId: string, userData: Partial<UserProfile>) => {
     try {
+      // Check if profile already exists
+      const existingProfile = await fetchProfile(userId);
+      if (existingProfile) {
+        return existingProfile;
+      }
+
       const { data, error } = await supabase
-        .from('spm_users')
+        .from('profiles')
         .insert({
           id: userId,
-          email: userData.email || '',
-          full_name: userData.full_name || null,
+          full_name: userData.full_name || 'Usuario',
           phone: userData.phone || null,
           role: userData.role || 'athlete',
           avatar_url: userData.avatar_url || null,
-          metadata: userData.metadata || {}
+          bio: null,
+          date_of_birth: null,
+          sportmaps_points: 0,
+          subscription_tier: 'free'
         })
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       return data;
@@ -124,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       if (data.user) {
-        await createProfile(data.user.id, { ...userData, email });
+        await createProfile(data.user.id, userData);
         toast({
           title: "¡Registro exitoso!",
           description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
@@ -189,7 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const { error } = await supabase
-        .from('spm_users')
+        .from('profiles')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', user.id);
 

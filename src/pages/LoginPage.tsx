@@ -104,10 +104,8 @@ export default function LoginPage() {
         // If sign in fails, create the demo user
         if (signInError.message.includes('Invalid') || signInError.message.includes('not found')) {
           await signUp(demoUser.email, demoUser.password, {
-            email: demoUser.email,
             full_name: demoUser.fullName,
             role: demoUser.role as any,
-            metadata: { isDemo: true, description: demoUser.description }
           });
           
           // Try signing in again after creating the user
@@ -135,19 +133,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4 py-12">
-      <div className="w-full max-w-5xl space-y-6">
-        {/* Demo Section - Top */}
-        <Card className="w-full bg-gradient-to-br from-primary/5 to-secondary/5">
-          <CardContent className="p-8">
-            <div className="text-center mb-6">
-              <h3 className="text-2xl font-bold mb-2">Explorar Perfiles Demo</h3>
-              <p className="text-muted-foreground">
-                Selecciona un rol para ver su perfil y funcionalidades específicas
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
+      <div className="w-full max-w-6xl mx-auto grid lg:grid-cols-2 gap-6 items-start">
+        {/* Demo Section - Left */}
+        <Card className="w-full h-full">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-xl font-bold">Explorar Perfiles Demo</CardTitle>
+            <CardDescription>
+              Selecciona un rol para ver su perfil y funcionalidades
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3">
               {demoRoles.map((role) => {
                 const Icon = role.icon;
                 
@@ -157,19 +154,19 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => handleDemoAccess(role.id)}
                     disabled={isDemoLoading === role.id}
-                    className="relative overflow-hidden rounded-xl p-6 text-center transition-all duration-300 border-2 border-border hover:border-primary hover:shadow-performance hover:scale-105 bg-background disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="relative overflow-hidden rounded-lg p-4 text-center transition-all duration-200 border-2 border-border hover:border-primary hover:shadow-lg bg-card disabled:opacity-60 disabled:cursor-not-allowed group"
                   >
-                    <div className={`absolute inset-0 bg-gradient-to-br ${role.gradient} opacity-10 transition-opacity hover:opacity-20`} />
-                    <div className="relative z-10 flex flex-col items-center gap-3">
-                      <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${role.gradient} flex items-center justify-center shadow-lg`}>
+                    <div className={`absolute inset-0 bg-gradient-to-br ${role.gradient} opacity-0 group-hover:opacity-10 transition-opacity`} />
+                    <div className="relative z-10 flex flex-col items-center gap-2">
+                      <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${role.gradient} flex items-center justify-center shadow-md`}>
                         {isDemoLoading === role.id ? (
-                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                          <Loader2 className="w-6 h-6 text-white animate-spin" />
                         ) : (
-                          <Icon className="w-8 h-8 text-white" />
+                          <Icon className="w-6 h-6 text-white" />
                         )}
                       </div>
                       <div>
-                        <p className="font-bold text-base mb-1">{role.title}</p>
+                        <p className="font-semibold text-sm">{role.title}</p>
                         <p className="text-xs text-muted-foreground">{role.description}</p>
                       </div>
                     </div>
@@ -180,12 +177,12 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Login Section - Bottom */}
-        <Card className="w-full max-w-md mx-auto">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-            <CardDescription className="text-center">
-              ¿Ya tienes cuenta? Accede con tus credenciales
+        {/* Login Section - Right */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold">Iniciar Sesión</CardTitle>
+            <CardDescription>
+              Accede con tus credenciales
             </CardDescription>
           </CardHeader>
         <CardContent>

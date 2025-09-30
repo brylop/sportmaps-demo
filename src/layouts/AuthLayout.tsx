@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Outlet } from "react-router-dom";
 
 export default function AuthLayout() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
 
   return (
     <SidebarProvider>
@@ -19,7 +19,7 @@ export default function AuthLayout() {
               <h1 className="text-lg font-semibold">SportMaps</h1>
             </div>
             <div className="text-sm text-muted-foreground">
-              Bienvenido, {profile?.full_name || profile?.email}
+              Bienvenido, {profile?.full_name || user?.email}
             </div>
           </header>
 
