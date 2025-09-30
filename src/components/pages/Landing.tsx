@@ -172,13 +172,6 @@ const Landing = ({ onNavigate }: LandingProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-10 text-sm">
             <div className="flex items-center gap-6">
-              <button 
-                onClick={() => onNavigate("contact")}
-                className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
-              >
-                <HelpCircle className="h-4 w-4" />
-                <span className="hidden md:inline">Preguntas frecuentes</span>
-              </button>
               <a 
                 href="tel:+573001234567" 
                 className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
@@ -245,11 +238,18 @@ const Landing = ({ onNavigate }: LandingProps) => {
                 Tienda
               </Button>
               <Button 
-                variant="default"
+                variant="ghost"
                 size="sm"
                 onClick={() => onNavigate("login")}
               >
                 Ingresar
+              </Button>
+              <Button 
+                variant="default"
+                size="sm"
+                onClick={() => onNavigate("register")}
+              >
+                Registrarse
               </Button>
             </div>
           </div>
@@ -371,16 +371,16 @@ const Landing = ({ onNavigate }: LandingProps) => {
                 onClick={() => onNavigate("register")}
               >
                 <Calendar className="w-5 h-5 mr-2" />
-                Comenzar Ahora
+                Registrarse Gratis
               </Button>
               <Button 
                 variant="outline" 
                 size="xl" 
                 className="border-white text-white hover:bg-white/10"
-                onClick={() => onNavigate("login")}
+                onClick={() => onNavigate("schoolsearch")}
               >
                 <MapPin className="w-5 h-5 mr-2" />
-                Ver Demo
+                Explorar Escuelas
               </Button>
             </div>
           </div>
@@ -390,7 +390,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       {/* Footer Info */}
       <section className="py-12 bg-muted/30 border-t">
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-8 text-center">
+          <div className="grid md:grid-cols-4 gap-8 text-center">
             <div>
               <h4 className="font-bold mb-2">Soporte 24/7</h4>
               <p className="text-sm text-muted-foreground">Estamos aquí para ayudarte en cualquier momento</p>
@@ -402,6 +402,16 @@ const Landing = ({ onNavigate }: LandingProps) => {
             <div>
               <h4 className="font-bold mb-2">Garantía de Calidad</h4>
               <p className="text-sm text-muted-foreground">Escuelas y proveedores verificados</p>
+            </div>
+            <div>
+              <button 
+                onClick={() => onNavigate("contact")}
+                className="flex flex-col items-center gap-2 mx-auto group"
+              >
+                <HelpCircle className="h-6 w-6 text-primary group-hover:scale-110 transition-transform" />
+                <h4 className="font-bold">Preguntas Frecuentes</h4>
+                <p className="text-sm text-muted-foreground">¿Necesitas ayuda?</p>
+              </button>
             </div>
           </div>
         </div>
