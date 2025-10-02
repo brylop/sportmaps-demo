@@ -10,7 +10,21 @@ export default function DashboardPage() {
   const { profile } = useAuth();
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
 
-  if (!profile) return null;
+  if (!profile) return (
+    <div className="flex items-center justify-center h-[60vh]">
+      <div className="text-center space-y-3">
+        
+        {/* Loading state while se carga el perfil */}
+        <div className="flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <span className="sr-only">Cargando panel</span>
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Cargando tu panel...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
