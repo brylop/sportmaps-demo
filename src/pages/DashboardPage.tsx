@@ -3,6 +3,9 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
+import { FeatureCards } from '@/components/dashboard/FeatureCards';
+import { FeaturedSchools } from '@/components/dashboard/FeaturedSchools';
+import { SearchFilters } from '@/components/dashboard/SearchFilters';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { UserRole } from '@/types/dashboard';
 
@@ -26,6 +29,8 @@ export default function DashboardPage() {
     </div>
   );
 
+  const showEnhancedDashboard = profile?.role === 'athlete' || profile?.role === 'parent';
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
@@ -40,6 +45,15 @@ export default function DashboardPage() {
           <StatCard key={index} {...stat} />
         ))}
       </div>
+
+      {/* Search Filters - Only for Athletes and Parents */}
+      {showEnhancedDashboard && <SearchFilters />}
+
+      {/* Feature Cards - Only for Athletes and Parents */}
+      {showEnhancedDashboard && <FeatureCards />}
+
+      {/* Featured Schools - Only for Athletes and Parents */}
+      {showEnhancedDashboard && <FeaturedSchools />}
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
