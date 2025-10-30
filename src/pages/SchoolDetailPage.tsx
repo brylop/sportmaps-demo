@@ -71,6 +71,7 @@ export default function SchoolDetailPage() {
   const [enrolling, setEnrolling] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
+  const [showReserveModal, setShowReserveModal] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -101,7 +102,13 @@ export default function SchoolDetailPage() {
         .order('name');
 
       if (programsError) throw programsError;
-      setPrograms(programsData || []);
+      
+      // If no programs, add demo programs
+      if (!programsData || programsData.length === 0) {
+        setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+      } else {
+        setPrograms(programsData);
+      }
     } catch (error: any) {
       console.error('Error fetching school data:', error);
       toast({
@@ -166,6 +173,87 @@ export default function SchoolDetailPage() {
     return available > 0 ? `${available} cupos disponibles` : 'Lleno';
   };
 
+  const getDemoPrograms = (schoolName: string, sport: string): Program[] => {
+    return [
+      {
+        id: 'demo-1',
+        name: `${sport} Inicial`,
+        description: 'Programa diseñado para principiantes. Aprende las técnicas básicas y fundamentos del deporte en un ambiente divertido y seguro.',
+        sport: sport,
+        schedule: 'Lunes y Miércoles 4:00 PM - 5:30 PM',
+        price_monthly: 45000,
+        age_min: 6,
+        age_max: 10,
+        max_participants: 20,
+        current_participants: 12,
+        active: true
+      },
+      {
+        id: 'demo-2',
+        name: `${sport} Intermedio`,
+        description: 'Nivel intermedio para estudiantes con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
+        sport: sport,
+        schedule: 'Martes y Jueves 5:00 PM - 6:30 PM',
+        price_monthly: 55000,
+        age_min: 11,
+        age_max: 15,
+        max_participants: 18,
+        current_participants: 15,
+        active: true
+      },
+      {
+        id: 'demo-3',
+        name: `${sport} Competitivo`,
+        description: 'Programa de alto rendimiento para atletas que buscan competir a nivel profesional. Entrenamientos intensivos y preparación para torneos.',
+        sport: sport,
+        schedule: 'Lunes a Viernes 6:00 PM - 8:00 PM',
+        price_monthly: 75000,
+        age_min: 14,
+        age_max: 18,
+        max_participants: 15,
+        current_participants: 14,
+        active: true
+      }
+    ];
+  };
+
+  const getDemoReviews = () => {
+    return [
+      {
+        id: 'review-1',
+        author: 'María González',
+        rating: 5,
+        date: 'Hace 2 semanas',
+        comment: 'Excelente academia! Los entrenadores son muy profesionales y dedicados. Mi hijo ha mejorado muchísimo desde que empezó.'
+      },
+      {
+        id: 'review-2',
+        author: 'Carlos Martínez',
+        rating: 5,
+        date: 'Hace 1 mes',
+        comment: 'Las instalaciones son de primera calidad y el ambiente es muy amigable. Totalmente recomendado para niños y adolescentes.'
+      },
+      {
+        id: 'review-3',
+        author: 'Ana López',
+        rating: 4,
+        date: 'Hace 2 meses',
+        comment: 'Muy buena experiencia en general. Los horarios son flexibles y el equipo es muy atento. Solo mejoraría la comunicación con los padres.'
+      }
+    ];
+  };
+
+  const handleReserveNow = () => {
+    if (!user) {
+      setShowReserveModal(true);
+    } else {
+      toast({
+        title: 'Información',
+        description: 'Por favor selecciona un programa para inscribirte',
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -188,11 +276,17 @@ export default function SchoolDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Auth Modal */}
+      {/* Auth Modal for Programs */}
       <AuthModal 
         open={authModalOpen} 
         onOpenChange={setAuthModalOpen}
         programId={selectedProgramId || undefined}
+      />
+
+      {/* Auth Modal for Reserve Now Button */}
+      <AuthModal 
+        open={showReserveModal} 
+        onOpenChange={setShowReserveModal}
       />
 
       {/* Cover Image */}
@@ -373,40 +467,75 @@ export default function SchoolDetailPage() {
               <TabsContent value="about">
                 <Card>
                   <CardContent className="p-6 space-y-4">
-                    {school.amenities && school.amenities.length > 0 && (
-                      <div>
-                        <h3 className="font-semibold mb-3">Instalaciones</h3>
-                        <div className="grid grid-cols-2 gap-2">
-                          {school.amenities.map((amenity) => (
-                            <div key={amenity} className="flex items-center gap-2">
-                              <CheckCircle2 className="h-4 w-4 text-primary" />
-                              <span className="text-sm">{amenity}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <div>
+                      <h3 className="font-semibold mb-3">Acerca de nosotros</h3>
+                      <p className="text-muted-foreground leading-relaxed">
+                        {school.description || `En ${school.name}, nos dedicamos a formar atletas integrales a través de programas deportivos de alta calidad. Contamos con entrenadores certificados y experiencia comprobada en el desarrollo de jóvenes talentos. Nuestras instalaciones modernas y metodología de entrenamiento garantizan el mejor ambiente para el crecimiento deportivo y personal de nuestros estudiantes.`}
+                      </p>
+                    </div>
 
                     <Separator />
+
+                    {school.amenities && school.amenities.length > 0 && (
+                      <>
+                        <div>
+                          <h3 className="font-semibold mb-3">Instalaciones</h3>
+                          <div className="grid grid-cols-2 gap-2">
+                            {school.amenities.map((amenity) => (
+                              <div key={amenity} className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-primary" />
+                                <span className="text-sm">{amenity}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <Separator />
+                      </>
+                    )}
 
                     <div>
                       <h3 className="font-semibold mb-3">Ubicación</h3>
                       <p className="text-muted-foreground">{school.address}</p>
+                    </div>
+
+                    <Separator />
+
+                    <div>
+                      <h3 className="font-semibold mb-3">Horarios de atención</h3>
+                      <p className="text-muted-foreground">Lunes a Viernes: 8:00 AM - 8:00 PM</p>
+                      <p className="text-muted-foreground">Sábados: 9:00 AM - 2:00 PM</p>
                     </div>
                   </CardContent>
                 </Card>
               </TabsContent>
 
               {/* Reviews Tab */}
-              <TabsContent value="reviews">
-                <Card className="p-12 text-center">
-                  <Star className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold mb-2">
-                    Sistema de reseñas próximamente
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Pronto podrás ver y dejar reseñas
-                  </p>
+              <TabsContent value="reviews" className="space-y-4">
+                {getDemoReviews().map((review) => (
+                  <Card key={review.id}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold">{review.author}</p>
+                          <p className="text-sm text-muted-foreground">{review.date}</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: review.rating }).map((_, i) => (
+                            <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground">{review.comment}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+                
+                <Card className="bg-muted/50">
+                  <CardContent className="p-6 text-center">
+                    <p className="text-muted-foreground">
+                      ¿Ya conoces esta academia? Inicia sesión para dejar tu reseña
+                    </p>
+                  </CardContent>
                 </Card>
               </TabsContent>
             </Tabs>
@@ -479,10 +608,18 @@ export default function SchoolDetailPage() {
 
                 <Separator />
 
-                <Button className="w-full" variant="outline">
-                  <Mail className="h-4 w-4 mr-2" />
-                  Enviar Mensaje
+                <Button 
+                  className="w-full" 
+                  onClick={handleReserveNow}
+                  size="lg"
+                >
+                  <Calendar className="h-5 w-5 mr-2" />
+                  Reservar Ahora
                 </Button>
+                
+                <p className="text-xs text-center text-muted-foreground mt-2">
+                  Selecciona un programa y completa tu reserva
+                </p>
               </CardContent>
             </Card>
           </div>

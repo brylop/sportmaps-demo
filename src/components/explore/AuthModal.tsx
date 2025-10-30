@@ -128,7 +128,10 @@ export function AuthModal({ open, onOpenChange, redirectPath, programId }: AuthM
         <DialogHeader>
           <DialogTitle className="text-2xl">Continuar con tu reserva</DialogTitle>
           <DialogDescription>
-            Para continuar con tu inscripción, necesitas crear una cuenta o iniciar sesión
+            {programId 
+              ? 'Para continuar con tu inscripción, necesitas crear una cuenta o iniciar sesión'
+              : 'Para reservar en esta academia, necesitas crear una cuenta o iniciar sesión'
+            }
           </DialogDescription>
         </DialogHeader>
 

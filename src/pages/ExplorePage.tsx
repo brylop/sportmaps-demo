@@ -44,6 +44,7 @@ export default function ExplorePage() {
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [nearMe, setNearMe] = useState(false);
+  const [selectedAgeRange, setSelectedAgeRange] = useState<string>('');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -205,16 +206,23 @@ export default function ExplorePage() {
           <h2 className="text-2xl font-bold text-center mb-8">Explora por edad</h2>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             {[
-              { label: 'Familia', sublabel: 'Todas las edades', icon: '👨‍👩‍👧‍👦' },
-              { label: 'Primera infancia', sublabel: '0 - 5 años', icon: '👶' },
-              { label: 'Niños', sublabel: '6 - 11 años', icon: '🧒' },
-              { label: 'Adolescentes', sublabel: '12 - 17 años', icon: '🧑' },
-              { label: 'Jóvenes', sublabel: '18 - 26 años', icon: '👱' },
-              { label: 'Adultos', sublabel: '27 - 59 años', icon: '🧔' },
+              { label: 'Familia', sublabel: 'Todas las edades', icon: '👨‍👩‍👧‍👦', range: '' },
+              { label: 'Primera infancia', sublabel: '0 - 5 años', icon: '👶', range: '0-5' },
+              { label: 'Niños', sublabel: '6 - 11 años', icon: '🧒', range: '6-11' },
+              { label: 'Adolescentes', sublabel: '12 - 17 años', icon: '🧑', range: '12-17' },
+              { label: 'Jóvenes', sublabel: '18 - 26 años', icon: '👱', range: '18-26' },
+              { label: 'Adultos', sublabel: '27 - 59 años', icon: '🧔', range: '27-59' },
             ].map((group, index) => (
               <button
                 key={index}
-                className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-background hover:bg-accent transition-all group"
+                onClick={() => {
+                  setSelectedAgeRange(group.range);
+                  const element = document.getElementById('results-section');
+                  element?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className={`flex flex-col items-center gap-3 p-4 rounded-2xl bg-background hover:bg-accent transition-all group ${
+                  selectedAgeRange === group.range ? 'ring-2 ring-primary bg-accent' : ''
+                }`}
               >
                 <div className="text-5xl group-hover:scale-110 transition-transform">
                   {group.icon}
@@ -229,7 +237,7 @@ export default function ExplorePage() {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-8 space-y-6">
+      <div id="results-section" className="container mx-auto px-4 py-8 space-y-6">
         {/* Filters Section */}
         <Card className="shadow-lg">
           <CardContent className="p-6">
@@ -320,7 +328,7 @@ export default function ExplorePage() {
           </div>
 
             {/* Active Filters */}
-            {(nearMe || selectedCity !== 'all' || selectedSport !== 'all' || selectedLevel !== 'all' || searchQuery || priceRange[0] > 0 || priceRange[1] < 500000) && (
+            {(nearMe || selectedCity !== 'all' || selectedSport !== 'all' || selectedLevel !== 'all' || searchQuery || selectedAgeRange || priceRange[0] > 0 || priceRange[1] < 500000) && (
               <div className="flex items-center gap-2 mt-4 flex-wrap">
                 <span className="text-sm text-muted-foreground">Filtros activos:</span>
                 {nearMe && (
@@ -371,6 +379,15 @@ export default function ExplorePage() {
                     />
                   </Badge>
                 )}
+                {selectedAgeRange && (
+                  <Badge variant="secondary" className="gap-1">
+                    Edad: {selectedAgeRange} años
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => setSelectedAgeRange('')}
+                    />
+                  </Badge>
+                )}
                 {(priceRange[0] > 0 || priceRange[1] < 500000) && (
                   <Badge variant="secondary" className="gap-1">
                     Precio: ${priceRange[0].toLocaleString()} - ${priceRange[1].toLocaleString()}
@@ -388,6 +405,7 @@ export default function ExplorePage() {
                     setSelectedCity('all');
                     setSelectedSport('all');
                     setSelectedLevel('all');
+                    setSelectedAgeRange('');
                     setPriceRange([0, 500000]);
                     setNearMe(false);
                     setUserLocation(null);
