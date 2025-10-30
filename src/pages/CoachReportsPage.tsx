@@ -10,11 +10,14 @@ import { BarChart3, Download, TrendingUp, Users } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 export default function CoachReportsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  // Demo teams data
-  const demoTeams = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo teams data (only for demo users)
+  const demoTeams = isDemoUser ? [
     {
       id: 'demo-team-1',
       coach_id: user?.id,
@@ -25,7 +28,7 @@ export default function CoachReportsPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -40,16 +43,16 @@ export default function CoachReportsPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
 
-  // Demo roster data
-  const demoRoster = [
+  // Demo roster data (only for demo users)
+  const demoRoster = isDemoUser ? [
     { id: 'player-1', team_id: selectedTeamId, player_name: 'Mateo Pérez', player_number: 10 },
     { id: 'player-2', team_id: selectedTeamId, player_name: 'Juan Vargas', player_number: 7 },
     { id: 'player-3', team_id: selectedTeamId, player_name: 'Camila Torres', player_number: 5 },
     { id: 'player-4', team_id: selectedTeamId, player_name: 'Santiago Rojas', player_number: 1 },
     { id: 'player-5', team_id: selectedTeamId, player_name: 'Valeria Gómez', player_number: 11 },
-  ];
+  ] : [];
 
   const { data: rosterData } = useQuery({
     queryKey: ['team-roster', selectedTeamId],
@@ -66,10 +69,10 @@ export default function CoachReportsPage() {
 
   const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
     ? rosterData
-    : demoRoster;
+    : (isDemoUser ? demoRoster : []);
 
-  // Demo results data
-  const demoResults = [
+  // Demo results data (only for demo users)
+  const demoResults = isDemoUser ? [
     {
       id: 'result-1',
       team_id: selectedTeamId,
@@ -92,7 +95,7 @@ export default function CoachReportsPage() {
       match_type: 'Liga',
       created_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: resultsData, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],

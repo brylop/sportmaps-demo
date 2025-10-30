@@ -10,11 +10,14 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Plus, Calendar, Target, ClipboardList } from 'lucide-react';
 
 export default function TrainingPlansPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  // Demo teams data
-  const demoTeams = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo teams data (only for demo users)
+  const demoTeams = isDemoUser ? [
     {
       id: 'demo-team-1',
       coach_id: user?.id,
@@ -25,7 +28,7 @@ export default function TrainingPlansPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -40,10 +43,10 @@ export default function TrainingPlansPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
 
-  // Demo training plans data
-  const demoPlans = [
+  // Demo training plans data (only for demo users)
+  const demoPlans = isDemoUser ? [
     {
       id: 'plan-1',
       team_id: selectedTeamId,
@@ -75,7 +78,7 @@ export default function TrainingPlansPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: plansData, isLoading } = useQuery({
     queryKey: ['training-plans', selectedTeamId],

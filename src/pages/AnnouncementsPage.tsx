@@ -15,7 +15,7 @@ import { Bell, Plus, Send, Users, UserCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function AnnouncementsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [subject, setSubject] = useState('');
@@ -23,8 +23,11 @@ export default function AnnouncementsPage() {
   const [audience, setAudience] = useState('parents');
   const [selectedTeamId, setSelectedTeamId] = useState('');
 
-  // Demo teams data
-  const demoTeams = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo teams data (only for demo users)
+  const demoTeams = isDemoUser ? [
     {
       id: 'demo-team-1',
       coach_id: user?.id,
@@ -35,7 +38,7 @@ export default function AnnouncementsPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -50,10 +53,10 @@ export default function AnnouncementsPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
 
-  // Demo announcements data
-  const demoAnnouncements = [
+  // Demo announcements data (only for demo users)
+  const demoAnnouncements = isDemoUser ? [
     {
       id: 'ann-1',
       coach_id: user?.id,
@@ -74,7 +77,7 @@ export default function AnnouncementsPage() {
       sent_at: '2024-10-27T18:30:00Z',
       teams: null,
     },
-  ];
+  ] : [];
 
   const { data: announcementsData, isLoading, refetch } = useQuery({
     queryKey: ['announcements', user?.id],
@@ -90,7 +93,7 @@ export default function AnnouncementsPage() {
     enabled: !!user?.id,
   });
 
-  const announcements = announcementsData && announcementsData.length > 0 ? announcementsData : demoAnnouncements;
+  const announcements = announcementsData && announcementsData.length > 0 ? announcementsData : (isDemoUser ? demoAnnouncements : []);
 
   const handleSend = async () => {
     try {

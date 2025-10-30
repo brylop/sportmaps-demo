@@ -14,14 +14,17 @@ import { useToast } from '@/hooks/use-toast';
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
 export default function CoachAttendancePage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
 
-  // Demo teams data
-  const demoTeams = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo teams data (only for demo users)
+  const demoTeams = isDemoUser ? [
     {
       id: 'demo-team-1',
       coach_id: user?.id,
@@ -32,7 +35,7 @@ export default function CoachAttendancePage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -47,10 +50,10 @@ export default function CoachAttendancePage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
 
-  // Demo roster data
-  const demoRoster = [
+  // Demo roster data (only for demo users)
+  const demoRoster = isDemoUser ? [
     {
       id: 'player-1',
       team_id: selectedTeamId,
@@ -96,7 +99,7 @@ export default function CoachAttendancePage() {
       parent_contact: '+57 318 567 8901',
       created_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: rosterData, isLoading } = useQuery({
     queryKey: ['team-roster', selectedTeamId],

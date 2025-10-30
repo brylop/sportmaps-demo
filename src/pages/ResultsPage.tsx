@@ -10,11 +10,14 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Trophy, Plus, TrendingUp, Minus, Equal } from 'lucide-react';
 
 export default function ResultsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  // Demo teams data
-  const demoTeams = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo teams data (only for demo users)
+  const demoTeams = isDemoUser ? [
     {
       id: 'demo-team-1',
       coach_id: user?.id,
@@ -25,7 +28,7 @@ export default function ResultsPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -40,10 +43,10 @@ export default function ResultsPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
 
-  // Demo results data
-  const demoResults = [
+  // Demo results data (only for demo users)
+  const demoResults = isDemoUser ? [
     {
       id: 'result-1',
       team_id: selectedTeamId,
@@ -80,7 +83,7 @@ export default function ResultsPage() {
       notes: 'Derrota ajustada, debemos trabajar en el juego ofensivo',
       created_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const { data: resultsData, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
