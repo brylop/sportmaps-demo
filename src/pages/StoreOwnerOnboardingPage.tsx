@@ -6,64 +6,49 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
-  Building2, 
-  Users, 
-  Dumbbell, 
-  Calendar,
-  UserPlus,
+  Package,
+  FolderOpen,
+  CreditCard,
+  ShoppingCart,
   CheckCircle2,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Store
 } from 'lucide-react';
 
-export default function SchoolOnboardingPage() {
-  const { profile, user } = useAuth();
+export default function StoreOwnerOnboardingPage() {
+  const { profile } = useAuth();
   const navigate = useNavigate();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
   const onboardingSteps = [
     {
-      id: 'facilities',
-      title: 'Configura tus Instalaciones',
-      description: 'Crea tus canchas, piscinas o gimnasios para que puedan ser reservados.',
-      icon: Building2,
-      route: '/facilities',
+      id: 'products',
+      title: 'Crea tu primer Producto',
+      description: 'Añade tu primer artículo al inventario con fotos, descripción y precio.',
+      icon: Package,
+      route: '/products',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {
-      id: 'staff',
-      title: 'Añade a tus Entrenadores',
-      description: 'Registra a tu equipo para asignarles clases y programas.',
-      icon: Users,
-      route: '/staff',
+      id: 'categories',
+      title: 'Organiza tus Categorías',
+      description: 'Define categorías como "Ropa", "Calzado", "Accesorios" para organizar tu tienda.',
+      icon: FolderOpen,
+      route: '/categories',
       gradient: 'from-purple-500 to-pink-500',
     },
     {
-      id: 'programs',
-      title: 'Crea tu Primer Programa',
-      description: 'Define tu primera clase, como "Tenis Infantil Nivel 1".',
-      icon: Dumbbell,
-      route: '/programs-management',
-      gradient: 'from-orange-500 to-red-500',
-    },
-    {
-      id: 'students',
-      title: 'Invita a tus Estudiantes',
-      description: 'Empieza a registrar a tus miembros y deportistas.',
-      icon: UserPlus,
-      route: '/students',
+      id: 'payments',
+      title: 'Configura tus Pagos',
+      description: 'Conecta tu cuenta para recibir pagos de tus clientes de forma segura.',
+      icon: CreditCard,
+      route: '/settings',
       gradient: 'from-green-500 to-emerald-500',
     },
   ];
 
   const progress = (completedSteps.length / onboardingSteps.length) * 100;
-
-  const handleCompleteOnboarding = () => {
-    if (user) {
-      localStorage.setItem(`onboarding_completed_${user.id}`, 'true');
-      navigate('/dashboard');
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background p-6">
@@ -71,13 +56,13 @@ export default function SchoolOnboardingPage() {
         {/* Welcome Header */}
         <div className="text-center space-y-4">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary/60 mb-4">
-            <Sparkles className="w-8 h-8 text-white" />
+            <Store className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-4xl font-bold tracking-tight">
             ¡Bienvenido, {profile?.full_name}!
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Empecemos a configurar tu academia. Sigue estos pasos para empezar:
+            Tu tienda está lista para configurarse. Empecemos a vender.
           </p>
         </div>
 
@@ -86,7 +71,7 @@ export default function SchoolOnboardingPage() {
           <CardContent className="pt-6">
             <div className="space-y-2 mb-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Progreso del Onboarding</span>
+                <span className="text-sm font-medium">Progreso de Configuración</span>
                 <span className="text-sm text-muted-foreground">
                   {completedSteps.length} de {onboardingSteps.length} completados
                 </span>
@@ -96,14 +81,14 @@ export default function SchoolOnboardingPage() {
             {progress === 100 && (
               <Badge variant="default" className="w-full justify-center py-2">
                 <CheckCircle2 className="w-4 h-4 mr-2" />
-                ¡Configuración completada! Tu academia está lista
+                ¡Configuración completada! Tu tienda está lista para vender
               </Badge>
             )}
           </CardContent>
         </Card>
 
         {/* Onboarding Steps Grid */}
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-3">
           {onboardingSteps.map((step, index) => {
             const Icon = step.icon;
             const isCompleted = completedSteps.includes(step.id);
@@ -113,7 +98,6 @@ export default function SchoolOnboardingPage() {
                 key={step.id}
                 className="relative overflow-hidden hover:shadow-lg transition-all duration-300 border-2"
               >
-                {/* Gradient background */}
                 <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${step.gradient}`} />
                 
                 <CardHeader>
@@ -159,37 +143,65 @@ export default function SchoolOnboardingPage() {
           })}
         </div>
 
-        {/* Quick Actions */}
+        {/* Current Status */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary" />
-              Acciones Rápidas
+              <ShoppingCart className="w-5 h-5 text-primary" />
+              Estado Actual de tu Tienda
             </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="text-center">
+                <p className="text-3xl font-bold">0</p>
+                <p className="text-sm text-muted-foreground">Productos</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold">0</p>
+                <p className="text-sm text-muted-foreground">Categorías</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold">0</p>
+                <p className="text-sm text-muted-foreground">Pedidos</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold">$0</p>
+                <p className="text-sm text-muted-foreground">Ventas</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quick Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Acciones Rápidas</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">
             <Button
               variant="outline"
               className="justify-start"
-              onClick={() => navigate('/calendar')}
+              onClick={() => navigate('/products')}
             >
-              <Calendar className="w-4 h-4 mr-2" />
-              Ver Calendario
+              <Package className="w-4 h-4 mr-2" />
+              Agregar Producto
             </Button>
             <Button
               variant="outline"
               className="justify-start"
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate('/orders')}
             >
-              <Building2 className="w-4 h-4 mr-2" />
-              Configurar Perfil
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Ver Pedidos
             </Button>
             <Button
+              variant="outline"
               className="justify-start"
-              onClick={handleCompleteOnboarding}
+              onClick={() => navigate('/dashboard')}
             >
-              <CheckCircle2 className="w-4 h-4 mr-2" />
-              Completar & Ir al Dashboard
+              <Sparkles className="w-4 h-4 mr-2" />
+              Ir al Dashboard
             </Button>
           </CardContent>
         </Card>
@@ -200,7 +212,7 @@ export default function SchoolOnboardingPage() {
             <div className="text-center space-y-2">
               <h3 className="font-semibold">¿Necesitas ayuda?</h3>
               <p className="text-sm text-muted-foreground">
-                Consulta nuestra guía de inicio rápido o contacta a soporte para asistencia personalizada.
+                Consulta nuestra guía para configurar tu tienda online y empezar a vender.
               </p>
               <div className="flex gap-2 justify-center mt-4">
                 <Button variant="outline" size="sm">

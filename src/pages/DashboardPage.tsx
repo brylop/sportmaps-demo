@@ -13,14 +13,33 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
 
-  // Redirect school users to onboarding if they haven't completed setup
+  // Redirect users to onboarding if they haven't completed setup
   useEffect(() => {
-    if (profile?.role === 'school') {
-      // Check if this is first login (you can add more sophisticated logic here)
-      const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user?.id}`);
-      
-      if (!hasCompletedOnboarding) {
-        navigate('/school-onboarding');
+    if (!profile || !user) return;
+
+    const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
+    
+    if (!hasCompletedOnboarding) {
+      // Redirect each role to their respective onboarding
+      switch (profile.role) {
+        case 'school':
+          navigate('/school-onboarding');
+          break;
+        case 'coach':
+          navigate('/coach-onboarding');
+          break;
+        case 'athlete':
+          navigate('/athlete-onboarding');
+          break;
+        case 'wellness_professional':
+          navigate('/wellness-onboarding');
+          break;
+        case 'store_owner':
+          navigate('/store-onboarding');
+          break;
+        // parent doesn't need onboarding, they go directly to dashboard
+        default:
+          break;
       }
     }
   }, [profile, user, navigate]);

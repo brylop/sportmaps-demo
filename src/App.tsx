@@ -39,11 +39,14 @@ import AttendanceSupervisionPage from "./pages/AttendanceSupervisionPage";
 import ResultsOverviewPage from "./pages/ResultsOverviewPage";
 import FinancesPage from "./pages/FinancesPage";
 import ReportsPage from "./pages/ReportsPage";
-import FacilitiesPage from "./pages/FacilitiesPage";
 import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
 import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
 import SchoolStudentsManagementPage from "./pages/SchoolStudentsManagementPage";
 import SchoolCoachesManagementPage from "./pages/SchoolCoachesManagementPage";
+import CoachOnboardingPage from "./pages/CoachOnboardingPage";
+import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
+import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
+import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -72,6 +75,11 @@ const App = () => (
             }>
               {/* Main routes */}
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+              <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
+              <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
+              <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
+              <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
