@@ -23,11 +23,14 @@ export default function AttendancePage() {
   const [selectedAttendance, setSelectedAttendance] = useState<any>(null);
   const [justificationReason, setJustificationReason] = useState('');
 
-  // Demo children
-  const demoChildren = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo children only for demo users
+  const demoChildren = isDemoUser ? [
     { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
     { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
-  ];
+  ] : [];
 
   const { data: childrenData } = useQuery({
     queryKey: ['children', user?.id],
@@ -44,8 +47,8 @@ export default function AttendancePage() {
 
   const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
 
-  // Demo attendance data
-  const demoAttendance = [
+  // Demo attendance data only for demo users
+  const demoAttendance = isDemoUser ? [
     {
       id: 'att-1',
       child_id: selectedChildId,
@@ -78,7 +81,7 @@ export default function AttendancePage() {
       justification_reason: 'Cita médica',
       children: { full_name: 'Mateo Pérez' },
     },
-  ];
+  ] : [];
 
   const { data: attendanceData, isLoading, error, refetch } = useQuery({
     queryKey: ['attendance', selectedChildId],

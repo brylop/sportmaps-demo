@@ -14,11 +14,14 @@ export default function AcademicProgressPage() {
   const { user } = useAuth();
   const [selectedChildId, setSelectedChildId] = useState<string>('');
 
-  // Demo children
-  const demoChildren = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo children only for demo users
+  const demoChildren = isDemoUser ? [
     { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
     { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
-  ];
+  ] : [];
 
   const { data: childrenData } = useQuery({
     queryKey: ['children', user?.id],
@@ -35,8 +38,8 @@ export default function AcademicProgressPage() {
 
   const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
 
-  // Demo progress data
-  const demoProgress = [
+  // Demo progress data only for demo users
+  const demoProgress = isDemoUser ? [
     {
       id: 'prog-1',
       child_id: selectedChildId,
@@ -64,7 +67,7 @@ export default function AcademicProgressPage() {
       comments: 'Sobresaliente. Siempre apoya a sus compañeros.',
       children: { full_name: 'Mateo Pérez' },
     },
-  ];
+  ] : [];
 
   const { data: progressData, isLoading, error, refetch } = useQuery({
     queryKey: ['academic-progress', selectedChildId],

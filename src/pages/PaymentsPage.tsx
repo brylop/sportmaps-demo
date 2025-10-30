@@ -11,8 +11,11 @@ import { CreditCard, Download, DollarSign, AlertCircle, CheckCircle2 } from 'luc
 export default function PaymentsPage() {
   const { user } = useAuth();
 
-  // Demo payments data
-  const demoPayments = [
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo payments data only for demo users
+  const demoPayments = isDemoUser ? [
     {
       id: 'pay-1',
       parent_id: user?.id,
@@ -49,7 +52,7 @@ export default function PaymentsPage() {
       created_at: '2024-08-12',
       updated_at: '2024-08-12',
     },
-  ];
+  ] : [];
 
   const { data: paymentsData, isLoading, error, refetch } = useQuery({
     queryKey: ['payments', user?.id],

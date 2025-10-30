@@ -13,6 +13,9 @@ import { Link } from 'react-router-dom';
 export default function MyChildrenPage() {
   const { user } = useAuth();
 
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
   const { data: children, isLoading, error, refetch } = useQuery({
     queryKey: ['children', user?.id],
     queryFn: async () => {
@@ -28,8 +31,8 @@ export default function MyChildrenPage() {
     enabled: !!user?.id,
   });
 
-  // Demo data for when there are no children
-  const demoChildren = [
+  // Demo data only for demo users
+  const demoChildren = isDemoUser ? [
     {
       id: 'demo-1',
       full_name: 'Mateo Pérez',
@@ -56,7 +59,7 @@ export default function MyChildrenPage() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
-  ];
+  ] : [];
 
   const displayChildren = children && children.length > 0 ? children : demoChildren;
 
