@@ -11,6 +11,7 @@ import AuthLayout from "@/layouts/AuthLayout";
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import DemoProfilesPage from "./pages/DemoProfilesPage";
 import DashboardPage from "./pages/DashboardPage";
 import CalendarPage from "./pages/CalendarPage";
 import NotificationsPage from "./pages/NotificationsPage";
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/demo-profiles" element={<DemoProfilesPage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
             
             {/* Protected routes with layout */}

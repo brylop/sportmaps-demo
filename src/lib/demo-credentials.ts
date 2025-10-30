@@ -10,47 +10,47 @@ export interface DemoUser {
 }
 
 export const DEMO_USERS: Record<string, DemoUser> = {
+  athlete: {
+    role: 'athlete',
+    email: 'carlos.martinez@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Carlos Martínez López',
+    description: 'Estudiante de secundaria apasionado por el fútbol'
+  },
   parent: {
     role: 'parent',
-    email: 'padre@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'María González (Demo Padre)',
-    description: 'Perfil demo de padre/madre con 2 hijos en escuelas deportivas'
+    email: 'maria.garcia@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'María García Hernández',
+    description: 'Madre de dos hijos deportistas'
   },
   coach: {
     role: 'coach',
-    email: 'entrenador@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'Carlos Rodríguez (Demo Entrenador)',
-    description: 'Perfil demo de entrenador con múltiples clases y alumnos'
+    email: 'luis.rodriguez@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Luis Fernando Rodríguez',
+    description: 'Entrenador certificado con 10 años de experiencia'
   },
   school: {
     role: 'school',
-    email: 'escuela@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'Academia Deportiva SportMaps (Demo)',
-    description: 'Perfil demo de escuela deportiva con gestión completa'
-  },
-  athlete: {
-    role: 'athlete',
-    email: 'deportista@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'Juan Pérez (Demo Deportista)',
-    description: 'Perfil demo de deportista/atleta con historial deportivo'
+    email: 'academia.elite@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Academia Deportiva Elite',
+    description: 'Centro deportivo de alto rendimiento'
   },
   wellness_professional: {
     role: 'wellness_professional',
-    email: 'bienestar@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'Dra. Ana Martínez (Demo Bienestar)',
-    description: 'Perfil demo de profesional de bienestar y salud'
+    email: 'sofia.rivera@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Dra. Sofía Rivera',
+    description: 'Fisioterapeuta deportiva especializada'
   },
   store_owner: {
     role: 'store_owner',
-    email: 'tienda@sportmaps-demo.com',
-    password: 'DemoSportMaps2024!',
-    fullName: 'Deportes Pro (Demo Tienda)',
-    description: 'Perfil demo de tienda deportiva con catálogo de productos'
+    email: 'info.equipatemas@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Tienda Equípate Más',
+    description: 'Tienda de artículos deportivos'
   }
 };
 
@@ -59,5 +59,5 @@ export const getDemoUser = (roleId: string): DemoUser | null => {
 };
 
 export const isDemoEmail = (email: string): boolean => {
-  return email.endsWith('@sportmaps-demo.com');
+  return email.endsWith('@demo.sportmaps.com');
 };

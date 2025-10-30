@@ -61,6 +61,17 @@ export default function LoginPage() {
     },
   ];
 
+  const allDemoRolesLink = (
+    <div className="mt-4 text-center">
+      <Link 
+        to="/demo-profiles" 
+        className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+      >
+        Ver todos los perfiles demo (6 roles) →
+      </Link>
+    </div>
+  );
+
   // Redirect if already logged in
   if (user) {
     return <Navigate to={from} replace />;
@@ -174,6 +185,7 @@ export default function LoginPage() {
                 );
               })}
             </div>
+            {allDemoRolesLink}
           </CardContent>
         </Card>
 
