@@ -31,11 +31,6 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { user, signUp } = useAuth();
 
-  // Redirect if already logged in
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
   const {
     register,
     handleSubmit,
@@ -45,6 +40,11 @@ export default function RegisterPage() {
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
   });
+
+  // Redirect if already logged in
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
