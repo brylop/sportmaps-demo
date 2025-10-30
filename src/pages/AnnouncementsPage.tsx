@@ -23,7 +23,21 @@ export default function AnnouncementsPage() {
   const [audience, setAudience] = useState('parents');
   const [selectedTeamId, setSelectedTeamId] = useState('');
 
-  const { data: teams } = useQuery({
+  // Demo teams data
+  const demoTeams = [
+    {
+      id: 'demo-team-1',
+      coach_id: user?.id,
+      name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      age_group: 'Sub-12',
+      season: '2024',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -36,7 +50,33 @@ export default function AnnouncementsPage() {
     enabled: !!user?.id,
   });
 
-  const { data: announcements, isLoading, refetch } = useQuery({
+  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+
+  // Demo announcements data
+  const demoAnnouncements = [
+    {
+      id: 'ann-1',
+      coach_id: user?.id,
+      team_id: 'demo-team-1',
+      subject: 'Partido importante este sábado',
+      message: 'Recordatorio: El partido contra Tigres FC es este sábado a las 10:00 AM en el Estadio Municipal. Por favor lleguen 30 minutos antes.',
+      audience: 'both',
+      sent_at: '2024-10-29T10:00:00Z',
+      teams: { name: 'Fútbol Sub-12' },
+    },
+    {
+      id: 'ann-2',
+      coach_id: user?.id,
+      team_id: null,
+      subject: 'Entrenamiento cancelado',
+      message: 'El entrenamiento de mañana está cancelado por las lluvias. Nos vemos el jueves en el horario habitual.',
+      audience: 'parents',
+      sent_at: '2024-10-27T18:30:00Z',
+      teams: null,
+    },
+  ];
+
+  const { data: announcementsData, isLoading, refetch } = useQuery({
     queryKey: ['announcements', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -49,6 +89,8 @@ export default function AnnouncementsPage() {
     },
     enabled: !!user?.id,
   });
+
+  const announcements = announcementsData && announcementsData.length > 0 ? announcementsData : demoAnnouncements;
 
   const handleSend = async () => {
     try {

@@ -13,7 +13,21 @@ export default function CoachReportsPage() {
   const { user } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  const { data: teams } = useQuery({
+  // Demo teams data
+  const demoTeams = [
+    {
+      id: 'demo-team-1',
+      coach_id: user?.id,
+      name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      age_group: 'Sub-12',
+      season: '2024',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -26,7 +40,18 @@ export default function CoachReportsPage() {
     enabled: !!user?.id,
   });
 
-  const { data: roster } = useQuery({
+  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+
+  // Demo roster data
+  const demoRoster = [
+    { id: 'player-1', team_id: selectedTeamId, player_name: 'Mateo Pérez', player_number: 10 },
+    { id: 'player-2', team_id: selectedTeamId, player_name: 'Juan Vargas', player_number: 7 },
+    { id: 'player-3', team_id: selectedTeamId, player_name: 'Camila Torres', player_number: 5 },
+    { id: 'player-4', team_id: selectedTeamId, player_name: 'Santiago Rojas', player_number: 1 },
+    { id: 'player-5', team_id: selectedTeamId, player_name: 'Valeria Gómez', player_number: 11 },
+  ];
+
+  const { data: rosterData } = useQuery({
     queryKey: ['team-roster', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -36,10 +61,40 @@ export default function CoachReportsPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
 
-  const { data: results, isLoading } = useQuery({
+  const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
+    ? rosterData
+    : demoRoster;
+
+  // Demo results data
+  const demoResults = [
+    {
+      id: 'result-1',
+      team_id: selectedTeamId,
+      match_date: '2024-10-28',
+      opponent: 'Tigres FC',
+      home_score: 2,
+      away_score: 2,
+      is_home: true,
+      match_type: 'Amistoso',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'result-2',
+      team_id: selectedTeamId,
+      match_date: '2024-10-18',
+      opponent: 'Leones',
+      home_score: 3,
+      away_score: 1,
+      is_home: true,
+      match_type: 'Liga',
+      created_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: resultsData, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -49,8 +104,12 @@ export default function CoachReportsPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
+
+  const results = (resultsData && resultsData.length > 0) || !selectedTeamId.startsWith('demo-')
+    ? resultsData
+    : demoResults;
 
   // Mock attendance data (en producción vendría de session_attendance)
   const attendanceData = [

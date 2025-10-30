@@ -13,7 +13,21 @@ export default function ResultsPage() {
   const { user } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  const { data: teams } = useQuery({
+  // Demo teams data
+  const demoTeams = [
+    {
+      id: 'demo-team-1',
+      coach_id: user?.id,
+      name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      age_group: 'Sub-12',
+      season: '2024',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -26,7 +40,49 @@ export default function ResultsPage() {
     enabled: !!user?.id,
   });
 
-  const { data: results, isLoading } = useQuery({
+  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+
+  // Demo results data
+  const demoResults = [
+    {
+      id: 'result-1',
+      team_id: selectedTeamId,
+      match_date: '2024-10-28',
+      opponent: 'Tigres FC',
+      home_score: 2,
+      away_score: 2,
+      is_home: true,
+      match_type: 'Amistoso',
+      notes: 'Buen partido, el equipo mostró mejora en defensa',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'result-2',
+      team_id: selectedTeamId,
+      match_date: '2024-10-18',
+      opponent: 'Leones',
+      home_score: 3,
+      away_score: 1,
+      is_home: true,
+      match_type: 'Liga',
+      notes: 'Victoria contundente con excelente trabajo colectivo',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'result-3',
+      team_id: selectedTeamId,
+      match_date: '2024-10-12',
+      opponent: 'Águilas FC',
+      home_score: 1,
+      away_score: 2,
+      is_home: false,
+      match_type: 'Liga',
+      notes: 'Derrota ajustada, debemos trabajar en el juego ofensivo',
+      created_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: resultsData, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,8 +93,12 @@ export default function ResultsPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
+
+  const results = (resultsData && resultsData.length > 0) || !selectedTeamId.startsWith('demo-')
+    ? resultsData
+    : demoResults;
 
   const getMatchResult = (match: any) => {
     const ourScore = match.is_home ? match.home_score : match.away_score;

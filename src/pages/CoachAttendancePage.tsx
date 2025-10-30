@@ -20,7 +20,21 @@ export default function CoachAttendancePage() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
 
-  const { data: teams } = useQuery({
+  // Demo teams data
+  const demoTeams = [
+    {
+      id: 'demo-team-1',
+      coach_id: user?.id,
+      name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      age_group: 'Sub-12',
+      season: '2024',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -33,7 +47,58 @@ export default function CoachAttendancePage() {
     enabled: !!user?.id,
   });
 
-  const { data: roster, isLoading } = useQuery({
+  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+
+  // Demo roster data
+  const demoRoster = [
+    {
+      id: 'player-1',
+      team_id: selectedTeamId,
+      player_name: 'Mateo Pérez',
+      player_number: 10,
+      position: 'Delantero',
+      parent_contact: '+57 300 123 4567',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'player-2',
+      team_id: selectedTeamId,
+      player_name: 'Juan Vargas',
+      player_number: 7,
+      position: 'Medio',
+      parent_contact: '+57 310 234 5678',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'player-3',
+      team_id: selectedTeamId,
+      player_name: 'Camila Torres',
+      player_number: 5,
+      position: 'Defensa',
+      parent_contact: '+57 320 345 6789',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'player-4',
+      team_id: selectedTeamId,
+      player_name: 'Santiago Rojas',
+      player_number: 1,
+      position: 'Portero',
+      parent_contact: '+57 315 456 7890',
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'player-5',
+      team_id: selectedTeamId,
+      player_name: 'Valeria Gómez',
+      player_number: 11,
+      position: 'Delantero',
+      parent_contact: '+57 318 567 8901',
+      created_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: rosterData, isLoading } = useQuery({
     queryKey: ['team-roster', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -44,8 +109,12 @@ export default function CoachAttendancePage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
+
+  const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
+    ? rosterData
+    : demoRoster;
 
   const markAllPresent = () => {
     const newState: Record<string, AttendanceStatus> = {};

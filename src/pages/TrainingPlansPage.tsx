@@ -13,7 +13,21 @@ export default function TrainingPlansPage() {
   const { user } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  const { data: teams } = useQuery({
+  // Demo teams data
+  const demoTeams = [
+    {
+      id: 'demo-team-1',
+      coach_id: user?.id,
+      name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      age_group: 'Sub-12',
+      season: '2024',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -26,7 +40,44 @@ export default function TrainingPlansPage() {
     enabled: !!user?.id,
   });
 
-  const { data: plans, isLoading } = useQuery({
+  const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
+
+  // Demo training plans data
+  const demoPlans = [
+    {
+      id: 'plan-1',
+      team_id: selectedTeamId,
+      plan_date: '2024-11-02',
+      objectives: 'Mejorar técnica de pase y control',
+      warmup: '10 min de trote suave + estiramientos dinámicos',
+      drills: [
+        { name: 'Pases cortos en parejas', focus: 'Precisión', duration: '15 min' },
+        { name: 'Rondos 4v1', focus: 'Presión y movimiento', duration: '20 min' },
+        { name: 'Juego reducido 4v4', focus: 'Aplicación táctica', duration: '25 min' },
+      ],
+      materials: 'Conos, balones, petos',
+      notes: 'Excelente sesión. Los jugadores mostraron mejora notable.',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'plan-2',
+      team_id: selectedTeamId,
+      plan_date: '2024-10-30',
+      objectives: 'Trabajo físico y resistencia',
+      warmup: 'Movilidad articular + activación',
+      drills: [
+        { name: 'Circuito físico', focus: 'Resistencia', duration: '20 min' },
+        { name: 'Sprints con cambios de dirección', focus: 'Velocidad', duration: '15 min' },
+      ],
+      materials: 'Escalera de agilidad, conos',
+      notes: 'Buena intensidad durante toda la sesión.',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: plansData, isLoading } = useQuery({
     queryKey: ['training-plans', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,8 +88,12 @@ export default function TrainingPlansPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
+
+  const plans = (plansData && plansData.length > 0) || !selectedTeamId.startsWith('demo-')
+    ? plansData
+    : demoPlans;
 
   return (
     <div className="space-y-6">
