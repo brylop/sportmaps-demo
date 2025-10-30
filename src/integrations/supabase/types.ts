@@ -177,6 +177,7 @@ export type Database = {
           date_of_birth: string
           full_name: string
           id: string
+          is_demo: boolean | null
           medical_info: string | null
           parent_id: string
           school_id: string | null
@@ -190,6 +191,7 @@ export type Database = {
           date_of_birth: string
           full_name: string
           id?: string
+          is_demo?: boolean | null
           medical_info?: string | null
           parent_id: string
           school_id?: string | null
@@ -203,6 +205,7 @@ export type Database = {
           date_of_birth?: string
           full_name?: string
           id?: string
+          is_demo?: boolean | null
           medical_info?: string | null
           parent_id?: string
           school_id?: string | null
@@ -479,6 +482,7 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
+          is_demo: boolean | null
           max_participants: number | null
           name: string
           price_monthly: number
@@ -496,6 +500,7 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_demo?: boolean | null
           max_participants?: number | null
           name: string
           price_monthly: number
@@ -513,6 +518,7 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_demo?: boolean | null
           max_participants?: number | null
           name?: string
           price_monthly?: number
@@ -586,6 +592,7 @@ export type Database = {
           description: string | null
           email: string
           id: string
+          is_demo: boolean | null
           logo_url: string | null
           name: string
           owner_id: string | null
@@ -606,6 +613,7 @@ export type Database = {
           description?: string | null
           email: string
           id?: string
+          is_demo?: boolean | null
           logo_url?: string | null
           name: string
           owner_id?: string | null
@@ -626,6 +634,7 @@ export type Database = {
           description?: string | null
           email?: string
           id?: string
+          is_demo?: boolean | null
           logo_url?: string | null
           name?: string
           owner_id?: string | null
@@ -743,6 +752,7 @@ export type Database = {
           coach_id: string
           created_at: string
           id: string
+          is_demo: boolean | null
           name: string
           season: string | null
           sport: string
@@ -753,6 +763,7 @@ export type Database = {
           coach_id: string
           created_at?: string
           id?: string
+          is_demo?: boolean | null
           name: string
           season?: string | null
           sport: string
@@ -763,6 +774,7 @@ export type Database = {
           coach_id?: string
           created_at?: string
           id?: string
+          is_demo?: boolean | null
           name?: string
           season?: string | null
           sport?: string
