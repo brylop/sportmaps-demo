@@ -30,6 +30,14 @@ export default function LoginPage() {
 
   const from = location.state?.from?.pathname || '/dashboard';
 
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+  });
+
   const demoRoles = [
     {
       id: 'parent',
@@ -76,14 +84,6 @@ export default function LoginPage() {
   if (user) {
     return <Navigate to={from} replace />;
   }
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  });
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
