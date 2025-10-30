@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,11 +23,13 @@ import {
   Target,
   MessageSquare,
   Navigation,
-  CheckCircle2
+  CheckCircle2,
+  ArrowLeft
 } from 'lucide-react';
 import { useSchools } from '@/hooks/useSchools';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { CompareSchools } from '@/components/explore/CompareSchools';
 import { SchoolReviews } from '@/components/explore/SchoolReviews';
 import { SearchModal } from '@/components/explore/SearchModal';
@@ -102,10 +104,40 @@ export default function ExplorePage() {
     return <LoadingSpinner fullScreen text="Cargando escuelas..." />;
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-md mx-auto">
+            <ErrorState
+              title="Error de conexión"
+              message="No se pudieron cargar las escuelas. Revisa tu conexión a internet e intenta nuevamente."
+              onRetry={() => window.location.reload()}
+              retryLabel="Recargar página"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Search Modal */}
       <SearchModal open={searchModalOpen} onOpenChange={setSearchModalOpen} />
+
+      {/* Back to Home Button */}
+      <div className="bg-background border-b">
+        <div className="container mx-auto px-4 py-4">
+          <Link 
+            to="/"
+            className="inline-flex items-center text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Volver al inicio
+          </Link>
+        </div>
+      </div>
 
       {/* Hero Header with Search */}
       <div className="relative bg-gradient-to-br from-primary via-primary/90 to-secondary text-white py-16 overflow-hidden">
