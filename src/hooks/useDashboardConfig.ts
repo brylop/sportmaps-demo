@@ -168,7 +168,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           quickActions: [
             { label: 'Crear Evento', icon: Calendar, href: '/events/create', variant: 'default' },
-            { label: 'Marcar Asistencia', icon: Users, href: '/attendance', variant: 'outline' },
+            { label: 'Marcar Asistencia', icon: Users, href: '/coach-attendance', variant: 'outline' },
             { label: 'Registrar Resultado', icon: Trophy, href: '/results', variant: 'outline' }
           ],
           notifications: [
@@ -224,8 +224,8 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Programas', icon: Activity, href: '/programs', variant: 'outline' },
-            { label: 'Reportes', icon: BarChart3, href: '/reports', variant: 'outline' }
+            { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
+            { label: 'Reportes', icon: BarChart3, href: '/school-reports', variant: 'outline' }
           ]
         };
 

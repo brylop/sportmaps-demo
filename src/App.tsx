@@ -32,6 +32,14 @@ import ResultsPage from "./pages/ResultsPage";
 import TrainingPlansPage from "./pages/TrainingPlansPage";
 import CoachReportsPage from "./pages/CoachReportsPage";
 import AnnouncementsPage from "./pages/AnnouncementsPage";
+import StudentsPage from "./pages/StudentsPage";
+import StaffPage from "./pages/StaffPage";
+import ProgramsManagementPage from "./pages/ProgramsManagementPage";
+import AttendanceSupervisionPage from "./pages/AttendanceSupervisionPage";
+import ResultsOverviewPage from "./pages/ResultsOverviewPage";
+import FinancesPage from "./pages/FinancesPage";
+import ReportsPage from "./pages/ReportsPage";
+import FacilitiesPage from "./pages/FacilitiesPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -80,21 +88,25 @@ const App = () => (
               {/* Parent routes */}
               <Route path="children" element={<MyChildrenPage />} />
               <Route path="academic-progress" element={<AcademicProgressPage />} />
-              <Route path="attendance" element={<AttendancePage />} />
+              <Route path="parent-attendance" element={<AttendancePage />} />
               <Route path="payments" element={<PaymentsPage />} />
               
               {/* Coach routes */}
+              <Route path="coach-attendance" element={<CoachAttendancePage />} />
               <Route path="results" element={<ResultsPage />} />
               <Route path="training-plans" element={<TrainingPlansPage />} />
-              <Route path="reports" element={<CoachReportsPage />} />
+              <Route path="coach-reports" element={<CoachReportsPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               
               {/* School routes */}
-              <Route path="students" element={<div className="p-6"><h1 className="text-2xl font-bold">Estudiantes - En construcción</h1></div>} />
-              <Route path="coaches" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenadores - En construcción</h1></div>} />
-              <Route path="programs" element={<div className="p-6"><h1 className="text-2xl font-bold">Programas - En construcción</h1></div>} />
-              <Route path="finances" element={<div className="p-6"><h1 className="text-2xl font-bold">Finanzas - En construcción</h1></div>} />
-              <Route path="facilities" element={<div className="p-6"><h1 className="text-2xl font-bold">Instalaciones - En construcción</h1></div>} />
+              <Route path="students" element={<StudentsPage />} />
+              <Route path="staff" element={<StaffPage />} />
+              <Route path="programs-management" element={<ProgramsManagementPage />} />
+              <Route path="attendance-supervision" element={<AttendanceSupervisionPage />} />
+              <Route path="results-overview" element={<ResultsOverviewPage />} />
+              <Route path="finances" element={<FinancesPage />} />
+              <Route path="school-reports" element={<ReportsPage />} />
+              <Route path="facilities" element={<FacilitiesPage />} />
               
               {/* Wellness routes */}
               <Route path="athletes" element={<div className="p-6"><h1 className="text-2xl font-bold">Mis Atletas - En construcción</h1></div>} />

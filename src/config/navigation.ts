@@ -87,7 +87,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Seguimiento',
         items: [
           { title: 'Progreso Académico', href: '/academic-progress', icon: BookOpen },
-          { title: 'Asistencias', href: '/attendance', icon: BarChart3 },
+          { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
           { title: 'Pagos', href: '/payments', icon: DollarSign }
         ]
       },
@@ -112,10 +112,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión',
         items: [
-          { title: 'Asistencias', href: '/attendance', icon: BarChart3 },
+          { title: 'Asistencias', href: '/coach-attendance', icon: BarChart3 },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
-          { title: 'Reportes', href: '/reports', icon: FileText }
+          { title: 'Reportes', href: '/coach-reports', icon: FileText }
         ]
       },
       {
@@ -133,23 +133,23 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/coaches', icon: Users }
+          { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Programas', href: '/programs', icon: Activity },
+          { title: 'Programas', href: '/programs-management', icon: Activity },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance', icon: BarChart3 },
-          { title: 'Resultados', href: '/results', icon: Trophy }
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
       {
         title: 'Administración',
         items: [
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/reports', icon: FileText },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Instalaciones', href: '/facilities', icon: Building }
         ]
       }
