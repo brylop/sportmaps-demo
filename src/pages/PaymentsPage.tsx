@@ -11,7 +11,47 @@ import { CreditCard, Download, DollarSign, AlertCircle, CheckCircle2 } from 'luc
 export default function PaymentsPage() {
   const { user } = useAuth();
 
-  const { data: payments, isLoading, error, refetch } = useQuery({
+  // Demo payments data
+  const demoPayments = [
+    {
+      id: 'pay-1',
+      parent_id: user?.id,
+      concept: 'Mensualidad Octubre 2024',
+      amount: 300000,
+      status: 'paid',
+      due_date: '2024-10-05',
+      payment_date: '2024-10-03',
+      receipt_number: 'REC-20241003-001',
+      created_at: '2024-10-03',
+      updated_at: '2024-10-03',
+    },
+    {
+      id: 'pay-2',
+      parent_id: user?.id,
+      concept: 'Mensualidad Septiembre 2024',
+      amount: 300000,
+      status: 'paid',
+      due_date: '2024-09-05',
+      payment_date: '2024-09-04',
+      receipt_number: 'REC-20240904-001',
+      created_at: '2024-09-04',
+      updated_at: '2024-09-04',
+    },
+    {
+      id: 'pay-3',
+      parent_id: user?.id,
+      concept: 'Matrícula 2024',
+      amount: 500000,
+      status: 'paid',
+      due_date: '2024-08-15',
+      payment_date: '2024-08-12',
+      receipt_number: 'REC-20240812-001',
+      created_at: '2024-08-12',
+      updated_at: '2024-08-12',
+    },
+  ];
+
+  const { data: paymentsData, isLoading, error, refetch } = useQuery({
     queryKey: ['payments', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -24,6 +64,8 @@ export default function PaymentsPage() {
     },
     enabled: !!user?.id,
   });
+
+  const payments = paymentsData && paymentsData.length > 0 ? paymentsData : demoPayments;
 
   const pendingPayment = payments?.find((p) => p.status === 'pending');
   const paidPayments = payments?.filter((p) => p.status === 'paid') || [];

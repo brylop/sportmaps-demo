@@ -23,7 +23,13 @@ export default function AttendancePage() {
   const [selectedAttendance, setSelectedAttendance] = useState<any>(null);
   const [justificationReason, setJustificationReason] = useState('');
 
-  const { data: children } = useQuery({
+  // Demo children
+  const demoChildren = [
+    { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
+    { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
+  ];
+
+  const { data: childrenData } = useQuery({
     queryKey: ['children', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -36,7 +42,45 @@ export default function AttendancePage() {
     enabled: !!user?.id,
   });
 
-  const { data: attendance, isLoading, error, refetch } = useQuery({
+  const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
+
+  // Demo attendance data
+  const demoAttendance = [
+    {
+      id: 'att-1',
+      child_id: selectedChildId,
+      class_date: '2024-10-28',
+      status: 'attended',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-2',
+      child_id: selectedChildId,
+      class_date: '2024-10-25',
+      status: 'attended',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-3',
+      child_id: selectedChildId,
+      class_date: '2024-10-23',
+      status: 'absent',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-4',
+      child_id: selectedChildId,
+      class_date: '2024-10-21',
+      status: 'justified',
+      justification_reason: 'Cita médica',
+      children: { full_name: 'Mateo Pérez' },
+    },
+  ];
+
+  const { data: attendanceData, isLoading, error, refetch } = useQuery({
     queryKey: ['attendance', selectedChildId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -47,8 +91,12 @@ export default function AttendancePage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedChildId,
+    enabled: !!selectedChildId && !selectedChildId.startsWith('demo-'),
   });
+
+  const attendance = (attendanceData && attendanceData.length > 0) || !selectedChildId.startsWith('demo-')
+    ? attendanceData
+    : demoAttendance;
 
   const justifyMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {

@@ -28,18 +28,40 @@ export default function MyChildrenPage() {
     enabled: !!user?.id,
   });
 
+  // Demo data for when there are no children
+  const demoChildren = [
+    {
+      id: 'demo-1',
+      full_name: 'Mateo Pérez',
+      date_of_birth: '2013-05-15',
+      team_name: 'Fútbol Sub-12',
+      sport: 'Fútbol',
+      school_id: null,
+      parent_id: user?.id,
+      avatar_url: null,
+      medical_info: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'demo-2',
+      full_name: 'Sofía Pérez',
+      date_of_birth: '2015-08-22',
+      team_name: 'Tenis Infantil',
+      sport: 'Tenis',
+      school_id: null,
+      parent_id: user?.id,
+      avatar_url: null,
+      medical_info: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const displayChildren = children && children.length > 0 ? children : demoChildren;
+
   if (isLoading) {
     return <LoadingSpinner fullScreen text="Cargando tus hijos..." />;
-  }
-
-  if (error) {
-    return (
-      <ErrorState
-        title="Error al cargar"
-        message="No pudimos cargar la información de tus hijos"
-        onRetry={refetch}
-      />
-    );
   }
 
   return (
@@ -57,23 +79,8 @@ export default function MyChildrenPage() {
         </Button>
       </div>
 
-      {children && children.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <School className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-semibold mb-2">No hay hijos registrados</h3>
-            <p className="text-muted-foreground mb-4">
-              Comienza agregando información sobre tus hijos
-            </p>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Añadir Primer Hijo
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {children?.map((child) => (
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {displayChildren?.map((child) => (
             <Card key={child.id} className="hover:shadow-lg transition-shadow">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between">
@@ -120,9 +127,8 @@ export default function MyChildrenPage() {
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
