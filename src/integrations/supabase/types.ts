@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      academic_progress: {
+        Row: {
+          child_id: string
+          coach_id: string | null
+          comments: string | null
+          created_at: string
+          evaluation_date: string
+          id: string
+          skill_level: number
+          skill_name: string
+        }
+        Insert: {
+          child_id: string
+          coach_id?: string | null
+          comments?: string | null
+          created_at?: string
+          evaluation_date?: string
+          id?: string
+          skill_level: number
+          skill_name: string
+        }
+        Update: {
+          child_id?: string
+          coach_id?: string | null
+          comments?: string | null
+          created_at?: string
+          evaluation_date?: string
+          id?: string
+          skill_level?: number
+          skill_name?: string
+        }
+        Relationships: []
+      }
       activities: {
         Row: {
           activity_type: string
@@ -73,6 +106,81 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      attendance: {
+        Row: {
+          child_id: string
+          class_date: string
+          created_at: string
+          id: string
+          justification_reason: string | null
+          justified_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          child_id: string
+          class_date: string
+          created_at?: string
+          id?: string
+          justification_reason?: string | null
+          justified_by?: string | null
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          child_id?: string
+          class_date?: string
+          created_at?: string
+          id?: string
+          justification_reason?: string | null
+          justified_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      children: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          date_of_birth: string
+          full_name: string
+          id: string
+          medical_info: string | null
+          parent_id: string
+          school_id: string | null
+          sport: string | null
+          team_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          date_of_birth: string
+          full_name: string
+          id?: string
+          medical_info?: string | null
+          parent_id: string
+          school_id?: string | null
+          sport?: string | null
+          team_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          date_of_birth?: string
+          full_name?: string
+          id?: string
+          medical_info?: string | null
+          parent_id?: string
+          school_id?: string | null
+          sport?: string | null
+          team_name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       enrollments: {
         Row: {
@@ -207,6 +315,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          concept: string
+          created_at: string
+          due_date: string
+          id: string
+          parent_id: string
+          payment_date: string | null
+          receipt_number: string | null
+          receipt_url: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          concept: string
+          created_at?: string
+          due_date: string
+          id?: string
+          parent_id: string
+          payment_date?: string | null
+          receipt_number?: string | null
+          receipt_url?: string | null
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          concept?: string
+          created_at?: string
+          due_date?: string
+          id?: string
+          parent_id?: string
+          payment_date?: string | null
+          receipt_number?: string | null
+          receipt_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
