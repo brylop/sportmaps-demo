@@ -9,9 +9,11 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { Plus, Calendar, User, School } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { AddChildDialog } from '@/components/children/AddChildDialog';
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
+  const [showAddDialog, setShowAddDialog] = useState(false);
 
   // Check if user is demo account
   const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
@@ -76,7 +78,7 @@ export default function MyChildrenPage() {
             Gestiona la información de tus hijos y sus actividades deportivas
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setShowAddDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Añadir Hijo
         </Button>
@@ -132,6 +134,12 @@ export default function MyChildrenPage() {
             </Card>
         ))}
       </div>
+
+      <AddChildDialog
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+        onSuccess={refetch}
+      />
     </div>
   );
 }
