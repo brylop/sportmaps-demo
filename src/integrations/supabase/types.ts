@@ -107,6 +107,36 @@ export type Database = {
           },
         ]
       }
+      announcements: {
+        Row: {
+          audience: string
+          coach_id: string
+          id: string
+          message: string
+          sent_at: string
+          subject: string
+          team_id: string | null
+        }
+        Insert: {
+          audience: string
+          coach_id: string
+          id?: string
+          message: string
+          sent_at?: string
+          subject: string
+          team_id?: string | null
+        }
+        Update: {
+          audience?: string
+          coach_id?: string
+          id?: string
+          message?: string
+          sent_at?: string
+          subject?: string
+          team_id?: string | null
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
           child_id: string
@@ -229,6 +259,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      match_results: {
+        Row: {
+          away_score: number
+          created_at: string
+          home_score: number
+          id: string
+          is_home: boolean
+          match_date: string
+          match_type: string
+          notes: string | null
+          opponent: string
+          team_id: string
+        }
+        Insert: {
+          away_score: number
+          created_at?: string
+          home_score: number
+          id?: string
+          is_home?: boolean
+          match_date: string
+          match_type: string
+          notes?: string | null
+          opponent: string
+          team_id: string
+        }
+        Update: {
+          away_score?: number
+          created_at?: string
+          home_score?: number
+          id?: string
+          is_home?: boolean
+          match_date?: string
+          match_type?: string
+          notes?: string | null
+          opponent?: string
+          team_id?: string
+        }
+        Relationships: []
       }
       messages: {
         Row: {
@@ -578,6 +647,30 @@ export type Database = {
           },
         ]
       }
+      session_attendance: {
+        Row: {
+          created_at: string
+          id: string
+          player_id: string
+          session_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          player_id: string
+          session_id: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          player_id?: string
+          session_id?: string
+          status?: string
+        }
+        Relationships: []
+      }
       spm_users: {
         Row: {
           avatar_url: string | null
@@ -611,6 +704,132 @@ export type Database = {
           phone?: string | null
           role?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      team_members: {
+        Row: {
+          created_at: string
+          id: string
+          parent_contact: string | null
+          player_name: string
+          player_number: number | null
+          position: string | null
+          team_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          parent_contact?: string | null
+          player_name: string
+          player_number?: number | null
+          position?: string | null
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          parent_contact?: string | null
+          player_name?: string
+          player_number?: number | null
+          position?: string | null
+          team_id?: string
+        }
+        Relationships: []
+      }
+      teams: {
+        Row: {
+          age_group: string | null
+          coach_id: string
+          created_at: string
+          id: string
+          name: string
+          season: string | null
+          sport: string
+          updated_at: string
+        }
+        Insert: {
+          age_group?: string | null
+          coach_id: string
+          created_at?: string
+          id?: string
+          name: string
+          season?: string | null
+          sport: string
+          updated_at?: string
+        }
+        Update: {
+          age_group?: string | null
+          coach_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          season?: string | null
+          sport?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_plans: {
+        Row: {
+          created_at: string
+          drills: Json | null
+          id: string
+          materials: string | null
+          notes: string | null
+          objectives: string
+          plan_date: string
+          team_id: string
+          updated_at: string
+          warmup: string | null
+        }
+        Insert: {
+          created_at?: string
+          drills?: Json | null
+          id?: string
+          materials?: string | null
+          notes?: string | null
+          objectives: string
+          plan_date: string
+          team_id: string
+          updated_at?: string
+          warmup?: string | null
+        }
+        Update: {
+          created_at?: string
+          drills?: Json | null
+          id?: string
+          materials?: string | null
+          notes?: string | null
+          objectives?: string
+          plan_date?: string
+          team_id?: string
+          updated_at?: string
+          warmup?: string | null
+        }
+        Relationships: []
+      }
+      training_sessions: {
+        Row: {
+          created_at: string
+          id: string
+          session_date: string
+          session_time: string | null
+          team_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          session_date: string
+          session_time?: string | null
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          session_date?: string
+          session_time?: string | null
+          team_id?: string
         }
         Relationships: []
       }
