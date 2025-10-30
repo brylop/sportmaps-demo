@@ -48,7 +48,7 @@ export default function ExplorePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const { schools, loading, cities, sports } = useSchools({
+  const { schools, loading, error, cities, sports } = useSchools({
     searchQuery,
     city: selectedCity,
     sport: selectedSport,
