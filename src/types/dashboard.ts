@@ -26,7 +26,7 @@ export interface QuickAction {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   href: string;
-  variant?: 'default' | 'outline' | 'hero';
+  variant?: 'default' | 'outline' | 'hero' | 'orange';
 }
 
 export interface NotificationItem {

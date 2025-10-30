@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { 
+import { ThemeToggle } from "@/components/ThemeToggle";
+import {
   MapPin, 
   Zap, 
   Users, 
@@ -230,6 +231,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
 
             {/* Actions */}
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <Button 
                 variant="ghost" 
                 size="sm"
@@ -247,7 +249,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
                 <Link to="/login">Ingresar</Link>
               </Button>
               <Button 
-                variant="default"
+                variant="orange"
                 size="sm"
                 asChild
               >

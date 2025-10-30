@@ -94,7 +94,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           activities: [],
           quickActions: [
-            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
+            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'orange' },
             { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' }
           ]
         };

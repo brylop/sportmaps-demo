@@ -1,6 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Outlet } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -19,8 +20,11 @@ export default function AuthLayout() {
             <div className="flex-1">
               <h1 className="text-lg font-semibold">SportMaps</h1>
             </div>
-            <div className="text-sm text-muted-foreground">
-              Bienvenido, {profile?.full_name || user?.email}
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <div className="text-sm text-muted-foreground">
+                Bienvenido, {profile?.full_name || user?.email}
+              </div>
             </div>
           </header>
 

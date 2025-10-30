@@ -37,16 +37,17 @@ All colors MUST be HSL.
     --text-light-primary: 121 47% 10%;
     --text-light-secondary: 121 30% 45%;
     
-    /* Orange accent #FE9F1E */
+    /* Orange accent #FE9F1E - más prominente */
     --accent-orange: 38 99% 56%;
     --accent-orange-light: 45 99% 65%;
+    --accent-orange-dark: 38 99% 45%;
     
     /* Muted tones */
     --muted: 121 25% 95%;
     --muted-foreground: 121 20% 45%;
 
-    --accent: 121 30% 95%;
-    --accent-foreground: 121 47% 26%;
+    --accent: 38 99% 56%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -56,11 +57,11 @@ All colors MUST be HSL.
     --ring: 121 47% 26%;
     
     /* SportsMaps Design Tokens */
-    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
-    --gradient-performance: linear-gradient(45deg, hsl(var(--primary)), hsl(var(--secondary)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent-orange)));
+    --gradient-performance: linear-gradient(45deg, hsl(var(--primary)), hsl(var(--accent-orange-light)));
     --gradient-elevation: linear-gradient(180deg, hsl(var(--muted)), hsl(var(--background)));
     --gradient-orange: linear-gradient(90deg, hsl(var(--accent-orange)), hsl(var(--accent-orange-light)));
-    --gradient-dark-bg: linear-gradient(180deg, hsl(var(--background-dark)), hsl(140 25% 8%));
+    --gradient-dark-bg: linear-gradient(180deg, hsl(var(--background-dark)), hsl(121 30% 8%));
     
     --shadow-elevation: 0 25px 50px -12px hsl(var(--primary) / 0.15);
     --shadow-performance: 0 10px 40px -10px hsl(var(--primary) / 0.2);
@@ -114,15 +115,24 @@ All colors MUST be HSL.
     --muted: 121 30% 18%;
     --muted-foreground: 121 20% 65%;
 
-    --accent: 121 30% 18%;
-    --accent-foreground: 121 47% 35%;
+    --accent: 38 99% 56%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 121 30% 18%;
-    --input: 121 30% 18%;
+    --border: 121 30% 25%;
+    --input: 121 30% 25%;
     --ring: 121 47% 35%;
+    
+    --sidebar-background: 121 35% 10%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 121 47% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 121 30% 18%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 121 30% 25%;
+    --sidebar-ring: 121 47% 35%;
   }
 }
 

@@ -36,7 +36,7 @@ const Hero = () => {
               <Zap className="w-5 h-5" />
               Iniciar Actividad
             </Button>
-            <Button variant="elevation" size="xl" className="min-w-[200px]">
+            <Button variant="orange" size="xl" className="min-w-[200px]">
               <MapPin className="w-5 h-5" />
               Explorar Rutas
             </Button>
@@ -49,12 +49,12 @@ const Hero = () => {
               <div className="text-muted-foreground">Rutas Verificadas</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-secondary mb-2">15K+</div>
+              <div className="text-3xl font-bold bg-gradient-orange bg-clip-text text-transparent mb-2">120K+</div>
               <div className="text-muted-foreground">Atletas Activos</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-primary mb-2">2.5M+</div>
-              <div className="text-muted-foreground">KM Recorridos</div>
+              <div className="text-3xl font-bold text-primary mb-2">300+</div>
+              <div className="text-muted-foreground">Escuelas Deportivas</div>
             </div>
           </div>
         </div>
