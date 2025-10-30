@@ -1,4 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
@@ -7,8 +9,21 @@ import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { UserRole } from '@/types/dashboard';
 
 export default function DashboardPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
+  const navigate = useNavigate();
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
+
+  // Redirect school users to onboarding if they haven't completed setup
+  useEffect(() => {
+    if (profile?.role === 'school') {
+      // Check if this is first login (you can add more sophisticated logic here)
+      const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user?.id}`);
+      
+      if (!hasCompletedOnboarding) {
+        navigate('/school-onboarding');
+      }
+    }
+  }, [profile, user, navigate]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">

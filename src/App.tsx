@@ -40,6 +40,10 @@ import ResultsOverviewPage from "./pages/ResultsOverviewPage";
 import FinancesPage from "./pages/FinancesPage";
 import ReportsPage from "./pages/ReportsPage";
 import FacilitiesPage from "./pages/FacilitiesPage";
+import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
+import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
+import SchoolStudentsManagementPage from "./pages/SchoolStudentsManagementPage";
+import SchoolCoachesManagementPage from "./pages/SchoolCoachesManagementPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -99,14 +103,15 @@ const App = () => (
               <Route path="announcements" element={<AnnouncementsPage />} />
               
               {/* School routes */}
-              <Route path="students" element={<StudentsPage />} />
-              <Route path="staff" element={<StaffPage />} />
+              <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+              <Route path="students" element={<SchoolStudentsManagementPage />} />
+              <Route path="staff" element={<SchoolCoachesManagementPage />} />
               <Route path="programs-management" element={<ProgramsManagementPage />} />
               <Route path="attendance-supervision" element={<AttendanceSupervisionPage />} />
               <Route path="results-overview" element={<ResultsOverviewPage />} />
               <Route path="finances" element={<FinancesPage />} />
               <Route path="school-reports" element={<ReportsPage />} />
-              <Route path="facilities" element={<FacilitiesPage />} />
+              <Route path="facilities" element={<SchoolFacilitiesPage />} />
               
               {/* Wellness routes */}
               <Route path="athletes" element={<div className="p-6"><h1 className="text-2xl font-bold">Mis Atletas - En construcción</h1></div>} />
