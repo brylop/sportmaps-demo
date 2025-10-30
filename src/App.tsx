@@ -62,6 +62,8 @@ const App = () => (
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Index />} />
+            <Route path="/explore" element={<ExplorePage />} />
+            <Route path="/schools/:id" element={<SchoolDetailPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/demo-profiles" element={<DemoProfilesPage />} />
@@ -91,8 +93,6 @@ const App = () => (
               <Route path="stats" element={<StatsPage />} />
               <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
               <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
-              <Route path="explore" element={<ExplorePage />} />
-              <Route path="schools/:id" element={<SchoolDetailPage />} />
               <Route path="enrollments" element={<MyEnrollmentsPage />} />
               <Route path="shop" element={<div className="p-6"><h1 className="text-2xl font-bold">Tienda - En construcción</h1></div>} />
               <Route path="wellness" element={<div className="p-6"><h1 className="text-2xl font-bold">Bienestar - En construcción</h1></div>} />

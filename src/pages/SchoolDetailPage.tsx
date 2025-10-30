@@ -24,6 +24,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { AuthModal } from '@/components/explore/AuthModal';
 
 interface School {
   id: string;
@@ -68,6 +69,8 @@ export default function SchoolDetailPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -113,12 +116,9 @@ export default function SchoolDetailPage() {
 
   const handleEnroll = async (programId: string) => {
     if (!user) {
-      toast({
-        title: 'Autenticación requerida',
-        description: 'Debes iniciar sesión para inscribirte',
-        variant: 'destructive',
-      });
-      navigate('/login');
+      // Usuario no autenticado - mostrar modal de auth
+      setSelectedProgramId(programId);
+      setAuthModalOpen(true);
       return;
     }
 
@@ -188,6 +188,13 @@ export default function SchoolDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Auth Modal */}
+      <AuthModal 
+        open={authModalOpen} 
+        onOpenChange={setAuthModalOpen}
+        programId={selectedProgramId || undefined}
+      />
+
       {/* Cover Image */}
       <div
         className="h-64 md:h-80 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center relative"
