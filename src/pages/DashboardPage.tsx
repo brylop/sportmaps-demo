@@ -77,7 +77,12 @@ export default function DashboardPage() {
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Activities */}
+        {/* Quick Actions - Always show */}
+        {config.quickActions && config.quickActions.length > 0 && (
+          <QuickActions actions={config.quickActions} />
+        )}
+
+        {/* Activities - Only show if there are activities */}
         {config.activities && config.activities.length > 0 && (
           <div className="md:col-span-2 lg:col-span-1">
             <ActivityList
@@ -87,12 +92,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Quick Actions */}
-        {config.quickActions && config.quickActions.length > 0 && (
-          <QuickActions actions={config.quickActions} />
-        )}
-
-        {/* Notifications */}
+        {/* Notifications - Only show if there are notifications */}
         {config.notifications && config.notifications.length > 0 && (
           <NotificationList notifications={config.notifications} />
         )}

@@ -30,53 +30,34 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Equipos Activos',
-              value: 2,
-              description: '+1 desde el mes pasado',
-              icon: Trophy,
-              trend: { value: '+50%', positive: true }
+              value: 0,
+              description: 'Aún no estás en ningún equipo',
+              icon: Trophy
             },
             {
               title: 'Próximos Eventos',
-              value: 3,
+              value: 0,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Partidos Jugados',
-              value: 12,
+              value: 0,
               description: 'Este mes',
               icon: Target
             },
             {
               title: 'Asistencia',
-              value: '85%',
-              description: '+2% desde el mes pasado',
-              icon: BarChart3,
-              trend: { value: '+2%', positive: true }
+              value: '0%',
+              description: 'Sin registros aún',
+              icon: BarChart3
             }
           ],
-          activities: [
-            {
-              id: '1',
-              title: 'Entrenamiento - Fútbol Sub-17',
-              subtitle: 'Cancha Principal',
-              time: 'Hoy, 4:00 PM',
-              icon: Clock,
-              variant: 'primary'
-            },
-            {
-              id: '2',
-              title: 'Partido vs. Academia Deportiva',
-              subtitle: 'Estadio Norte',
-              time: 'Sábado, 10:00 AM',
-              icon: Trophy,
-              variant: 'accent'
-            }
-          ],
+          activities: [],
           quickActions: [
             { label: 'Ver Calendario', icon: Calendar, href: '/calendar' },
             { label: 'Mis Estadísticas', icon: BarChart3, href: '/stats' },
-            { label: 'Equipos', icon: Users, href: '/teams' }
+            { label: 'Explorar Programas', icon: Users, href: '/explore' }
           ]
         };
 
@@ -88,49 +69,33 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Hijos Registrados',
-              value: 2,
-              description: 'Atletas activos',
+              value: 0,
+              description: 'Aún no has agregado hijos',
               icon: Users
             },
             {
               title: 'Próximas Actividades',
-              value: 5,
+              value: 0,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Asistencia Global',
-              value: '88%',
-              description: 'Promedio familiar',
-              icon: BarChart3,
-              trend: { value: '+3%', positive: true }
+              value: '0%',
+              description: 'Sin registros aún',
+              icon: BarChart3
             },
             {
               title: 'Notificaciones',
-              value: 3,
+              value: 0,
               description: 'Sin leer',
               icon: Bell
             }
           ],
-          activities: [
-            {
-              id: '1',
-              title: 'Ana María Pérez',
-              subtitle: 'Fútbol Sub-15 • Entrenamiento',
-              time: 'Hoy 4:00 PM',
-              location: 'Cancha Norte',
-              icon: Users,
-              variant: 'primary'
-            },
-            {
-              id: '2',
-              title: 'Carlos Pérez',
-              subtitle: 'Basketball U-12 • Partido',
-              time: 'Sábado 10:00 AM',
-              location: 'Coliseo Central',
-              icon: Trophy,
-              variant: 'accent'
-            }
+          activities: [],
+          quickActions: [
+            { label: 'Agregar Hijo', icon: Users, href: '/my-children', variant: 'default' },
+            { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' }
           ]
         };
 
@@ -142,51 +107,36 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Equipos',
-              value: 3,
-              description: 'Equipos activos',
+              value: 0,
+              description: 'Aún no tienes equipos asignados',
               icon: Users
             },
             {
               title: 'Jugadores Totales',
-              value: 45,
+              value: 0,
               description: 'En todos los equipos',
               icon: Users
             },
             {
               title: 'Próximos Eventos',
-              value: 8,
+              value: 0,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Asistencia Promedio',
-              value: '92%',
-              description: '+5% desde el mes pasado',
-              icon: TrendingUp,
-              trend: { value: '+5%', positive: true }
+              value: '0%',
+              description: 'Sin registros aún',
+              icon: TrendingUp
             }
           ],
+          activities: [],
           quickActions: [
             { label: 'Crear Evento', icon: Calendar, href: '/events/create', variant: 'default' },
             { label: 'Marcar Asistencia', icon: Users, href: '/coach-attendance', variant: 'outline' },
             { label: 'Registrar Resultado', icon: Trophy, href: '/results', variant: 'outline' }
           ],
-          notifications: [
-            {
-              id: '1',
-              title: 'Nuevo jugador agregado',
-              message: 'Carlos Mendoza se unió al equipo Sub-17',
-              timestamp: 'Hace 2 horas',
-              type: 'info'
-            },
-            {
-              id: '2',
-              title: 'Recordatorio de partido',
-              message: 'Partido mañana vs Academia Norte',
-              timestamp: 'Hace 4 horas',
-              type: 'warning'
-            }
-          ]
+          notifications: []
         };
 
       case 'school':
@@ -197,35 +147,34 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Estudiantes Activos',
-              value: 156,
-              description: '+12 este mes',
-              icon: Users,
-              trend: { value: '+8%', positive: true }
+              value: 0,
+              description: 'Aún no tienes estudiantes',
+              icon: Users
             },
             {
               title: 'Programas',
-              value: 8,
-              description: 'Disciplinas deportivas',
+              value: 0,
+              description: 'Crea tu primer programa',
               icon: Activity
             },
             {
               title: 'Entrenadores',
-              value: 15,
-              description: 'Equipo activo',
+              value: 0,
+              description: 'Agrega tu equipo',
               icon: Users
             },
             {
               title: 'Ingresos Mensuales',
-              value: '$45,200',
-              description: '+15% vs mes anterior',
-              icon: TrendingUp,
-              trend: { value: '+15%', positive: true }
+              value: '$0',
+              description: 'Este mes',
+              icon: TrendingUp
             }
           ],
+          activities: [],
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
-            { label: 'Reportes', icon: BarChart3, href: '/school-reports', variant: 'outline' }
+            { label: 'Agregar Entrenador', icon: Users, href: '/school-coaches', variant: 'outline' }
           ]
         };
 
@@ -237,31 +186,32 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Atletas Asignados',
-              value: 34,
-              description: 'Bajo tu cuidado',
+              value: 0,
+              description: 'Aún no tienes atletas asignados',
               icon: Users
             },
             {
               title: 'Consultas Programadas',
-              value: 7,
+              value: 0,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Evaluaciones Pendientes',
-              value: 5,
+              value: 0,
               description: 'Por completar',
               icon: Activity
             },
             {
               title: 'Casos Activos',
-              value: 12,
+              value: 0,
               description: 'En seguimiento',
               icon: Heart
             }
           ],
+          activities: [],
           quickActions: [
-            { label: 'Nueva Evaluación', icon: Activity, href: '/evaluations/new', variant: 'default' },
+            { label: 'Configurar Disponibilidad', icon: Activity, href: '/availability', variant: 'default' },
             { label: 'Ver Agenda', icon: Calendar, href: '/schedule', variant: 'outline' },
             { label: 'Historial Médico', icon: Heart, href: '/medical-history', variant: 'outline' }
           ]
@@ -275,30 +225,30 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Productos Activos',
-              value: 245,
-              description: 'En catálogo',
+              value: 0,
+              description: 'Crea tu primer producto',
               icon: ShoppingBag
             },
             {
               title: 'Ventas del Mes',
-              value: '$12,340',
-              description: '+22% vs mes anterior',
-              icon: TrendingUp,
-              trend: { value: '+22%', positive: true }
+              value: '$0',
+              description: 'Este mes',
+              icon: TrendingUp
             },
             {
               title: 'Pedidos Pendientes',
-              value: 18,
+              value: 0,
               description: 'Por procesar',
               icon: Clock
             },
             {
               title: 'Clientes',
-              value: 892,
+              value: 0,
               description: 'Registrados',
               icon: Users
             }
           ],
+          activities: [],
           quickActions: [
             { label: 'Agregar Producto', icon: ShoppingBag, href: '/products/new', variant: 'default' },
             { label: 'Ver Pedidos', icon: Clock, href: '/orders', variant: 'outline' },
@@ -314,31 +264,30 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Usuarios Totales',
-              value: '1,234',
-              description: '+12% desde el mes pasado',
-              icon: Users,
-              trend: { value: '+12%', positive: true }
+              value: 0,
+              description: 'Sin registros aún',
+              icon: Users
             },
             {
               title: 'Clubs Activos',
-              value: 45,
-              description: '+3 este mes',
+              value: 0,
+              description: 'Sin clubs registrados',
               icon: Building
             },
             {
               title: 'Eventos Programados',
-              value: 156,
+              value: 0,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Ingresos Mensuales',
-              value: '$12,450',
-              description: '+8% desde el mes pasado',
-              icon: TrendingUp,
-              trend: { value: '+8%', positive: true }
+              value: '$0',
+              description: 'Este mes',
+              icon: TrendingUp
             }
           ],
+          activities: [],
           quickActions: [
             { label: 'Gestionar Usuarios', icon: Users, href: '/admin/users', variant: 'default' },
             { label: 'Gestionar Clubs', icon: Building, href: '/admin/clubs', variant: 'outline' },

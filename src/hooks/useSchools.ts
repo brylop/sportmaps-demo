@@ -46,14 +46,15 @@ export function useSchools(filters?: SchoolFilters) {
       setLoading(true);
       setError(null);
 
-      let query = supabase
+      // Only fetch schools - RLS policies will handle filtering
+      const { data, error: fetchError } = await supabase
         .from('schools')
         .select('*')
         .order('rating', { ascending: false });
 
-      const { data, error: fetchError } = await query;
-
       if (fetchError) throw fetchError;
+      
+      // Return empty array if no data (user hasn't created schools yet)
       setSchools(data || []);
     } catch (err: any) {
       console.error('Error fetching schools:', err);
