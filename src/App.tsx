@@ -27,6 +27,11 @@ import MyChildrenPage from "./pages/MyChildrenPage";
 import AcademicProgressPage from "./pages/AcademicProgressPage";
 import AttendancePage from "./pages/AttendancePage";
 import PaymentsPage from "./pages/PaymentsPage";
+import CoachAttendancePage from "./pages/CoachAttendancePage";
+import ResultsPage from "./pages/ResultsPage";
+import TrainingPlansPage from "./pages/TrainingPlansPage";
+import CoachReportsPage from "./pages/CoachReportsPage";
+import AnnouncementsPage from "./pages/AnnouncementsPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -79,10 +84,10 @@ const App = () => (
               <Route path="payments" element={<PaymentsPage />} />
               
               {/* Coach routes */}
-              <Route path="results" element={<div className="p-6"><h1 className="text-2xl font-bold">Resultados - En construcción</h1></div>} />
-              <Route path="training-plans" element={<div className="p-6"><h1 className="text-2xl font-bold">Planes de Entrenamiento - En construcción</h1></div>} />
-              <Route path="reports" element={<div className="p-6"><h1 className="text-2xl font-bold">Reportes - En construcción</h1></div>} />
-              <Route path="announcements" element={<div className="p-6"><h1 className="text-2xl font-bold">Anuncios - En construcción</h1></div>} />
+              <Route path="results" element={<ResultsPage />} />
+              <Route path="training-plans" element={<TrainingPlansPage />} />
+              <Route path="reports" element={<CoachReportsPage />} />
+              <Route path="announcements" element={<AnnouncementsPage />} />
               
               {/* School routes */}
               <Route path="students" element={<div className="p-6"><h1 className="text-2xl font-bold">Estudiantes - En construcción</h1></div>} />
