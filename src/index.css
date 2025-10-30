@@ -8,52 +8,52 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* SportsMaps Brand Identity - Verde Esmeralda */
+    /* SportsMaps Brand Identity - Verde y Naranja */
     --background: 0 0% 100%;
-    --foreground: 140 10% 8%;
+    --foreground: 121 47% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 140 10% 8%;
+    --card-foreground: 121 47% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 140 10% 8%;
+    --popover-foreground: 121 47% 10%;
 
-    /* Primary: Verde Esmeralda (#04A462) */
-    --primary: 147 96% 33%;
+    /* Primary: Verde #246225 */
+    --primary: 121 47% 26%;
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 147 85% 45%;
+    --primary-glow: 121 47% 35%;
 
-    /* Secondary: Verde más claro para fondos */
-    --secondary: 147 20% 95%;
-    --secondary-foreground: 140 35% 15%;
+    /* Secondary: Verde claro para fondos */
+    --secondary: 121 30% 95%;
+    --secondary-foreground: 121 47% 15%;
     
-    /* Background variations - menos oscuro */
-    --background-dark: 140 25% 12%;
+    /* Background variations */
+    --background-dark: 121 35% 12%;
     --background-light: 0 0% 100%;
     
-    /* Text colors - mejorados para contraste */
+    /* Text colors */
     --text-dark-primary: 0 0% 100%;
-    --text-dark-secondary: 147 25% 75%;
-    --text-light-primary: 140 35% 8%;
-    --text-light-secondary: 140 25% 45%;
+    --text-dark-secondary: 121 20% 75%;
+    --text-light-primary: 121 47% 10%;
+    --text-light-secondary: 121 30% 45%;
     
-    /* Orange gradient accent */
-    --accent-orange: 38 92% 50%;
-    --accent-orange-light: 45 93% 58%;
+    /* Orange accent #FE9F1E */
+    --accent-orange: 38 99% 56%;
+    --accent-orange-light: 45 99% 65%;
     
     /* Muted tones */
-    --muted: 147 25% 95%;
-    --muted-foreground: 140 10% 45%;
+    --muted: 121 25% 95%;
+    --muted-foreground: 121 20% 45%;
 
-    --accent: 147 79% 95%;
-    --accent-foreground: 147 79% 56%;
+    --accent: 121 30% 95%;
+    --accent-foreground: 121 47% 26%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 147 25% 90%;
-    --input: 147 25% 90%;
-    --ring: 147 79% 56%;
+    --border: 121 25% 90%;
+    --input: 121 25% 90%;
+    --ring: 121 47% 26%;
     
     /* SportsMaps Design Tokens */
     --gradient-hero: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
@@ -96,33 +96,33 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 140 50% 7%;
+    --background: 121 40% 8%;
     --foreground: 0 0% 100%;
 
-    --card: 140 32% 22%;
+    --card: 121 30% 18%;
     --card-foreground: 0 0% 100%;
 
-    --popover: 140 32% 22%;
+    --popover: 121 30% 18%;
     --popover-foreground: 0 0% 100%;
 
-    --primary: 147 79% 56%;
-    --primary-foreground: 0 0% 0%;
+    --primary: 121 47% 35%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 140 32% 22%;
+    --secondary: 121 30% 18%;
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 140 32% 22%;
-    --muted-foreground: 147 35% 65%;
+    --muted: 121 30% 18%;
+    --muted-foreground: 121 20% 65%;
 
-    --accent: 140 32% 22%;
-    --accent-foreground: 147 79% 56%;
+    --accent: 121 30% 18%;
+    --accent-foreground: 121 47% 35%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 140 32% 22%;
-    --input: 140 32% 22%;
-    --ring: 147 79% 56%;
+    --border: 121 30% 18%;
+    --input: 121 30% 18%;
+    --ring: 121 47% 35%;
   }
 }
 
@@ -132,6 +132,6 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-poppins;
   }
 }
