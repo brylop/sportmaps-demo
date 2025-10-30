@@ -22,7 +22,8 @@ import {
   DollarSign,
   Target,
   MessageSquare,
-  Navigation
+  Navigation,
+  CheckCircle2
 } from 'lucide-react';
 import { useSchools } from '@/hooks/useSchools';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -107,44 +108,112 @@ export default function ExplorePage() {
       <SearchModal open={searchModalOpen} onOpenChange={setSearchModalOpen} />
 
       {/* Hero Header with Search */}
-      <div className="bg-gradient-hero text-white py-12">
-        <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto space-y-6 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold">
-              Encuentra tu Escuela Deportiva Ideal
-            </h1>
-            <p className="text-lg text-white/90">
-              Miles de programas deportivos para todas las edades
-            </p>
+      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-secondary text-white py-16 overflow-hidden">
+        {/* Background pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
+            backgroundSize: '32px 32px'
+          }} />
+        </div>
+        
+        <div className="container mx-auto px-4 relative z-10">
+          <div className="max-w-4xl mx-auto space-y-8 text-center">
+            <div className="space-y-4">
+              <Badge variant="secondary" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
+                🏆 Más de 150 escuelas verificadas
+              </Badge>
+              <h1 className="text-4xl md:text-6xl font-bold leading-tight">
+                Encuentra tu Escuela Deportiva Ideal
+              </h1>
+              <p className="text-xl md:text-2xl text-white/90 max-w-2xl mx-auto">
+                Miles de programas deportivos para todas las edades. Explora, compara y reserva tu cupo hoy.
+              </p>
+            </div>
             
             {/* Main Search Bar */}
             <div 
-              className="relative max-w-2xl mx-auto cursor-pointer"
+              className="relative max-w-2xl mx-auto cursor-pointer group"
               onClick={() => setSearchModalOpen(true)}
             >
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input
-                placeholder="Buscar escuelas, deportes, programas..."
-                className="pl-12 h-14 text-base bg-white"
-                readOnly
-              />
+              <div className="absolute inset-0 bg-white/20 rounded-2xl blur-xl group-hover:bg-white/30 transition-all" />
+              <div className="relative">
+                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 h-6 w-6 text-muted-foreground" />
+                <Input
+                  placeholder="Busca fútbol, natación, tenis..."
+                  className="pl-14 pr-4 h-16 text-lg bg-white rounded-2xl shadow-2xl border-0 focus:ring-4 focus:ring-white/50"
+                  readOnly
+                />
+              </div>
+            </div>
+
+            {/* Quick Search Suggestions */}
+            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+              <span className="text-white/70">Búsquedas populares:</span>
+              {['Fútbol', 'Natación', 'Tenis', 'Baloncesto', 'Karate'].map((sport) => (
+                <Badge 
+                  key={sport}
+                  variant="outline" 
+                  className="border-white/30 text-white hover:bg-white/20 cursor-pointer"
+                  onClick={() => {
+                    setSelectedSport(sport);
+                  }}
+                >
+                  {sport}
+                </Badge>
+              ))}
             </div>
           </div>
         </div>
       </div>
 
+      {/* Age Groups Section */}
+      <div className="bg-muted/30 py-12 border-y">
+        <div className="container mx-auto px-4">
+          <h2 className="text-2xl font-bold text-center mb-8">Explora por edad</h2>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            {[
+              { label: 'Familia', sublabel: 'Todas las edades', icon: '👨‍👩‍👧‍👦' },
+              { label: 'Primera infancia', sublabel: '0 - 5 años', icon: '👶' },
+              { label: 'Niños', sublabel: '6 - 11 años', icon: '🧒' },
+              { label: 'Adolescentes', sublabel: '12 - 17 años', icon: '🧑' },
+              { label: 'Jóvenes', sublabel: '18 - 26 años', icon: '👱' },
+              { label: 'Adultos', sublabel: '27 - 59 años', icon: '🧔' },
+            ].map((group, index) => (
+              <button
+                key={index}
+                className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-background hover:bg-accent transition-all group"
+              >
+                <div className="text-5xl group-hover:scale-110 transition-transform">
+                  {group.icon}
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-sm">{group.label}</p>
+                  <p className="text-xs text-muted-foreground">{group.sublabel}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="container mx-auto px-4 py-8 space-y-6">
-        {/* Filters */}
-        <Card>
+        {/* Filters Section */}
+        <Card className="shadow-lg">
           <CardContent className="p-6">
             <div className="space-y-6">
               {/* Primary Filters Row */}
+              <div className="flex items-center gap-3 mb-4">
+                <Trophy className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold text-lg">Refina tu búsqueda</h3>
+              </div>
+              
               <div className="grid gap-4 md:grid-cols-5">
                 {/* Near Me Button */}
                 <Button
                   variant={nearMe ? 'default' : 'outline'}
                   onClick={handleNearMeToggle}
-                  className="h-10"
+                  className="h-11"
                 >
                   <Navigation className="h-4 w-4 mr-2" />
                   Cerca de mí
@@ -324,98 +393,120 @@ export default function ExplorePage() {
             }}
           />
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {schools.map((school) => (
-            <Card
-              key={school.id}
-              className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
-              onClick={() => navigate(`/schools/${school.id}`)}
-            >
-              {/* Cover Image */}
-              <div
-                className="h-48 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center"
-                style={
-                  school.cover_image_url
-                    ? { backgroundImage: `url(${school.cover_image_url})` }
-                    : undefined
-                }
-              />
+          <>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold">Escuelas Disponibles</h2>
+                <p className="text-muted-foreground mt-1">
+                  {schools.length} {schools.length === 1 ? 'escuela encontrada' : 'escuelas encontradas'}
+                  {nearMe && userLocation && ' cerca de ti'}
+                </p>
+              </div>
+            </div>
 
-              <CardHeader className="space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 space-y-1">
-                    <CardTitle className="text-xl line-clamp-1">
-                      {school.name}
-                    </CardTitle>
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <MapPin className="h-3 w-3" />
-                      <span className="line-clamp-1">{school.city}</span>
-                    </div>
-                  </div>
-                  {school.verified && (
-                    <Badge variant="default" className="shrink-0">
-                      Verificada
-                    </Badge>
-                  )}
-                </div>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {schools.map((school) => (
+                <Card
+                  key={school.id}
+                  className="group overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 hover:border-primary/50"
+                  onClick={() => navigate(`/schools/${school.id}`)}
+                >
+                  {/* Cover Image */}
+                  <div className="relative h-56 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center overflow-hidden">
+                    {school.cover_image_url ? (
+                      <img 
+                        src={school.cover_image_url} 
+                        alt={school.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Trophy className="h-16 w-16 text-white/40" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-                {/* Rating */}
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1">
-                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    <span className="font-semibold">{school.rating.toFixed(1)}</span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    ({school.total_reviews} reseñas)
-                  </span>
-                </div>
-              </CardHeader>
-
-              <CardContent className="space-y-4">
-                {/* Description */}
-                {school.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {school.description}
-                  </p>
-                )}
-
-                {/* Sports */}
-                {school.sports && school.sports.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {school.sports.slice(0, 3).map((sport) => (
-                      <Badge key={sport} variant="secondary" className="text-xs">
-                        {sport}
-                      </Badge>
-                    ))}
-                    {school.sports.length > 3 && (
-                      <Badge variant="secondary" className="text-xs">
-                        +{school.sports.length - 3}
+                    {school.verified && (
+                      <Badge 
+                        className="absolute top-3 right-3 bg-white/90 text-foreground border-0"
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Verificada
                       </Badge>
                     )}
                   </div>
-                )}
 
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button 
-                    className="flex-1" 
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/schools/${school.id}`);
-                    }}
-                  >
-                    Ver Detalles
-                  </Button>
-                  <SchoolReviews 
-                    schoolId={school.id}
-                    schoolName={school.name}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            ))}
-          </div>
+                  <CardHeader className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 space-y-2">
+                        <CardTitle className="text-xl line-clamp-2 group-hover:text-primary transition-colors">
+                          {school.name}
+                        </CardTitle>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <MapPin className="h-4 w-4" />
+                          <span className="line-clamp-1">{school.city}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Rating */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 px-3 py-1 bg-yellow-50 rounded-full border border-yellow-200">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        <span className="font-bold text-yellow-700">{school.rating.toFixed(1)}</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {school.total_reviews} reseñas
+                      </span>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {/* Description */}
+                    {school.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                        {school.description}
+                      </p>
+                    )}
+
+                    {/* Sports */}
+                    {school.sports && school.sports.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {school.sports.slice(0, 4).map((sport) => (
+                          <Badge key={sport} variant="secondary" className="text-xs font-medium">
+                            {sport}
+                          </Badge>
+                        ))}
+                        {school.sports.length > 4 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{school.sports.length - 4} más
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-2">
+                      <Button 
+                        className="flex-1 group-hover:shadow-md transition-shadow" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/schools/${school.id}`);
+                        }}
+                      >
+                        Ver Programas
+                        <Target className="h-4 w-4 ml-2" />
+                      </Button>
+                      <SchoolReviews 
+                        schoolId={school.id}
+                        schoolName={school.name}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
