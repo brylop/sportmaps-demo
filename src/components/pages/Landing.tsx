@@ -33,6 +33,7 @@ import {
   ChevronLeft
 } from "lucide-react";
 import heroImage from "@/assets/hero-sportsmaps.jpg";
+import logoImage from "@/assets/sportmaps-logo.png";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -207,9 +208,11 @@ const Landing = ({ onNavigate }: LandingProps) => {
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-gradient-hero flex items-center justify-center">
-                <Trophy className="h-7 w-7 text-white" />
-              </div>
+              <img 
+                src={logoImage} 
+                alt="SportMaps" 
+                className="w-12 h-12 rounded-xl"
+              />
               <div className="hidden md:block">
                 <div className="font-bold text-xl text-foreground">SportMaps</div>
                 <div className="text-xs text-muted-foreground">Ecosistema Deportivo</div>
