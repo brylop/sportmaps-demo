@@ -37,10 +37,10 @@ All colors MUST be HSL.
     --text-light-primary: 121 47% 10%;
     --text-light-secondary: 121 30% 45%;
     
-    /* Orange accent #FE9F1E - más prominente */
-    --accent-orange: 38 99% 56%;
-    --accent-orange-light: 45 99% 65%;
-    --accent-orange-dark: 38 99% 45%;
+    /* Orange accent - Naranja vibrante estilo Cloudflare */
+    --accent-orange: 28 100% 60%;
+    --accent-orange-light: 32 100% 68%;
+    --accent-orange-dark: 25 100% 50%;
     
     /* Muted tones */
     --muted: 121 25% 95%;
