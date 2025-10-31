@@ -60,7 +60,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       cta: "Ver Escuelas",
       image: heroImage,
       action: () => navigate("/explore"),
-      gradient: "from-blue-600/90 to-blue-500/70"
+      gradient: "from-primary/90 via-primary/80 to-orange/70"
     },
     {
       title: "Equipamiento profesional",
@@ -68,7 +68,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       cta: "Ir a Tienda",
       image: heroImage,
       action: () => navigate("/shop"),
-      gradient: "from-orange-600/90 to-orange-500/70"
+      gradient: "from-orange/90 to-orange-dark/70"
     }
   ];
 
@@ -356,7 +356,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 px-4 bg-gradient-hero">
+      <section className="py-20 px-4 bg-gradient-to-br from-primary via-primary-glow to-orange">
         <div className="container mx-auto max-w-4xl text-center">
           <div className="bg-background/10 backdrop-blur-lg rounded-3xl p-12 border border-white/20">
             <Sparkles className="w-16 h-16 text-white mx-auto mb-6" />
