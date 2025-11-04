@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -74,7 +74,7 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
       if (error) throw error;
 
       // Invalidate and refetch children queries
-      await queryClient.invalidateQueries({ queryKey: ['children', user.id] });
+      await queryClient.invalidateQueries({ queryKey: ['children'] });
       
       toast.success('Hijo añadido exitosamente');
       form.reset();

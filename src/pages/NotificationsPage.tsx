@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { PendingInvitations } from '@/components/invitations/PendingInvitations';
 import { 
   Bell, 
   CheckCircle, 
@@ -127,9 +126,6 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Pending Invitations Section */}
-      <PendingInvitations />
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

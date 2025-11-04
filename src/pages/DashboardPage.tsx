@@ -77,7 +77,7 @@ export default function DashboardPage() {
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Quick Actions */}
+        {/* Quick Actions - Always show */}
         {config.quickActions && config.quickActions.length > 0 && (
           <QuickActions actions={config.quickActions} />
         )}
