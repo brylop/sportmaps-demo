@@ -16,20 +16,59 @@ export default function ProgramsManagementPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRegisterSchool, setShowRegisterSchool] = useState(false);
 
-  // Fetch user's school
-  const { data: school, isLoading: isLoadingSchool } = useQuery({
-    queryKey: ['user-school', user?.id],
+  // Fetch user's profile to check role
+  const { data: profile } = useQuery({
+    queryKey: ['user-profile', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('schools')
+        .from('profiles')
         .select('*')
-        .eq('owner_id', user?.id)
+        .eq('id', user?.id)
         .single();
 
       if (error) throw error;
       return data;
     },
     enabled: !!user?.id,
+  });
+
+  // Fetch user's school
+  const { data: school, isLoading: isLoadingSchool } = useQuery({
+    queryKey: ['user-school', user?.id],
+    queryFn: async () => {
+      // First try to find school by owner_id
+      const { data: ownedSchool, error: ownedError } = await supabase
+        .from('schools')
+        .select('*')
+        .eq('owner_id', user?.id)
+        .maybeSingle();
+
+      if (ownedSchool) return ownedSchool;
+
+      // If user has 'school' role but no linked school, try to find by profile name
+      if (profile?.role === 'school') {
+        const { data: matchingSchool, error: matchError } = await supabase
+          .from('schools')
+          .select('*')
+          .ilike('name', `%${profile.full_name}%`)
+          .maybeSingle();
+
+        // If we found a matching school, link it to this user
+        if (matchingSchool && !matchingSchool.owner_id) {
+          const { error: updateError } = await supabase
+            .from('schools')
+            .update({ owner_id: user?.id })
+            .eq('id', matchingSchool.id);
+
+          if (!updateError) {
+            return matchingSchool;
+          }
+        }
+      }
+
+      return null;
+    },
+    enabled: !!user?.id && !!profile,
   });
 
   // Fetch programs for the school
@@ -64,20 +103,21 @@ export default function ProgramsManagementPage() {
     return <ErrorState message="Error al cargar los programas" />;
   }
 
-  if (!school) {
+  if (!school && profile?.role === 'school') {
     return (
       <div className="container mx-auto p-6">
         <Card>
           <CardHeader>
-            <CardTitle>No tienes una escuela registrada</CardTitle>
+            <CardTitle>Vincula tu perfil con una escuela</CardTitle>
             <CardDescription>
-              Debes registrar una escuela primero para poder crear programas
+              Tu cuenta tiene permisos de escuela pero no está vinculada a ninguna escuela. 
+              Por favor contacta al administrador o registra tu escuela.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => setShowRegisterSchool(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              Registrar Mi Escuela
+              Registrar Escuela
             </Button>
           </CardContent>
         </Card>
@@ -86,6 +126,21 @@ export default function ProgramsManagementPage() {
           open={showRegisterSchool}
           onOpenChange={setShowRegisterSchool}
         />
+      </div>
+    );
+  }
+
+  if (!school) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Acceso Restringido</CardTitle>
+            <CardDescription>
+              Solo los administradores de escuelas pueden acceder a esta sección.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       </div>
     );
   }
