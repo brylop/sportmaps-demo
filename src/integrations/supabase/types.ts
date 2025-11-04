@@ -716,6 +716,64 @@ export type Database = {
         }
         Relationships: []
       }
+      student_invitations: {
+        Row: {
+          child_id: string | null
+          created_at: string
+          id: string
+          invited_by: string
+          invited_email: string | null
+          program_id: string | null
+          school_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by?: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_invitations_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_members: {
         Row: {
           created_at: string

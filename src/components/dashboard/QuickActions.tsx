@@ -6,7 +6,7 @@ import { Zap } from 'lucide-react';
 
 interface QuickActionsProps {
   title?: string;
-  actions: QuickAction[];
+  actions: (QuickAction & { onClick?: () => void })[];
 }
 
 export function QuickActions({ title = 'Acciones Rápidas', actions }: QuickActionsProps) {
@@ -21,6 +21,23 @@ export function QuickActions({ title = 'Acciones Rápidas', actions }: QuickActi
       <CardContent className="space-y-3">
         {actions.map((action, index) => {
           const Icon = action.icon;
+          
+          // If action has onClick, render as button without Link
+          if (action.onClick) {
+            return (
+              <Button
+                key={index}
+                variant={action.variant || 'outline'}
+                className="w-full justify-start"
+                onClick={action.onClick}
+              >
+                <Icon className="mr-2 h-4 w-4" />
+                {action.label}
+              </Button>
+            );
+          }
+          
+          // Otherwise render with Link as before
           return (
             <Button
               key={index}
