@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ interface AddChildDialogProps {
 
 export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialogProps) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<ChildFormValues>({
@@ -66,10 +68,14 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
         date_of_birth: values.date_of_birth,
         sport: values.sport || null,
         team_name: values.team_name || null,
+        is_demo: false, // Explicitly set to false for non-demo users
       });
 
       if (error) throw error;
 
+      // Invalidate and refetch children queries
+      await queryClient.invalidateQueries({ queryKey: ['children'] });
+      
       toast.success('Hijo añadido exitosamente');
       form.reset();
       onOpenChange(false);
