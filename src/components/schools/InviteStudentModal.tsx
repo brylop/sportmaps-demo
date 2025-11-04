@@ -54,23 +54,29 @@ export function InviteStudentModal({ open, onOpenChange, schoolId }: InviteStude
   // Mutation for inviting by email
   const inviteByEmailMutation = useMutation({
     mutationFn: async (email: string) => {
+      // Validate email
+      const validation = emailSchema.safeParse(email);
+      if (!validation.success) {
+        throw new Error('Email inválido');
+      }
+
+      if (!user?.id) {
+        throw new Error('Usuario no autenticado');
+      }
+
       const { error } = await supabase.from('student_invitations').insert({
         school_id: schoolId,
-        invited_email: email,
-        invited_by: user?.id,
+        invited_email: email.trim().toLowerCase(),
+        invited_by: user.id,
         status: 'pending',
       });
 
-      if (error) throw error;
-
-      // Create notification
-      const { error: notifError } = await supabase.from('notifications').insert({
-        title: 'Nueva invitación a escuela',
-        message: `Has sido invitado a unirte a una escuela deportiva`,
-        type: 'info',
-      });
-
-      if (notifError) console.error('Error creating notification:', notifError);
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Ya existe una invitación para este email');
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
       toast.success('Invitación enviada exitosamente');
@@ -87,6 +93,17 @@ export function InviteStudentModal({ open, onOpenChange, schoolId }: InviteStude
   // Mutation for inviting existing profile
   const inviteChildMutation = useMutation({
     mutationFn: async (childId: string) => {
+      // Verify child belongs to current user
+      const { data: child } = await supabase
+        .from('children')
+        .select('parent_id')
+        .eq('id', childId)
+        .single();
+
+      if (!child || child.parent_id !== user?.id) {
+        throw new Error('No tienes permiso para invitar este perfil');
+      }
+
       const { error } = await supabase.from('student_invitations').insert({
         school_id: schoolId,
         child_id: childId,
@@ -96,14 +113,13 @@ export function InviteStudentModal({ open, onOpenChange, schoolId }: InviteStude
 
       if (error) throw error;
 
-      // Create notification
-      const { error: notifError } = await supabase.from('notifications').insert({
-        title: 'Nueva invitación a escuela',
-        message: `Tu hijo ha sido invitado a unirte a una escuela deportiva`,
-        type: 'info',
+      // Create notification for parent
+      await supabase.from('notifications').insert({
+        user_id: user?.id,
+        title: 'Invitación enviada',
+        message: `Se ha enviado una invitación a la escuela deportiva`,
+        type: 'success',
       });
-
-      if (notifError) console.error('Error creating notification:', notifError);
     },
     onSuccess: () => {
       toast.success('Invitación enviada exitosamente');

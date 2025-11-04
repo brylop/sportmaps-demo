@@ -62,19 +62,37 @@ export function RegisterStudentModal({
         throw new Error(validation.error.issues[0].message);
       }
 
+      if (!user?.id) {
+        throw new Error('Usuario no autenticado');
+      }
+
       // Register student in children table
-      const { error } = await supabase.from('children').insert({
-        parent_id: user?.id,
-        school_id: schoolId,
-        full_name: data.full_name,
-        date_of_birth: data.date_of_birth,
-        sport: data.sport || null,
-        team_name: data.team_name || null,
-        medical_info: data.medical_info || null,
-        is_demo: false,
-      });
+      const { data: newChild, error } = await supabase
+        .from('children')
+        .insert({
+          parent_id: user.id,
+          school_id: schoolId,
+          full_name: data.full_name.trim(),
+          date_of_birth: data.date_of_birth,
+          sport: data.sport || null,
+          team_name: data.team_name?.trim() || null,
+          medical_info: data.medical_info?.trim() || null,
+          is_demo: false,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Create notification
+      await supabase.from('notifications').insert({
+        user_id: user.id,
+        title: 'Estudiante registrado',
+        message: `${data.full_name} ha sido registrado exitosamente`,
+        type: 'success',
+      });
+
+      return newChild;
     },
     onSuccess: () => {
       toast.success('Estudiante registrado exitosamente');
