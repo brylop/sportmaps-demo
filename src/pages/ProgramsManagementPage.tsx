@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
+import { RegisterSchoolDialog } from '@/components/schools/RegisterSchoolDialog';
 import { Plus, Users, Calendar, DollarSign } from 'lucide-react';
 import { CreateProgramDialog } from '@/components/programs/CreateProgramDialog';
 
 export default function ProgramsManagementPage() {
   const { user } = useAuth();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showRegisterSchool, setShowRegisterSchool] = useState(false);
 
   // Fetch user's school
   const { data: school, isLoading: isLoadingSchool } = useQuery({
@@ -72,7 +74,18 @@ export default function ProgramsManagementPage() {
               Debes registrar una escuela primero para poder crear programas
             </CardDescription>
           </CardHeader>
+          <CardContent>
+            <Button onClick={() => setShowRegisterSchool(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Registrar Mi Escuela
+            </Button>
+          </CardContent>
         </Card>
+        
+        <RegisterSchoolDialog
+          open={showRegisterSchool}
+          onOpenChange={setShowRegisterSchool}
+        />
       </div>
     );
   }

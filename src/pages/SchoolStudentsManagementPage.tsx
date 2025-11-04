@@ -10,11 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { InviteStudentModal } from '@/components/schools/InviteStudentModal';
-import { UserPlus, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { RegisterSchoolDialog } from '@/components/schools/RegisterSchoolDialog';
+import { UserPlus, Clock, CheckCircle2, XCircle, Plus } from 'lucide-react';
 
 export default function SchoolStudentsManagementPage() {
   const { user } = useAuth();
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showRegisterSchool, setShowRegisterSchool] = useState(false);
 
   // Fetch user's school
   const { data: school, isLoading: isLoadingSchool } = useQuery({
@@ -72,12 +74,21 @@ export default function SchoolStudentsManagementPage() {
           <CardHeader>
             <CardTitle>No tienes una escuela registrada</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <p className="text-muted-foreground">
               Debes registrar una escuela primero para poder gestionar estudiantes
             </p>
+            <Button onClick={() => setShowRegisterSchool(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Registrar Mi Escuela
+            </Button>
           </CardContent>
         </Card>
+
+        <RegisterSchoolDialog
+          open={showRegisterSchool}
+          onOpenChange={setShowRegisterSchool}
+        />
       </div>
     );
   }
