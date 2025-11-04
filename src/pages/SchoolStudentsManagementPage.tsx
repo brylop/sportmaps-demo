@@ -104,33 +104,16 @@ export default function SchoolStudentsManagementPage() {
     return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
   }
 
-  if (!school) {
-    return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Perfil de Escuela sin Vincular</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Tu cuenta no está vinculada a ninguna escuela. Por favor contacta al administrador del sistema.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Estudiantes</h1>
           <p className="text-muted-foreground mt-1">
-            Gestiona las invitaciones y estudiantes de {school.name}
+            {school ? `Gestiona las invitaciones y estudiantes de ${school.name}` : 'Gestiona las invitaciones y estudiantes'}
           </p>
         </div>
-        <Button onClick={() => setShowInviteModal(true)}>
+        <Button onClick={() => setShowInviteModal(true)} disabled={!school}>
           <UserPlus className="w-4 h-4 mr-2" />
           Invitar Estudiante
         </Button>
@@ -309,11 +292,13 @@ export default function SchoolStudentsManagementPage() {
         </TabsContent>
       </Tabs>
 
-      <InviteStudentModal
-        open={showInviteModal}
-        onOpenChange={setShowInviteModal}
-        schoolId={school.id}
-      />
+      {school && (
+        <InviteStudentModal
+          open={showInviteModal}
+          onOpenChange={setShowInviteModal}
+          schoolId={school.id}
+        />
+      )}
     </div>
   );
 }

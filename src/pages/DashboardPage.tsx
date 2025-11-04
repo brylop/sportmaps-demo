@@ -1,13 +1,10 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { useEffect } from 'react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
-import { InviteStudentModal } from '@/components/schools/InviteStudentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { UserRole } from '@/types/dashboard';
 
@@ -15,23 +12,6 @@ export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
-  const [showInviteModal, setShowInviteModal] = useState(false);
-
-  // Fetch school ID for school role
-  const { data: school } = useQuery({
-    queryKey: ['user-school', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schools')
-        .select('id')
-        .eq('owner_id', user?.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id && profile?.role === 'school',
-  });
 
   // Redirect users to onboarding if they haven't completed setup
   useEffect(() => {
@@ -97,20 +77,9 @@ export default function DashboardPage() {
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Quick Actions - Always show with modal handling for schools */}
+        {/* Quick Actions */}
         {config.quickActions && config.quickActions.length > 0 && (
-          <QuickActions
-            actions={config.quickActions.map((action) => {
-              // Intercept "Gestionar Estudiantes" for schools to show modal
-              if (profile?.role === 'school' && action.label === 'Gestionar Estudiantes') {
-                return {
-                  ...action,
-                  onClick: () => setShowInviteModal(true),
-                };
-              }
-              return action;
-            })}
-          />
+          <QuickActions actions={config.quickActions} />
         )}
 
         {/* Activities - Only show if there are activities */}
@@ -128,15 +97,6 @@ export default function DashboardPage() {
           <NotificationList notifications={config.notifications} />
         )}
       </div>
-
-      {/* Invite Student Modal for schools */}
-      {profile?.role === 'school' && school && (
-        <InviteStudentModal
-          open={showInviteModal}
-          onOpenChange={setShowInviteModal}
-          schoolId={school.id}
-        />
-      )}
     </div>
   );
 }
