@@ -10,13 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { InviteStudentModal } from '@/components/schools/InviteStudentModal';
-import { RegisterSchoolDialog } from '@/components/schools/RegisterSchoolDialog';
-import { UserPlus, Clock, CheckCircle2, XCircle, Plus } from 'lucide-react';
+import { UserPlus, Clock, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function SchoolStudentsManagementPage() {
   const { user } = useAuth();
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showRegisterSchool, setShowRegisterSchool] = useState(false);
 
   // Fetch user's profile to check role
   const { data: profile } = useQuery({
@@ -106,43 +104,16 @@ export default function SchoolStudentsManagementPage() {
     return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
   }
 
-  if (!school && profile?.role === 'school') {
-    return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Vincula tu perfil con una escuela</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-muted-foreground">
-              Tu cuenta tiene permisos de escuela pero no está vinculada a ninguna escuela. 
-              Por favor contacta al administrador o registra tu escuela.
-            </p>
-            <Button onClick={() => setShowRegisterSchool(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Registrar Escuela
-            </Button>
-          </CardContent>
-        </Card>
-
-        <RegisterSchoolDialog
-          open={showRegisterSchool}
-          onOpenChange={setShowRegisterSchool}
-        />
-      </div>
-    );
-  }
-
   if (!school) {
     return (
       <div className="container mx-auto p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Acceso Restringido</CardTitle>
+            <CardTitle>Perfil de Escuela sin Vincular</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground">
-              Solo los administradores de escuelas pueden acceder a esta sección.
+              Tu cuenta no está vinculada a ninguna escuela. Por favor contacta al administrador del sistema.
             </p>
           </CardContent>
         </Card>
