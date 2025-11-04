@@ -10,11 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { InviteStudentModal } from '@/components/schools/InviteStudentModal';
-import { UserPlus, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { RegisterStudentModal } from '@/components/schools/RegisterStudentModal';
+import { UserPlus, UserCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function SchoolStudentsManagementPage() {
   const { user } = useAuth();
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
 
   // Fetch user's profile to check role
   const { data: profile } = useQuery({
@@ -113,10 +115,16 @@ export default function SchoolStudentsManagementPage() {
             {school ? `Gestiona las invitaciones y estudiantes de ${school.name}` : 'Gestiona las invitaciones y estudiantes'}
           </p>
         </div>
-        <Button onClick={() => setShowInviteModal(true)} disabled={!school}>
-          <UserPlus className="w-4 h-4 mr-2" />
-          Invitar Estudiante
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setShowInviteModal(true)} disabled={!school} variant="outline">
+            <UserCheck className="w-4 h-4 mr-2" />
+            Invitar Estudiante
+          </Button>
+          <Button onClick={() => setShowRegisterModal(true)} disabled={!school}>
+            <UserPlus className="w-4 h-4 mr-2" />
+            Registrar Estudiante
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="pending" className="w-full">
@@ -293,11 +301,18 @@ export default function SchoolStudentsManagementPage() {
       </Tabs>
 
       {school && (
-        <InviteStudentModal
-          open={showInviteModal}
-          onOpenChange={setShowInviteModal}
-          schoolId={school.id}
-        />
+        <>
+          <InviteStudentModal
+            open={showInviteModal}
+            onOpenChange={setShowInviteModal}
+            schoolId={school.id}
+          />
+          <RegisterStudentModal
+            open={showRegisterModal}
+            onOpenChange={setShowRegisterModal}
+            schoolId={school.id}
+          />
+        </>
       )}
     </div>
   );
