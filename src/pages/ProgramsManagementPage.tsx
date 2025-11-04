@@ -7,14 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { RegisterSchoolDialog } from '@/components/schools/RegisterSchoolDialog';
 import { Plus, Users, Calendar, DollarSign } from 'lucide-react';
 import { CreateProgramDialog } from '@/components/programs/CreateProgramDialog';
 
 export default function ProgramsManagementPage() {
   const { user } = useAuth();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showRegisterSchool, setShowRegisterSchool] = useState(false);
 
   // Fetch user's profile to check role
   const { data: profile } = useQuery({
@@ -108,24 +106,13 @@ export default function ProgramsManagementPage() {
       <div className="container mx-auto p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Vincula tu perfil con una escuela</CardTitle>
+            <CardTitle>Perfil de Escuela sin Vincular</CardTitle>
             <CardDescription>
-              Tu cuenta tiene permisos de escuela pero no está vinculada a ninguna escuela. 
-              Por favor contacta al administrador o registra tu escuela.
+              Tu cuenta tiene permisos de escuela pero no está vinculada a ninguna escuela registrada. 
+              Por favor contacta al administrador del sistema.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={() => setShowRegisterSchool(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Registrar Escuela
-            </Button>
-          </CardContent>
         </Card>
-        
-        <RegisterSchoolDialog
-          open={showRegisterSchool}
-          onOpenChange={setShowRegisterSchool}
-        />
       </div>
     );
   }
@@ -253,11 +240,13 @@ export default function ProgramsManagementPage() {
         </div>
       )}
 
-      <CreateProgramDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        schoolId={school.id}
-      />
+      {school && (
+        <CreateProgramDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          schoolId={school.id}
+        />
+      )}
     </div>
   );
 }
