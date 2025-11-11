@@ -107,6 +107,33 @@ export type Database = {
           },
         ]
       }
+      analytics_events: {
+        Row: {
+          created_at: string | null
+          event_data: Json | null
+          event_type: string
+          id: string
+          page_url: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          page_url?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          page_url?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       announcements: {
         Row: {
           audience: string
@@ -169,6 +196,65 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      calendar_events: {
+        Row: {
+          all_day: boolean | null
+          created_at: string | null
+          description: string | null
+          end_time: string
+          event_type: string
+          id: string
+          is_demo: boolean | null
+          location: string | null
+          reminder_minutes: number | null
+          start_time: string
+          team_id: string | null
+          title: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          all_day?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          end_time: string
+          event_type: string
+          id?: string
+          is_demo?: boolean | null
+          location?: string | null
+          reminder_minutes?: number | null
+          start_time: string
+          team_id?: string | null
+          title: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          all_day?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          end_time?: string
+          event_type?: string
+          id?: string
+          is_demo?: boolean | null
+          location?: string | null
+          reminder_minutes?: number | null
+          start_time?: string
+          team_id?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       children: {
         Row: {
@@ -302,6 +388,44 @@ export type Database = {
         }
         Relationships: []
       }
+      message_attachments: {
+        Row: {
+          created_at: string | null
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id: string
+          message_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id?: string
+          message_id: string
+        }
+        Update: {
+          created_at?: string | null
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          file_url?: string
+          id?: string
+          message_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -384,6 +508,41 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_reminders: {
+        Row: {
+          created_at: string | null
+          id: string
+          payment_id: string
+          reminded_at: string | null
+          reminder_type: string
+          sent: boolean | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          payment_id: string
+          reminded_at?: string | null
+          reminder_type: string
+          sent?: boolean | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          payment_id?: string
+          reminded_at?: string | null
+          reminder_type?: string
+          sent?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_reminders_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
             referencedColumns: ["id"]
           },
         ]
@@ -716,6 +875,64 @@ export type Database = {
         }
         Relationships: []
       }
+      student_invitations: {
+        Row: {
+          child_id: string | null
+          created_at: string
+          id: string
+          invited_by: string
+          invited_email: string | null
+          program_id: string | null
+          school_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by?: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_invitations_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_members: {
         Row: {
           created_at: string
@@ -842,6 +1059,45 @@ export type Database = {
           session_date?: string
           session_time?: string | null
           team_id?: string
+        }
+        Relationships: []
+      }
+      user_search_preferences: {
+        Row: {
+          created_at: string | null
+          id: string
+          max_age: number | null
+          max_price: number | null
+          min_age: number | null
+          preferred_amenities: string[] | null
+          preferred_cities: string[] | null
+          preferred_sports: string[] | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          max_age?: number | null
+          max_price?: number | null
+          min_age?: number | null
+          preferred_amenities?: string[] | null
+          preferred_cities?: string[] | null
+          preferred_sports?: string[] | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          max_age?: number | null
+          max_price?: number | null
+          min_age?: number | null
+          preferred_amenities?: string[] | null
+          preferred_cities?: string[] | null
+          preferred_sports?: string[] | null
+          updated_at?: string | null
+          user_id?: string
         }
         Relationships: []
       }

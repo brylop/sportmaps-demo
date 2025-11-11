@@ -20,6 +20,12 @@ import SettingsPage from "./pages/SettingsPage";
 import TeamsPage from "./pages/TeamsPage";
 import StatsPage from "./pages/StatsPage";
 import MessagesPage from "./pages/MessagesPage";
+import MessagesDetailPage from "./pages/MessagesDetailPage";
+import CalendarAdvancedPage from "./pages/CalendarAdvancedPage";
+import AdvancedSearchPage from "./pages/AdvancedSearchPage";
+import AnalyticsDashboardPage from "./pages/AnalyticsDashboardPage";
+import PaymentsStripePage from "./pages/PaymentsStripePage";
+import InvitationsManagementPage from "./pages/InvitationsManagementPage";
 import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
 import SchoolDetailPage from "./pages/SchoolDetailPage";
@@ -89,6 +95,12 @@ const App = () => (
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="messages" element={<MessagesPage />} />
+              <Route path="messages/:conversationId" element={<MessagesDetailPage />} />
+              <Route path="calendar-advanced" element={<CalendarAdvancedPage />} />
+              <Route path="advanced-search" element={<AdvancedSearchPage />} />
+              <Route path="analytics-dashboard" element={<AnalyticsDashboardPage />} />
+              <Route path="payments-stripe" element={<PaymentsStripePage />} />
+              <Route path="invitations-management" element={<InvitationsManagementPage />} />
               
               {/* Athlete routes */}
               <Route path="teams" element={<TeamsPage />} />
