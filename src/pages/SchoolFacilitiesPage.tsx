@@ -38,7 +38,8 @@ export default function SchoolFacilitiesPage() {
   });
 
   const onSubmit = (data: FacilityFormData) => {
-    setFacilities([...facilities, { ...data, id: Date.now(), status: 'active' }]);
+    const newFacility = { ...data, id: Date.now().toString(), status: 'active' };
+    setFacilities([...facilities, newFacility]);
     toast({
       title: '✅ Instalación creada',
       description: `${data.name} ha sido creada exitosamente`,

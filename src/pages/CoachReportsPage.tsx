@@ -139,7 +139,13 @@ export default function CoachReportsPage() {
             Analiza el rendimiento de tu equipo
           </p>
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button 
+          variant="outline" 
+          className="gap-2"
+          onClick={() => {
+            window.print();
+          }}
+        >
           <Download className="w-4 h-4" />
           Exportar PDF
         </Button>
