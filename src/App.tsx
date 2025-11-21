@@ -56,6 +56,12 @@ import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
 import WellnessPage from "./pages/WellnessPage";
 import StorePage from "./pages/StorePage";
 import AdminPanelPage from "./pages/AdminPanelPage";
+import ShopPage from "./pages/ShopPage";
+import ProductDetailPage from "./pages/ProductDetailPage";
+import CartPage from "./pages/CartPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import ChildAttendancePage from "./pages/ChildAttendancePage";
+import ChildProgressPage from "./pages/ChildProgressPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 
@@ -74,6 +80,10 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/schools/:id" element={<SchoolDetailPage />} />
+            <Route path="/shop" element={<ShopPage />} />
+            <Route path="/product/:id" element={<ProductDetailPage />} />
+            <Route path="/cart" element={<CartPage />} />
+            <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/demo-profiles" element={<DemoProfilesPage />} />
@@ -110,12 +120,13 @@ const App = () => (
               <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
               <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
               <Route path="enrollments" element={<MyEnrollmentsPage />} />
-              <Route path="shop" element={<div className="p-6"><h1 className="text-2xl font-bold">Tienda - En construcción</h1></div>} />
               <Route path="wellness" element={<WellnessPage />} />
               <Route path="shop-marketplace" element={<StorePage />} />
               
               {/* Parent routes */}
               <Route path="children" element={<MyChildrenPage />} />
+              <Route path="children/:childId/attendance" element={<ChildAttendancePage />} />
+              <Route path="children/:childId/progress" element={<ChildProgressPage />} />
               <Route path="academic-progress" element={<AcademicProgressPage />} />
               <Route path="parent-attendance" element={<AttendancePage />} />
               <Route path="payments" element={<PaymentsPage />} />
