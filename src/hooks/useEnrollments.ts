@@ -19,7 +19,7 @@ export interface EnrollmentWithProgram extends Enrollment {
     id: string;
     name: string;
     sport: string;
-    schedule: string; // Necesario para el calendario
+    schedule: string;
     school_id: string;
     school: {
       name: string;
@@ -28,10 +28,6 @@ export interface EnrollmentWithProgram extends Enrollment {
   };
 }
 
-/**
- * Hook para gestionar inscripciones
- * Maneja: Creación en DB, Sincronización con Calendario y Notificaciones
- */
 export function useEnrollments() {
   const [enrollments, setEnrollments] = useState<EnrollmentWithProgram[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,12 +75,9 @@ export function useEnrollments() {
   };
 
   /**
-   * Inscribe al usuario en un programa.
-   * 1. Crea el registro en 'enrollments'
-   * 2. Crea un evento en 'calendar_events' (para que aparezca en el calendario)
-   * 3. Simula envío de email de confirmación
+   * Crea una inscripción y envía correo de confirmación.
    */
-  const createEnrollment = async (programId: string, programDetails?: { name: string, schedule: string }) => {
+  const createEnrollment = async (programId: string, programDetails?: { name: string, schedule: string, schoolName?: string }) => {
     if (!user) return { success: false, error: 'Usuario no autenticado' };
 
     try {
@@ -101,43 +94,55 @@ export function useEnrollments() {
         throw new Error('Ya estás inscrito en este programa');
       }
 
-      // 2. Crear inscripción
-      const { error: insertError, data: newEnrollment } = await supabase
+      // 2. Insertar en base de datos
+      const { error: insertError } = await supabase
         .from('enrollments')
         .insert({
           user_id: user.id,
           program_id: programId,
           start_date: new Date().toISOString().split('T')[0],
           status: 'active',
-        })
-        .select()
-        .single();
+        });
 
       if (insertError) throw insertError;
 
-      // 3. Crear evento en el calendario (Sincronización)
-      // Asumimos que la clase empieza "mañana" para el ejemplo, o parseamos el horario real
+      // 3. Crear evento en calendario (opcional, si hay detalles)
       if (programDetails) {
         const nextDay = new Date();
         nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(16, 0, 0, 0); // Default 4 PM
+        nextDay.setHours(16, 0, 0, 0); 
 
         await supabase.from('calendar_events').insert({
           user_id: user.id,
           title: `Clase: ${programDetails.name}`,
-          description: `Horario habitual: ${programDetails.schedule || 'Por definir'}`,
+          description: `Horario: ${programDetails.schedule || 'Por definir'}`,
           event_type: 'training',
           start_time: nextDay.toISOString(),
-          end_time: new Date(nextDay.getTime() + 60 * 60 * 1000).toISOString(), // 1 hora después
+          end_time: new Date(nextDay.getTime() + 60 * 60 * 1000).toISOString(),
           all_day: false
         });
       }
 
-      // 4. Simular envío de correo (Edge Function Mock)
-      console.log(`[EMAIL MOCK] Enviando confirmación a ${user.email} y a la escuela...`);
+      // 4. LLAMADA A EDGE FUNCTION PARA ENVIAR CORREO
+      // Esto activará el envío real si la función está desplegada y tiene API Key
+      const { error: functionError } = await supabase.functions.invoke('send-enrollment-confirmation', {
+        body: {
+          userEmail: user.email,
+          userName: user.user_metadata?.full_name || 'Atleta',
+          programName: programDetails?.name || 'Programa Deportivo',
+          schoolName: programDetails?.schoolName || 'SportMaps',
+          schedule: programDetails?.schedule || 'Por definir'
+        }
+      });
+
+      if (functionError) {
+        console.warn('No se pudo enviar el correo de confirmación (¿está desplegada la función?):', functionError);
+        // No fallamos todo el proceso solo por el correo, pero avisamos en consola
+      }
+
       toast({
-        title: '¡Inscripción Confirmada!',
-        description: 'Te hemos enviado un correo con los detalles. Revisa tu calendario.',
+        title: '¡Inscripción Exitosa!',
+        description: 'Te has inscrito correctamente. Revisa tu correo y calendario.',
       });
 
       await fetchEnrollments();

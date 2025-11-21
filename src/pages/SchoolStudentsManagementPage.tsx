@@ -57,13 +57,20 @@ export default function SchoolStudentsManagementPage() {
       setLoading(true);
       
       // 1. Obtener la escuela del usuario actual
+      // Usamos maybeSingle() para evitar el error 406 si no hay escuela aún
       const { data: schoolData, error: schoolError } = await supabase
         .from('schools')
         .select('id')
         .eq('owner_id', user?.id)
-        .single();
+        .maybeSingle(); 
 
       if (schoolError) throw schoolError;
+
+      if (!schoolData) {
+        // Si no tiene escuela, no tiene estudiantes
+        setStudents([]);
+        return; 
+      }
 
       // 2. Obtener inscripciones para los programas de esta escuela
       const { data, error } = await supabase
@@ -76,8 +83,7 @@ export default function SchoolStudentsManagementPage() {
             id,
             full_name,
             avatar_url,
-            phone,
-            email:id (email)
+            phone
           ),
           program:programs!inner (
             name,
@@ -94,7 +100,7 @@ export default function SchoolStudentsManagementPage() {
         enrollment_id: item.id,
         student_id: item.user?.id,
         full_name: item.user?.full_name || 'Usuario Desconocido',
-        email: 'user@example.com',
+        email: 'usuario@email.com', // El email no siempre está en profile por seguridad, placeholder o join con auth
         phone: item.user?.phone,
         avatar_url: item.user?.avatar_url,
         program_name: item.program?.name,
@@ -155,7 +161,7 @@ export default function SchoolStudentsManagementPage() {
         <CardContent>
           {filteredStudents.length === 0 ? (
             <EmptyState
-              icon={Users} // <--- AQUÍ ESTABA EL ERROR, AHORA ESTÁ CORREGIDO
+              icon={Users}
               title="No se encontraron estudiantes"
               description={searchTerm ? "Intenta con otra búsqueda" : "Aún no tienes inscripciones activas"}
               actionLabel={searchTerm ? "Limpiar búsqueda" : undefined}
