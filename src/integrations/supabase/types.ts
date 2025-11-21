@@ -512,6 +512,39 @@ export type Database = {
           },
         ]
       }
+      orders: {
+        Row: {
+          created_at: string
+          id: string
+          items: Json
+          shipping_address: Json
+          status: string
+          total: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          items: Json
+          shipping_address: Json
+          status?: string
+          total: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          items?: Json
+          shipping_address?: Json
+          status?: string
+          total?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       payment_reminders: {
         Row: {
           created_at: string | null
@@ -586,6 +619,54 @@ export type Database = {
           receipt_url?: string | null
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      products: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          discount: number | null
+          id: string
+          image_url: string | null
+          name: string
+          price: number
+          rating: number | null
+          reviews_count: number | null
+          stock: number
+          updated_at: string
+          vendor_id: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description: string
+          discount?: number | null
+          id?: string
+          image_url?: string | null
+          name: string
+          price: number
+          rating?: number | null
+          reviews_count?: number | null
+          stock?: number
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          discount?: number | null
+          id?: string
+          image_url?: string | null
+          name?: string
+          price?: number
+          rating?: number | null
+          reviews_count?: number | null
+          stock?: number
+          updated_at?: string
+          vendor_id?: string | null
         }
         Relationships: []
       }

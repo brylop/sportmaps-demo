@@ -46,17 +46,17 @@ export default function ChildAttendancePage() {
 
   const getStatusBadge = (status: string) => {
     const configs = {
-      present: { icon: CheckCircle, variant: 'success' as const, label: 'Presente' },
-      absent: { icon: XCircle, variant: 'destructive' as const, label: 'Ausente' },
-      late: { icon: AlertCircle, variant: 'warning' as const, label: 'Retardo' },
-      justified: { icon: CheckCircle, variant: 'secondary' as const, label: 'Justificado' },
+      present: { icon: CheckCircle, variant: 'default' as const, label: 'Presente', className: 'bg-green-100 text-green-700 hover:bg-green-100' },
+      absent: { icon: XCircle, variant: 'destructive' as const, label: 'Ausente', className: '' },
+      late: { icon: AlertCircle, variant: 'secondary' as const, label: 'Retardo', className: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-100' },
+      justified: { icon: CheckCircle, variant: 'secondary' as const, label: 'Justificado', className: '' },
     };
 
     const config = configs[status as keyof typeof configs] || configs.absent;
     const Icon = config.icon;
 
     return (
-      <Badge variant={config.variant} className="gap-1">
+      <Badge variant={config.variant} className={`gap-1 ${config.className}`}>
         <Icon className="h-3 w-3" />
         {config.label}
       </Badge>
