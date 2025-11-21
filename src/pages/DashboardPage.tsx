@@ -6,12 +6,18 @@ import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
+import { useDashboardStats } from '@/hooks/useDashboardStats'; // Importar nuevo hook
 import { UserRole } from '@/types/dashboard';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
-  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
+  
+  // 1. Obtener estadísticas reales
+  const { stats, loading: statsLoading } = useDashboardStats((profile?.role as UserRole) || 'athlete');
+  
+  // 2. Pasar estadísticas a la configuración
+  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', stats);
 
   // Redirect users to onboarding if they haven't completed setup
   useEffect(() => {
@@ -20,7 +26,6 @@ export default function DashboardPage() {
     const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
     
     if (!hasCompletedOnboarding) {
-      // Redirect each role to their respective onboarding
       switch (profile.role) {
         case 'school':
           navigate('/school-onboarding');
@@ -37,23 +42,20 @@ export default function DashboardPage() {
         case 'store_owner':
           navigate('/store-onboarding');
           break;
-        // parent doesn't need onboarding, they go directly to dashboard
         default:
           break;
       }
     }
   }, [profile, user, navigate]);
 
-  if (!profile) return (
+  if (!profile || statsLoading) return (
     <div className="flex items-center justify-center h-[60vh]">
       <div className="text-center space-y-3">
-        
-        {/* Loading state while se carga el perfil */}
         <div className="flex items-center justify-center">
           <div className="flex flex-col items-center gap-2">
             <span className="sr-only">Cargando panel</span>
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
-            <p className="text-sm text-muted-foreground">Cargando tu panel...</p>
+            <p className="text-sm text-muted-foreground">Actualizando tu panel...</p>
           </div>
         </div>
       </div>

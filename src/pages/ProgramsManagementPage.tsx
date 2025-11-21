@@ -1,353 +1,253 @@
-import { useState, FormEvent } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Users, Calendar, MapPin, DollarSign } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Plus, Users, Calendar, Edit2, Trash2 } from 'lucide-react';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
 
 interface Program {
   id: string;
   name: string;
+  description: string;
   sport: string;
-  coach: string;
-  capacity: {
-    current: number;
-    max: number;
-  };
+  price_monthly: number;
   schedule: string;
-  facility: string;
-  price: number;
+  active: boolean;
+  max_participants: number | null;
+  current_participants: number;
 }
 
-const INITIAL_PROGRAMS: Program[] = [
-  {
-    id: '1',
-    name: 'Fútbol Sub-12',
-    sport: 'Fútbol',
-    coach: 'Luis F. Rodríguez',
-    capacity: { current: 20, max: 20 },
-    schedule: 'Ma/Ju 4:00 PM - 6:00 PM',
-    facility: 'Cancha 1',
-    price: 150000,
-  },
-  {
-    id: '2',
-    name: 'Tenis Infantil',
-    sport: 'Tenis',
-    coach: 'Diana Silva',
-    capacity: { current: 8, max: 12 },
-    schedule: 'Lu/Mi 3:00 PM - 4:30 PM',
-    facility: 'Cancha Tenis 1',
-    price: 180000,
-  },
-  {
-    id: '3',
-    name: 'Fútbol Sub-10',
-    sport: 'Fútbol',
-    coach: 'Luis F. Rodríguez',
-    capacity: { current: 18, max: 20 },
-    schedule: 'Ma/Ju 3:00 PM - 4:30 PM',
-    facility: 'Cancha 2',
-    price: 150000,
-  },
-  {
-    id: '4',
-    name: 'Voleibol Juvenil',
-    sport: 'Voleibol',
-    coach: 'Sin asignar',
-    capacity: { current: 8, max: 20 },
-    schedule: 'Lu/Mi/Vi 5:00 PM - 6:30 PM',
-    facility: 'Cancha Cubierta',
-    price: 140000,
-  },
-];
-
 export default function ProgramsManagementPage() {
-  const [programs, setPrograms] = useState<Program[]>(INITIAL_PROGRAMS);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingProgram, setEditingProgram] = useState<Program | null>(null);
+  const { user } = useAuth();
   const { toast } = useToast();
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [schoolId, setSchoolId] = useState<string | null>(null);
 
+  // Form state basic
   const [formData, setFormData] = useState({
     name: '',
+    description: '',
     sport: '',
-    coach: '',
+    price_monthly: '',
     schedule: '',
-    facility: '',
-    maxCapacity: 20,
-    price: 150000,
+    max_participants: ''
   });
 
-  const openCreateForm = () => {
-    setEditingProgram(null);
-    setFormData({
-      name: '',
-      sport: '',
-      coach: '',
-      schedule: '',
-      facility: '',
-      maxCapacity: 20,
-      price: 150000,
-    });
-    setIsFormOpen(true);
-  };
-
-  const openEditForm = (program: Program) => {
-    setEditingProgram(program);
-    setFormData({
-      name: program.name,
-      sport: program.sport,
-      coach: program.coach,
-      schedule: program.schedule,
-      facility: program.facility,
-      maxCapacity: program.capacity.max,
-      price: program.price,
-    });
-    setIsFormOpen(true);
-  };
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-
-    const updatedProgram: Program = {
-      id: editingProgram ? editingProgram.id : Date.now().toString(),
-      name: formData.name,
-      sport: formData.sport,
-      coach: formData.coach || 'Sin asignar',
-      capacity: {
-        current: editingProgram ? editingProgram.capacity.current : 0,
-        max: Number(formData.maxCapacity) || 0,
-      },
-      schedule: formData.schedule,
-      facility: formData.facility,
-      price: Number(formData.price) || 0,
-    };
-
-    setPrograms((prev) => {
-      const exists = prev.some((p) => p.id === updatedProgram.id);
-      if (exists) {
-        return prev.map((p) => (p.id === updatedProgram.id ? updatedProgram : p));
-      }
-      return [...prev, updatedProgram];
-    });
-
-    toast({
-      title: editingProgram ? 'Programa actualizado' : 'Programa creado',
-      description: editingProgram
-        ? 'Los datos del programa se han actualizado correctamente.'
-        : 'El nuevo programa se ha agregado al catálogo.',
-    });
-
-    setIsFormOpen(false);
-    setEditingProgram(null);
-  };
-
-  const getCapacityBadge = (current: number, max: number) => {
-    const percentage = (current / max) * 100;
-
-    if (percentage === 100) {
-      return <Badge className="bg-destructive text-destructive-foreground">Lleno</Badge>;
+  useEffect(() => {
+    if (user) {
+      fetchPrograms();
     }
+  }, [user]);
 
-    if (percentage >= 80) {
-      return <Badge className="bg-warning text-warning-foreground">Casi lleno</Badge>;
+  const fetchPrograms = async () => {
+    try {
+      setLoading(true);
+      
+      // 1. Get School ID
+      const { data: schoolData, error: schoolError } = await supabase
+        .from('schools')
+        .select('id')
+        .eq('owner_id', user?.id)
+        .single();
+
+      if (schoolError) throw schoolError;
+      setSchoolId(schoolData.id);
+
+      // 2. Get Programs
+      const { data, error } = await supabase
+        .from('programs')
+        .select('*')
+        .eq('school_id', schoolData.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setPrograms(data || []);
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setLoading(false);
     }
-
-    return <Badge className="bg-success text-success-foreground">Disponible</Badge>;
   };
+
+  const handleCreateProgram = async () => {
+    if (!schoolId) return;
+
+    try {
+      const { error } = await supabase.from('programs').insert({
+        school_id: schoolId,
+        name: formData.name,
+        description: formData.description,
+        sport: formData.sport,
+        price_monthly: Number(formData.price_monthly),
+        schedule: formData.schedule,
+        max_participants: formData.max_participants ? Number(formData.max_participants) : null,
+        active: true
+      });
+
+      if (error) throw error;
+
+      toast({ title: 'Programa creado exitosamente' });
+      setIsCreateOpen(false);
+      setFormData({ name: '', description: '', sport: '', price_monthly: '', schedule: '', max_participants: '' });
+      fetchPrograms();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const toggleStatus = async (programId: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('programs')
+        .update({ active: !currentStatus })
+        .eq('id', programId);
+
+      if (error) throw error;
+      
+      // Optimistic update
+      setPrograms(programs.map(p => 
+        p.id === programId ? { ...p, active: !currentStatus } : p
+      ));
+    } catch (error) {
+      toast({ title: 'Error al actualizar estado', variant: 'destructive' });
+    }
+  };
+
+  if (loading) return <LoadingSpinner fullScreen text="Cargando programas..." />;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Programas</h1>
-          <p className="text-muted-foreground">Catálogo de productos y servicios</p>
+          <h2 className="text-3xl font-bold tracking-tight">Mis Programas</h2>
+          <p className="text-muted-foreground">
+            Gestiona la oferta académica de tu escuela
+          </p>
         </div>
-        <Button onClick={openCreateForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          {editingProgram ? 'Editar Programa' : 'Crear Nuevo Programa'}
-        </Button>
+        
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Nuevo Programa
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Crear Nuevo Programa</DialogTitle>
+              <DialogDescription>
+                Completa los detalles del programa para publicarlo en SportMaps.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nombre</Label>
+                  <Input id="name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ej: Fútbol Base" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sport">Deporte</Label>
+                  <Input id="sport" value={formData.sport} onChange={e => setFormData({...formData, sport: e.target.value})} placeholder="Ej: Fútbol" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Descripción</Label>
+                <Textarea id="description" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Describe el programa..." />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="price">Precio Mensual</Label>
+                  <Input id="price" type="number" value={formData.price_monthly} onChange={e => setFormData({...formData, price_monthly: e.target.value})} placeholder="0" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max">Cupos Máx.</Label>
+                  <Input id="max" type="number" value={formData.max_participants} onChange={e => setFormData({...formData, max_participants: e.target.value})} placeholder="Opcional" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="schedule">Horario</Label>
+                <Input id="schedule" value={formData.schedule} onChange={e => setFormData({...formData, schedule: e.target.value})} placeholder="Ej: Mar y Jue 4PM" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
+              <Button onClick={handleCreateProgram}>Crear Programa</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {isFormOpen && (
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle>{editingProgram ? 'Editar programa' : 'Nuevo programa'}</CardTitle>
-            <CardDescription>
-              Completa la información básica del programa deportivo.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="name">Nombre del programa</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Ej. Fútbol Sub-12"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="sport">Deporte</Label>
-                <Input
-                  id="sport"
-                  value={formData.sport}
-                  onChange={(e) => setFormData({ ...formData, sport: e.target.value })}
-                  placeholder="Ej. Fútbol, Tenis"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="coach">Coach responsable</Label>
-                <Input
-                  id="coach"
-                  value={formData.coach}
-                  onChange={(e) => setFormData({ ...formData, coach: e.target.value })}
-                  placeholder="Nombre del entrenador"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="facility">Instalación</Label>
-                <Input
-                  id="facility"
-                  value={formData.facility}
-                  onChange={(e) => setFormData({ ...formData, facility: e.target.value })}
-                  placeholder="Ej. Cancha 1, Piscina Olímpica"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="schedule">Horario</Label>
-                <Input
-                  id="schedule"
-                  value={formData.schedule}
-                  onChange={(e) => setFormData({ ...formData, schedule: e.target.value })}
-                  placeholder="Ej. Lu/Mi 4:00 PM - 6:00 PM"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="maxCapacity">Cupos máximos</Label>
-                <Input
-                  id="maxCapacity"
-                  type="number"
-                  min={1}
-                  value={formData.maxCapacity}
-                  onChange={(e) =>
-                    setFormData({ ...formData, maxCapacity: Number(e.target.value) || 0 })
-                  }
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="price">Precio mensual</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={formData.price}
-                  onChange={(e) =>
-                    setFormData({ ...formData, price: Number(e.target.value) || 0 })
-                  }
-                  required
-                />
-              </div>
-
-              <div className="flex items-end gap-2 md:col-span-2">
-                <Button type="submit" className="flex-1">
-                  {editingProgram ? 'Guardar cambios' : 'Crear programa'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsFormOpen(false);
-                    setEditingProgram(null);
-                  }}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {programs.map((program) => (
-          <Card key={program.id} className="hover:shadow-lg transition-shadow">
+          <Card key={program.id} className={`transition-opacity ${!program.active ? 'opacity-60' : ''}`}>
             <CardHeader>
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle>{program.name}</CardTitle>
-                  <CardDescription>{program.sport}</CardDescription>
-                </div>
-                {getCapacityBadge(program.capacity.current, program.capacity.max)}
+              <div className="flex items-start justify-between">
+                <Badge variant="secondary">{program.sport}</Badge>
+                <Switch 
+                  checked={program.active}
+                  onCheckedChange={() => toggleStatus(program.id, program.active)}
+                />
               </div>
+              <CardTitle className="mt-2">{program.name}</CardTitle>
+              <CardDescription className="line-clamp-2 h-10">
+                {program.description}
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Users className="mr-2 h-4 w-4" />
-                <span className="font-medium">Coach:</span>
-                <span className="ml-2">{program.coach}</span>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center text-muted-foreground">
+                  <Users className="mr-2 h-4 w-4" />
+                  <span>{program.current_participants} / {program.max_participants || '∞'}</span>
+                </div>
+                <div className="font-bold text-lg">
+                  ${program.price_monthly.toLocaleString()}
+                </div>
               </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Users className="mr-2 h-4 w-4" />
-                <span className="font-medium">Cupos:</span>
-                <span className="ml-2">
-                  {program.capacity.current}/{program.capacity.max}
-                </span>
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
+              <div className="flex items-center text-muted-foreground">
                 <Calendar className="mr-2 h-4 w-4" />
-                <span className="font-medium">Horario:</span>
-                <span className="ml-2">{program.schedule}</span>
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <MapPin className="mr-2 h-4 w-4" />
-                <span className="font-medium">Instalación:</span>
-                <span className="ml-2">{program.facility}</span>
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <DollarSign className="mr-2 h-4 w-4" />
-                <span className="font-medium">Precio:</span>
-                <span className="ml-2">
-                  ${program.price.toLocaleString()} / Mes
-                </span>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => openEditForm(program)}
-                >
-                  Editar
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1"
-                  disabled
-                >
-                  Ver Alumnos
-                </Button>
+                <span className="truncate">{program.schedule || 'Sin horario definido'}</span>
               </div>
             </CardContent>
+            <CardFooter className="flex gap-2">
+              <Button variant="outline" className="w-full">
+                <Edit2 className="mr-2 h-4 w-4" /> Editar
+              </Button>
+              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </CardFooter>
           </Card>
         ))}
       </div>
     </div>
   );
 }
-

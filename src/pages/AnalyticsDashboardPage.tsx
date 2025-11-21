@@ -1,88 +1,192 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart3, Users, TrendingUp, DollarSign, Activity, Eye } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { es } from 'date-fns/locale';
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#a4de6c', '#d0ed57'];
 
 export default function AnalyticsDashboardPage() {
-  // Demo data for analytics
-  const visitorData = [
-    { month: 'Ene', visitors: 1200 },
-    { month: 'Feb', visitors: 1900 },
-    { month: 'Mar', visitors: 2100 },
-    { month: 'Abr', visitors: 2500 },
-    { month: 'May', visitors: 2800 },
-    { month: 'Jun', visitors: 3200 }
-  ];
+  const [selectedTab, setSelectedTab] = useState('traffic');
 
-  const enrollmentData = [
-    { month: 'Ene', enrollments: 45 },
-    { month: 'Feb', enrollments: 62 },
-    { month: 'Mar', enrollments: 78 },
-    { month: 'Abr', enrollments: 91 },
-    { month: 'May', enrollments: 105 },
-    { month: 'Jun', enrollments: 120 }
-  ];
+  // Fetch real analytics data
+  const { data: analytics, isLoading } = useQuery({
+    queryKey: ['platform-analytics'],
+    queryFn: async () => {
+      // 1. Basic Counts
+      const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+      const { count: activeEnrollmentsCount } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('status', 'active');
+      
+      // 2. Revenue (Sum of payments)
+      // In a real app with many payments, this should be a Postgres function or view
+      const { data: payments } = await supabase.from('payments').select('amount, created_at');
+      const totalRevenue = payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
-  const sportDistribution = [
-    { name: 'Fútbol', value: 450 },
-    { name: 'Baloncesto', value: 280 },
-    { name: 'Tenis', value: 190 },
-    { name: 'Natación', value: 310 },
-    { name: 'Voleibol', value: 120 }
-  ];
+      // 3. Visits (Analytics Events) - Last 6 months
+      const sixMonthsAgo = subMonths(new Date(), 5).toISOString();
+      const { data: events } = await supabase
+        .from('analytics_events')
+        .select('created_at')
+        .gte('created_at', sixMonthsAgo);
 
-  const revenueData = [
-    { month: 'Ene', revenue: 15000000 },
-    { month: 'Feb', revenue: 18500000 },
-    { month: 'Mar', revenue: 22000000 },
-    { month: 'Abr', revenue: 25500000 },
-    { month: 'May', revenue: 28000000 },
-    { month: 'Jun', revenue: 32000000 }
-  ];
+      const { count: totalVisits } = await supabase.from('analytics_events').select('*', { count: 'exact', head: true });
 
-  const topSchools = [
-    { name: 'Academia Elite', students: 520, revenue: 45000000 },
-    { name: 'Club Champions', students: 410, revenue: 38000000 },
-    { name: 'ProMasters', students: 350, revenue: 32000000 },
-    { name: 'SportVille', students: 290, revenue: 25000000 },
-    { name: 'Athletic Center', students: 180, revenue: 18000000 }
-  ];
+      // 4. Enrollments for Charts (with relations)
+      const { data: enrollments } = await supabase
+        .from('enrollments')
+        .select(`
+          created_at,
+          programs (
+            sport,
+            schools ( name )
+          )
+        `)
+        .gte('created_at', sixMonthsAgo);
+
+      return {
+        usersCount: usersCount || 0,
+        activeEnrollmentsCount: activeEnrollmentsCount || 0,
+        totalRevenue,
+        totalVisits: totalVisits || 0,
+        payments: payments || [],
+        events: events || [],
+        enrollments: enrollments || []
+      };
+    }
+  });
+
+  // Data Processing for Charts
+  const processMonthlyData = () => {
+    if (!analytics) return { visitors: [], enrollments: [], revenue: [] };
+
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      months.push(subMonths(new Date(), i));
+    }
+
+    const visitorsData = months.map(date => {
+      const monthKey = format(date, 'MMM', { locale: es });
+      const start = startOfMonth(date);
+      const end = endOfMonth(date);
+      
+      const count = analytics.events.filter((e: any) => {
+        if (!e.created_at) return false;
+        const d = new Date(e.created_at);
+        return d >= start && d <= end;
+      }).length;
+
+      return { month: monthKey.charAt(0).toUpperCase() + monthKey.slice(1), visitors: count };
+    });
+
+    const enrollmentsData = months.map(date => {
+      const monthKey = format(date, 'MMM', { locale: es });
+      const start = startOfMonth(date);
+      const end = endOfMonth(date);
+      
+      const count = analytics.enrollments.filter((e: any) => {
+        const d = new Date(e.created_at);
+        return d >= start && d <= end;
+      }).length;
+
+      return { month: monthKey.charAt(0).toUpperCase() + monthKey.slice(1), enrollments: count };
+    });
+
+    const revenueData = months.map(date => {
+      const monthKey = format(date, 'MMM', { locale: es });
+      const start = startOfMonth(date);
+      const end = endOfMonth(date);
+      
+      const total = analytics.payments.filter((p: any) => {
+        const d = new Date(p.created_at);
+        return d >= start && d <= end;
+      }).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+
+      return { month: monthKey.charAt(0).toUpperCase() + monthKey.slice(1), revenue: total };
+    });
+
+    return { visitors: visitorsData, enrollments: enrollmentsData, revenue: revenueData };
+  };
+
+  const processSportsData = () => {
+    if (!analytics?.enrollments) return [];
+    
+    const sportsCount: Record<string, number> = {};
+    analytics.enrollments.forEach((e: any) => {
+      const sport = e.programs?.sport || 'Otros';
+      sportsCount[sport] = (sportsCount[sport] || 0) + 1;
+    });
+
+    return Object.entries(sportsCount)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  };
+
+  const processTopSchools = () => {
+    if (!analytics?.enrollments) return [];
+
+    const schoolStats: Record<string, { students: number }> = {};
+    
+    analytics.enrollments.forEach((e: any) => {
+      const schoolName = e.programs?.schools?.name || 'Desconocido';
+      if (!schoolStats[schoolName]) {
+        schoolStats[schoolName] = { students: 0 };
+      }
+      schoolStats[schoolName].students += 1;
+    });
+
+    return Object.entries(schoolStats)
+      .map(([name, stats]) => ({ name, ...stats }))
+      .sort((a, b) => b.students - a.students)
+      .slice(0, 5);
+  };
+
+  const chartData = processMonthlyData();
+  const sportDistribution = processSportsData();
+  const topSchools = processTopSchools();
 
   const stats = [
     {
       title: 'Total Usuarios',
-      value: '12,543',
-      change: '+12.5%',
+      value: analytics?.usersCount.toLocaleString() || '0',
+      change: '+12.5%', // Requires historical data for real calculation
       icon: Users,
       color: 'text-blue-500'
     },
     {
       title: 'Inscripciones Activas',
-      value: '3,891',
+      value: analytics?.activeEnrollmentsCount.toLocaleString() || '0',
       change: '+18.2%',
       icon: TrendingUp,
       color: 'text-green-500'
     },
     {
-      title: 'Ingresos Mensuales',
-      value: '$32,000,000',
+      title: 'Ingresos Totales',
+      value: `$${(analytics?.totalRevenue || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`,
       change: '+14.3%',
       icon: DollarSign,
       color: 'text-emerald-500'
     },
     {
-      title: 'Visitas al Sitio',
-      value: '45,782',
+      title: 'Visitas Totales',
+      value: analytics?.totalVisits.toLocaleString() || '0',
       change: '+8.7%',
       icon: Eye,
       color: 'text-purple-500'
     }
   ];
 
+  if (isLoading) {
+    return <LoadingSpinner fullScreen text="Cargando métricas..." />;
+  }
+
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
       <div>
         <h1 className="text-3xl font-bold mb-2">Dashboard de Analytics</h1>
         <p className="text-muted-foreground">
@@ -102,14 +206,16 @@ export default function AnalyticsDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-green-500 mt-1">{stat.change} vs mes anterior</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                <span className="text-green-500 font-medium">{stat.change}</span> vs mes anterior
+              </p>
             </CardContent>
           </Card>
         ))}
       </div>
 
       {/* Charts */}
-      <Tabs defaultValue="traffic" className="space-y-4">
+      <Tabs defaultValue="traffic" className="space-y-4" onValueChange={setSelectedTab}>
         <TabsList>
           <TabsTrigger value="traffic">Tráfico</TabsTrigger>
           <TabsTrigger value="enrollments">Inscripciones</TabsTrigger>
@@ -123,22 +229,26 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Visitas Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={visitorData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="visitors" 
-                    stroke="#8884d8" 
-                    strokeWidth={2}
-                    name="Visitantes"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData.visitors}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="visitors" 
+                      stroke="#8884d8" 
+                      strokeWidth={2}
+                      name="Visitantes"
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -149,16 +259,18 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Inscripciones Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={enrollmentData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="enrollments" fill="#82ca9d" name="Inscripciones" />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.enrollments}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="enrollments" fill="#82ca9d" name="Nuevas Inscripciones" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -169,26 +281,28 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Distribución por Deporte</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={350}>
-                <PieChart>
-                  <Pie
-                    data={sportDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, value }) => `${name}: ${value}`}
-                    outerRadius={120}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {sportDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={sportDistribution}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      outerRadius={120}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {sportDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -199,18 +313,20 @@ export default function AnalyticsDashboardPage() {
               <CardTitle>Ingresos Mensuales</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value: any) => `$${value.toLocaleString('es-CO')}`}
-                  />
-                  <Legend />
-                  <Bar dataKey="revenue" fill="#10b981" name="Ingresos (COP)" />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.revenue}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip 
+                      formatter={(value: any) => [`$${Number(value).toLocaleString('es-CO')}`, 'Ingresos']}
+                    />
+                    <Legend />
+                    <Bar dataKey="revenue" fill="#10b981" name="Ingresos (COP)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -219,29 +335,34 @@ export default function AnalyticsDashboardPage() {
       {/* Top Schools Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Top 5 Escuelas por Rendimiento</CardTitle>
+          <CardTitle>Top Escuelas por Estudiantes</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {topSchools.map((school, index) => (
-              <div key={school.name} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center gap-4">
-                  <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
-                    {index + 1}
-                  </div>
-                  <div>
-                    <p className="font-semibold">{school.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {school.students} estudiantes
-                    </p>
+            {topSchools.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">No hay datos suficientes</p>
+            ) : (
+              topSchools.map((school, index) => (
+                <div key={school.name} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                      index === 0 ? 'bg-yellow-500 text-white' : 
+                      index === 1 ? 'bg-gray-400 text-white' : 
+                      index === 2 ? 'bg-amber-700 text-white' : 
+                      'bg-primary/10 text-primary'
+                    }`}>
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{school.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {school.students} inscripciones recientes
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-semibold">${(school.revenue / 1000000).toFixed(1)}M</p>
-                  <p className="text-sm text-muted-foreground">Ingresos</p>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
