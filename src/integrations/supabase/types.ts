@@ -1143,6 +1143,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_search_preferences: {
         Row: {
           created_at: string | null
@@ -1187,10 +1208,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_user_roles: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"][]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       is_demo_user: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       activity_status: "scheduled" | "in_progress" | "completed" | "cancelled"
+      app_role:
+        | "athlete"
+        | "parent"
+        | "coach"
+        | "school"
+        | "wellness_professional"
+        | "store_owner"
+        | "admin"
       subscription_tier: "free" | "basic" | "premium" | "enterprise"
       user_role:
         | "athlete"
@@ -1328,6 +1368,15 @@ export const Constants = {
   public: {
     Enums: {
       activity_status: ["scheduled", "in_progress", "completed", "cancelled"],
+      app_role: [
+        "athlete",
+        "parent",
+        "coach",
+        "school",
+        "wellness_professional",
+        "store_owner",
+        "admin",
+      ],
       subscription_tier: ["free", "basic", "premium", "enterprise"],
       user_role: [
         "athlete",
