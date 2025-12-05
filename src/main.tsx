@@ -1,3 +1,4 @@
+// SportMaps Application Entry Point
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { CartProvider } from "@/contexts/CartContext";
