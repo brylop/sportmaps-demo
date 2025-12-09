@@ -833,7 +833,9 @@ export type Database = {
           email: string
           id: string
           is_demo: boolean | null
+          latitude: number | null
           logo_url: string | null
+          longitude: number | null
           name: string
           owner_id: string | null
           phone: string
@@ -854,7 +856,9 @@ export type Database = {
           email: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name: string
           owner_id?: string | null
           phone: string
@@ -875,7 +879,9 @@ export type Database = {
           email?: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name?: string
           owner_id?: string | null
           phone?: string
