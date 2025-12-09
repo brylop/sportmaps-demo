@@ -26,6 +26,7 @@ import AdvancedSearchPage from "./pages/AdvancedSearchPage";
 import AnalyticsDashboardPage from "./pages/AnalyticsDashboardPage";
 import InvitationsManagementPage from "./pages/InvitationsManagementPage";
 import ExplorePage from "./pages/ExplorePage";
+import BuscaEscuelasPage from "./pages/BuscaEscuelasPage";
 import ProfilePage from "./pages/ProfilePage";
 import SchoolDetailPage from "./pages/SchoolDetailPage";
 import MyEnrollmentsPage from "./pages/MyEnrollmentsPage";
@@ -79,6 +80,7 @@ const App = () => (
             {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="/explore" element={<ExplorePage />} />
+            <Route path="/busca-escuelas" element={<BuscaEscuelasPage />} />
             <Route path="/schools/:id" element={<SchoolDetailPage />} />
             <Route path="/shop" element={<ShopPage />} />
             <Route path="/product/:id" element={<ProductDetailPage />} />

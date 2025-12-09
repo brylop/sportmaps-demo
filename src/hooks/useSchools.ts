@@ -19,6 +19,8 @@ export interface School {
   logo_url: string | null;
   cover_image_url: string | null;
   owner_id: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface SchoolFilters {

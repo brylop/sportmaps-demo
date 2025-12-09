@@ -2,9 +2,19 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, MapPin, Trophy, ArrowRight, Users, Building2, Calendar } from 'lucide-react';
+import { Search, MapPin, Trophy, ArrowRight, Calendar } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+
+// Sports data with images
+const sportsData = [
+  { name: 'Fútbol', icon: '⚽', image: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=400&h=300&fit=crop' },
+  { name: 'Natación', icon: '🏊', image: 'https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&h=300&fit=crop' },
+  { name: 'Tenis', icon: '🎾', image: 'https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=400&h=300&fit=crop' },
+  { name: 'Baloncesto', icon: '🏀', image: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=300&fit=crop' },
+  { name: 'Patinaje', icon: '⛸️', image: 'https://images.unsplash.com/photo-1593786267440-8a0b19fd1767?w=400&h=300&fit=crop' },
+  { name: 'Karate', icon: '🥋', image: 'https://images.unsplash.com/photo-1555597673-b21d5c935865?w=400&h=300&fit=crop' },
+];
 
 export default function Index() {
   const navigate = useNavigate();
@@ -13,9 +23,9 @@ export default function Index() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchTerm.trim()) {
-      navigate(`/explore?search=${encodeURIComponent(searchTerm)}`);
+      navigate(`/busca-escuelas?search=${encodeURIComponent(searchTerm)}`);
     } else {
-      navigate('/explore');
+      navigate('/busca-escuelas');
     }
   };
 
@@ -65,25 +75,57 @@ export default function Index() {
               </div>
             </form>
 
-            {/* Quick tags */}
-            <div className="flex flex-wrap justify-center gap-2 text-sm text-blue-100 pt-4">
-              <span>Populares:</span>
-              {['Fútbol', 'Natación', 'Tenis', 'Baloncesto'].map(sport => (
-                <button 
-                  key={sport}
-                  onClick={() => navigate(`/explore?sport=${sport}`)}
-                  className="hover:text-white hover:underline underline-offset-4 transition-colors"
-                >
-                  {sport}
-                </button>
-              ))}
+            {/* CTA Button */}
+            <div className="pt-4">
+              <Button 
+                size="lg" 
+                variant="outline" 
+                className="border-white/50 text-white hover:bg-white/20 h-14 px-8 text-lg"
+                onClick={() => navigate('/busca-escuelas')}
+              >
+                <MapPin className="mr-2 h-5 w-5" />
+                Encuentra tu Escuela
+              </Button>
             </div>
           </div>
         </div>
       </section>
 
+      {/* Sports Grid Section */}
+      <section className="py-16 bg-muted/30">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Explora por Deporte</h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Selecciona tu deporte favorito y encuentra las mejores escuelas cerca de ti
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {sportsData.map((sport) => (
+              <button
+                key={sport.name}
+                onClick={() => navigate(`/busca-escuelas?sport=${encodeURIComponent(sport.name)}`)}
+                className="group relative rounded-2xl overflow-hidden aspect-[4/3] transition-all duration-300 hover:scale-105 hover:shadow-xl"
+              >
+                <img 
+                  src={sport.image} 
+                  alt={sport.name}
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
+                  <span className="text-3xl mb-1 block">{sport.icon}</span>
+                  <span className="font-bold text-lg">{sport.name}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Features Grid */}
-      <section className="py-24 bg-muted/30">
+      <section className="py-24 bg-background">
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-8">
             <Card className="group hover:shadow-lg transition-all duration-300 border-none shadow-md bg-background/50 backdrop-blur-sm">
@@ -126,7 +168,7 @@ export default function Index() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-muted/30">
         <div className="container mx-auto px-4">
           <div className="bg-primary rounded-3xl p-8 md:p-16 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-white/10 to-transparent skew-x-12 transform origin-top-right" />
