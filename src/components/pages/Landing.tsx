@@ -38,7 +38,6 @@ import logoImage from "@/assets/sportmaps-logo.png";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { SportMapsFooter } from "@/components/footer/SportMapsFooter";
 
 interface LandingProps {
   onNavigate?: (page: string) => void;
@@ -454,8 +453,41 @@ const Landing = ({ onNavigate }: LandingProps) => {
         </div>
       </section>
 
-      {/* Footer */}
-      <SportMapsFooter />
+      {/* Final Footer with Slogan */}
+      <footer className="py-8 bg-background border-t">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <img src={logoImage} alt="SportMaps" className="h-8 w-8" />
+              <span className="font-bold font-poppins text-lg">SportMaps</span>
+            </div>
+            
+            <p className="text-center font-poppins text-primary font-semibold text-lg">
+              Revolucionando el sistema deportivo
+            </p>
+            
+            <div className="flex items-center gap-4">
+              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">
+                <Facebook className="h-5 w-5" />
+              </a>
+              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">
+                <Instagram className="h-5 w-5" />
+              </a>
+              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">
+                <Twitter className="h-5 w-5" />
+              </a>
+              <a href="#" className="text-muted-foreground hover:text-primary transition-colors">
+                <Youtube className="h-5 w-5" />
+              </a>
+            </div>
+          </div>
+          
+          <div className="mt-6 pt-6 border-t text-center text-sm text-muted-foreground">
+            <p>© 2024 SportMaps. Todos los derechos reservados.</p>
+            <p className="mt-1">Bogotá, Colombia | soporte@sportmaps.co</p>
+          </div>
+        </div>
+      </footer>
     </div>
     </>
   );
