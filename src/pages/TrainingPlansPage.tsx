@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,30 +7,30 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2 } from 'lucide-react';
+import { TrainingPlanFormDialog } from '@/components/coach/TrainingPlanFormDialog';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function TrainingPlansPage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
-
-  // Demo teams data (only for demo users)
-  const demoTeams = isDemoUser ? [
-    {
-      id: 'demo-team-1',
-      coach_id: user?.id,
-      name: 'Fútbol Sub-12',
-      sport: 'Fútbol',
-      age_group: 'Sub-12',
-      season: '2024',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: teamsData } = useQuery({
+  // Fetch teams
+  const { data: teams } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -43,60 +43,56 @@ export default function TrainingPlansPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
-
-  // Demo training plans data (only for demo users)
-  const demoPlans = isDemoUser ? [
-    {
-      id: 'plan-1',
-      team_id: selectedTeamId,
-      plan_date: '2024-11-02',
-      objectives: 'Mejorar técnica de pase y control',
-      warmup: '10 min de trote suave + estiramientos dinámicos',
-      drills: [
-        { name: 'Pases cortos en parejas', focus: 'Precisión', duration: '15 min' },
-        { name: 'Rondos 4v1', focus: 'Presión y movimiento', duration: '20 min' },
-        { name: 'Juego reducido 4v4', focus: 'Aplicación táctica', duration: '25 min' },
-      ],
-      materials: 'Conos, balones, petos',
-      notes: 'Excelente sesión. Los jugadores mostraron mejora notable.',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: 'plan-2',
-      team_id: selectedTeamId,
-      plan_date: '2024-10-30',
-      objectives: 'Trabajo físico y resistencia',
-      warmup: 'Movilidad articular + activación',
-      drills: [
-        { name: 'Circuito físico', focus: 'Resistencia', duration: '20 min' },
-        { name: 'Sprints con cambios de dirección', focus: 'Velocidad', duration: '15 min' },
-      ],
-      materials: 'Escalera de agilidad, conos',
-      notes: 'Buena intensidad durante toda la sesión.',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: plansData, isLoading } = useQuery({
+  // Fetch training plans
+  const { data: plans, isLoading } = useQuery({
     queryKey: ['training-plans', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('training_plans')
         .select('*')
         .eq('team_id', selectedTeamId)
-        .order('plan_date', { ascending: true });
+        .order('plan_date', { ascending: false });
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
+    enabled: !!selectedTeamId,
   });
 
-  const plans = (plansData && plansData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? plansData
-    : demoPlans;
+  // Create plan mutation
+  const createMutation = useMutation({
+    mutationFn: async (input: any) => {
+      const { data, error } = await supabase
+        .from('training_plans')
+        .insert(input)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training-plans', selectedTeamId] });
+      toast({ title: '✅ Plan creado', description: 'El plan de entrenamiento se ha guardado' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  // Delete plan mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('training_plans')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training-plans', selectedTeamId] });
+      toast({ title: 'Plan eliminado' });
+      setDeleteId(null);
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -107,7 +103,11 @@ export default function TrainingPlansPage() {
             Planifica y estructura tus sesiones
           </p>
         </div>
-        <Button className="gap-2">
+        <Button 
+          className="gap-2" 
+          onClick={() => setDialogOpen(true)}
+          disabled={!selectedTeamId}
+        >
           <Plus className="w-4 h-4" />
           Crear Plan
         </Button>
@@ -125,7 +125,7 @@ export default function TrainingPlansPage() {
             <SelectContent>
               {teams?.map((team) => (
                 <SelectItem key={team.id} value={team.id}>
-                  {team.name} - {team.age_group}
+                  {team.name} - {team.age_group || team.sport}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -133,9 +133,11 @@ export default function TrainingPlansPage() {
         </CardContent>
       </Card>
 
-      {selectedTeamId && plans && (
+      {selectedTeamId && (
         <div className="space-y-4">
-          {plans.map((plan) => {
+          {isLoading && <LoadingSpinner text="Cargando planes..." />}
+          
+          {plans && plans.length > 0 && plans.map((plan) => {
             const drills = Array.isArray(plan.drills) ? plan.drills : [];
 
             return (
@@ -159,23 +161,26 @@ export default function TrainingPlansPage() {
                         <span>{plan.objectives}</span>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Editar
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm">Editar</Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setDeleteId(plan.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Calentamiento */}
                   {plan.warmup && (
                     <div>
-                      <h4 className="font-semibold mb-2 flex items-center gap-2">
-                        <Badge variant="secondary">Calentamiento</Badge>
-                      </h4>
+                      <Badge variant="secondary" className="mb-2">Calentamiento</Badge>
                       <p className="text-sm text-muted-foreground">{plan.warmup}</p>
                     </div>
                   )}
 
-                  {/* Ejercicios */}
                   {drills.length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-3 flex items-center gap-2">
@@ -184,10 +189,7 @@ export default function TrainingPlansPage() {
                       </h4>
                       <div className="space-y-3">
                         {drills.map((drill: any, index: number) => (
-                          <div
-                            key={index}
-                            className="p-3 rounded-lg border bg-accent/50"
-                          >
+                          <div key={index} className="p-3 rounded-lg border bg-accent/50">
                             <div className="flex items-start justify-between">
                               <div>
                                 <p className="font-medium">{drill.name}</p>
@@ -207,7 +209,6 @@ export default function TrainingPlansPage() {
                     </div>
                   )}
 
-                  {/* Materiales */}
                   {plan.materials && (
                     <div>
                       <h4 className="font-semibold mb-2">Materiales</h4>
@@ -215,7 +216,6 @@ export default function TrainingPlansPage() {
                     </div>
                   )}
 
-                  {/* Notas */}
                   {plan.notes && (
                     <div className="pt-3 border-t">
                       <h4 className="font-semibold mb-2">Notas</h4>
@@ -227,7 +227,7 @@ export default function TrainingPlansPage() {
             );
           })}
 
-          {plans.length === 0 && (
+          {plans && plans.length === 0 && !isLoading && (
             <Card>
               <CardContent className="pt-6 text-center">
                 <ClipboardList className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -235,7 +235,7 @@ export default function TrainingPlansPage() {
                 <p className="text-muted-foreground mb-4">
                   Crea tu primer plan de entrenamiento
                 </p>
-                <Button className="gap-2">
+                <Button className="gap-2" onClick={() => setDialogOpen(true)}>
                   <Plus className="w-4 h-4" />
                   Crear Primer Plan
                 </Button>
@@ -257,7 +257,47 @@ export default function TrainingPlansPage() {
         </Card>
       )}
 
-      {isLoading && <LoadingSpinner text="Cargando planes..." />}
+      {teams && teams.length === 0 && (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <ClipboardList className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">No tienes equipos</h3>
+            <p className="text-muted-foreground">
+              Primero debes crear un equipo en la sección de Equipos
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedTeamId && (
+        <TrainingPlanFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSubmit={createMutation.mutate}
+          teamId={selectedTeamId}
+          isLoading={createMutation.isPending}
+        />
+      )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteId && deleteMutation.mutate(deleteId)}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
