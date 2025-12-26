@@ -215,7 +215,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
               />
               <div className="hidden md:block">
                 <div className="font-bold text-xl text-foreground">SportMaps</div>
-                <div className="text-xs text-muted-foreground">Ecosistema Deportivo</div>
+                <div className="text-xs brand-slogan">Revolucionando el sistema deportivo</div>
               </div>
             </Link>
 

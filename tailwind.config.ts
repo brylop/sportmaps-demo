@@ -26,6 +26,7 @@ export default {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
           glow: "hsl(var(--primary-glow))",
+          dark: "hsl(var(--primary-dark))",
         },
         orange: {
           DEFAULT: "hsl(var(--accent-orange))",
@@ -77,11 +78,14 @@ export default {
         'gradient-hero': 'var(--gradient-hero)',
         'gradient-performance': 'var(--gradient-performance)',
         'gradient-orange': 'var(--gradient-orange)',
+        'gradient-brand': 'var(--gradient-brand)',
       },
       boxShadow: {
         'elevation': 'var(--shadow-elevation)',
         'performance': 'var(--shadow-performance)',
         'card': 'var(--shadow-card)',
+        'glow-green': 'var(--shadow-glow-green)',
+        'glow-orange': 'var(--shadow-glow-orange)',
       },
       transitionTimingFunction: {
         'smooth': 'var(--transition-smooth)',
@@ -109,10 +113,20 @@ export default {
             height: "0",
           },
         },
+        "fade-in": {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "pulse-glow": {
+          "0%, 100%": { boxShadow: "0 0 20px hsl(119 60% 32% / 0.3)" },
+          "50%": { boxShadow: "0 0 40px hsl(119 60% 32% / 0.5)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "fade-in": "fade-in 0.5s ease-out forwards",
+        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
       },
     },
   },
