@@ -2,6 +2,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTrainingLogs, useAthleteStats, useTrainingAggregates } from '@/hooks/useAthleteData';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3,
   TrendingUp,
@@ -14,41 +16,46 @@ import {
 } from 'lucide-react';
 
 export default function StatsPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
+  const { data: trainingLogs, isLoading: logsLoading } = useTrainingLogs();
+  const { data: athleteStats, isLoading: statsLoading } = useAthleteStats();
+  const aggregates = useTrainingAggregates();
 
-  const performanceData = [
-    { month: 'Ene', value: 65 },
-    { month: 'Feb', value: 72 },
-    { month: 'Mar', value: 68 },
-    { month: 'Abr', value: 78 },
-    { month: 'May', value: 85 },
-    { month: 'Jun', value: 82 }
-  ];
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isLoading = logsLoading || statsLoading;
 
-  const stats = {
-    overall: {
-      matches: 45,
-      wins: 32,
-      draws: 8,
-      losses: 5,
-      goals: 87,
-      assists: 34,
-      minutesPlayed: 3420
-    },
-    recent: {
-      last5: ['W', 'W', 'D', 'W', 'L'],
-      streak: 3,
-      form: 85
-    },
-    personal: {
-      topSpeed: 32.5,
-      distance: 245.3,
-      stamina: 92,
-      technique: 88
-    }
+  // Calculate stats from real data or use defaults
+  const totalSessions = trainingLogs?.length || 0;
+  const totalMinutes = trainingLogs?.reduce((acc, log) => acc + log.duration_minutes, 0) || 0;
+  const totalCalories = trainingLogs?.reduce((acc, log) => acc + (log.calories_burned || 0), 0) || 0;
+  
+  // Get specific stats
+  const maxSpeed = athleteStats?.find(s => s.stat_type === 'Velocidad máxima')?.value || 0;
+  const totalDistance = athleteStats?.filter(s => s.stat_type === 'Distancia recorrida')
+    .reduce((acc, s) => acc + Number(s.value), 0) || 0;
+  const totalSprints = athleteStats?.filter(s => s.stat_type === 'Sprints')
+    .reduce((acc, s) => acc + Number(s.value), 0) || 0;
+
+  // Group training by week for chart
+  const performanceData = trainingLogs?.slice(0, 7).reverse().map(log => ({
+    day: new Date(log.training_date).toLocaleDateString('es', { weekday: 'short' }),
+    value: Math.min(100, Math.round((log.duration_minutes / 90) * 100)),
+    type: log.exercise_type
+  })) || [];
+
+  // Recent intensity distribution
+  const intensityBreakdown = {
+    max: trainingLogs?.filter(l => l.intensity === 'max').length || 0,
+    high: trainingLogs?.filter(l => l.intensity === 'high').length || 0,
+    medium: trainingLogs?.filter(l => l.intensity === 'medium').length || 0,
+    low: trainingLogs?.filter(l => l.intensity === 'low').length || 0,
   };
 
-  const winRate = Math.round((stats.overall.wins / stats.overall.matches) * 100);
+  if (isLoading) {
+    return <LoadingSpinner fullScreen text="Cargando estadísticas..." />;
+  }
+
+  const hasData = totalSessions > 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -70,13 +77,13 @@ export default function StatsPage() {
             <div className="flex items-center justify-between mb-4">
               <Trophy className="h-8 w-8 text-primary" />
               <Badge variant="secondary" className="bg-green-500/10 text-green-600">
-                +12%
+                Activo
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Tasa de Victoria</p>
-            <p className="text-3xl font-bold">{winRate}%</p>
+            <p className="text-sm text-muted-foreground">Sesiones Totales</p>
+            <p className="text-3xl font-bold">{totalSessions}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {stats.overall.wins} victorias en {stats.overall.matches} partidos
+              Últimos 30 días
             </p>
           </CardContent>
         </Card>
@@ -84,15 +91,15 @@ export default function StatsPage() {
         <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <Target className="h-8 w-8 text-orange-500" />
+              <Flame className="h-8 w-8 text-orange-500" />
               <Badge variant="secondary" className="bg-orange-500/10 text-orange-600">
-                Top 5%
+                {totalCalories > 0 ? '+' + Math.round(totalCalories / totalSessions) + '/sesión' : '-'}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Goles</p>
-            <p className="text-3xl font-bold">{stats.overall.goals}</p>
+            <p className="text-sm text-muted-foreground">Calorías Quemadas</p>
+            <p className="text-3xl font-bold">{totalCalories.toLocaleString()}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {stats.overall.assists} asistencias
+              kcal totales
             </p>
           </CardContent>
         </Card>
@@ -100,15 +107,15 @@ export default function StatsPage() {
         <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <Flame className="h-8 w-8 text-blue-500" />
+              <Target className="h-8 w-8 text-blue-500" />
               <Badge variant="secondary" className="bg-blue-500/10 text-blue-600">
-                {stats.recent.streak} partidos
+                {maxSpeed > 0 ? maxSpeed + ' km/h' : '-'}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Racha Actual</p>
-            <p className="text-3xl font-bold">{stats.recent.streak}W</p>
+            <p className="text-sm text-muted-foreground">Velocidad Máxima</p>
+            <p className="text-3xl font-bold">{maxSpeed.toFixed(1)}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Sin perder
+              km/h registrados
             </p>
           </CardContent>
         </Card>
@@ -118,15 +125,15 @@ export default function StatsPage() {
             <div className="flex items-center justify-between mb-4">
               <Clock className="h-8 w-8 text-purple-500" />
               <Badge variant="secondary" className="bg-purple-500/10 text-purple-600">
-                57h
+                {Math.round(totalMinutes / 60)}h
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Minutos Jugados</p>
+            <p className="text-sm text-muted-foreground">Tiempo de Entrenamiento</p>
             <p className="text-3xl font-bold">
-              {Math.round(stats.overall.minutesPlayed / 60)}h
+              {totalMinutes}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Este mes
+              minutos totales
             </p>
           </CardContent>
         </Card>
@@ -147,100 +154,119 @@ export default function StatsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-primary" />
-                  Evolución Mensual
+                  Actividad Reciente
                 </CardTitle>
                 <CardDescription>
-                  Tu rendimiento en los últimos 6 meses
+                  Tus últimas sesiones de entrenamiento
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-64 flex items-end justify-between gap-2">
-                  {performanceData.map((data, index) => (
-                    <div key={data.month} className="flex-1 flex flex-col items-center gap-2">
-                      <div
-                        className="w-full bg-gradient-to-t from-primary to-primary/50 rounded-t-lg transition-all hover:scale-105 animate-in slide-in-from-bottom"
-                        style={{
-                          height: `${data.value}%`,
-                          animationDelay: `${index * 100}ms`
-                        }}
-                      />
-                      <span className="text-xs text-muted-foreground">{data.month}</span>
-                    </div>
-                  ))}
-                </div>
+                {performanceData.length > 0 ? (
+                  <div className="h-64 flex items-end justify-between gap-2">
+                    {performanceData.map((data, index) => (
+                      <div key={index} className="flex-1 flex flex-col items-center gap-2">
+                        <div
+                          className="w-full bg-gradient-to-t from-primary to-primary/50 rounded-t-lg transition-all hover:scale-105 animate-in slide-in-from-bottom"
+                          style={{
+                            height: `${data.value}%`,
+                            animationDelay: `${index * 100}ms`
+                          }}
+                        />
+                        <span className="text-xs text-muted-foreground">{data.day}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="h-64 flex items-center justify-center text-muted-foreground">
+                    No hay datos de entrenamiento aún
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Form */}
+            {/* Intensity Distribution */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Activity className="h-5 w-5 text-primary" />
-                  Forma Reciente
+                  Distribución de Intensidad
                 </CardTitle>
                 <CardDescription>
-                  Últimos 5 partidos
+                  Cómo se distribuyen tus entrenamientos
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex gap-2 justify-center">
-                  {stats.recent.last5.map((result, index) => (
-                    <div
-                      key={index}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-white animate-in zoom-in ${
-                        result === 'W' ? 'bg-green-500' :
-                        result === 'D' ? 'bg-yellow-500' :
-                        'bg-red-500'
-                      }`}
-                      style={{ animationDelay: `${index * 100}ms` }}
-                    >
-                      {result}
+                {hasData ? (
+                  <>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sm flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                          Máxima
+                        </span>
+                        <span className="text-sm font-medium">{intensityBreakdown.max} sesiones</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-red-500"
+                          style={{ width: `${totalSessions > 0 ? (intensityBreakdown.max / totalSessions) * 100 : 0}%` }}
+                        />
+                      </div>
                     </div>
-                  ))}
-                </div>
-                
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Forma</span>
-                    <span className="text-sm font-medium">{stats.recent.form}%</span>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sm flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-orange-500"></span>
+                          Alta
+                        </span>
+                        <span className="text-sm font-medium">{intensityBreakdown.high} sesiones</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-orange-500"
+                          style={{ width: `${totalSessions > 0 ? (intensityBreakdown.high / totalSessions) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sm flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
+                          Media
+                        </span>
+                        <span className="text-sm font-medium">{intensityBreakdown.medium} sesiones</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-yellow-500"
+                          style={{ width: `${totalSessions > 0 ? (intensityBreakdown.medium / totalSessions) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sm flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                          Baja
+                        </span>
+                        <span className="text-sm font-medium">{intensityBreakdown.low} sesiones</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-green-500"
+                          style={{ width: `${totalSessions > 0 ? (intensityBreakdown.low / totalSessions) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground">
+                    No hay datos de intensidad aún
                   </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-primary-glow transition-all duration-1000 animate-in slide-in-from-left"
-                      style={{ width: `${stats.recent.form}%` }}
-                    />
-                  </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
-
-          {/* Detailed Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Estadísticas Detalladas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-6 md:grid-cols-3">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Partidos Jugados</p>
-                  <p className="text-2xl font-bold">{stats.overall.matches}</p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Victorias / Empates / Derrotas</p>
-                  <p className="text-2xl font-bold">
-                    {stats.overall.wins} / {stats.overall.draws} / {stats.overall.losses}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Goles + Asistencias</p>
-                  <p className="text-2xl font-bold">
-                    {stats.overall.goals + stats.overall.assists}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* Physical Tab */}
@@ -248,71 +274,56 @@ export default function StatsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Capacidades Físicas</CardTitle>
+                <CardTitle>Métricas de Rendimiento</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Resistencia</span>
-                    <span className="text-sm font-medium">{stats.personal.stamina}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-green-500 to-green-600"
-                      style={{ width: `${stats.personal.stamina}%` }}
-                    />
-                  </div>
+                <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                  <span className="text-sm">Distancia Total</span>
+                  <span className="font-bold">{totalDistance.toFixed(1)} km</span>
                 </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Técnica</span>
-                    <span className="text-sm font-medium">{stats.personal.technique}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
-                      style={{ width: `${stats.personal.technique}%` }}
-                    />
-                  </div>
+                <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                  <span className="text-sm">Velocidad Máxima</span>
+                  <span className="font-bold">{maxSpeed} km/h</span>
                 </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Velocidad</span>
-                    <span className="text-sm font-medium">{stats.personal.topSpeed} km/h</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-orange-500 to-orange-600"
-                      style={{ width: '88%' }}
-                    />
-                  </div>
+                <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                  <span className="text-sm">Sprints Totales</span>
+                  <span className="font-bold">{totalSprints}</span>
+                </div>
+                <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
+                  <span className="text-sm">Promedio por Sesión</span>
+                  <span className="font-bold">
+                    {totalSessions > 0 ? Math.round(totalMinutes / totalSessions) : 0} min
+                  </span>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Métricas de Rendimiento</CardTitle>
+                <CardTitle>Estadísticas Registradas</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Distancia Recorrida</span>
-                    <span className="font-bold">{stats.personal.distance} km</span>
+                {athleteStats && athleteStats.length > 0 ? (
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {athleteStats.slice(0, 6).map((stat) => (
+                      <div key={stat.id} className="flex justify-between items-center p-2 border-b last:border-0">
+                        <div>
+                          <p className="font-medium text-sm">{stat.stat_type}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(stat.stat_date).toLocaleDateString('es')}
+                          </p>
+                        </div>
+                        <Badge variant="secondary">
+                          {stat.value} {stat.unit}
+                        </Badge>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Velocidad Máxima</span>
-                    <span className="font-bold">{stats.personal.topSpeed} km/h</span>
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground">
+                    No hay estadísticas registradas
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Promedio por Partido</span>
-                    <span className="font-bold">
-                      {(stats.personal.distance / stats.overall.matches).toFixed(1)} km
-                    </span>
-                  </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -322,18 +333,62 @@ export default function StatsPage() {
         <TabsContent value="history" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Próximamente</CardTitle>
+              <CardTitle>Historial de Entrenamientos</CardTitle>
               <CardDescription>
-                Historial completo de partidos y eventos
+                Tus sesiones de entrenamiento recientes
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-12">
-                <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  Esta sección estará disponible próximamente
-                </p>
-              </div>
+              {trainingLogs && trainingLogs.length > 0 ? (
+                <div className="space-y-3">
+                  {trainingLogs.map((log) => (
+                    <div key={log.id} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
+                      <div>
+                        <p className="font-medium">{log.exercise_type}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(log.training_date).toLocaleDateString('es', { 
+                            weekday: 'long', 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })}
+                        </p>
+                        {log.notes && (
+                          <p className="text-xs text-muted-foreground mt-1">{log.notes}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold">{log.duration_minutes} min</p>
+                        <Badge 
+                          variant="outline"
+                          className={
+                            log.intensity === 'max' ? 'border-red-500 text-red-500' :
+                            log.intensity === 'high' ? 'border-orange-500 text-orange-500' :
+                            log.intensity === 'medium' ? 'border-yellow-500 text-yellow-600' :
+                            'border-green-500 text-green-500'
+                          }
+                        >
+                          {log.intensity === 'max' ? 'Máxima' :
+                           log.intensity === 'high' ? 'Alta' :
+                           log.intensity === 'medium' ? 'Media' : 'Baja'}
+                        </Badge>
+                        {log.calories_burned && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {log.calories_burned} kcal
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">
+                    No hay entrenamientos registrados aún
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
