@@ -21,10 +21,10 @@ import {
   X,
   DollarSign,
   Target,
-  MessageSquare,
   Navigation,
   CheckCircle2,
-  ArrowLeft
+  ArrowLeft,
+  Map
 } from 'lucide-react';
 import { useSchools } from '@/hooks/useSchools';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -33,6 +33,7 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { CompareSchools } from '@/components/explore/CompareSchools';
 import { SchoolReviews } from '@/components/explore/SchoolReviews';
 import { SearchModal } from '@/components/explore/SearchModal';
+import { SchoolMap } from '@/components/explore/SchoolMap';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ExplorePage() {
@@ -46,6 +47,8 @@ export default function ExplorePage() {
   const [nearMe, setNearMe] = useState(false);
   const [selectedAgeRange, setSelectedAgeRange] = useState<string>('');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showMap, setShowMap] = useState(true);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -444,6 +447,7 @@ export default function ExplorePage() {
           />
         ) : (
           <>
+            {/* Map Toggle and Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold">Escuelas Disponibles</h2>
@@ -452,7 +456,27 @@ export default function ExplorePage() {
                   {nearMe && userLocation && ' cerca de ti'}
                 </p>
               </div>
+              <Button
+                variant={showMap ? 'default' : 'outline'}
+                onClick={() => setShowMap(!showMap)}
+                className="gap-2"
+              >
+                <Map className="h-4 w-4" />
+                {showMap ? 'Ocultar mapa' : 'Ver mapa'}
+              </Button>
             </div>
+
+            {/* Interactive Map */}
+            {showMap && (
+              <div className="mb-8">
+                <SchoolMap
+                  schools={schools}
+                  userLocation={userLocation}
+                  selectedSchoolId={selectedSchoolId}
+                  onSchoolSelect={setSelectedSchoolId}
+                />
+              </div>
+            )}
 
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {schools.map((school) => (
