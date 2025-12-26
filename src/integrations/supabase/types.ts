@@ -164,6 +164,45 @@ export type Database = {
         }
         Relationships: []
       }
+      athlete_stats: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          stat_date: string
+          stat_type: string
+          unit: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          stat_date?: string
+          stat_type: string
+          unit: string
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          stat_date?: string
+          stat_type?: string
+          unit?: string
+          updated_at?: string
+          value?: number
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
           child_id: string
@@ -1124,6 +1163,48 @@ export type Database = {
           name?: string
           season?: string | null
           sport?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_logs: {
+        Row: {
+          athlete_id: string
+          calories_burned: number | null
+          created_at: string
+          duration_minutes: number
+          exercise_type: string
+          id: string
+          intensity: string | null
+          is_demo: boolean | null
+          notes: string | null
+          training_date: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          calories_burned?: number | null
+          created_at?: string
+          duration_minutes: number
+          exercise_type: string
+          id?: string
+          intensity?: string | null
+          is_demo?: boolean | null
+          notes?: string | null
+          training_date?: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          calories_burned?: number | null
+          created_at?: string
+          duration_minutes?: number
+          exercise_type?: string
+          id?: string
+          intensity?: string | null
+          is_demo?: boolean | null
+          notes?: string | null
+          training_date?: string
           updated_at?: string
         }
         Relationships: []
