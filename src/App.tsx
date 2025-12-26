@@ -25,6 +25,9 @@ import ProfilePage from "./pages/ProfilePage";
 import SchoolDetailPage from "./pages/SchoolDetailPage";
 import MyEnrollmentsPage from "./pages/MyEnrollmentsPage";
 import MyChildrenPage from "./pages/MyChildrenPage";
+import ChildProgressPage from "./pages/ChildProgressPage";
+import ChildAttendancePage from "./pages/ChildAttendancePage";
+import ShopPage from "./pages/ShopPage";
 import AcademicProgressPage from "./pages/AcademicProgressPage";
 import AttendancePage from "./pages/AttendancePage";
 import PaymentsPage from "./pages/PaymentsPage";
@@ -117,11 +120,13 @@ const App = () => (
               <Route path="goals" element={<UnderConstructionPage title="Objetivos" />} />
               <Route path="training" element={<UnderConstructionPage title="Entrenamientos" />} />
               <Route path="enrollments" element={<MyEnrollmentsPage />} />
-              <Route path="shop" element={<UnderConstructionPage title="Tienda" />} />
+              <Route path="shop" element={<ShopPage />} />
               <Route path="wellness" element={<UnderConstructionPage title="Bienestar" />} />
               
               {/* Parent routes */}
               <Route path="children" element={<MyChildrenPage />} />
+              <Route path="children/:id/progress" element={<ChildProgressPage />} />
+              <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
               <Route path="academic-progress" element={<AcademicProgressPage />} />
               <Route path="parent-attendance" element={<AttendancePage />} />
               <Route path="payments" element={<PaymentsPage />} />
