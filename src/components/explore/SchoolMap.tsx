@@ -73,13 +73,24 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
   // Initialize map using vanilla Leaflet
   useEffect(() => {
     let isMounted = true;
+    let mapInstance: any = null;
 
     const initMap = async () => {
-      if (!mapContainerRef.current) return;
+      if (!mapContainerRef.current) {
+        console.log('Map container not ready');
+        return;
+      }
+
+      // If map already exists, skip initialization
+      if (mapInstanceRef.current) {
+        console.log('Map already initialized');
+        setIsLoading(false);
+        return;
+      }
 
       try {
+        console.log('Initializing map...');
         const L = await import('leaflet');
-        await import('leaflet/dist/leaflet.css');
 
         // Fix default marker icons
         delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -89,20 +100,24 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
           shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
         });
 
-        if (!isMounted || mapInstanceRef.current) return;
+        if (!isMounted) return;
 
         const defaultCenter: [number, number] = userLocation
           ? [userLocation.lat, userLocation.lng]
           : [4.6097, -74.0817]; // Bogotá
 
         // Create map instance
-        const map = L.map(mapContainerRef.current).setView(defaultCenter, 11);
-        mapInstanceRef.current = map;
+        mapInstance = L.map(mapContainerRef.current, {
+          center: defaultCenter,
+          zoom: 11,
+        });
+        
+        mapInstanceRef.current = mapInstance;
 
         // Add tile layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        }).addTo(map);
+        }).addTo(mapInstance);
 
         // Add user location marker if available
         if (userLocation) {
@@ -121,11 +136,14 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
           });
 
           L.marker([userLocation.lat, userLocation.lng], { icon: userIcon })
-            .addTo(map)
+            .addTo(mapInstance)
             .bindPopup('<div class="text-center font-semibold">Tu ubicación</div>');
         }
 
-        setIsLoading(false);
+        console.log('Map initialized successfully');
+        if (isMounted) {
+          setIsLoading(false);
+        }
       } catch (err) {
         console.error('Error loading map:', err);
         if (isMounted) {
@@ -135,16 +153,20 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
       }
     };
 
-    initMap();
+    // Small delay to ensure container is mounted
+    const timer = setTimeout(() => {
+      initMap();
+    }, 100);
 
     return () => {
       isMounted = false;
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
+      clearTimeout(timer);
+      if (mapInstance) {
+        mapInstance.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [userLocation]);
 
   // Update markers when schools change
   useEffect(() => {
