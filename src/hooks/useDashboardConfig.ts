@@ -132,7 +132,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           activities: [],
           quickActions: [
-            { label: 'Crear Evento', icon: Calendar, href: '/events/create', variant: 'default' },
+            { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
             { label: 'Marcar Asistencia', icon: Users, href: '/coach-attendance', variant: 'outline' },
             { label: 'Registrar Resultado', icon: Trophy, href: '/results', variant: 'outline' }
           ],
@@ -174,7 +174,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
-            { label: 'Agregar Entrenador', icon: Users, href: '/school-coaches', variant: 'outline' }
+            { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
           ]
         };
 
@@ -211,8 +211,8 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           activities: [],
           quickActions: [
-            { label: 'Configurar Disponibilidad', icon: Activity, href: '/availability', variant: 'default' },
-            { label: 'Ver Agenda', icon: Calendar, href: '/schedule', variant: 'outline' },
+            { label: 'Ver Agenda', icon: Calendar, href: '/schedule', variant: 'default' },
+            { label: 'Mis Atletas', icon: Users, href: '/athletes', variant: 'outline' },
             { label: 'Historial Médico', icon: Heart, href: '/medical-history', variant: 'outline' }
           ]
         };
@@ -250,7 +250,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           activities: [],
           quickActions: [
-            { label: 'Agregar Producto', icon: ShoppingBag, href: '/products/new', variant: 'default' },
+            { label: 'Ver Productos', icon: ShoppingBag, href: '/products', variant: 'default' },
             { label: 'Ver Pedidos', icon: Clock, href: '/orders', variant: 'outline' },
             { label: 'Inventario', icon: BarChart3, href: '/inventory', variant: 'outline' }
           ]

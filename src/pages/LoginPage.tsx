@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Eye, EyeOff, Users, GraduationCap, School, UserCircle, Heart, Store } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Users, GraduationCap, School, UserCircle, Heart, Store, Shield } from 'lucide-react';
 import { getDemoUser } from '@/lib/demo-credentials';
 import { useToast } from '@/hooks/use-toast';
 
@@ -73,6 +73,15 @@ const demoRoles = [
     icon: Store,
     color: 'bg-cyan-500',
     border: 'border-cyan-500',
+  },
+  {
+    id: 'admin',
+    title: 'Administrador',
+    description: 'Control del sistema',
+    email: 'admin@demo.sportmaps.com',
+    icon: Shield,
+    color: 'bg-red-500',
+    border: 'border-red-500',
   },
 ];
 
@@ -166,7 +175,7 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
               {demoRoles.map((role) => {
                 const Icon = role.icon;
                 
