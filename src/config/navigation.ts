@@ -176,7 +176,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Recursos',
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
-          { title: 'Reportes', href: '/reports', icon: FileText }
+          { title: 'Reportes', href: '/wellness-reports', icon: FileText }
         ]
       }
     ],
@@ -202,7 +202,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Ventas',
         items: [
           { title: 'Clientes', href: '/customers', icon: Users },
-          { title: 'Reportes', href: '/reports', icon: FileText },
+          { title: 'Reportes', href: '/store-reports', icon: FileText },
           { title: 'Promociones', href: '/promotions', icon: Trophy }
         ]
       }
@@ -220,9 +220,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Sistema',
         items: [
-          { title: 'Reportes', href: '/admin/reports', icon: BarChart3 },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
+          { title: 'Reportes', href: '/admin/reports', icon: FileText },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: FileText }
+          { title: 'Logs', href: '/admin/logs', icon: Bell }
         ]
       }
     ]
