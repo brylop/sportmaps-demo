@@ -143,8 +143,8 @@ export default function ExplorePage() {
         </div>
       </div>
 
-      {/* Hero Header with Search */}
-      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-secondary text-white py-16 overflow-hidden">
+      {/* Hero Header with Search - Compact */}
+      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-secondary text-white py-8 overflow-hidden">
         {/* Background pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
@@ -154,17 +154,14 @@ export default function ExplorePage() {
         </div>
         
         <div className="container mx-auto px-4 relative z-10">
-          <div className="max-w-4xl mx-auto space-y-8 text-center">
-            <div className="space-y-4">
+          <div className="max-w-4xl mx-auto space-y-4 text-center">
+            <div className="space-y-2">
               <Badge variant="secondary" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
-                🏆 Más de 150 escuelas verificadas
+                🏆 {schools.length} escuelas disponibles
               </Badge>
-              <h1 className="text-4xl md:text-6xl font-bold leading-tight">
-                Encuentra tu Escuela Deportiva Ideal
+              <h1 className="text-3xl md:text-4xl font-bold leading-tight">
+                Encuentra tu Escuela Deportiva
               </h1>
-              <p className="text-xl md:text-2xl text-white/90 max-w-2xl mx-auto">
-                Miles de programas deportivos para todas las edades. Explora, compara y reserva tu cupo hoy.
-              </p>
             </div>
             
             {/* Main Search Bar */}
@@ -174,10 +171,10 @@ export default function ExplorePage() {
             >
               <div className="absolute inset-0 bg-white/20 rounded-2xl blur-xl group-hover:bg-white/30 transition-all" />
               <div className="relative">
-                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 h-6 w-6 text-muted-foreground" />
+                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
                   placeholder="Busca fútbol, natación, tenis..."
-                  className="pl-14 pr-4 h-16 text-lg bg-white rounded-2xl shadow-2xl border-0 focus:ring-4 focus:ring-white/50"
+                  className="pl-12 pr-4 h-12 text-base bg-white rounded-xl shadow-2xl border-0 focus:ring-4 focus:ring-white/50"
                   readOnly
                 />
               </div>
@@ -185,12 +182,11 @@ export default function ExplorePage() {
 
             {/* Quick Search Suggestions */}
             <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-              <span className="text-white/70">Búsquedas populares:</span>
               {['Fútbol', 'Natación', 'Tenis', 'Baloncesto', 'Karate'].map((sport) => (
                 <Badge 
                   key={sport}
                   variant="outline" 
-                  className="border-white/30 text-white hover:bg-white/20 cursor-pointer"
+                  className="border-white/30 text-white hover:bg-white/20 cursor-pointer text-xs"
                   onClick={() => {
                     setSelectedSport(sport);
                   }}
@@ -201,6 +197,31 @@ export default function ExplorePage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* MAP SECTION - PROMINENTLY DISPLAYED */}
+      <div className="container mx-auto px-4 py-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Map className="h-6 w-6 text-primary" />
+            <h2 className="text-xl font-bold">Mapa de Escuelas</h2>
+            <Badge variant="secondary">{schools.length} ubicaciones</Badge>
+          </div>
+          <Button
+            variant={nearMe ? 'default' : 'outline'}
+            onClick={handleNearMeToggle}
+            size="sm"
+          >
+            <Navigation className="h-4 w-4 mr-2" />
+            {nearMe ? 'Ubicación activa' : 'Cerca de mí'}
+          </Button>
+        </div>
+        <SchoolMap
+          schools={schools}
+          userLocation={userLocation}
+          selectedSchoolId={selectedSchoolId}
+          onSchoolSelect={setSelectedSchoolId}
+        />
       </div>
 
       {/* Age Groups Section */}
@@ -447,36 +468,15 @@ export default function ExplorePage() {
           />
         ) : (
           <>
-            {/* Map Toggle and Header */}
+            {/* Schools Header */}
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold">Escuelas Disponibles</h2>
                 <p className="text-muted-foreground mt-1">
-                  {schools.length} {schools.length === 1 ? 'escuela encontrada' : 'escuelas encontradas'}
-                  {nearMe && userLocation && ' cerca de ti'}
+                  Haz clic en una escuela para ver sus programas
                 </p>
               </div>
-              <Button
-                variant={showMap ? 'default' : 'outline'}
-                onClick={() => setShowMap(!showMap)}
-                className="gap-2"
-              >
-                <Map className="h-4 w-4" />
-                {showMap ? 'Ocultar mapa' : 'Ver mapa'}
-              </Button>
             </div>
-
-            {/* Interactive Map */}
-            {showMap && (
-              <div className="mb-8">
-                <SchoolMap
-                  schools={schools}
-                  userLocation={userLocation}
-                  selectedSchoolId={selectedSchoolId}
-                  onSchoolSelect={setSelectedSchoolId}
-                />
-              </div>
-            )}
 
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {schools.map((school) => (
