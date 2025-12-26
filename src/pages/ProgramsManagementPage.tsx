@@ -119,30 +119,3 @@ export default function ProgramsManagementPage() {
     </div>
   );
 }
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Calendar className="mr-2 h-4 w-4" />
-                <span className="font-medium">Horario:</span>
-                <span className="ml-2">{program.schedule}</span>
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <MapPin className="mr-2 h-4 w-4" />
-                <span className="font-medium">Instalación:</span>
-                <span className="ml-2">{program.facility}</span>
-              </div>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <DollarSign className="mr-2 h-4 w-4" />
-                <span className="font-medium">Precio:</span>
-                <span className="ml-2">${program.price.toLocaleString()} / Mes</span>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <Button variant="outline" size="sm" className="flex-1">Editar</Button>
-                <Button variant="ghost" size="sm" className="flex-1">Ver Alumnos</Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
