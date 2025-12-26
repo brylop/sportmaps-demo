@@ -21,12 +21,17 @@ import {
   Heart,
   Share2,
   ArrowLeft,
-  Calendar
+  Calendar,
+  Award,
+  GraduationCap,
+  Building,
+  CalendarCheck
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
+import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
 
 interface School {
   id: string;
@@ -45,6 +50,12 @@ interface School {
   logo_url: string | null;
   cover_image_url: string | null;
   owner_id: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  // New evolution fields
+  certifications?: string[] | null;
+  levels_offered?: string[] | null;
+  accepts_reservations?: boolean;
 }
 
 interface Program {
@@ -59,6 +70,19 @@ interface Program {
   max_participants: number | null;
   current_participants: number;
   active: boolean;
+  // New evolution fields
+  level?: string;
+  spots_available?: number;
+}
+
+interface Facility {
+  id: string;
+  name: string;
+  type: string;
+  capacity: number;
+  status: string;
+  hourly_rate?: number;
+  booking_enabled?: boolean;
 }
 
 export default function SchoolDetailPage() {
@@ -69,11 +93,14 @@ export default function SchoolDetailPage() {
   
   const [school, setSchool] = useState<School | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [reservationModalOpen, setReservationModalOpen] = useState(false);
+  const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -110,6 +137,24 @@ export default function SchoolDetailPage() {
         setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
       } else {
         setPrograms(programsData);
+      }
+
+      // Fetch facilities for reservations
+      const { data: facilitiesData } = await supabase
+        .from('facilities')
+        .select('*')
+        .eq('school_id', id)
+        .eq('status', 'available');
+      
+      if (facilitiesData && facilitiesData.length > 0) {
+        setFacilities(facilitiesData);
+      } else {
+        // Demo facilities
+        setFacilities([
+          { id: 'demo-fac-1', name: 'Cancha Principal', type: 'Cancha', capacity: 22, status: 'available', hourly_rate: 50000, booking_enabled: true },
+          { id: 'demo-fac-2', name: 'Cancha Sintética', type: 'Cancha', capacity: 14, status: 'available', hourly_rate: 35000, booking_enabled: true },
+          { id: 'demo-fac-3', name: 'Gimnasio', type: 'Gimnasio', capacity: 30, status: 'available', hourly_rate: 15000, booking_enabled: true },
+        ]);
       }
     } catch (error: any) {
       console.error('Error fetching school data:', error);
@@ -299,6 +344,14 @@ export default function SchoolDetailPage() {
         />
       )}
 
+      {/* Facility Reservation Modal */}
+      <FacilityReservationModal
+        open={reservationModalOpen}
+        onOpenChange={setReservationModalOpen}
+        facility={selectedFacility}
+        schoolName={school?.name || ''}
+      />
+
       {/* Cover Image */}
       <div
         className="h-64 md:h-80 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center relative"
@@ -375,6 +428,30 @@ export default function SchoolDetailPage() {
                   <p className="text-muted-foreground mb-4">{school.description}</p>
                 )}
 
+                {/* Certifications/Endorsements - NEW */}
+                {school.certifications && school.certifications.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {school.certifications.map((cert) => (
+                      <Badge key={cert} variant="outline" className="gap-1 border-primary/30 text-primary">
+                        <Award className="h-3 w-3" />
+                        {cert}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Levels Offered - NEW */}
+                {school.levels_offered && school.levels_offered.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {school.levels_offered.map((level) => (
+                      <Badge key={level} variant="secondary" className="gap-1">
+                        <GraduationCap className="h-3 w-3" />
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
                 {/* Sports */}
                 {school.sports && school.sports.length > 0 && (
                   <div className="flex flex-wrap gap-2">
@@ -395,9 +472,10 @@ export default function SchoolDetailPage() {
           {/* Left Column - Details */}
           <div className="md:col-span-2 space-y-6">
             <Tabs defaultValue="programs" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="programs">Programas</TabsTrigger>
-                <TabsTrigger value="about">Acerca de</TabsTrigger>
+                <TabsTrigger value="reservations">Reservas</TabsTrigger>
+                <TabsTrigger value="about">Info</TabsTrigger>
                 <TabsTrigger value="reviews">Reseñas</TabsTrigger>
               </TabsList>
 
@@ -419,8 +497,23 @@ export default function SchoolDetailPage() {
                       <CardHeader>
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <CardTitle className="mb-2">{program.name}</CardTitle>
-                            <Badge variant="secondary">{program.sport}</Badge>
+                            <div className="flex items-center gap-2 mb-2">
+                              <CardTitle>{program.name}</CardTitle>
+                              {program.level && (
+                                <Badge variant="outline" className="text-xs">
+                                  <GraduationCap className="h-3 w-3 mr-1" />
+                                  {program.level.charAt(0).toUpperCase() + program.level.slice(1)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">{program.sport}</Badge>
+                              {program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0 && (
+                                <Badge variant="destructive" className="animate-pulse">
+                                  ¡Solo {program.spots_available} cupos!
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                           <div className="text-right">
                             <p className="text-2xl font-bold text-primary">
@@ -470,6 +563,77 @@ export default function SchoolDetailPage() {
                     </Card>
                   ))
                 )}
+              </TabsContent>
+
+              {/* Reservations Tab - NEW */}
+              <TabsContent value="reservations" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarCheck className="h-5 w-5 text-primary" />
+                      Prácticas Libres y Reservas
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground mb-4">
+                      Reserva canchas y espacios para prácticas libres. Desde $15,000/hora.
+                    </p>
+                    
+                    {facilities.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Building className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="text-muted-foreground">No hay instalaciones disponibles para reservar</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {facilities.filter(f => f.booking_enabled !== false).map((facility) => (
+                          <div 
+                            key={facility.id}
+                            className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Building className="h-5 w-5 text-primary" />
+                              </div>
+                              <div>
+                                <p className="font-semibold">{facility.name}</p>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Users className="h-3 w-3" />
+                                  <span>Capacidad: {facility.capacity}</span>
+                                  <span>•</span>
+                                  <span>{facility.type}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className="font-bold text-primary">
+                                  ${(facility.hourly_rate || 15000).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-muted-foreground">por hora</p>
+                              </div>
+                              <Button 
+                                size="sm"
+                                className="bg-[#FB9F1E] hover:bg-[#e08a1a] text-white"
+                                onClick={() => {
+                                  if (!user) {
+                                    setAuthModalOpen(true);
+                                  } else {
+                                    setSelectedFacility(facility);
+                                    setReservationModalOpen(true);
+                                  }
+                                }}
+                              >
+                                <CalendarCheck className="h-4 w-4 mr-1" />
+                                Reservar
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               {/* About Tab */}
