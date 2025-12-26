@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WelcomeModal } from "@/components/modals/WelcomeModal";
 import {
   MapPin, 
   Zap, 
@@ -36,6 +37,7 @@ import heroImage from "@/assets/hero-sportsmaps.jpg";
 import logoImage from "@/assets/sportmaps-logo.png";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface LandingProps {
   onNavigate?: (page: string) => void;
@@ -43,8 +45,27 @@ interface LandingProps {
 
 const Landing = ({ onNavigate }: LandingProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+
+  // Check if modal should be shown on mount
+  useEffect(() => {
+    // Don't show if user is logged in
+    if (user) return;
+    
+    // Don't show if already dismissed in this session
+    const dismissed = sessionStorage.getItem('sportmaps_welcome_dismissed');
+    if (dismissed === 'true') return;
+
+    // Show modal with a small delay for better UX
+    const timer = setTimeout(() => {
+      setShowWelcomeModal(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [user]);
 
   const heroSlides = [
     {
@@ -170,8 +191,14 @@ const Landing = ({ onNavigate }: LandingProps) => {
   ];
 
   return (
+    <>
+      {/* Welcome Modal */}
+      <WelcomeModal 
+        open={showWelcomeModal} 
+        onOpenChange={setShowWelcomeModal} 
+      />
+      
     <div className="bg-background">
-      {/* Top Bar */}
       <div className="bg-primary/10 border-b">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-10 text-sm">
@@ -462,6 +489,7 @@ const Landing = ({ onNavigate }: LandingProps) => {
         </div>
       </footer>
     </div>
+    </>
   );
 };
 
