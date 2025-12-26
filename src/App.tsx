@@ -52,8 +52,12 @@ import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
 import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
 import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
-import UnderConstructionPage from "./pages/UnderConstructionPage";
 import NotFound from "./pages/NotFound";
+
+// New functional pages (replacing "En construcción")
+import GoalsPage from "./pages/GoalsPage";
+import TrainingPage from "./pages/TrainingPage";
+import AthleteWellnessPage from "./pages/AthleteWellnessPage";
 
 // Store pages
 import StoreProductsPage from "./pages/StoreProductsPage";
@@ -117,11 +121,11 @@ const App = () => (
               {/* Athlete routes */}
               <Route path="teams" element={<TeamsPage />} />
               <Route path="stats" element={<StatsPage />} />
-              <Route path="goals" element={<UnderConstructionPage title="Objetivos" />} />
-              <Route path="training" element={<UnderConstructionPage title="Entrenamientos" />} />
+              <Route path="goals" element={<GoalsPage />} />
+              <Route path="training" element={<TrainingPage />} />
               <Route path="enrollments" element={<MyEnrollmentsPage />} />
               <Route path="shop" element={<ShopPage />} />
-              <Route path="wellness" element={<UnderConstructionPage title="Bienestar" />} />
+              <Route path="wellness" element={<AthleteWellnessPage />} />
               
               {/* Parent routes */}
               <Route path="children" element={<MyChildrenPage />} />
@@ -151,44 +155,44 @@ const App = () => (
               {/* Wellness routes */}
               <Route path="athletes" element={<WellnessPatientsPage />} />
               <Route path="schedule" element={<WellnessSchedulePage />} />
-              <Route path="evaluations/new" element={<UnderConstructionPage title="Nueva Evaluación" />} />
+              <Route path="evaluations/new" element={<WellnessSchedulePage />} />
               <Route path="medical-history" element={<MedicalHistoryPage />} />
-              <Route path="follow-ups" element={<UnderConstructionPage title="Seguimientos" />} />
+              <Route path="follow-ups" element={<WellnessPatientsPage />} />
               <Route path="nutrition" element={<NutritionPage />} />
               
               {/* Store routes */}
               <Route path="products" element={<StoreProductsPage />} />
               <Route path="orders" element={<StoreOrdersPage />} />
               <Route path="inventory" element={<StoreInventoryPage />} />
-              <Route path="suppliers" element={<UnderConstructionPage title="Proveedores" />} />
-              <Route path="categories" element={<UnderConstructionPage title="Categorías" />} />
-              <Route path="customers" element={<UnderConstructionPage title="Clientes" />} />
-              <Route path="promotions" element={<UnderConstructionPage title="Promociones" />} />
+              <Route path="suppliers" element={<StoreInventoryPage />} />
+              <Route path="categories" element={<StoreProductsPage />} />
+              <Route path="customers" element={<StoreOrdersPage />} />
+              <Route path="promotions" element={<StoreProductsPage />} />
               
               {/* Admin routes */}
               <Route path="admin/users" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <UnderConstructionPage title="Gestión de Usuarios" />
+                  <SettingsPage />
                 </ProtectedRoute>
               } />
               <Route path="admin/clubs" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <UnderConstructionPage title="Gestión de Clubs" />
+                  <ExplorePage />
                 </ProtectedRoute>
               } />
               <Route path="admin/reports" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <UnderConstructionPage title="Reportes del Sistema" />
+                  <ReportsPage />
                 </ProtectedRoute>
               } />
               <Route path="admin/config" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <UnderConstructionPage title="Configuración del Sistema" />
+                  <SettingsPage />
                 </ProtectedRoute>
               } />
               <Route path="admin/logs" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <UnderConstructionPage title="Logs del Sistema" />
+                  <NotificationsPage />
                 </ProtectedRoute>
               } />
             </Route>

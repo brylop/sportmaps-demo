@@ -5,6 +5,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
+import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useDashboardStats, useNotifications } from '@/hooks/useDashboardStats';
 import { UserRole } from '@/types/dashboard';
@@ -105,10 +106,16 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Welcome Message */}
+      <WelcomeMessage 
+        role={profile.role as UserRole} 
+        userName={profile.full_name?.split(' ')[0]}
+      />
+
       {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">{config.title}</h2>
-        <p className="text-muted-foreground">{config.description}</p>
+        <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
+        <p className="text-muted-foreground font-poppins">{config.description}</p>
       </div>
 
       {/* Stats Grid */}
