@@ -4,16 +4,58 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Search, Plus, User, Activity, Calendar, FileText } from 'lucide-react';
+import { Search, Plus, User, Activity, Calendar, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { mockPatients } from '@/lib/mock-data';
+import { useHealthRecords, useWellnessEvaluations } from '@/hooks/useWellnessData';
+import { EvaluationFormDialog } from '@/components/wellness/EvaluationFormDialog';
 
 export default function WellnessPatientsPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isEvaluationOpen, setIsEvaluationOpen] = useState(false);
+  
+  const { records, isLoading: recordsLoading } = useHealthRecords();
+  const { evaluations, createEvaluation, isLoading: evalLoading } = useWellnessEvaluations();
 
-  const filteredPatients = mockPatients.filter(patient =>
+  // Use real data if available, fallback to mock
+  const isUsingMockData = records.length === 0;
+  const displayPatients = isUsingMockData ? mockPatients : records.map(r => ({
+    id: r.id,
+    name: r.athlete_id.substring(0, 8),
+    age: 25,
+    sport: r.record_type,
+    last_visit: new Date(r.created_at).toLocaleDateString('es-CO'),
+    status: 'active' as const,
+    conditions: r.diagnosis ? [r.diagnosis] : []
+  }));
+
+  const filteredPatients = displayPatients.filter(patient =>
     patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     patient.sport.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleNewEvaluation = (data: any) => {
+    createEvaluation.mutate({
+      athlete_id: data.athlete_id || crypto.randomUUID(),
+      evaluation_type: data.evaluation_type,
+      score: data.score,
+      recommendations: data.recommendations,
+      follow_up_date: data.follow_up_date || null,
+      metrics: data.metrics,
+      status: 'pending'
+    }, {
+      onSuccess: () => setIsEvaluationOpen(false)
+    });
+  };
+
+  const isLoading = recordsLoading || evalLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -21,11 +63,23 @@ export default function WellnessPatientsPage() {
         <div>
           <h1 className="text-3xl font-bold">Mis Atletas</h1>
           <p className="text-muted-foreground">Gestiona a tus pacientes y atletas</p>
+          {isUsingMockData && (
+            <Badge variant="secondary" className="mt-2 gap-1">
+              <AlertCircle className="h-3 w-3" />
+              Mostrando datos de demostración
+            </Badge>
+          )}
         </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nuevo Paciente
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nuevo Paciente
+          </Button>
+          <Button className="gap-2" onClick={() => setIsEvaluationOpen(true)}>
+            <FileText className="h-4 w-4" />
+            Nueva Evaluación
+          </Button>
+        </div>
       </div>
 
       <div className="relative max-w-md">
@@ -38,14 +92,66 @@ export default function WellnessPatientsPage() {
         />
       </div>
 
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Total Atletas</p>
+                <p className="text-2xl font-bold">{displayPatients.length}</p>
+              </div>
+              <User className="h-8 w-8 text-primary" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Activos</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {displayPatients.filter(p => p.status === 'active').length}
+                </p>
+              </div>
+              <Activity className="h-8 w-8 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Evaluaciones</p>
+                <p className="text-2xl font-bold">{evaluations.length || mockPatients.length}</p>
+              </div>
+              <FileText className="h-8 w-8 text-orange" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Seguimientos Pendientes</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {evaluations.filter(e => e.status === 'pending').length || 2}
+                </p>
+              </div>
+              <Calendar className="h-8 w-8 text-yellow-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {filteredPatients.map((patient) => (
-          <Card key={patient.id} className="hover:shadow-lg transition-shadow">
+          <Card key={patient.id} className="hover:shadow-lg transition-shadow hover:border-primary/50">
             <CardContent className="pt-6">
               <div className="flex items-start gap-4">
                 <Avatar className="h-12 w-12">
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {patient.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    {patient.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
@@ -111,6 +217,14 @@ export default function WellnessPatientsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Evaluation Form Dialog */}
+      <EvaluationFormDialog
+        open={isEvaluationOpen}
+        onOpenChange={setIsEvaluationOpen}
+        onSubmit={handleNewEvaluation}
+        isLoading={createEvaluation.isPending}
+      />
     </div>
   );
 }
