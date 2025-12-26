@@ -1,11 +1,13 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
+import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletionBanner';
+import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useDashboardStats, useNotifications } from '@/hooks/useDashboardStats';
 import { UserRole } from '@/types/dashboard';
@@ -13,6 +15,7 @@ import { UserRole } from '@/types/dashboard';
 export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
+  const [showProfileBanner, setShowProfileBanner] = useState(true);
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
   const { data: stats } = useDashboardStats();
   const { data: notifications } = useNotifications();
@@ -106,6 +109,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Pending Enrollment Modal - Auto shows if there's a pending enrollment */}
+      <PendingEnrollmentModal />
+
+      {/* Profile Completion Banner */}
+      {showProfileBanner && (
+        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
+      )}
+
       {/* Welcome Message */}
       <WelcomeMessage 
         role={profile.role as UserRole} 

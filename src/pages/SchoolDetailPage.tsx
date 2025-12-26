@@ -24,7 +24,8 @@ import {
   Calendar
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { AuthModal } from '@/components/explore/AuthModal';
+import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
+import { PaymentModal } from '@/components/payment/PaymentModal';
 
 interface School {
   id: string;
@@ -70,8 +71,8 @@ export default function SchoolDetailPage() {
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
-  const [showReserveModal, setShowReserveModal] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -121,43 +122,27 @@ export default function SchoolDetailPage() {
     }
   };
 
-  const handleEnroll = async (programId: string) => {
+  const handleEnroll = (program: Program) => {
+    setSelectedProgram(program);
+    
     if (!user) {
-      // Usuario no autenticado - mostrar modal de auth
-      setSelectedProgramId(programId);
+      // Usuario no autenticado - mostrar modal de auth con selección de rol
       setAuthModalOpen(true);
       return;
     }
 
-    try {
-      setEnrolling(true);
+    // Usuario autenticado - mostrar modal de pago directamente
+    setPaymentModalOpen(true);
+  };
 
-      const { error } = await supabase.from('enrollments').insert({
-        user_id: user.id,
-        program_id: programId,
-        start_date: new Date().toISOString().split('T')[0],
-        status: 'active',
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: '¡Inscripción exitosa!',
-        description: 'Te has inscrito correctamente al programa',
-      });
-
-      // Refresh programs to update participant count
-      fetchSchoolData();
-    } catch (error: any) {
-      console.error('Error enrolling:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'No se pudo completar la inscripción',
-        variant: 'destructive',
-      });
-    } finally {
-      setEnrolling(false);
-    }
+  const handlePaymentSuccess = () => {
+    toast({
+      title: 'SportMaps: Tu inscripción se ha sincronizado con tu calendario',
+      description: 'Revisa tu calendario para ver los detalles de tus clases',
+    });
+    fetchSchoolData();
+    setPaymentModalOpen(false);
+    setSelectedProgram(null);
   };
 
   const getAgeRange = (program: Program) => {
@@ -245,7 +230,11 @@ export default function SchoolDetailPage() {
 
   const handleReserveNow = () => {
     if (!user) {
-      setShowReserveModal(true);
+      // Si hay programas, seleccionar el primero para mostrar el modal
+      if (programs.length > 0) {
+        setSelectedProgram(programs[0]);
+        setAuthModalOpen(true);
+      }
     } else {
       toast({
         title: 'Información',
@@ -276,18 +265,38 @@ export default function SchoolDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Auth Modal for Programs */}
-      <AuthModal 
+      {/* Enrollment Auth Modal - For unauthenticated users */}
+      <EnrollmentAuthModal 
         open={authModalOpen} 
         onOpenChange={setAuthModalOpen}
-        programId={selectedProgramId || undefined}
+        program={selectedProgram ? {
+          id: selectedProgram.id,
+          name: selectedProgram.name,
+          price: selectedProgram.price_monthly
+        } : undefined}
+        school={school ? {
+          id: school.id,
+          name: school.name
+        } : undefined}
       />
 
-      {/* Auth Modal for Reserve Now Button */}
-      <AuthModal 
-        open={showReserveModal} 
-        onOpenChange={setShowReserveModal}
-      />
+      {/* Payment Modal - For authenticated users */}
+      {selectedProgram && (
+        <PaymentModal
+          open={paymentModalOpen}
+          onOpenChange={setPaymentModalOpen}
+          item={{
+            type: 'enrollment',
+            id: selectedProgram.id,
+            name: selectedProgram.name,
+            description: school?.name,
+            amount: selectedProgram.price_monthly,
+            schoolId: school?.id,
+            programId: selectedProgram.id,
+          }}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
 
       {/* Cover Image */}
       <div
@@ -444,11 +453,10 @@ export default function SchoolDetailPage() {
 
                         <Button
                           className="w-full"
-                          onClick={() => handleEnroll(program.id)}
+                          onClick={() => handleEnroll(program)}
                           disabled={
-                            enrolling ||
-                            (program.max_participants !== null &&
-                              program.current_participants >= program.max_participants)
+                            program.max_participants !== null &&
+                              program.current_participants >= program.max_participants
                           }
                         >
                           <Calendar className="h-4 w-4 mr-2" />
