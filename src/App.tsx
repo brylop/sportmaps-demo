@@ -7,8 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthLayout from "@/layouts/AuthLayout";
-
-// Pages
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -200,6 +199,9 @@ const App = () => (
             {/* Catch-all route */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          
+          {/* Mobile Bottom Navigation */}
+          <MobileBottomNav />
         </BrowserRouter>
         </AuthProvider>
       </ThemeProvider>
