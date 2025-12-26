@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,30 +7,30 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Trophy, Plus, TrendingUp, Minus, Equal } from 'lucide-react';
+import { Trophy, Plus, TrendingUp, Minus, Equal, Trash2 } from 'lucide-react';
+import { MatchResultFormDialog } from '@/components/coach/MatchResultFormDialog';
+import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function ResultsPage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
-
-  // Demo teams data (only for demo users)
-  const demoTeams = isDemoUser ? [
-    {
-      id: 'demo-team-1',
-      coach_id: user?.id,
-      name: 'Fútbol Sub-12',
-      sport: 'Fútbol',
-      age_group: 'Sub-12',
-      season: '2024',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: teamsData } = useQuery({
+  // Fetch teams
+  const { data: teams } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -43,49 +43,8 @@ export default function ResultsPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
-
-  // Demo results data (only for demo users)
-  const demoResults = isDemoUser ? [
-    {
-      id: 'result-1',
-      team_id: selectedTeamId,
-      match_date: '2024-10-28',
-      opponent: 'Tigres FC',
-      home_score: 2,
-      away_score: 2,
-      is_home: true,
-      match_type: 'Amistoso',
-      notes: 'Buen partido, el equipo mostró mejora en defensa',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'result-2',
-      team_id: selectedTeamId,
-      match_date: '2024-10-18',
-      opponent: 'Leones',
-      home_score: 3,
-      away_score: 1,
-      is_home: true,
-      match_type: 'Liga',
-      notes: 'Victoria contundente con excelente trabajo colectivo',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'result-3',
-      team_id: selectedTeamId,
-      match_date: '2024-10-12',
-      opponent: 'Águilas FC',
-      home_score: 1,
-      away_score: 2,
-      is_home: false,
-      match_type: 'Liga',
-      notes: 'Derrota ajustada, debemos trabajar en el juego ofensivo',
-      created_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: resultsData, isLoading } = useQuery({
+  // Fetch match results
+  const { data: results, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -96,17 +55,48 @@ export default function ResultsPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
+    enabled: !!selectedTeamId,
   });
 
-  const results = (resultsData && resultsData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? resultsData
-    : demoResults;
+  // Create result mutation
+  const createMutation = useMutation({
+    mutationFn: async (input: any) => {
+      const { data, error } = await supabase
+        .from('match_results')
+        .insert(input)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['match-results', selectedTeamId] });
+      toast({ title: '✅ Resultado registrado' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  // Delete result mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('match_results')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['match-results', selectedTeamId] });
+      toast({ title: 'Resultado eliminado' });
+      setDeleteId(null);
+    },
+  });
 
   const getMatchResult = (match: any) => {
     const ourScore = match.is_home ? match.home_score : match.away_score;
     const theirScore = match.is_home ? match.away_score : match.home_score;
-
     if (ourScore > theirScore) return 'win';
     if (ourScore < theirScore) return 'loss';
     return 'draw';
@@ -114,37 +104,27 @@ export default function ResultsPage() {
 
   const getResultIcon = (result: string) => {
     switch (result) {
-      case 'win':
-        return <TrendingUp className="w-5 h-5 text-green-500" />;
-      case 'loss':
-        return <Minus className="w-5 h-5 text-red-500" />;
-      case 'draw':
-        return <Equal className="w-5 h-5 text-yellow-500" />;
-      default:
-        return null;
+      case 'win': return <TrendingUp className="w-5 h-5 text-green-500" />;
+      case 'loss': return <Minus className="w-5 h-5 text-red-500" />;
+      case 'draw': return <Equal className="w-5 h-5 text-yellow-500" />;
+      default: return null;
     }
   };
 
   const getResultLabel = (result: string) => {
     switch (result) {
-      case 'win':
-        return 'Victoria';
-      case 'loss':
-        return 'Derrota';
-      case 'draw':
-        return 'Empate';
-      default:
-        return '';
+      case 'win': return 'Victoria';
+      case 'loss': return 'Derrota';
+      case 'draw': return 'Empate';
+      default: return '';
     }
   };
 
-  const stats = results
-    ? {
-        wins: results.filter((m) => getMatchResult(m) === 'win').length,
-        draws: results.filter((m) => getMatchResult(m) === 'draw').length,
-        losses: results.filter((m) => getMatchResult(m) === 'loss').length,
-      }
-    : null;
+  const stats = results ? {
+    wins: results.filter((m) => getMatchResult(m) === 'win').length,
+    draws: results.filter((m) => getMatchResult(m) === 'draw').length,
+    losses: results.filter((m) => getMatchResult(m) === 'loss').length,
+  } : null;
 
   return (
     <div className="space-y-6">
@@ -155,7 +135,11 @@ export default function ResultsPage() {
             Registra y consulta resultados de partidos
           </p>
         </div>
-        <Button className="gap-2">
+        <Button 
+          className="gap-2" 
+          onClick={() => setDialogOpen(true)}
+          disabled={!selectedTeamId}
+        >
           <Plus className="w-4 h-4" />
           Registrar Resultado
         </Button>
@@ -173,7 +157,7 @@ export default function ResultsPage() {
             <SelectContent>
               {teams?.map((team) => (
                 <SelectItem key={team.id} value={team.id}>
-                  {team.name} - {team.age_group}
+                  {team.name} - {team.age_group || team.sport}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -208,6 +192,8 @@ export default function ResultsPage() {
             </CardContent>
           </Card>
 
+          {isLoading && <LoadingSpinner text="Cargando resultados..." />}
+
           <Card>
             <CardHeader>
               <CardTitle>Historial de Partidos</CardTitle>
@@ -227,9 +213,7 @@ export default function ResultsPage() {
                       <div className="flex items-center gap-4">
                         {getResultIcon(result)}
                         <div>
-                          <p className="font-semibold">
-                            vs {match.opponent}
-                          </p>
+                          <p className="font-semibold">vs {match.opponent}</p>
                           <p className="text-sm text-muted-foreground">
                             {new Date(match.match_date).toLocaleDateString('es-CO', {
                               weekday: 'short',
@@ -247,17 +231,21 @@ export default function ResultsPage() {
                           </p>
                           <Badge
                             variant={
-                              result === 'win'
-                                ? 'default'
-                                : result === 'draw'
-                                ? 'secondary'
-                                : 'destructive'
+                              result === 'win' ? 'default' :
+                              result === 'draw' ? 'secondary' : 'destructive'
                             }
                           >
                             {getResultLabel(result)}
                           </Badge>
                         </div>
                         <Badge variant="outline">{match.match_type}</Badge>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => setDeleteId(match.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
                     </div>
                   );
@@ -267,6 +255,13 @@ export default function ResultsPage() {
                   <div className="text-center py-8 text-muted-foreground">
                     <Trophy className="w-12 h-12 mx-auto mb-2 opacity-20" />
                     <p>No hay resultados registrados aún</p>
+                    <Button 
+                      className="mt-4 gap-2"
+                      onClick={() => setDialogOpen(true)}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Registrar Primer Resultado
+                    </Button>
                   </div>
                 )}
               </div>
@@ -287,7 +282,47 @@ export default function ResultsPage() {
         </Card>
       )}
 
-      {isLoading && <LoadingSpinner text="Cargando resultados..." />}
+      {teams && teams.length === 0 && (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <Trophy className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">No tienes equipos</h3>
+            <p className="text-muted-foreground">
+              Primero debes crear un equipo en la sección de Equipos
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedTeamId && (
+        <MatchResultFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSubmit={createMutation.mutate}
+          teamId={selectedTeamId}
+          isLoading={createMutation.isPending}
+        />
+      )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar resultado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => deleteId && deleteMutation.mutate(deleteId)}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

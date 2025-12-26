@@ -388,6 +388,50 @@ export type Database = {
           },
         ]
       }
+      facilities: {
+        Row: {
+          capacity: number
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          school_id: string | null
+          status: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          capacity?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          school_id?: string | null
+          status?: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          capacity?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          school_id?: string | null
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facilities_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       health_records: {
         Row: {
           athlete_id: string
@@ -899,6 +943,53 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_staff: {
+        Row: {
+          certifications: string[] | null
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          phone: string | null
+          school_id: string | null
+          specialty: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          certifications?: string[] | null
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          phone?: string | null
+          school_id?: string | null
+          specialty?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          certifications?: string[] | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          phone?: string | null
+          school_id?: string | null
+          specialty?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_staff_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
             referencedColumns: ["id"]
           },
         ]
