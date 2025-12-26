@@ -19,7 +19,6 @@ export interface EnrollmentWithProgram extends Enrollment {
     id: string;
     name: string;
     sport: string;
-    schedule: string;
     school_id: string;
     school: {
       name: string;
@@ -28,6 +27,10 @@ export interface EnrollmentWithProgram extends Enrollment {
   };
 }
 
+/**
+ * Custom hook for managing user enrollments
+ * Provides CRUD operations for enrollments with proper error handling
+ */
 export function useEnrollments() {
   const [enrollments, setEnrollments] = useState<EnrollmentWithProgram[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,111 +53,33 @@ export function useEnrollments() {
 
       const { data, error: fetchError } = await supabase
         .from('enrollments')
-        .select(`
+        .select(
+          `
           *,
           program:programs(
             id,
             name,
             sport,
-            schedule,
             school_id,
             school:schools(name, city)
           )
-        `)
+        `
+        )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setEnrollments(data as unknown as EnrollmentWithProgram[] || []);
+      setEnrollments(data as EnrollmentWithProgram[] || []);
     } catch (err: any) {
       console.error('Error fetching enrollments:', err);
       setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Crea una inscripción y envía correo de confirmación.
-   */
-  const createEnrollment = async (programId: string, programDetails?: { name: string, schedule: string, schoolName?: string }) => {
-    if (!user) return { success: false, error: 'Usuario no autenticado' };
-
-    try {
-      // 1. Validar duplicados
-      const { data: existing } = await supabase
-        .from('enrollments')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('program_id', programId)
-        .eq('status', 'active')
-        .single();
-
-      if (existing) {
-        throw new Error('Ya estás inscrito en este programa');
-      }
-
-      // 2. Insertar en base de datos
-      const { error: insertError } = await supabase
-        .from('enrollments')
-        .insert({
-          user_id: user.id,
-          program_id: programId,
-          start_date: new Date().toISOString().split('T')[0],
-          status: 'active',
-        });
-
-      if (insertError) throw insertError;
-
-      // 3. Crear evento en calendario (opcional, si hay detalles)
-      if (programDetails) {
-        const nextDay = new Date();
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(16, 0, 0, 0); 
-
-        await supabase.from('calendar_events').insert({
-          user_id: user.id,
-          title: `Clase: ${programDetails.name}`,
-          description: `Horario: ${programDetails.schedule || 'Por definir'}`,
-          event_type: 'training',
-          start_time: nextDay.toISOString(),
-          end_time: new Date(nextDay.getTime() + 60 * 60 * 1000).toISOString(),
-          all_day: false
-        });
-      }
-
-      // 4. LLAMADA A EDGE FUNCTION PARA ENVIAR CORREO
-      // Esto activará el envío real si la función está desplegada y tiene API Key
-      const { error: functionError } = await supabase.functions.invoke('send-enrollment-confirmation', {
-        body: {
-          userEmail: user.email,
-          userName: user.user_metadata?.full_name || 'Atleta',
-          programName: programDetails?.name || 'Programa Deportivo',
-          schoolName: programDetails?.schoolName || 'SportMaps',
-          schedule: programDetails?.schedule || 'Por definir'
-        }
-      });
-
-      if (functionError) {
-        console.warn('No se pudo enviar el correo de confirmación (¿está desplegada la función?):', functionError);
-        // No fallamos todo el proceso solo por el correo, pero avisamos en consola
-      }
-
-      toast({
-        title: '¡Inscripción Exitosa!',
-        description: 'Te has inscrito correctamente. Revisa tu correo y calendario.',
-      });
-
-      await fetchEnrollments();
-      return { success: true };
-    } catch (err: any) {
-      console.error('Error creating enrollment:', err);
       toast({
         title: 'Error',
-        description: err.message || 'No se pudo completar la inscripción',
+        description: 'No se pudieron cargar tus inscripciones',
         variant: 'destructive',
       });
-      return { success: false, error: err };
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -176,6 +101,11 @@ export function useEnrollments() {
       return { success: true };
     } catch (err: any) {
       console.error('Error cancelling enrollment:', err);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cancelar la inscripción',
+        variant: 'destructive',
+      });
       return { success: false, error: err };
     }
   };
@@ -190,7 +120,6 @@ export function useEnrollments() {
     loading,
     error,
     refetch: fetchEnrollments,
-    createEnrollment,
     cancelEnrollment,
   };
 }

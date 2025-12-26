@@ -126,14 +126,7 @@ export default function FinancesPage() {
                     <Badge variant="destructive">{account.daysOverdue} días</Badge>
                   </TableCell>
                   <TableCell>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => {
-                        // Simulate sending reminder
-                        alert(`Recordatorio enviado a ${account.parent}`);
-                      }}
-                    >
+                    <Button size="sm" variant="outline">
                       <Mail className="mr-2 h-4 w-4" />
                       Enviar Recordatorio
                     </Button>

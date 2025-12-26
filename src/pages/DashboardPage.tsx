@@ -6,28 +6,21 @@ import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
-import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { UserRole } from '@/types/dashboard';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
-  
-  // 1. Obtener estadísticas reales
-  // El hook useDashboardStats se encarga de traer los datos frescos de Supabase
-  const { stats, loading: statsLoading } = useDashboardStats((profile?.role as UserRole) || 'athlete');
-  
-  // 2. Pasar estadísticas a la configuración para actualizar la UI
-  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', stats);
+  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
 
   // Redirect users to onboarding if they haven't completed setup
   useEffect(() => {
     if (!profile || !user) return;
 
-    // Verificamos si el onboarding está marcado como completado en localStorage
     const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
     
     if (!hasCompletedOnboarding) {
+      // Redirect each role to their respective onboarding
       switch (profile.role) {
         case 'school':
           navigate('/school-onboarding');
@@ -44,21 +37,23 @@ export default function DashboardPage() {
         case 'store_owner':
           navigate('/store-onboarding');
           break;
+        // parent doesn't need onboarding, they go directly to dashboard
         default:
           break;
       }
     }
   }, [profile, user, navigate]);
 
-  // Mostrar spinner mientras cargamos perfil o estadísticas
-  if (!profile || statsLoading) return (
+  if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
       <div className="text-center space-y-3">
+        
+        {/* Loading state while se carga el perfil */}
         <div className="flex items-center justify-center">
           <div className="flex flex-col items-center gap-2">
             <span className="sr-only">Cargando panel</span>
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
-            <p className="text-sm text-muted-foreground">Actualizando tu panel...</p>
+            <p className="text-sm text-muted-foreground">Cargando tu panel...</p>
           </div>
         </div>
       </div>
@@ -76,10 +71,7 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {config.stats.map((stat, index) => (
-          <StatCard 
-            key={index} 
-            {...stat} 
-          />
+          <StatCard key={index} {...stat} />
         ))}
       </div>
 

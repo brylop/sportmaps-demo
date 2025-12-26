@@ -25,8 +25,6 @@ type FacilityFormData = z.infer<typeof facilitySchema>;
 export default function SchoolFacilitiesPage() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
-  
-  // Estado local para simular la base de datos
   const [facilities, setFacilities] = useState<any[]>([]);
 
   const form = useForm<FacilityFormData>({
@@ -40,10 +38,7 @@ export default function SchoolFacilitiesPage() {
   });
 
   const onSubmit = (data: FacilityFormData) => {
-    // Simulamos la creación con un ID temporal
-    const newFacility = { ...data, id: Date.now().toString(), status: 'active' };
-    setFacilities([...facilities, newFacility]);
-    
+    setFacilities([...facilities, { ...data, id: Date.now(), status: 'active' }]);
     toast({
       title: '✅ Instalación creada',
       description: `${data.name} ha sido creada exitosamente`,
@@ -64,18 +59,9 @@ export default function SchoolFacilitiesPage() {
     'Otro'
   ];
 
-  // Datos simulados para la vista de calendario
-  const schedule = [
-    { time: '2:00 PM', slots: {} },
-    { time: '3:00 PM', slots: {} },
-    { time: '4:00 PM', slots: {} },
-    { time: '5:00 PM', slots: {} },
-    { time: '6:00 PM', slots: {} },
-  ];
-
   if (facilities.length === 0) {
     return (
-      <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Instalaciones</h1>
@@ -198,8 +184,17 @@ export default function SchoolFacilitiesPage() {
     );
   }
 
+  // If facilities exist, show calendar view
+  const schedule = [
+    { time: '2:00 PM', slots: {} },
+    { time: '3:00 PM', slots: {} },
+    { time: '4:00 PM', slots: {} },
+    { time: '5:00 PM', slots: {} },
+    { time: '6:00 PM', slots: {} },
+  ];
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Instalaciones</h1>
@@ -216,11 +211,11 @@ export default function SchoolFacilitiesPage() {
       {/* Facilities Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {facilities.map((facility) => (
-          <Card key={facility.id} className="p-6 hover:shadow-md transition-shadow">
+          <Card key={facility.id} className="p-6">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-primary" />
-                <h3 className="font-semibold truncate">{facility.name}</h3>
+                <h3 className="font-semibold">{facility.name}</h3>
               </div>
               <p className="text-sm text-muted-foreground">{facility.type}</p>
               <p className="text-xs text-muted-foreground">Capacidad: {facility.capacity} personas</p>
@@ -237,12 +232,12 @@ export default function SchoolFacilitiesPage() {
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">Calendario de Reservas - Hoy</h2>
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[600px]">
+            <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b">
-                  <th className="p-3 text-left font-medium w-24">Hora</th>
+                  <th className="p-3 text-left font-medium">Hora</th>
                   {facilities.map((facility) => (
-                    <th key={facility.id} className="p-3 text-left font-medium border-l">
+                    <th key={facility.id} className="p-3 text-left font-medium">
                       {facility.name}
                     </th>
                   ))}
@@ -251,12 +246,10 @@ export default function SchoolFacilitiesPage() {
               <tbody>
                 {schedule.map((slot, idx) => (
                   <tr key={idx} className="border-b hover:bg-muted/50">
-                    <td className="p-3 font-medium text-sm text-muted-foreground">{slot.time}</td>
+                    <td className="p-3 font-medium">{slot.time}</td>
                     {facilities.map((facility) => (
-                      <td key={facility.id} className="p-3 border-l">
-                        <div className="text-muted-foreground text-xs bg-secondary/50 p-1 rounded text-center">
-                          (Libre)
-                        </div>
+                      <td key={facility.id} className="p-3">
+                        <div className="text-muted-foreground text-sm">(Libre)</div>
                       </td>
                     ))}
                   </tr>
@@ -266,67 +259,6 @@ export default function SchoolFacilitiesPage() {
           </div>
         </div>
       </Card>
-
-      {/* Dialog reused for adding more */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Agregar Nueva Instalación</DialogTitle>
-              <DialogDescription>
-                Registra un nuevo espacio deportivo en tu academia.
-              </DialogDescription>
-            </DialogHeader>
-
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nombre de la Instalación *</Label>
-                  <Input
-                    id="name"
-                    placeholder="Ej: Cancha 1, Piscina Principal"
-                    {...form.register('name')}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="type">Tipo *</Label>
-                  <Select onValueChange={(value) => form.setValue('type', value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona el tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {facilityTypes.map((type) => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="capacity">Capacidad *</Label>
-                  <Input
-                    id="capacity"
-                    type="number"
-                    {...form.register('capacity')}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Descripción</Label>
-                  <Textarea
-                    id="description"
-                    {...form.register('description')}
-                  />
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-                <Button type="submit">Crear Instalación</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
     </div>
   );
 }
