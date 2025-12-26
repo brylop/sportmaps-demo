@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 export function SportMapsFooter() {
   return (
-    <footer className="bg-gradient-to-b from-[#1a1a2e] to-[#0f0f1a] text-gray-300 font-poppins">
+    <footer className="bg-muted/50 border-t font-poppins">
       <div className="container mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           
@@ -17,11 +17,11 @@ export function SportMapsFooter() {
                   alt="SportMaps" 
                   className="h-10 w-auto"
                 />
-                <span className="text-xl font-bold text-white">
+                <span className="text-xl font-bold text-foreground">
                   SportMaps
                 </span>
               </Link>
-              <p className="text-sm text-gray-400 leading-relaxed">
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 Revolucionando el sistema deportivo. Conectamos atletas, escuelas y profesionales en un ecosistema tecnológico unificado.
               </p>
             </div>
@@ -36,7 +36,7 @@ export function SportMapsFooter() {
 
           {/* 2. Soluciones del Ecosistema */}
           <div className="space-y-4">
-            <h4 className="text-white font-semibold text-lg">Ecosistema</h4>
+            <h4 className="text-foreground font-semibold text-lg">Ecosistema</h4>
             <ul className="space-y-3">
               <FooterLink text="Para Atletas" href="/register?role=athlete" />
               <FooterLink text="Para Padres" href="/register?role=parent" />
@@ -48,7 +48,7 @@ export function SportMapsFooter() {
 
           {/* 3. SportMaps Tech */}
           <div className="space-y-4">
-            <h4 className="text-white font-semibold text-lg">SportMaps Tech</h4>
+            <h4 className="text-foreground font-semibold text-lg">SportMaps Tech</h4>
             <ul className="space-y-3">
               <FooterLink text="Marketplace" href="/shop" />
               <FooterLink text="Explorar Escuelas" href="/explore" />
@@ -60,20 +60,20 @@ export function SportMapsFooter() {
 
           {/* 4. Contacto & Soporte Global */}
           <div className="space-y-4">
-            <h4 className="text-white font-semibold text-lg">Contacto & Legal</h4>
+            <h4 className="text-foreground font-semibold text-lg">Contacto & Legal</h4>
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm">
                 <MapPin className="h-4 w-4 mt-0.5 text-primary flex-shrink-0" />
-                <span className="text-gray-400">
+                <span className="text-muted-foreground">
                   Bogotá D.C., Colombia<br />
-                  <span className="text-xs text-gray-500">Sede Global Latam</span>
+                  <span className="text-xs text-muted-foreground/70">Sede Global Latam</span>
                 </span>
               </li>
               <li className="flex items-center gap-3 text-sm">
                 <Mail className="h-4 w-4 text-primary flex-shrink-0" />
                 <a 
                   href="mailto:contacto@sportmaps.co" 
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   contacto@sportmaps.co
                 </a>
@@ -82,7 +82,7 @@ export function SportMapsFooter() {
                 <Phone className="h-4 w-4 text-primary flex-shrink-0" />
                 <a 
                   href="tel:+573128463555" 
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   +57 (312) 846-3555
                 </a>
@@ -96,12 +96,12 @@ export function SportMapsFooter() {
         </div>
 
         {/* Footer Inferior */}
-        <div className="mt-12 pt-8 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-xs text-gray-500 text-center md:text-left">
+        <div className="mt-12 pt-8 border-t border-border flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-xs text-muted-foreground text-center md:text-left">
             © 2025 SportMaps Technology S.A.S. Todos los derechos reservados.
           </p>
 
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-primary" />
             <span>Sitio Seguro SSL & Pagos Protegidos por SportMaps Pay</span>
           </div>
@@ -127,13 +127,13 @@ function FooterLink({
     <li className={isLegal ? "inline" : ""}>
       <Link
         to={href}
-        className={`text-sm transition-colors ${
-          isHighlighted 
-            ? "text-primary hover:text-primary/80 font-medium" 
-            : isLegal
-              ? "text-gray-500 hover:text-gray-300 underline-offset-2 hover:underline"
-              : "text-gray-400 hover:text-white"
-        }`}
+    className={`text-sm transition-colors ${
+      isHighlighted 
+        ? "text-primary hover:text-primary/80 font-medium" 
+        : isLegal
+          ? "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          : "text-muted-foreground hover:text-foreground"
+    }`}
       >
         {text}
       </Link>
@@ -155,7 +155,7 @@ function SocialBtn({
       variant="ghost"
       size="icon"
       asChild
-      className="h-9 w-9 rounded-full bg-white/5 hover:bg-primary hover:text-white transition-all"
+      className="h-9 w-9 rounded-full bg-primary/10 hover:bg-primary hover:text-primary-foreground transition-all"
     >
       <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label}>
         <Icon className="h-4 w-4" />
