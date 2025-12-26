@@ -60,6 +60,8 @@ import StoreInventoryPage from "./pages/StoreInventoryPage";
 // Wellness pages
 import WellnessSchedulePage from "./pages/WellnessSchedulePage";
 import WellnessPatientsPage from "./pages/WellnessPatientsPage";
+import MedicalHistoryPage from "./pages/MedicalHistoryPage";
+import NutritionPage from "./pages/NutritionPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -145,9 +147,9 @@ const App = () => (
               <Route path="athletes" element={<WellnessPatientsPage />} />
               <Route path="schedule" element={<WellnessSchedulePage />} />
               <Route path="evaluations/new" element={<UnderConstructionPage title="Nueva Evaluación" />} />
-              <Route path="medical-history" element={<UnderConstructionPage title="Historial Médico" />} />
+              <Route path="medical-history" element={<MedicalHistoryPage />} />
               <Route path="follow-ups" element={<UnderConstructionPage title="Seguimientos" />} />
-              <Route path="nutrition" element={<UnderConstructionPage title="Planes Nutricionales" />} />
+              <Route path="nutrition" element={<NutritionPage />} />
               
               {/* Store routes */}
               <Route path="products" element={<StoreProductsPage />} />
