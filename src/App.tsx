@@ -52,6 +52,15 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import UnderConstructionPage from "./pages/UnderConstructionPage";
 import NotFound from "./pages/NotFound";
 
+// Store pages
+import StoreProductsPage from "./pages/StoreProductsPage";
+import StoreOrdersPage from "./pages/StoreOrdersPage";
+import StoreInventoryPage from "./pages/StoreInventoryPage";
+
+// Wellness pages
+import WellnessSchedulePage from "./pages/WellnessSchedulePage";
+import WellnessPatientsPage from "./pages/WellnessPatientsPage";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -133,17 +142,17 @@ const App = () => (
               <Route path="facilities" element={<SchoolFacilitiesPage />} />
               
               {/* Wellness routes */}
-              <Route path="athletes" element={<UnderConstructionPage title="Mis Atletas" />} />
-              <Route path="schedule" element={<UnderConstructionPage title="Agenda" />} />
+              <Route path="athletes" element={<WellnessPatientsPage />} />
+              <Route path="schedule" element={<WellnessSchedulePage />} />
               <Route path="evaluations/new" element={<UnderConstructionPage title="Nueva Evaluación" />} />
               <Route path="medical-history" element={<UnderConstructionPage title="Historial Médico" />} />
               <Route path="follow-ups" element={<UnderConstructionPage title="Seguimientos" />} />
               <Route path="nutrition" element={<UnderConstructionPage title="Planes Nutricionales" />} />
               
               {/* Store routes */}
-              <Route path="products" element={<UnderConstructionPage title="Productos" />} />
-              <Route path="orders" element={<UnderConstructionPage title="Pedidos" />} />
-              <Route path="inventory" element={<UnderConstructionPage title="Inventario" />} />
+              <Route path="products" element={<StoreProductsPage />} />
+              <Route path="orders" element={<StoreOrdersPage />} />
+              <Route path="inventory" element={<StoreInventoryPage />} />
               <Route path="suppliers" element={<UnderConstructionPage title="Proveedores" />} />
               <Route path="categories" element={<UnderConstructionPage title="Categorías" />} />
               <Route path="customers" element={<UnderConstructionPage title="Clientes" />} />
