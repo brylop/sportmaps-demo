@@ -18,11 +18,12 @@ const Hero = () => {
       {/* Content */}
       <div className="container relative z-10 text-center px-4">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 bg-gradient-hero bg-clip-text text-transparent">
-            SportsMaps
+          <p className="brand-slogan text-base md:text-lg mb-4">Revolucionando el sistema deportivo</p>
+          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 text-gradient-brand">
+            SportMaps
           </h1>
           <h2 className="text-xl md:text-2xl lg:text-3xl font-semibold text-foreground mb-4">
-            El Ecosistema de la Exploración Deportiva
+            Ecosistema Integrado
           </h2>
           <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto leading-relaxed">
             Trasciende la simple cartografía. Descubre, planifica y redefine tu territorio de entrenamiento 

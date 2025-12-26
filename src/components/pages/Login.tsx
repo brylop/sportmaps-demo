@@ -36,6 +36,7 @@ const Login = ({ onNavigate }: LoginProps) => {
           <div className="flex justify-center mb-4">
             <Logo size="lg" />
           </div>
+          <p className="brand-slogan mb-3">Revolucionando el sistema deportivo</p>
           <h2 className="text-3xl font-bold text-foreground">Bienvenido de nuevo</h2>
           <p className="text-muted-foreground mt-2">
             Inicia sesión para continuar en SportMaps
