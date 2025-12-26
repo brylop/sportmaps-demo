@@ -26,6 +26,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
+import { DirectionsButton } from '@/components/common/DirectionsButton';
 
 interface School {
   id: string;
@@ -616,10 +617,21 @@ export default function SchoolDetailPage() {
 
                 <Separator />
 
+                {/* Directions Button */}
+                <DirectionsButton
+                  latitude={4.6097} // Default Bogotá coordinates - would use school.latitude if available
+                  longitude={-74.0817}
+                  placeName={school.name}
+                  address={`${school.address}, ${school.city}`}
+                  className="w-full"
+                  size="lg"
+                />
+
                 <Button 
                   className="w-full" 
                   onClick={handleReserveNow}
                   size="lg"
+                  variant="outline"
                 >
                   <Calendar className="h-5 w-5 mr-2" />
                   Reservar Ahora

@@ -28,8 +28,8 @@ export default function AuthLayout() {
             </div>
           </header>
 
-          {/* Main content */}
-          <main className="flex-1 p-6 overflow-auto">
+          {/* Main content - with padding for mobile bottom nav */}
+          <main className="flex-1 p-4 md:p-6 overflow-auto pb-20 md:pb-6">
             <Outlet />
           </main>
         </div>
