@@ -107,6 +107,33 @@ export type Database = {
           },
         ]
       }
+      analytics_events: {
+        Row: {
+          created_at: string | null
+          event_data: Json | null
+          event_type: string
+          id: string
+          page_url: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          page_url?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          page_url?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       announcements: {
         Row: {
           audience: string
@@ -169,6 +196,65 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      calendar_events: {
+        Row: {
+          all_day: boolean | null
+          created_at: string | null
+          description: string | null
+          end_time: string
+          event_type: string
+          id: string
+          is_demo: boolean | null
+          location: string | null
+          reminder_minutes: number | null
+          start_time: string
+          team_id: string | null
+          title: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          all_day?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          end_time: string
+          event_type: string
+          id?: string
+          is_demo?: boolean | null
+          location?: string | null
+          reminder_minutes?: number | null
+          start_time: string
+          team_id?: string | null
+          title: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          all_day?: boolean | null
+          created_at?: string | null
+          description?: string | null
+          end_time?: string
+          event_type?: string
+          id?: string
+          is_demo?: boolean | null
+          location?: string | null
+          reminder_minutes?: number | null
+          start_time?: string
+          team_id?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       children: {
         Row: {
@@ -302,6 +388,44 @@ export type Database = {
         }
         Relationships: []
       }
+      message_attachments: {
+        Row: {
+          created_at: string | null
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id: string
+          message_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id?: string
+          message_id: string
+        }
+        Update: {
+          created_at?: string | null
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          file_url?: string
+          id?: string
+          message_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -388,6 +512,74 @@ export type Database = {
           },
         ]
       }
+      orders: {
+        Row: {
+          created_at: string
+          id: string
+          items: Json
+          shipping_address: Json
+          status: string
+          total: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          items: Json
+          shipping_address: Json
+          status?: string
+          total: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          items?: Json
+          shipping_address?: Json
+          status?: string
+          total?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      payment_reminders: {
+        Row: {
+          created_at: string | null
+          id: string
+          payment_id: string
+          reminded_at: string | null
+          reminder_type: string
+          sent: boolean | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          payment_id: string
+          reminded_at?: string | null
+          reminder_type: string
+          sent?: boolean | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          payment_id?: string
+          reminded_at?: string | null
+          reminder_type?: string
+          sent?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_reminders_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -427,6 +619,54 @@ export type Database = {
           receipt_url?: string | null
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      products: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          discount: number | null
+          id: string
+          image_url: string | null
+          name: string
+          price: number
+          rating: number | null
+          reviews_count: number | null
+          stock: number
+          updated_at: string
+          vendor_id: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description: string
+          discount?: number | null
+          id?: string
+          image_url?: string | null
+          name: string
+          price: number
+          rating?: number | null
+          reviews_count?: number | null
+          stock?: number
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          discount?: number | null
+          id?: string
+          image_url?: string | null
+          name?: string
+          price?: number
+          rating?: number | null
+          reviews_count?: number | null
+          stock?: number
+          updated_at?: string
+          vendor_id?: string | null
         }
         Relationships: []
       }
@@ -593,7 +833,9 @@ export type Database = {
           email: string
           id: string
           is_demo: boolean | null
+          latitude: number | null
           logo_url: string | null
+          longitude: number | null
           name: string
           owner_id: string | null
           phone: string
@@ -614,7 +856,9 @@ export type Database = {
           email: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name: string
           owner_id?: string | null
           phone: string
@@ -635,7 +879,9 @@ export type Database = {
           email?: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
           logo_url?: string | null
+          longitude?: number | null
           name?: string
           owner_id?: string | null
           phone?: string
@@ -715,6 +961,64 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      student_invitations: {
+        Row: {
+          child_id: string | null
+          created_at: string
+          id: string
+          invited_by: string
+          invited_email: string | null
+          program_id: string | null
+          school_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          invited_by?: string
+          invited_email?: string | null
+          program_id?: string | null
+          school_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_invitations_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_invitations_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       team_members: {
         Row: {
@@ -845,15 +1149,94 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_search_preferences: {
+        Row: {
+          created_at: string | null
+          id: string
+          max_age: number | null
+          max_price: number | null
+          min_age: number | null
+          preferred_amenities: string[] | null
+          preferred_cities: string[] | null
+          preferred_sports: string[] | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          max_age?: number | null
+          max_price?: number | null
+          min_age?: number | null
+          preferred_amenities?: string[] | null
+          preferred_cities?: string[] | null
+          preferred_sports?: string[] | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          max_age?: number | null
+          max_price?: number | null
+          min_age?: number | null
+          preferred_amenities?: string[] | null
+          preferred_cities?: string[] | null
+          preferred_sports?: string[] | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      get_user_roles: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"][]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       is_demo_user: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       activity_status: "scheduled" | "in_progress" | "completed" | "cancelled"
+      app_role:
+        | "athlete"
+        | "parent"
+        | "coach"
+        | "school"
+        | "wellness_professional"
+        | "store_owner"
+        | "admin"
       subscription_tier: "free" | "basic" | "premium" | "enterprise"
       user_role:
         | "athlete"
@@ -991,6 +1374,15 @@ export const Constants = {
   public: {
     Enums: {
       activity_status: ["scheduled", "in_progress", "completed", "cancelled"],
+      app_role: [
+        "athlete",
+        "parent",
+        "coach",
+        "school",
+        "wellness_professional",
+        "store_owner",
+        "admin",
+      ],
       subscription_tier: ["free", "basic", "premium", "enterprise"],
       user_role: [
         "athlete",
