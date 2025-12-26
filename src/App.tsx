@@ -49,9 +49,19 @@ import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
 import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
 import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
+import UnderConstructionPage from "./pages/UnderConstructionPage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutos
+      gcTime: 10 * 60 * 1000, // 10 minutos (antes cacheTime)
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -93,11 +103,11 @@ const App = () => (
               {/* Athlete routes */}
               <Route path="teams" element={<TeamsPage />} />
               <Route path="stats" element={<StatsPage />} />
-              <Route path="goals" element={<div className="p-6"><h1 className="text-2xl font-bold">Objetivos - En construcción</h1></div>} />
-              <Route path="training" element={<div className="p-6"><h1 className="text-2xl font-bold">Entrenamientos - En construcción</h1></div>} />
+              <Route path="goals" element={<UnderConstructionPage title="Objetivos" />} />
+              <Route path="training" element={<UnderConstructionPage title="Entrenamientos" />} />
               <Route path="enrollments" element={<MyEnrollmentsPage />} />
-              <Route path="shop" element={<div className="p-6"><h1 className="text-2xl font-bold">Tienda - En construcción</h1></div>} />
-              <Route path="wellness" element={<div className="p-6"><h1 className="text-2xl font-bold">Bienestar - En construcción</h1></div>} />
+              <Route path="shop" element={<UnderConstructionPage title="Tienda" />} />
+              <Route path="wellness" element={<UnderConstructionPage title="Bienestar" />} />
               
               {/* Parent routes */}
               <Route path="children" element={<MyChildrenPage />} />
@@ -112,8 +122,7 @@ const App = () => (
               <Route path="coach-reports" element={<CoachReportsPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               
-              {/* School routes */}
-              <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+              {/* School routes - Nota: school-onboarding ya definido en línea 82 */}
               <Route path="students" element={<SchoolStudentsManagementPage />} />
               <Route path="staff" element={<SchoolCoachesManagementPage />} />
               <Route path="programs-management" element={<ProgramsManagementPage />} />
@@ -124,46 +133,46 @@ const App = () => (
               <Route path="facilities" element={<SchoolFacilitiesPage />} />
               
               {/* Wellness routes */}
-              <Route path="athletes" element={<div className="p-6"><h1 className="text-2xl font-bold">Mis Atletas - En construcción</h1></div>} />
-              <Route path="schedule" element={<div className="p-6"><h1 className="text-2xl font-bold">Agenda - En construcción</h1></div>} />
-              <Route path="evaluations/new" element={<div className="p-6"><h1 className="text-2xl font-bold">Nueva Evaluación - En construcción</h1></div>} />
-              <Route path="medical-history" element={<div className="p-6"><h1 className="text-2xl font-bold">Historial Médico - En construcción</h1></div>} />
-              <Route path="follow-ups" element={<div className="p-6"><h1 className="text-2xl font-bold">Seguimientos - En construcción</h1></div>} />
-              <Route path="nutrition" element={<div className="p-6"><h1 className="text-2xl font-bold">Planes Nutricionales - En construcción</h1></div>} />
+              <Route path="athletes" element={<UnderConstructionPage title="Mis Atletas" />} />
+              <Route path="schedule" element={<UnderConstructionPage title="Agenda" />} />
+              <Route path="evaluations/new" element={<UnderConstructionPage title="Nueva Evaluación" />} />
+              <Route path="medical-history" element={<UnderConstructionPage title="Historial Médico" />} />
+              <Route path="follow-ups" element={<UnderConstructionPage title="Seguimientos" />} />
+              <Route path="nutrition" element={<UnderConstructionPage title="Planes Nutricionales" />} />
               
               {/* Store routes */}
-              <Route path="products" element={<div className="p-6"><h1 className="text-2xl font-bold">Productos - En construcción</h1></div>} />
-              <Route path="orders" element={<div className="p-6"><h1 className="text-2xl font-bold">Pedidos - En construcción</h1></div>} />
-              <Route path="inventory" element={<div className="p-6"><h1 className="text-2xl font-bold">Inventario - En construcción</h1></div>} />
-              <Route path="suppliers" element={<div className="p-6"><h1 className="text-2xl font-bold">Proveedores - En construcción</h1></div>} />
-              <Route path="categories" element={<div className="p-6"><h1 className="text-2xl font-bold">Categorías - En construcción</h1></div>} />
-              <Route path="customers" element={<div className="p-6"><h1 className="text-2xl font-bold">Clientes - En construcción</h1></div>} />
-              <Route path="promotions" element={<div className="p-6"><h1 className="text-2xl font-bold">Promociones - En construcción</h1></div>} />
+              <Route path="products" element={<UnderConstructionPage title="Productos" />} />
+              <Route path="orders" element={<UnderConstructionPage title="Pedidos" />} />
+              <Route path="inventory" element={<UnderConstructionPage title="Inventario" />} />
+              <Route path="suppliers" element={<UnderConstructionPage title="Proveedores" />} />
+              <Route path="categories" element={<UnderConstructionPage title="Categorías" />} />
+              <Route path="customers" element={<UnderConstructionPage title="Clientes" />} />
+              <Route path="promotions" element={<UnderConstructionPage title="Promociones" />} />
               
               {/* Admin routes */}
               <Route path="admin/users" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <div className="p-6"><h1 className="text-2xl font-bold">Gestión de Usuarios - En construcción</h1></div>
+                  <UnderConstructionPage title="Gestión de Usuarios" />
                 </ProtectedRoute>
               } />
               <Route path="admin/clubs" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <div className="p-6"><h1 className="text-2xl font-bold">Gestión de Clubs - En construcción</h1></div>
+                  <UnderConstructionPage title="Gestión de Clubs" />
                 </ProtectedRoute>
               } />
               <Route path="admin/reports" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <div className="p-6"><h1 className="text-2xl font-bold">Reportes del Sistema - En construcción</h1></div>
+                  <UnderConstructionPage title="Reportes del Sistema" />
                 </ProtectedRoute>
               } />
               <Route path="admin/config" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <div className="p-6"><h1 className="text-2xl font-bold">Configuración del Sistema - En construcción</h1></div>
+                  <UnderConstructionPage title="Configuración del Sistema" />
                 </ProtectedRoute>
               } />
               <Route path="admin/logs" element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <div className="p-6"><h1 className="text-2xl font-bold">Logs del Sistema - En construcción</h1></div>
+                  <UnderConstructionPage title="Logs del Sistema" />
                 </ProtectedRoute>
               } />
             </Route>
