@@ -4,16 +4,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, Edit, Trash2, Package } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Package, Loader2 } from 'lucide-react';
+import { useStoreProducts } from '@/hooks/useStoreData';
 import { mockProducts } from '@/lib/mock-data';
 
 export default function StoreProductsPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const { products, isLoading, deleteProduct } = useStoreProducts();
 
-  const filteredProducts = mockProducts.filter(product =>
+  // Use real data if available, otherwise show mock data for demo
+  const displayProducts = products.length > 0 ? products : mockProducts;
+  const isUsingMockData = products.length === 0;
+
+  const filteredProducts = displayProducts.filter(product =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     product.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -21,6 +35,9 @@ export default function StoreProductsPage() {
         <div>
           <h1 className="text-3xl font-bold">Mis Productos</h1>
           <p className="text-muted-foreground">Gestiona tu catálogo de productos</p>
+          {isUsingMockData && (
+            <Badge variant="secondary" className="mt-2">Mostrando datos de demostración</Badge>
+          )}
         </div>
         <Button className="gap-2">
           <Plus className="h-4 w-4" />
@@ -54,7 +71,6 @@ export default function StoreProductsPage() {
                 <TableHead>Categoría</TableHead>
                 <TableHead className="text-right">Precio</TableHead>
                 <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right">Ventas</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -73,22 +89,25 @@ export default function StoreProductsPage() {
                     <Badge variant="secondary">{product.category}</Badge>
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    ${product.price.toFixed(2)}
+                    ${Number(product.price).toFixed(2)}
                   </TableCell>
                   <TableCell className="text-right">
                     <Badge variant={product.stock < 20 ? 'destructive' : 'outline'}>
                       {product.stock}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {product.sales}
-                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button variant="ghost" size="icon">
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="text-destructive"
+                        onClick={() => !isUsingMockData && deleteProduct.mutate(product.id)}
+                        disabled={isUsingMockData}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

@@ -349,6 +349,48 @@ export type Database = {
           },
         ]
       }
+      health_records: {
+        Row: {
+          athlete_id: string
+          attachments: Json | null
+          created_at: string
+          diagnosis: string | null
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          professional_id: string
+          record_type: string
+          treatment: string | null
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          attachments?: Json | null
+          created_at?: string
+          diagnosis?: string | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id: string
+          record_type: string
+          treatment?: string | null
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          attachments?: Json | null
+          created_at?: string
+          diagnosis?: string | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id?: string
+          record_type?: string
+          treatment?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       match_results: {
         Row: {
           away_score: number
@@ -1208,6 +1250,113 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      wellness_appointments: {
+        Row: {
+          appointment_date: string
+          appointment_time: string
+          athlete_id: string | null
+          athlete_name: string | null
+          created_at: string
+          duration_minutes: number | null
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          professional_id: string
+          service_type: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          appointment_date: string
+          appointment_time: string
+          athlete_id?: string | null
+          athlete_name?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id: string
+          service_type: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          appointment_date?: string
+          appointment_time?: string
+          athlete_id?: string | null
+          athlete_name?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id?: string
+          service_type?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wellness_evaluations: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          evaluation_date: string
+          evaluation_type: string
+          follow_up_date: string | null
+          health_record_id: string | null
+          id: string
+          is_demo: boolean | null
+          metrics: Json | null
+          professional_id: string
+          recommendations: string | null
+          score: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          evaluation_date?: string
+          evaluation_type: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
+          id?: string
+          is_demo?: boolean | null
+          metrics?: Json | null
+          professional_id: string
+          recommendations?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          evaluation_date?: string
+          evaluation_type?: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
+          id?: string
+          is_demo?: boolean | null
+          metrics?: Json | null
+          professional_id?: string
+          recommendations?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wellness_evaluations_health_record_id_fkey"
+            columns: ["health_record_id"]
+            isOneToOne: false
+            referencedRelation: "health_records"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
