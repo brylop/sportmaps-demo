@@ -166,6 +166,7 @@ const App = () => (
                   <Route path="medical-history" element={<MedicalHistoryPage />} />
                   <Route path="follow-ups" element={<WellnessPatientsPage />} />
                   <Route path="nutrition" element={<NutritionPage />} />
+                  <Route path="wellness-reports" element={<ReportsPage />} />
                   
                   {/* Store routes */}
                   <Route path="products" element={<StoreProductsPage />} />
@@ -175,6 +176,7 @@ const App = () => (
                   <Route path="categories" element={<StoreProductsPage />} />
                   <Route path="customers" element={<StoreOrdersPage />} />
                   <Route path="promotions" element={<StoreProductsPage />} />
+                  <Route path="store-reports" element={<ReportsPage />} />
                   
                   {/* Admin routes */}
                   <Route path="admin/users" element={

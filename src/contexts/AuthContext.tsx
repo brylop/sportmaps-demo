@@ -237,8 +237,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Check if there's an active session before trying to sign out
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      
+      if (currentSession) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      }
+      
+      // Clear local state regardless
+      setUser(null);
+      setSession(null);
+      setProfile(null);
       
       toast({
         title: "Sesión cerrada",
@@ -246,11 +256,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error: any) {
       console.error('Error signing out:', error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      // Still clear local state even if signOut fails
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      
+      // Only show error if it's not a session missing error
+      if (!error.message?.includes('session')) {
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        // Session was already gone, treat as success
+        toast({
+          title: "Sesión cerrada",
+          description: "Has cerrado sesión exitosamente",
+        });
+      }
     }
   };
 
