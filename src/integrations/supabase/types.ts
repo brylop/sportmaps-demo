@@ -390,9 +390,12 @@ export type Database = {
       }
       facilities: {
         Row: {
+          available_hours: Json | null
+          booking_enabled: boolean | null
           capacity: number
           created_at: string
           description: string | null
+          hourly_rate: number | null
           id: string
           name: string
           school_id: string | null
@@ -401,9 +404,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          available_hours?: Json | null
+          booking_enabled?: boolean | null
           capacity?: number
           created_at?: string
           description?: string | null
+          hourly_rate?: number | null
           id?: string
           name: string
           school_id?: string | null
@@ -412,9 +418,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          available_hours?: Json | null
+          booking_enabled?: boolean | null
           capacity?: number
           created_at?: string
           description?: string | null
+          hourly_rate?: number | null
           id?: string
           name?: string
           school_id?: string | null
@@ -428,6 +437,56 @@ export type Database = {
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_reservations: {
+        Row: {
+          created_at: string | null
+          end_time: string
+          facility_id: string
+          id: string
+          notes: string | null
+          price: number | null
+          reservation_date: string
+          start_time: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          end_time: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          price?: number | null
+          reservation_date: string
+          start_time: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          end_time?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          price?: number | null
+          reservation_date?: string
+          start_time?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_reservations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
             referencedColumns: ["id"]
           },
         ]
@@ -714,9 +773,12 @@ export type Database = {
           id: string
           parent_id: string
           payment_date: string | null
+          payment_type: string | null
           receipt_number: string | null
           receipt_url: string | null
           status: string
+          subscription_end_date: string | null
+          subscription_start_date: string | null
           updated_at: string
         }
         Insert: {
@@ -727,9 +789,12 @@ export type Database = {
           id?: string
           parent_id: string
           payment_date?: string | null
+          payment_type?: string | null
           receipt_number?: string | null
           receipt_url?: string | null
           status: string
+          subscription_end_date?: string | null
+          subscription_start_date?: string | null
           updated_at?: string
         }
         Update: {
@@ -740,9 +805,12 @@ export type Database = {
           id?: string
           parent_id?: string
           payment_date?: string | null
+          payment_type?: string | null
           receipt_number?: string | null
           receipt_url?: string | null
           status?: string
+          subscription_end_date?: string | null
+          subscription_start_date?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -848,12 +916,14 @@ export type Database = {
           id: string
           image_url: string | null
           is_demo: boolean | null
+          level: string | null
           max_participants: number | null
           name: string
           price_monthly: number
           schedule: string | null
           school_id: string | null
           sport: string
+          spots_available: number | null
           updated_at: string
         }
         Insert: {
@@ -866,12 +936,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_demo?: boolean | null
+          level?: string | null
           max_participants?: number | null
           name: string
           price_monthly: number
           schedule?: string | null
           school_id?: string | null
           sport: string
+          spots_available?: number | null
           updated_at?: string
         }
         Update: {
@@ -884,12 +956,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_demo?: boolean | null
+          level?: string | null
           max_participants?: number | null
           name?: string
           price_monthly?: number
           schedule?: string | null
           school_id?: string | null
           sport?: string
+          spots_available?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -996,8 +1070,10 @@ export type Database = {
       }
       schools: {
         Row: {
+          accepts_reservations: boolean | null
           address: string
           amenities: string[] | null
+          certifications: string[] | null
           city: string
           cover_image_url: string | null
           created_at: string
@@ -1006,6 +1082,7 @@ export type Database = {
           id: string
           is_demo: boolean | null
           latitude: number | null
+          levels_offered: string[] | null
           logo_url: string | null
           longitude: number | null
           name: string
@@ -1019,8 +1096,10 @@ export type Database = {
           website: string | null
         }
         Insert: {
+          accepts_reservations?: boolean | null
           address: string
           amenities?: string[] | null
+          certifications?: string[] | null
           city: string
           cover_image_url?: string | null
           created_at?: string
@@ -1029,6 +1108,7 @@ export type Database = {
           id?: string
           is_demo?: boolean | null
           latitude?: number | null
+          levels_offered?: string[] | null
           logo_url?: string | null
           longitude?: number | null
           name: string
@@ -1042,8 +1122,10 @@ export type Database = {
           website?: string | null
         }
         Update: {
+          accepts_reservations?: boolean | null
           address?: string
           amenities?: string[] | null
+          certifications?: string[] | null
           city?: string
           cover_image_url?: string | null
           created_at?: string
@@ -1052,6 +1134,7 @@ export type Database = {
           id?: string
           is_demo?: boolean | null
           latitude?: number | null
+          levels_offered?: string[] | null
           logo_url?: string | null
           longitude?: number | null
           name?: string
