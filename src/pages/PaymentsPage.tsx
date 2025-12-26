@@ -81,16 +81,16 @@ export default function PaymentsPage() {
     }).format(amount);
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'paid':
-        return 'default';
+        return 'bg-[hsl(119,60%,32%)] text-white hover:bg-[hsl(119,60%,28%)]'; // Verde #248223
       case 'pending':
-        return 'secondary';
+        return 'bg-[hsl(35,97%,55%)] text-white hover:bg-[hsl(35,97%,48%)]'; // Naranja #FB9F1E
       case 'overdue':
-        return 'destructive';
+        return 'bg-destructive text-destructive-foreground hover:bg-destructive/90';
       default:
-        return 'secondary';
+        return 'bg-secondary text-secondary-foreground';
     }
   };
 
@@ -124,8 +124,8 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Pagos</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-3xl font-bold font-poppins">Pagos</h1>
+        <p className="text-muted-foreground mt-1 font-poppins">
           Gestiona tus pagos y consulta tu historial de transacciones
         </p>
       </div>
@@ -189,7 +189,7 @@ export default function PaymentsPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-2xl font-bold">{formatCurrency(Number(pendingPayment.amount))}</p>
-                  <Badge variant={getStatusColor(pendingPayment.status)}>
+                  <Badge className={getStatusBadgeClass(pendingPayment.status)}>
                     {getStatusLabel(pendingPayment.status)}
                   </Badge>
                 </div>
@@ -235,7 +235,7 @@ export default function PaymentsPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-xl font-bold">{formatCurrency(Number(payment.amount))}</p>
-                      <Badge variant={getStatusColor(payment.status)} className="mt-1">
+                      <Badge className={`mt-1 ${getStatusBadgeClass(payment.status)}`}>
                         {getStatusLabel(payment.status)}
                       </Badge>
                     </div>
