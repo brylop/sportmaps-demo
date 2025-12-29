@@ -71,25 +71,17 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
 
   // Initialize map using vanilla Leaflet
   useEffect(() => {
-    let isMounted = true;
-    let mapInstance: any = null;
+    // Skip if no container or already initialized
+    if (!mapContainerRef.current || mapInstanceRef.current) {
+      if (mapInstanceRef.current) setIsLoading(false);
+      return;
+    }
 
+    let L: any;
+    
     const initMap = async () => {
-      if (!mapContainerRef.current) {
-        console.log('Map container not ready');
-        return;
-      }
-
-      // If map already exists, skip initialization
-      if (mapInstanceRef.current) {
-        console.log('Map already initialized');
-        setIsLoading(false);
-        return;
-      }
-
       try {
-        console.log('Initializing map...');
-        const L = await import('leaflet');
+        L = await import('leaflet');
 
         // Fix default marker icons
         delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -99,24 +91,25 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
           shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
         });
 
-        if (!isMounted) return;
+        // Ensure container still exists
+        if (!mapContainerRef.current) return;
 
         const defaultCenter: [number, number] = userLocation
           ? [userLocation.lat, userLocation.lng]
           : [4.6097, -74.0817]; // Bogotá
 
         // Create map instance
-        mapInstance = L.map(mapContainerRef.current, {
+        const map = L.map(mapContainerRef.current, {
           center: defaultCenter,
           zoom: 11,
         });
         
-        mapInstanceRef.current = mapInstance;
+        mapInstanceRef.current = map;
 
         // Add tile layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        }).addTo(mapInstance);
+        }).addTo(map);
 
         // Add user location marker if available
         if (userLocation) {
@@ -135,33 +128,28 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
           });
 
           L.marker([userLocation.lat, userLocation.lng], { icon: userIcon })
-            .addTo(mapInstance)
+            .addTo(map)
             .bindPopup('<div class="text-center font-semibold">Tu ubicación</div>');
         }
 
-        console.log('Map initialized successfully');
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        // Force size recalculation after a short delay
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 100);
+
+        setIsLoading(false);
       } catch (err) {
         console.error('Error loading map:', err);
-        if (isMounted) {
-          setError('No se pudo cargar el mapa');
-          setIsLoading(false);
-        }
+        setError('No se pudo cargar el mapa');
+        setIsLoading(false);
       }
     };
 
-    // Small delay to ensure container is mounted
-    const timer = setTimeout(() => {
-      initMap();
-    }, 100);
+    initMap();
 
     return () => {
-      isMounted = false;
-      clearTimeout(timer);
-      if (mapInstance) {
-        mapInstance.remove();
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
@@ -262,31 +250,30 @@ export function SchoolMap({ schools, userLocation, selectedSchoolId, onSchoolSel
     updateMarkers();
   }, [schoolsWithDistance, selectedSchoolId, onSchoolSelect]);
 
-  if (isLoading) {
-    return (
-      <div className="relative h-[400px] rounded-xl overflow-hidden border border-border shadow-lg bg-muted/50 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground font-poppins">Cargando mapa...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="relative h-[400px] rounded-xl overflow-hidden border border-border shadow-lg bg-muted/50 flex items-center justify-center">
-        <p className="text-muted-foreground font-poppins">{error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="relative h-[400px] rounded-xl overflow-hidden border border-border shadow-lg">
+      {/* Map container - always rendered */}
       <div ref={mapContainerRef} className="h-full w-full" />
 
+      {/* Loading overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-muted/80 flex items-center justify-center z-[500]">
+          <div className="text-center space-y-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
+            <p className="text-muted-foreground font-poppins">Cargando mapa...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error overlay */}
+      {error && (
+        <div className="absolute inset-0 bg-muted/80 flex items-center justify-center z-[500]">
+          <p className="text-muted-foreground font-poppins">{error}</p>
+        </div>
+      )}
+
       {/* Distance Legend */}
-      {userLocation && schoolsWithDistance.length > 0 && (
+      {!isLoading && !error && userLocation && schoolsWithDistance.length > 0 && (
         <div className="absolute bottom-4 left-4 bg-background/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-border z-[1000]">
           <p className="text-xs font-semibold mb-2 text-foreground font-poppins">Escuelas cercanas</p>
           <div className="space-y-1 max-h-[100px] overflow-y-auto">
