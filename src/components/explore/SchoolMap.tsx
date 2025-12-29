@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Star, MapPin, Navigation, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import 'leaflet/dist/leaflet.css';
 import { useNavigate } from 'react-router-dom';
 
 interface School {
