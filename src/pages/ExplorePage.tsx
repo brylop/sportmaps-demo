@@ -49,7 +49,6 @@ export default function ExplorePage() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [showMap, setShowMap] = useState(true);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>();
-  const [hoveredSchoolId, setHoveredSchoolId] = useState<string | undefined>();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -222,8 +221,6 @@ export default function ExplorePage() {
           userLocation={userLocation}
           selectedSchoolId={selectedSchoolId}
           onSchoolSelect={setSelectedSchoolId}
-          hoveredSchoolId={hoveredSchoolId}
-          onSchoolHover={(id) => setHoveredSchoolId(id || undefined)}
         />
       </div>
 
@@ -485,14 +482,8 @@ export default function ExplorePage() {
               {schools.map((school) => (
                 <Card
                   key={school.id}
-                  className={`group overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 ${
-                    hoveredSchoolId === school.id || selectedSchoolId === school.id
-                      ? 'border-primary shadow-xl ring-2 ring-primary/20' 
-                      : 'hover:border-primary/50'
-                  }`}
+                  className="group overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 hover:border-primary/50"
                   onClick={() => navigate(`/schools/${school.id}`)}
-                  onMouseEnter={() => setHoveredSchoolId(school.id)}
-                  onMouseLeave={() => setHoveredSchoolId(undefined)}
                 >
                   {/* Cover Image */}
                   <div className="relative h-56 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center overflow-hidden">
