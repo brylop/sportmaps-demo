@@ -8,14 +8,18 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
 
 interface StudentCSVRow {
   name: string;
   parent: string;
   phone: string;
   monthlyFee: string;
+  rowNumber: number;
+  errors: string[];
+  isValid: boolean;
 }
 
 interface CSVImportModalProps {
@@ -28,8 +32,49 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
   const [isDragging, setIsDragging] = useState(false);
   const [parsedData, setParsedData] = useState<StudentCSVRow[]>([]);
   const [fileName, setFileName] = useState('');
-  const [error, setError] = useState('');
+  const [globalError, setGlobalError] = useState('');
   const { toast } = useToast();
+
+  const validateRow = (row: Omit<StudentCSVRow, 'errors' | 'isValid'>, rowNumber: number): StudentCSVRow => {
+    const errors: string[] = [];
+
+    // Validate name
+    if (!row.name || row.name.trim().length < 2) {
+      errors.push('Nombre debe tener al menos 2 caracteres');
+    } else if (row.name.length > 100) {
+      errors.push('Nombre muy largo (máx 100 caracteres)');
+    }
+
+    // Validate parent
+    if (!row.parent || row.parent.trim().length < 2) {
+      errors.push('Nombre del acudiente es requerido');
+    }
+
+    // Validate phone
+    const phoneDigits = row.phone.replace(/\D/g, '');
+    if (!row.phone || phoneDigits.length < 7) {
+      errors.push('Teléfono inválido (mín 7 dígitos)');
+    } else if (phoneDigits.length > 15) {
+      errors.push('Teléfono muy largo');
+    }
+
+    // Validate monthly fee
+    const feeValue = parseInt(row.monthlyFee.replace(/\D/g, ''));
+    if (!row.monthlyFee || isNaN(feeValue)) {
+      errors.push('Mensualidad debe ser un número');
+    } else if (feeValue <= 0) {
+      errors.push('Mensualidad debe ser mayor a 0');
+    } else if (feeValue > 10000000) {
+      errors.push('Mensualidad parece incorrecta');
+    }
+
+    return {
+      ...row,
+      rowNumber,
+      errors,
+      isValid: errors.length === 0,
+    };
+  };
 
   const parseCSV = (text: string): StudentCSVRow[] => {
     const lines = text.trim().split('\n');
@@ -50,13 +95,15 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
     const students: StudentCSVRow[] = [];
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',').map(v => v.trim());
-      if (values.length >= 4 && values[nameIndex]) {
-        students.push({
-          name: values[nameIndex],
-          parent: values[parentIndex],
-          phone: values[phoneIndex],
-          monthlyFee: values[feeIndex],
-        });
+      if (values.length >= 4 || values.some(v => v.length > 0)) {
+        const rawRow = {
+          name: values[nameIndex] || '',
+          parent: values[parentIndex] || '',
+          phone: values[phoneIndex] || '',
+          monthlyFee: values[feeIndex] || '',
+          rowNumber: i + 1,
+        };
+        students.push(validateRow(rawRow, i + 1));
       }
     }
 
@@ -64,11 +111,11 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
   };
 
   const handleFile = useCallback((file: File) => {
-    setError('');
+    setGlobalError('');
     setFileName(file.name);
 
     if (!file.name.endsWith('.csv')) {
-      setError('Por favor selecciona un archivo CSV');
+      setGlobalError('Por favor selecciona un archivo CSV');
       return;
     }
 
@@ -79,7 +126,7 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
         const data = parseCSV(text);
         setParsedData(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al procesar el archivo');
+        setGlobalError(err instanceof Error ? err.message : 'Error al procesar el archivo');
         setParsedData([]);
       }
     };
@@ -108,19 +155,29 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
     if (file) handleFile(file);
   };
 
+  const validRows = parsedData.filter(r => r.isValid);
+  const invalidRows = parsedData.filter(r => !r.isValid);
+
   const handleImport = () => {
-    if (parsedData.length === 0) return;
+    if (validRows.length === 0) {
+      toast({
+        title: 'No hay filas válidas',
+        description: 'Corrige los errores en el archivo CSV antes de importar',
+        variant: 'destructive',
+      });
+      return;
+    }
     
-    onImport(parsedData);
+    onImport(validRows);
     toast({
       title: 'Importación exitosa',
-      description: `Se importaron ${parsedData.length} estudiantes correctamente`,
+      description: `Se importaron ${validRows.length} estudiantes${invalidRows.length > 0 ? `. ${invalidRows.length} filas con errores fueron omitidas.` : ''}`,
     });
     
     // Reset state and close
     setParsedData([]);
     setFileName('');
-    setError('');
+    setGlobalError('');
     onOpenChange(false);
   };
 
@@ -128,7 +185,7 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
     if (!open) {
       setParsedData([]);
       setFileName('');
-      setError('');
+      setGlobalError('');
     }
     onOpenChange(open);
   };
@@ -141,7 +198,7 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
@@ -165,9 +222,16 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
               <div className="flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-10 w-10 text-green-500" />
                 <p className="font-medium">{fileName}</p>
-                <p className="text-sm text-muted-foreground">
-                  {parsedData.length} estudiantes listos para importar
-                </p>
+                <div className="flex gap-2">
+                  <Badge variant="default" className="bg-green-500">
+                    {validRows.length} válidos
+                  </Badge>
+                  {invalidRows.length > 0 && (
+                    <Badge variant="destructive">
+                      {invalidRows.length} con errores
+                    </Badge>
+                  )}
+                </div>
               </div>
             ) : (
               <>
@@ -190,16 +254,16 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
             )}
           </div>
 
-          {/* Error Message */}
-          {error && (
+          {/* Global Error Message */}
+          {globalError && (
             <div className="flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-lg">
               <AlertCircle className="h-4 w-4" />
-              <span className="text-sm">{error}</span>
+              <span className="text-sm">{globalError}</span>
             </div>
           )}
 
           {/* CSV Format Help */}
-          {parsedData.length === 0 && !error && (
+          {parsedData.length === 0 && !globalError && (
             <div className="bg-muted/50 rounded-lg p-4">
               <p className="text-sm font-medium mb-2">Formato esperado del CSV:</p>
               <code className="text-xs bg-muted p-2 rounded block">
@@ -210,12 +274,14 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
             </div>
           )}
 
-          {/* Preview Table */}
+          {/* Preview Table with Validation Status */}
           {parsedData.length > 0 && (
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">Fila</TableHead>
+                    <TableHead>Estado</TableHead>
                     <TableHead>Nombre</TableHead>
                     <TableHead>Padre/Acudiente</TableHead>
                     <TableHead>Teléfono</TableHead>
@@ -223,21 +289,57 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {parsedData.slice(0, 10).map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell>{row.parent}</TableCell>
-                      <TableCell>{row.phone}</TableCell>
+                  {parsedData.slice(0, 15).map((row) => (
+                    <TableRow key={row.rowNumber} className={!row.isValid ? 'bg-destructive/5' : ''}>
+                      <TableCell className="font-mono text-xs">{row.rowNumber}</TableCell>
+                      <TableCell>
+                        {row.isValid ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <XCircle className="h-4 w-4 text-destructive" />
+                            <span className="text-xs text-destructive max-w-[150px] truncate" title={row.errors.join(', ')}>
+                              {row.errors[0]}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className={`font-medium ${!row.name ? 'text-destructive' : ''}`}>
+                        {row.name || '—'}
+                      </TableCell>
+                      <TableCell className={!row.parent ? 'text-destructive' : ''}>
+                        {row.parent || '—'}
+                      </TableCell>
+                      <TableCell>{row.phone || '—'}</TableCell>
                       <TableCell>{formatCurrency(row.monthlyFee)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-              {parsedData.length > 10 && (
+              {parsedData.length > 15 && (
                 <div className="p-2 text-center text-sm text-muted-foreground bg-muted/50">
-                  ... y {parsedData.length - 10} estudiantes más
+                  ... y {parsedData.length - 15} filas más
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Error Summary */}
+          {invalidRows.length > 0 && (
+            <div className="bg-destructive/10 rounded-lg p-4">
+              <p className="text-sm font-medium text-destructive mb-2">
+                ⚠️ {invalidRows.length} fila{invalidRows.length > 1 ? 's' : ''} con errores (serán omitidas):
+              </p>
+              <ul className="text-xs text-destructive space-y-1 max-h-32 overflow-y-auto">
+                {invalidRows.slice(0, 10).map((row) => (
+                  <li key={row.rowNumber}>
+                    <strong>Fila {row.rowNumber}:</strong> {row.errors.join(', ')}
+                  </li>
+                ))}
+                {invalidRows.length > 10 && (
+                  <li className="text-muted-foreground">... y {invalidRows.length - 10} errores más</li>
+                )}
+              </ul>
             </div>
           )}
         </div>
@@ -248,9 +350,9 @@ export function CSVImportModal({ open, onOpenChange, onImport }: CSVImportModalP
           </Button>
           <Button 
             onClick={handleImport} 
-            disabled={parsedData.length === 0}
+            disabled={validRows.length === 0}
           >
-            Importar {parsedData.length > 0 && `(${parsedData.length})`}
+            Importar {validRows.length > 0 && `(${validRows.length} válidos)`}
           </Button>
         </DialogFooter>
       </DialogContent>

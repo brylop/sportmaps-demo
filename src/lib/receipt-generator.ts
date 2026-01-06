@@ -8,11 +8,12 @@ interface ReceiptData {
   concept: string;
   description?: string;
   amount: number;
-  paymentMethod: 'card' | 'pse';
-  paymentType: 'one_time' | 'subscription';
+  paymentMethod: 'card' | 'pse' | 'nequi';
+  paymentType: 'one_time' | 'subscription' | 'monthly';
   schoolName?: string;
   programName?: string;
   subscriptionPeriod?: string;
+  studentName?: string;
 }
 
 // SportMaps brand colors
@@ -117,6 +118,13 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
     doc.text(data.schoolName, 60, y);
   }
 
+  // Student name if applicable
+  if (data.studentName) {
+    y += 7;
+    doc.text('Estudiante:', 20, y);
+    doc.text(data.studentName, 60, y);
+  }
+
   // Program name if applicable
   if (data.programName) {
     y += 7;
@@ -139,15 +147,22 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   // Payment method
   y += 10;
   doc.text('Método de pago:', 20, y);
-  doc.text(data.paymentMethod === 'card' ? 'Tarjeta de Crédito/Débito' : 'PSE - Débito Bancario', 70, y);
+  const methodLabels: Record<string, string> = {
+    card: 'Tarjeta de Crédito/Débito',
+    pse: 'PSE - Débito Bancario',
+    nequi: 'Nequi',
+  };
+  doc.text(methodLabels[data.paymentMethod] || data.paymentMethod, 70, y);
 
   // Payment type
   y += 7;
   doc.text('Tipo de pago:', 20, y);
-  const paymentTypeText = data.paymentType === 'subscription' 
-    ? `Suscripción Mensual${data.subscriptionPeriod ? ` (${data.subscriptionPeriod})` : ''}`
-    : 'Pago Único';
-  doc.text(paymentTypeText, 70, y);
+  const paymentTypeLabels: Record<string, string> = {
+    subscription: `Suscripción Mensual${data.subscriptionPeriod ? ` (${data.subscriptionPeriod})` : ''}`,
+    one_time: 'Pago Único',
+    monthly: 'Mensualidad',
+  };
+  doc.text(paymentTypeLabels[data.paymentType] || data.paymentType, 70, y);
 
   // Amount box
   y += 20;
