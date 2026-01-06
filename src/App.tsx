@@ -73,6 +73,7 @@ import NutritionPage from "./pages/NutritionPage";
 
 // Checkout and Analytics
 import CheckoutPage from "./pages/CheckoutPage";
+import ParentCheckoutPage from "./pages/ParentCheckoutPage";
 import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
 
 const queryClient = new QueryClient({
@@ -103,6 +104,7 @@ const App = () => (
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/checkout" element={<CheckoutPage />} />
+                <Route path="/parent-checkout" element={<ParentCheckoutPage />} />
                 
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
                 

@@ -5,14 +5,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, UserPlus, Mail } from 'lucide-react';
+import { Search, UserPlus, Mail, FileUp } from 'lucide-react';
+import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { useToast } from '@/hooks/use-toast';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const { toast } = useToast();
 
-  // Demo data
-  const students = [
+  // Demo data - now using state so we can add imported students
+  const [students, setStudents] = useState([
     {
       id: '1',
       name: 'Mateo Pérez',
@@ -49,7 +53,7 @@ export default function StudentsPage() {
       phone: '+57 320 345 6789',
       paymentStatus: 'pending',
     },
-  ];
+  ]);
 
   const filteredStudents = students.filter(student =>
     student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -70,6 +74,24 @@ export default function StudentsPage() {
     }
   };
 
+  const handleCSVImport = (importedStudents: { name: string; parent: string; phone: string; monthlyFee: string }[]) => {
+    const newStudents = importedStudents.map((s, index) => ({
+      id: `imported-${Date.now()}-${index}`,
+      name: s.name,
+      age: 10, // Default age
+      program: 'Por asignar',
+      parent: s.parent,
+      phone: s.phone,
+      paymentStatus: 'pending' as const,
+    }));
+
+    setStudents(prev => [...prev, ...newStudents]);
+    toast({
+      title: 'Estudiantes importados',
+      description: `Se agregaron ${newStudents.length} estudiantes a la lista`,
+    });
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -78,7 +100,11 @@ export default function StudentsPage() {
           <p className="text-muted-foreground">Base de datos completa de alumnos</p>
         </div>
         <div className="flex gap-2">
-          <Button>
+          <Button variant="outline" onClick={() => setShowImportModal(true)}>
+            <FileUp className="mr-2 h-4 w-4" />
+            Importar CSV
+          </Button>
+          <Button variant="outline">
             <Mail className="mr-2 h-4 w-4" />
             Invitar Padre
           </Button>
@@ -134,6 +160,12 @@ export default function StudentsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <CSVImportModal
+        open={showImportModal}
+        onOpenChange={setShowImportModal}
+        onImport={handleCSVImport}
+      />
     </div>
   );
 }
