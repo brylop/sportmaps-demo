@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 
 interface OverdueAccount {
   id: string;
@@ -28,6 +29,8 @@ interface Transaction {
 
 export default function FinancesPage() {
   const { toast } = useToast();
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  
   const financialSummary = {
     totalIncome: 3200000,
     totalOverdue: 290000,
@@ -55,7 +58,7 @@ export default function FinancesPage() {
     },
   ]);
 
-  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([
+  const [recentTransactions] = useState<Transaction[]>([
     {
       id: '1',
       date: '2024-10-28',
@@ -74,6 +77,7 @@ export default function FinancesPage() {
     },
   ]);
 
+  const [reminderHistory, setReminderHistory] = useState<ReminderRecord[]>([]);
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
 
   const handleSendReminder = async (accountId: string) => {
@@ -83,11 +87,25 @@ export default function FinancesPage() {
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     const account = overdueAccounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    const now = new Date().toISOString();
+    
+    // Add to reminder history
+    const newReminder: ReminderRecord = {
+      id: `reminder-${Date.now()}`,
+      parent: account.parent,
+      student: account.student,
+      amount: account.amount,
+      sentAt: now,
+      channel: 'whatsapp',
+    };
+    setReminderHistory(prev => [newReminder, ...prev]);
     
     // Update account status
     setOverdueAccounts(prev => prev.map(a => 
       a.id === accountId 
-        ? { ...a, status: 'reminder_sent' as const, lastContactDate: new Date().toISOString() }
+        ? { ...a, status: 'reminder_sent' as const, lastContactDate: now }
         : a
     ));
 
@@ -96,7 +114,7 @@ export default function FinancesPage() {
     // Show WhatsApp simulation toast
     toast({
       title: '📱 Recordatorio WhatsApp enviado',
-      description: `Se envió recordatorio de pago a ${account?.parent} por $${account?.amount.toLocaleString()}`,
+      description: `Se envió recordatorio de pago a ${account.parent} por $${account.amount.toLocaleString()}`,
     });
   };
 
@@ -121,9 +139,15 @@ export default function FinancesPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Finanzas</h1>
-        <p className="text-muted-foreground">Panel de control financiero</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Finanzas</h1>
+          <p className="text-muted-foreground">Panel de control financiero</p>
+        </div>
+        <Button variant="outline" onClick={() => setShowHistoryModal(true)}>
+          <History className="mr-2 h-4 w-4" />
+          Ver Historial de Recordatorios
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -179,7 +203,7 @@ export default function FinancesPage() {
                 <TableHead>Estudiante</TableHead>
                 <TableHead>Concepto</TableHead>
                 <TableHead>Monto Vencido</TableHead>
-                <TableHead>Días</TableHead>
+                <TableHead>Estado</TableHead>
                 <TableHead>Acción</TableHead>
               </TableRow>
             </TableHeader>
@@ -263,6 +287,13 @@ export default function FinancesPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Reminder History Modal */}
+      <ReminderHistoryModal
+        open={showHistoryModal}
+        onOpenChange={setShowHistoryModal}
+        reminders={reminderHistory}
+      />
     </div>
   );
 }
