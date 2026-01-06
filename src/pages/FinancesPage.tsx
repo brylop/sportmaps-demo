@@ -1,17 +1,40 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, AlertCircle, TrendingUp, Mail } from 'lucide-react';
+import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+
+interface OverdueAccount {
+  id: string;
+  parent: string;
+  student: string;
+  concept: string;
+  amount: number;
+  daysOverdue: number;
+  status: 'overdue' | 'reminder_sent';
+  lastContactDate?: string;
+}
+
+interface Transaction {
+  id: string;
+  date: string;
+  parent: string;
+  concept: string;
+  amount: number;
+  method: string;
+}
 
 export default function FinancesPage() {
+  const { toast } = useToast();
   const financialSummary = {
     totalIncome: 3200000,
     totalOverdue: 290000,
     pendingPayments: 140000,
   };
 
-  const overdueAccounts = [
+  const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([
     {
       id: '1',
       parent: 'Carlos Vargas',
@@ -19,6 +42,7 @@ export default function FinancesPage() {
       concept: 'Mensualidad Oct',
       amount: 150000,
       daysOverdue: 5,
+      status: 'overdue',
     },
     {
       id: '2',
@@ -27,10 +51,11 @@ export default function FinancesPage() {
       concept: 'Mensualidad Oct',
       amount: 140000,
       daysOverdue: 2,
+      status: 'overdue',
     },
-  ];
+  ]);
 
-  const recentTransactions = [
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([
     {
       id: '1',
       date: '2024-10-28',
@@ -47,7 +72,52 @@ export default function FinancesPage() {
       amount: 200000,
       method: 'Efectivo',
     },
-  ];
+  ]);
+
+  const [sendingReminder, setSendingReminder] = useState<string | null>(null);
+
+  const handleSendReminder = async (accountId: string) => {
+    setSendingReminder(accountId);
+    
+    // Simulate WhatsApp notification
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    const account = overdueAccounts.find(a => a.id === accountId);
+    
+    // Update account status
+    setOverdueAccounts(prev => prev.map(a => 
+      a.id === accountId 
+        ? { ...a, status: 'reminder_sent' as const, lastContactDate: new Date().toISOString() }
+        : a
+    ));
+
+    setSendingReminder(null);
+
+    // Show WhatsApp simulation toast
+    toast({
+      title: '📱 Recordatorio WhatsApp enviado',
+      description: `Se envió recordatorio de pago a ${account?.parent} por $${account?.amount.toLocaleString()}`,
+    });
+  };
+
+  const getStatusBadge = (account: OverdueAccount) => {
+    if (account.status === 'reminder_sent') {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge className="bg-yellow-500 text-white gap-1">
+            <CheckCircle2 className="h-3 w-3" />
+            Recordatorio Enviado
+          </Badge>
+          {account.lastContactDate && (
+            <span className="text-xs text-muted-foreground">
+              Último: {new Date(account.lastContactDate).toLocaleDateString('es-CO')}
+            </span>
+          )}
+        </div>
+      );
+    }
+    return <Badge variant="destructive">{account.daysOverdue} días vencido</Badge>;
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -123,12 +193,32 @@ export default function FinancesPage() {
                     ${account.amount.toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="destructive">{account.daysOverdue} días</Badge>
+                    {getStatusBadge(account)}
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline">
-                      <Mail className="mr-2 h-4 w-4" />
-                      Enviar Recordatorio
+                    <Button 
+                      size="sm" 
+                      variant={account.status === 'reminder_sent' ? 'ghost' : 'outline'}
+                      onClick={() => handleSendReminder(account.id)}
+                      disabled={sendingReminder === account.id}
+                      className={account.status === 'reminder_sent' ? 'text-green-600' : ''}
+                    >
+                      {sendingReminder === account.id ? (
+                        <>
+                          <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                          Enviando...
+                        </>
+                      ) : account.status === 'reminder_sent' ? (
+                        <>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Reenviar
+                        </>
+                      ) : (
+                        <>
+                          <MessageCircle className="mr-2 h-4 w-4" />
+                          Enviar WhatsApp
+                        </>
+                      )}
                     </Button>
                   </TableCell>
                 </TableRow>
