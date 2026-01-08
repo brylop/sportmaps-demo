@@ -91,30 +91,30 @@ export default function PaymentsAutomationPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">💳 Cobros Automáticos</h1>
-          <p className="text-muted-foreground">Gestiona los pagos recurrentes de tus estudiantes</p>
+    <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Cobros Automáticos</h1>
+          <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona los pagos recurrentes de tus estudiantes</p>
         </div>
-        <Badge variant="default" className="text-sm">
+        <Badge variant="default" className="text-xs md:text-sm w-fit">
           ✅ Plan Pro Activo
         </Badge>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
             <Card key={index}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{stat.label}</CardTitle>
-                <Icon className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-xs md:text-sm font-medium truncate">{stat.label}</CardTitle>
+                <Icon className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-                <p className="text-xs text-muted-foreground">{stat.change}</p>
+                <div className="text-xl md:text-2xl font-bold truncate">{stat.value}</div>
+                <p className="text-xs text-muted-foreground truncate">{stat.change}</p>
               </CardContent>
             </Card>
           );
