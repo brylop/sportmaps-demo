@@ -61,6 +61,10 @@ app.include_router(payments.router)
 students.init_db(db)
 app.include_router(students.router)
 
+# Initialize classes router with database
+classes.init_db(db)
+app.include_router(classes.router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
