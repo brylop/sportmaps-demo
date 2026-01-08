@@ -22,10 +22,14 @@ export default function DashboardPage() {
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
   const { data: stats } = useDashboardStats();
   const { data: notifications } = useNotifications();
+  
+  // Check if in demo mode
+  const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
+  const demoRole = sessionStorage.getItem('demo_role') || 'school';
 
-  // Redirect users to onboarding if they haven't completed setup
+  // Redirect users to onboarding if they haven't completed setup (skip for demo users)
   useEffect(() => {
-    if (!profile || !user) return;
+    if (!profile || !user || isDemoMode) return;
 
     const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
     
