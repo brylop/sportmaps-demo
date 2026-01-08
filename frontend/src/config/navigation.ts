@@ -88,14 +88,15 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Progreso Académico', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
-          { title: 'Pagos', href: '/payments', icon: DollarSign }
+          { title: 'Pagos', href: '/my-payments', icon: DollarSign }
         ]
       },
       {
         title: 'Comunidad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin }
+          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
