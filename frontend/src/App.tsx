@@ -79,6 +79,7 @@ import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
 // Demo pages
 import DemoWelcomePage from "./pages/DemoWelcomePage";
 import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
+import MyPaymentsPage from "./pages/MyPaymentsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
