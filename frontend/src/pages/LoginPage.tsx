@@ -19,16 +19,32 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-const demoRoles = [
+// Main demo roles - simplified to 2 primary options
+const mainDemoRoles = [
+  {
+    id: 'school',
+    title: 'Escuela / Academia',
+    description: 'Ver cómo gestionas tu academia y atraes alumnos',
+    email: 'academia.elite@demo.sportmaps.com',
+    icon: School,
+    color: 'bg-primary',
+    border: 'border-primary',
+    recommended: true,
+  },
   {
     id: 'parent',
-    title: 'Padre/Madre',
-    description: 'Gestión familiar',
+    title: 'Padre / Madre',
+    description: 'Ver cómo padres encuentran tu escuela',
     email: 'maria.garcia@demo.sportmaps.com',
     icon: Users,
-    color: 'bg-blue-500',
-    border: 'border-blue-500',
+    color: 'bg-secondary',
+    border: 'border-secondary',
+    recommended: false,
   },
+];
+
+// Additional roles - collapsed by default
+const additionalRoles = [
   {
     id: 'coach',
     title: 'Entrenador',
@@ -36,16 +52,6 @@ const demoRoles = [
     email: 'luis.rodriguez@demo.sportmaps.com',
     icon: GraduationCap,
     color: 'bg-emerald-500',
-    border: 'border-emerald-500',
-  },
-  {
-    id: 'school',
-    title: 'Escuela',
-    description: 'Gestión completa',
-    email: 'academia.elite@demo.sportmaps.com',
-    icon: School,
-    color: 'bg-purple-500',
-    border: 'border-purple-500',
   },
   {
     id: 'athlete',
@@ -54,34 +60,6 @@ const demoRoles = [
     email: 'carlos.martinez@demo.sportmaps.com',
     icon: UserCircle,
     color: 'bg-orange-500',
-    border: 'border-orange-500',
-  },
-  {
-    id: 'wellness_professional',
-    title: 'Profesional Bienestar',
-    description: 'Salud y rendimiento',
-    email: 'sofia.rivera@demo.sportmaps.com',
-    icon: Heart,
-    color: 'bg-pink-500',
-    border: 'border-pink-500',
-  },
-  {
-    id: 'store_owner',
-    title: 'Tienda/Vendedor',
-    description: 'Productos deportivos',
-    email: 'info.equipatemas@demo.sportmaps.com',
-    icon: Store,
-    color: 'bg-cyan-500',
-    border: 'border-cyan-500',
-  },
-  {
-    id: 'admin',
-    title: 'Administrador',
-    description: 'Control del sistema',
-    email: 'admin@demo.sportmaps.com',
-    icon: Shield,
-    color: 'bg-red-500',
-    border: 'border-red-500',
   },
 ];
 
