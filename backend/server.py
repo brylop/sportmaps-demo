@@ -57,6 +57,10 @@ async def get_status_checks():
 app.include_router(api_router)
 app.include_router(payments.router)
 
+# Initialize students router with database
+students.init_db(db)
+app.include_router(students.router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
