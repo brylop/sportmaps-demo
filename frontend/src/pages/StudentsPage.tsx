@@ -274,6 +274,14 @@ export default function StudentsPage() {
         onSuccess={handleCSVImportSuccess}
         schoolId={profile?.id || 'demo-school'}
       />
+
+      {/* Enroll Student Modal */}
+      <EnrollStudentModal
+        open={showEnrollModal}
+        onClose={() => setShowEnrollModal(false)}
+        onSuccess={loadStudents}
+        schoolId={profile?.id || 'demo-school'}
+      />
     </div>
   );
 }
