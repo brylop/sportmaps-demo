@@ -1,7 +1,7 @@
 {
-  "buildCommand": "cd frontend && yarn install && yarn build",
+  "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
-  "installCommand": "cd frontend && yarn install",
+  "installCommand": "cd frontend && npm install",
   "framework": "vite",
   "rewrites": [
     {
