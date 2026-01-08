@@ -11,6 +11,9 @@ import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollment
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useDashboardStats, useNotifications } from '@/hooks/useDashboardStats';
 import { UserRole } from '@/types/dashboard';
+import { DemoTour } from '@/components/demo/DemoTour';
+import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
+import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
