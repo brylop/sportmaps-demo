@@ -129,13 +129,13 @@ export default function MyPaymentsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">💳 Mis Pagos</h1>
-          <p className="text-muted-foreground">Gestiona tus pagos y suscripciones</p>
+    <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Mis Pagos</h1>
+          <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona tus pagos y suscripciones</p>
         </div>
-        <Button onClick={() => setShowCheckout(true)}>
+        <Button onClick={() => setShowCheckout(true)} size="sm" className="w-full md:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           Nuevo Pago
         </Button>
