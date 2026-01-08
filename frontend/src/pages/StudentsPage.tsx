@@ -10,10 +10,13 @@ import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 
+import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
+
 export default function StudentsPage() {
   const { profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
