@@ -83,7 +83,10 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
-  if (user) {
+  // Don't auto-redirect if we're in the middle of demo access
+  const [isDemoAccessing, setIsDemoAccessing] = useState(false);
+  
+  if (user && !isDemoAccessing) {
     return <Navigate to={from} replace />;
   }
 
