@@ -256,6 +256,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      // Check for demo mode first
+      const isDemoMode = localStorage.getItem('demo_session');
+      
+      if (isDemoMode) {
+        // Demo mode - just clear localStorage
+        localStorage.removeItem('demo_session');
+        localStorage.removeItem('demo_user');
+        sessionStorage.removeItem('demo_mode');
+        sessionStorage.removeItem('demo_role');
+        sessionStorage.removeItem('demo_tour_pending');
+        
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+        
+        toast({
+          title: "Demo finalizado",
+          description: "Gracias por probar SportMaps",
+        });
+        return;
+      }
+      
+      // Regular Supabase signout
       // Check if there's an active session before trying to sign out
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       
