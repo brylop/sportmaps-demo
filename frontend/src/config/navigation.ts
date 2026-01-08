@@ -124,7 +124,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Comunicación',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Anuncios', href: '/announcements', icon: Bell }
+          { title: 'Anuncios', href: '/announcements', icon: Bell },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
