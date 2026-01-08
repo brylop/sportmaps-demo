@@ -8,10 +8,27 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+// Create a fallback URL and key if not provided (for demo mode)
+const fallbackUrl = SUPABASE_URL || 'https://placeholder.supabase.co';
+const fallbackKey = SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDUxOTI4MDAsImV4cCI6MTk2MDc2ODgwMH0.placeholder';
+
+export const supabase = createClient<Database>(fallbackUrl, fallbackKey, {
   auth: {
-    storage: localStorage,
+    storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
   }
 });
+
+// Helper to check if Supabase is properly configured
+export const isSupabaseConfigured = (): boolean => {
+  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
+};
+
+// Log configuration status (only in development)
+if (import.meta.env.DEV) {
+  console.log('Supabase configured:', isSupabaseConfigured());
+  if (!isSupabaseConfigured()) {
+    console.warn('⚠️ Supabase not configured. Using fallback values. Some features may not work.');
+  }
+}
