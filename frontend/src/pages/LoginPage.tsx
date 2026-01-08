@@ -106,6 +106,7 @@ export default function LoginPage() {
     if (!demoUser) return;
 
     setIsDemoLoading(roleId);
+    setIsDemoAccessing(true);
     
     try {
       // Store demo mode info
@@ -122,8 +123,10 @@ export default function LoginPage() {
           description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
         });
         
-        // Navigate to demo welcome
-        navigate('/demo-welcome');
+        // Wait a bit for auth state to update, then navigate
+        setTimeout(() => {
+          navigate('/demo-welcome');
+        }, 100);
       } catch (signInError: any) {
         // If user doesn't exist, create it
         if (signInError.message?.includes('Invalid') || signInError.message?.includes('credentials')) {
@@ -142,7 +145,9 @@ export default function LoginPage() {
             description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
           });
           
-          navigate('/demo-welcome');
+          setTimeout(() => {
+            navigate('/demo-welcome');
+          }, 100);
         } else {
           throw signInError;
         }
@@ -154,6 +159,7 @@ export default function LoginPage() {
         description: error.message || "Por favor intenta de nuevo",
         variant: "destructive",
       });
+      setIsDemoAccessing(false);
     } finally {
       setIsDemoLoading(null);
     }
