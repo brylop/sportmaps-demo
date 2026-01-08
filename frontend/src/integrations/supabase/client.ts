@@ -8,11 +8,14 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-// Create a fallback URL and key if not provided (for demo mode)
-const fallbackUrl = SUPABASE_URL || 'https://placeholder.supabase.co';
-const fallbackKey = SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDUxOTI4MDAsImV4cCI6MTk2MDc2ODgwMH0.placeholder';
+// Ensure we have valid Supabase credentials
+const supabaseUrl = SUPABASE_URL || 'https://sznbagbtwenyihpewczg.supabase.co';
+const supabaseKey = SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6bmJhZ2J0d2VueWlocGV3Y3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMTk4ODksImV4cCI6MjA3NDc5NTg4OX0.Aiv6tgIOGUw30jTW_InH-oJAxmx6ovK64SnWaGnKlJw';
 
-export const supabase = createClient<Database>(fallbackUrl, fallbackKey, {
+// Validate that we don't have placeholder values
+const isRealSupabase = !supabaseUrl.includes('placeholder');
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
   auth: {
     storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
@@ -22,13 +25,14 @@ export const supabase = createClient<Database>(fallbackUrl, fallbackKey, {
 
 // Helper to check if Supabase is properly configured
 export const isSupabaseConfigured = (): boolean => {
-  return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
+  return isRealSupabase && !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
 };
 
 // Log configuration status (only in development)
 if (import.meta.env.DEV) {
   console.log('Supabase configured:', isSupabaseConfigured());
+  console.log('Supabase URL:', supabaseUrl);
   if (!isSupabaseConfigured()) {
-    console.warn('⚠️ Supabase not configured. Using fallback values. Some features may not work.');
+    console.warn('⚠️ Using fallback Supabase values. Some features may not work.');
   }
 }
