@@ -105,6 +105,11 @@ export default function LoginPage() {
     setIsDemoLoading(roleId);
     
     try {
+      // Store demo mode info
+      sessionStorage.setItem('demo_mode', 'true');
+      sessionStorage.setItem('demo_role', roleId);
+      sessionStorage.setItem('demo_tour_pending', 'true');
+      
       try {
         await signIn(demoUser.email, demoUser.password);
         toast({
