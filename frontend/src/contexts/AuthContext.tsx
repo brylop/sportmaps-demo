@@ -97,26 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Check for demo mode first
-    const demoSession = localStorage.getItem('demo_session');
-    const demoUser = localStorage.getItem('demo_user');
-    
-    if (demoSession && demoUser) {
-      // Demo mode - use localStorage data
-      try {
-        const parsedUser = JSON.parse(demoUser);
-        setUser({ id: parsedUser.id, email: parsedUser.email } as User);
-        setProfile(parsedUser);
-        setSession({ access_token: 'demo-token', user: parsedUser } as any);
-        setLoading(false);
-        return;
-      } catch (error) {
-        console.error('Error parsing demo data:', error);
-        // Continue to Supabase auth if demo data is invalid
-      }
-    }
-
-    // Get initial session from Supabase (only if not in demo mode)
+    // Get initial session from Supabase
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!mounted) return;
       
@@ -150,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (mounted) setLoading(false);
     });
 
-    // Listen for auth changes (skip if in demo mode)
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!mounted) return;
