@@ -56,7 +56,11 @@ export default function DashboardPage() {
           break;
       }
     }
-  }, [profile, user, navigate]);
+  }, [profile, user, navigate, isDemoMode]);
+
+  // Get demo data if in demo mode
+  const demoSchoolData = isDemoMode && profile?.role === 'school' ? getDemoSchoolData() : null;
+  const demoParentData = isDemoMode && profile?.role === 'parent' ? getDemoParentData() : null;
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -72,11 +76,26 @@ export default function DashboardPage() {
     </div>
   );
 
-  // Override static stats with real data
+  // Override static stats with real or demo data
   const dynamicStats = config.stats.map((stat, index) => {
+    // If demo mode, use demo data
+    if (isDemoMode) {
+      if (profile.role === 'school' && demoSchoolData) {
+        if (index === 0) return { ...stat, value: formatCurrency(demoSchoolData.monthly_revenue), description: 'Ingresos este mes' };
+        if (index === 1) return { ...stat, value: demoSchoolData.students_count, description: `${demoSchoolData.students_count} estudiantes activos` };
+        if (index === 2) return { ...stat, value: demoSchoolData.programs.length, description: 'Programas activos' };
+        if (index === 3) return { ...stat, value: demoSchoolData.pending_payments, description: 'Pagos pendientes' };
+      }
+      if (profile.role === 'parent' && demoParentData) {
+        if (index === 0) return { ...stat, value: demoParentData.children.length, description: 'Hijos registrados' };
+        if (index === 1) return { ...stat, value: demoParentData.children[0]?.attendance + '%', description: 'Asistencia promedio' };
+        if (index === 2) return { ...stat, value: demoParentData.upcoming_payments.length, description: 'Pagos próximos' };
+      }
+    }
+    
+    // Otherwise use real stats if available
     if (!stats) return stat;
     
-    // Map specific stats based on role
     if (profile.role === 'parent') {
       if (index === 0) return { ...stat, value: stats.children, description: stats.children > 0 ? 'Hijos registrados' : 'Aún no has agregado hijos' };
       if (index === 3) return { ...stat, value: stats.unreadNotifications, description: 'Sin leer' };
@@ -99,28 +118,54 @@ export default function DashboardPage() {
     return stat;
   });
 
-  // Transform notifications for display
-  const displayNotifications = notifications?.slice(0, 5).map(n => ({
-    id: n.id,
-    title: n.title,
-    message: n.message,
-    type: n.type as 'info' | 'warning' | 'success',
-    read: n.read || false,
-    timestamp: new Date(n.created_at).toLocaleDateString('es', { 
-      day: 'numeric', 
-      month: 'short', 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    })
-  }));
+  // Transform notifications for display (use demo if in demo mode)
+  let displayNotifications;
+  if (isDemoMode && demoSchoolData) {
+    displayNotifications = demoSchoolData.notifications.map((n, idx) => ({
+      id: `demo-${idx}`,
+      title: n.type === 'success' ? '💰 Pago Recibido' : n.type === 'warning' ? '⚠️ Atención' : 'ℹ️ Información',
+      message: n.message,
+      type: n.type,
+      read: false,
+      timestamp: n.time
+    }));
+  } else {
+    displayNotifications = notifications?.slice(0, 5).map(n => ({
+      id: n.id,
+      title: n.title,
+      message: n.message,
+      type: n.type as 'info' | 'warning' | 'success',
+      read: n.read || false,
+      timestamp: new Date(n.created_at).toLocaleDateString('es', { 
+        day: 'numeric', 
+        month: 'short', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      })
+    }));
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Pending Enrollment Modal - Auto shows if there's a pending enrollment */}
+      {/* Demo Tour */}
+      {isDemoMode && (
+        <DemoTour 
+          role={demoRole as any} 
+          onComplete={() => {
+            // Tour completed
+            console.log('Tour completed');
+          }}
+        />
+      )}
+
+      {/* Demo Conversion Modal */}
+      {isDemoMode && <DemoConversionModal role={demoRole} />}
+
+      {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
 
-      {/* Profile Completion Banner */}
-      {showProfileBanner && (
+      {/* Profile Completion Banner - hide in demo mode */}
+      {!isDemoMode && showProfileBanner && (
         <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
       )}
 
@@ -139,7 +184,14 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {dynamicStats.map((stat, index) => (
-          <StatCard key={index} {...stat} />
+          <div key={index} data-tour={
+            index === 0 ? 'revenue-card' : 
+            index === 1 ? 'students-card' : 
+            index === 2 ? 'programs-card' : 
+            'notifications-card'
+          }>
+            <StatCard {...stat} />
+          </div>
         ))}
       </div>
 
@@ -147,7 +199,9 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Quick Actions - Always show */}
         {config.quickActions && config.quickActions.length > 0 && (
-          <QuickActions actions={config.quickActions} />
+          <div data-tour="quick-actions">
+            <QuickActions actions={config.quickActions} />
+          </div>
         )}
 
         {/* Activities - Only show if there are activities */}
@@ -160,7 +214,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Notifications - Show real notifications */}
+        {/* Notifications - Show real or demo notifications */}
         {displayNotifications && displayNotifications.length > 0 && (
           <NotificationList notifications={displayNotifications} />
         )}
