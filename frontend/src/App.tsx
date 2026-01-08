@@ -76,6 +76,10 @@ import CheckoutPage from "./pages/CheckoutPage";
 import ParentCheckoutPage from "./pages/ParentCheckoutPage";
 import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
 
+// Demo pages
+import DemoWelcomePage from "./pages/DemoWelcomePage";
+import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
