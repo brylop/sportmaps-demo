@@ -144,6 +144,7 @@ const App = () => (
                   
                   {/* Parent routes */}
                   <Route path="children" element={<MyChildrenPage />} />
+                  <Route path="my-payments" element={<MyPaymentsPage />} />
                   <Route path="children/:id/progress" element={<ChildProgressPage />} />
                   <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
                   <Route path="academic-progress" element={<AcademicProgressPage />} />
