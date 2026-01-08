@@ -67,6 +67,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isDemoLoading, setIsDemoLoading] = useState<string | null>(null);
+  const [showAdditionalRoles, setShowAdditionalRoles] = useState(false);
   const { user, signIn, signUp } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
