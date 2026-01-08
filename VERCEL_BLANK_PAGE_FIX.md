@@ -53,7 +53,7 @@ Install Command: yarn install
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sports-academy-7.preview.emergentagent.com
 VITE_SUPABASE_URL=tu-url-si-la-tienes
 VITE_SUPABASE_PUBLISHABLE_KEY=tu-key-si-la-tienes
 ```

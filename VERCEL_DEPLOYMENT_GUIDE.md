@@ -100,7 +100,7 @@ vercel --prod
 #### **Opción A: Usar Emergent (Actual)** ✅ Recomendado
 ```
 Ya tienes el backend corriendo en:
-https://ux-analysis-5.preview.emergentagent.com
+https://sports-academy-7.preview.emergentagent.com
 
 Solo necesitas:
 1. Deployar frontend en Vercel
@@ -259,7 +259,7 @@ yarn build
 # - Deploy!
 
 # 4. Configura variables:
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sports-academy-7.preview.emergentagent.com
 ```
 
 **Tiempo estimado:** 5 minutos
