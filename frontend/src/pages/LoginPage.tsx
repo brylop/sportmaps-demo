@@ -68,6 +68,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isDemoLoading, setIsDemoLoading] = useState<string | null>(null);
   const [showAdditionalRoles, setShowAdditionalRoles] = useState(false);
+  const [isDemoAccessing, setIsDemoAccessing] = useState(false);
   const { user, signIn, signUp } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -84,8 +85,6 @@ export default function LoginPage() {
   });
 
   // Don't auto-redirect if we're in the middle of demo access
-  const [isDemoAccessing, setIsDemoAccessing] = useState(false);
-  
   if (user && !isDemoAccessing) {
     return <Navigate to={from} replace />;
   }
