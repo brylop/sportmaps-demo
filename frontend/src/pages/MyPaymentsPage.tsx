@@ -208,47 +208,51 @@ export default function MyPaymentsPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Referencia</TableHead>
-                    <TableHead>Método</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.map((txn) => (
-                    <TableRow key={txn.id}>
-                      <TableCell>
-                        {new Date(txn.transaction_date).toLocaleDateString('es-CO', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric'
-                        })}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
-                      <TableCell>
-                        <span className="flex items-center gap-1">
-                          {getPaymentMethodIcon(txn.payment_method)}
-                          {txn.payment_method.toUpperCase()}
-                        </span>
-                      </TableCell>
-                      <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
-                      <TableCell>{getStatusBadge(txn.status)}</TableCell>
-                      <TableCell>
-                        {txn.status === 'approved' && (
-                          <Button variant="ghost" size="sm">
-                            Ver Recibo
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="overflow-x-auto -mx-2 md:mx-0">
+                <div className="inline-block min-w-full align-middle">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">Fecha</TableHead>
+                        <TableHead className="whitespace-nowrap">Referencia</TableHead>
+                        <TableHead className="whitespace-nowrap">Método</TableHead>
+                        <TableHead className="whitespace-nowrap">Monto</TableHead>
+                        <TableHead className="whitespace-nowrap">Estado</TableHead>
+                        <TableHead className="whitespace-nowrap">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {transactions.map((txn) => (
+                        <TableRow key={txn.id}>
+                          <TableCell className="whitespace-nowrap text-xs md:text-sm">
+                            {new Date(txn.transaction_date).toLocaleDateString('es-CO', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="flex items-center gap-1 text-xs md:text-sm">
+                              {getPaymentMethodIcon(txn.payment_method)}
+                              <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">{formatCurrency(txn.amount)}</TableCell>
+                          <TableCell>{getStatusBadge(txn.status)}</TableCell>
+                          <TableCell>
+                            {txn.status === 'approved' && (
+                              <Button variant="ghost" size="sm" className="text-xs">
+                                Ver Recibo
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
