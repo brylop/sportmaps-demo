@@ -110,36 +110,40 @@ export default function LoginPage() {
       sessionStorage.setItem('demo_role', roleId);
       sessionStorage.setItem('demo_tour_pending', 'true');
       
-      // Create mock user data for demo mode (no Supabase needed)
-      const mockUser = {
-        id: `demo-${roleId}`,
-        email: demoUser.email,
-        full_name: demoUser.fullName,
-        role: demoUser.role,
-        avatar_url: null,
-        phone: null,
-        bio: null,
-        date_of_birth: null,
-        sportmaps_points: 150,
-        subscription_tier: 'free',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      
-      // Store in localStorage for demo persistence
-      localStorage.setItem('demo_user', JSON.stringify(mockUser));
-      localStorage.setItem('demo_session', JSON.stringify({
-        access_token: 'demo-token',
-        user: mockUser,
-      }));
-      
-      toast({
-        title: "¡Acceso demo exitoso!",
-        description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
-      });
-      
-      // Redirect to demo welcome page first
-      navigate('/demo-welcome');
+      // Try to sign in with Supabase
+      try {
+        await signIn(demoUser.email, demoUser.password);
+        
+        toast({
+          title: "¡Acceso demo exitoso!",
+          description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
+        });
+        
+        // Navigate to demo welcome
+        navigate('/demo-welcome');
+      } catch (signInError: any) {
+        // If user doesn't exist, create it
+        if (signInError.message?.includes('Invalid') || signInError.message?.includes('credentials')) {
+          console.log('Creating demo user in Supabase...');
+          
+          await signUp(demoUser.email, demoUser.password, {
+            full_name: demoUser.fullName,
+            role: demoUser.role as any,
+          });
+          
+          // Now sign in
+          await signIn(demoUser.email, demoUser.password);
+          
+          toast({
+            title: "Demo creado exitosamente",
+            description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
+          });
+          
+          navigate('/demo-welcome');
+        } else {
+          throw signInError;
+        }
+      }
     } catch (error: any) {
       console.error('Error accessing demo:', error);
       toast({
