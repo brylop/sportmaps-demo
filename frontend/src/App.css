@@ -1,19 +1,180 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* Global Responsive Fixes */
+* {
+  box-sizing: border-box;
 }
 
+#root {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Image Responsive Fixes */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Prevent horizontal scroll */
+body {
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Mobile padding adjustments */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+  
+  /* Reduce font sizes on mobile */
+  h1 {
+    font-size: 1.75rem !important;
+  }
+  
+  h2 {
+    font-size: 1.5rem !important;
+  }
+  
+  h3 {
+    font-size: 1.25rem !important;
+  }
+  
+  /* Make cards full width on mobile */
+  .md\\:grid-cols-2,
+  .md\\:grid-cols-3,
+  .md\\:grid-cols-4,
+  .lg\\:grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Adjust spacing */
+  .space-y-6 > * + * {
+    margin-top: 1rem !important;
+  }
+  
+  .gap-6 {
+    gap: 1rem !important;
+  }
+  
+  /* Tables scroll horizontally */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Bottom nav safe area */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  /* Content padding for bottom nav */
+  main {
+    padding-bottom: 5rem !important;
+  }
+}
+
+/* Touch target sizes */
+button, a, input, select, textarea {
+  min-height: 44px;
+}
+
+/* Prevent text overflow */
+.truncate-mobile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .truncate-mobile {
+    max-width: 200px;
+  }
+}
+
+/* Carousel images */
+.carousel img {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  max-height: 400px;
+}
+
+@media (max-width: 768px) {
+  .carousel img {
+    max-height: 250px;
+  }
+}
+
+/* Modal responsive */
+[role="dialog"] {
+  max-width: calc(100vw - 2rem) !important;
+  max-height: calc(100vh - 2rem) !important;
+  margin: 1rem !important;
+}
+
+@media (max-width: 640px) {
+  [role="dialog"] {
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* Fix for overlapping content */
+.page-content {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Stat cards responsive */
+@media (max-width: 640px) {
+  [class*="grid-cols"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Form responsive */
+form {
+  width: 100%;
+  max-width: 100%;
+}
+
+input, select, textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Logo sizes */
 .logo {
-  height: 6em;
-  padding: 1.5em;
+  height: auto;
+  max-height: 3em;
+  width: auto;
+  padding: 0.5em;
   will-change: filter;
   transition: filter 300ms;
 }
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
@@ -34,9 +195,47 @@
 }
 
 .card {
-  padding: 2em;
+  padding: 1.5em;
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 1em;
+  }
 }
 
 .read-the-docs {
   color: #888;
+}
+
+/* Fix hero images */
+.hero-image,
+.hero img {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  max-height: 60vh;
+}
+
+@media (max-width: 768px) {
+  .hero-image,
+  .hero img {
+    max-height: 40vh;
+  }
+}
+
+/* Button responsive */
+button {
+  max-width: 100%;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Padding for mobile nav */
+@media (max-width: 768px) {
+  body:has(.mobile-bottom-nav) main {
+    padding-bottom: 6rem !important;
+  }
 }
