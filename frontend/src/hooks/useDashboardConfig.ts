@@ -172,9 +172,10 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ],
           activities: [],
           quickActions: [
-            { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
-            { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
+            { label: 'Ver Cobros Automáticos', icon: TrendingUp, href: '/payments-automation', variant: 'default' },
+            { label: 'Tu Perfil Público', icon: Building, href: '/explore', variant: 'outline' },
+            { label: 'Gestionar Programas', icon: Activity, href: '/programs', variant: 'outline' },
+            { label: 'Ver Estudiantes', icon: Users, href: '/students', variant: 'outline' }
           ]
         };
 
