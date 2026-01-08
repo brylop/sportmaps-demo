@@ -149,9 +149,11 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Administración',
         items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Instalaciones', href: '/facilities', icon: Building }
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
