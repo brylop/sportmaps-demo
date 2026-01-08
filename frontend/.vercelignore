@@ -1,0 +1,11 @@
+node_modules
+.DS_Store
+*.log
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+coverage
+.vscode
+.idea
+*.sw[a-z]
