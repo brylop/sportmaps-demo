@@ -149,65 +149,137 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
-      <div className="w-full max-w-4xl mx-auto space-y-6">
-        {/* Demo Section - Top */}
+      <div className="w-full max-w-5xl mx-auto space-y-6">
+        {/* Demo Section - Main Focus */}
         <Card className="w-full border-2 border-primary/20">
           <CardHeader className="pb-4">
-            <CardTitle className="text-xl font-bold text-center">Explorar Perfiles Demo</CardTitle>
-            <CardDescription className="text-center">
-              Selecciona un rol para probar sus funcionalidades
+            <CardTitle className="text-2xl font-bold text-center">Explorar Demo Interactivo</CardTitle>
+            <CardDescription className="text-center text-base">
+              Selecciona un rol para ver SportMaps en acción
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-              {demoRoles.map((role) => {
+            {/* Main Roles */}
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
+              {mainDemoRoles.map((role) => {
                 const Icon = role.icon;
                 
                 return (
-                  <div
+                  <Card
                     key={role.id}
-                    className={`relative overflow-hidden rounded-lg p-3 text-center transition-all duration-200 border-2 hover:border-primary hover:shadow-lg bg-card group ${
-                      isDemoLoading === role.id ? 'opacity-60' : ''
-                    }`}
+                    className={`relative overflow-hidden transition-all duration-200 border-2 hover:shadow-lg cursor-pointer ${
+                      role.recommended ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary'
+                    } ${isDemoLoading === role.id ? 'opacity-60' : ''}`}
+                    onClick={() => handleDemoAccess(role.id)}
                   >
-                    <div className="flex flex-col items-center gap-2">
-                      <div className={`w-12 h-12 ${role.color} rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform`}>
-                        {isDemoLoading === role.id ? (
-                          <Loader2 className="w-6 h-6 text-white animate-spin" />
-                        ) : (
-                          <Icon className="w-6 h-6 text-white" />
-                        )}
+                    {role.recommended && (
+                      <div className="absolute top-2 right-2">
+                        <span className="bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full font-medium">
+                          Recomendado
+                        </span>
                       </div>
-                      <div>
-                        <p className="font-semibold text-xs">{role.title}</p>
-                        <p className="text-[10px] text-muted-foreground">{role.description}</p>
+                    )}
+                    <CardContent className="pt-6 pb-6">
+                      <div className="flex flex-col items-center text-center gap-3">
+                        <div className={`w-16 h-16 ${role.color} rounded-full flex items-center justify-center shadow-md`}>
+                          {isDemoLoading === role.id ? (
+                            <Loader2 className="w-8 h-8 text-white animate-spin" />
+                          ) : (
+                            <Icon className="w-8 h-8 text-white" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-bold text-lg">{role.title}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{role.description}</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground break-all px-4">
+                          {role.email}
+                        </p>
+                        <Button
+                          variant={role.recommended ? 'default' : 'outline'}
+                          size="lg"
+                          className="w-full mt-2"
+                          disabled={isDemoLoading === role.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDemoAccess(role.id);
+                          }}
+                        >
+                          {isDemoLoading === role.id ? 'Cargando...' : 'Ver Demo'}
+                        </Button>
                       </div>
-                      <p className="text-[9px] text-muted-foreground break-all leading-tight">
-                        {role.email}
-                      </p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-xs h-7 border-primary/50 hover:bg-primary hover:text-primary-foreground"
-                        onClick={() => handleDemoAccess(role.id)}
-                        disabled={isDemoLoading === role.id}
-                      >
-                        {isDemoLoading === role.id ? 'Cargando...' : 'Probar Perfil'}
-                      </Button>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 );
               })}
             </div>
+
+            {/* Additional Roles - Collapsible */}
+            {!showAdditionalRoles && (
+              <Button 
+                variant="ghost" 
+                className="w-full"
+                onClick={() => setShowAdditionalRoles(true)}
+              >
+                Ver más roles (Coach, Deportista) →
+              </Button>
+            )}
+            
+            {showAdditionalRoles && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-sm text-muted-foreground text-center mb-3">Roles adicionales</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {additionalRoles.map((role) => {
+                    const Icon = role.icon;
+                    
+                    return (
+                      <div
+                        key={role.id}
+                        className={`relative overflow-hidden rounded-lg p-3 text-center transition-all duration-200 border-2 hover:border-primary hover:shadow-lg bg-card group cursor-pointer ${
+                          isDemoLoading === role.id ? 'opacity-60' : ''
+                        }`}
+                        onClick={() => handleDemoAccess(role.id)}
+                      >
+                        <div className="flex flex-col items-center gap-2">
+                          <div className={`w-12 h-12 ${role.color} rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform`}>
+                            {isDemoLoading === role.id ? (
+                              <Loader2 className="w-6 h-6 text-white animate-spin" />
+                            ) : (
+                              <Icon className="w-6 h-6 text-white" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-sm">{role.title}</p>
+                            <p className="text-xs text-muted-foreground">{role.description}</p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-xs h-7 mt-2"
+                            disabled={isDemoLoading === role.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDemoAccess(role.id);
+                            }}
+                          >
+                            Ver
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Login Section - Bottom */}
+        {/* Login Section - Secondary */}
         <Card className="w-full max-w-md mx-auto">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
             <CardDescription className="text-center">
-              Accede con tus credenciales
+              ¿Ya tienes cuenta? Accede con tus credenciales
             </CardDescription>
           </CardHeader>
           <CardContent>
