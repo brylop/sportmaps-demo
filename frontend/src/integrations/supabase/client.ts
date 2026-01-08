@@ -2,20 +2,19 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Hardcoded credentials for demo deployment (public keys only - safe to expose)
+// These are the PUBLISHABLE keys, not secret keys, so it's safe
+const PRODUCTION_SUPABASE_URL = 'https://sznbagbtwenyihpewczg.supabase.co';
+const PRODUCTION_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6bmJhZ2J0d2VueWlocGV3Y3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMTk4ODksImV4cCI6MjA3NDc5NTg4OX0.Aiv6tgIOGUw30jTW_InH-oJAxmx6ovK64SnWaGnKlJw';
+
+// Try to get from environment variables first (for local dev), fallback to production values
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || PRODUCTION_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || PRODUCTION_SUPABASE_KEY;
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-// Ensure we have valid Supabase credentials
-const supabaseUrl = SUPABASE_URL || 'https://sznbagbtwenyihpewczg.supabase.co';
-const supabaseKey = SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6bmJhZ2J0d2VueWlocGV3Y3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMTk4ODksImV4cCI6MjA3NDc5NTg4OX0.Aiv6tgIOGUw30jTW_InH-oJAxmx6ovK64SnWaGnKlJw';
-
-// Validate that we don't have placeholder values
-const isRealSupabase = !supabaseUrl.includes('placeholder');
-
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
@@ -25,14 +24,11 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
 
 // Helper to check if Supabase is properly configured
 export const isSupabaseConfigured = (): boolean => {
-  return isRealSupabase && !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
+  return true; // Always configured now with fallback
 };
 
-// Log configuration status (only in development)
+// Log configuration in development
 if (import.meta.env.DEV) {
-  console.log('Supabase configured:', isSupabaseConfigured());
-  console.log('Supabase URL:', supabaseUrl);
-  if (!isSupabaseConfigured()) {
-    console.warn('⚠️ Using fallback Supabase values. Some features may not work.');
-  }
+  console.log('✅ Supabase configured');
+  console.log('Supabase URL:', SUPABASE_URL);
 }
