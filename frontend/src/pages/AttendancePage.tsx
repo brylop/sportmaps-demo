@@ -7,28 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { EmptyState } from '@/components/common/EmptyState';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Calendar, CheckCircle, XCircle, AlertCircle, User } from 'lucide-react';
+import { Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-
-interface AttendanceRecord {
-  id: string;
-  child_id: string;
-  class_date: string;
-  status: 'attended' | 'absent' | 'justified';
-  justification_reason?: string | null;
-  justified_by?: string | null;
-  children?: { full_name: string };
-}
-
-interface Child {
-  id: string;
-  full_name: string;
-}
 
 export default function AttendancePage() {
   const { user } = useAuth();
@@ -36,50 +20,87 @@ export default function AttendancePage() {
   const queryClient = useQueryClient();
   const [selectedChildId, setSelectedChildId] = useState<string>('');
   const [justifyDialogOpen, setJustifyDialogOpen] = useState(false);
-  const [selectedAttendance, setSelectedAttendance] = useState<AttendanceRecord | null>(null);
+  const [selectedAttendance, setSelectedAttendance] = useState<any>(null);
   const [justificationReason, setJustificationReason] = useState('');
 
-  // 1. Obtener lista de hijos
-  const { data: children, isLoading: childrenLoading } = useQuery({
+  // Check if user is demo account
+  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+
+  // Demo children only for demo users
+  const demoChildren = isDemoUser ? [
+    { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
+    { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
+  ] : [];
+
+  const { data: childrenData } = useQuery({
     queryKey: ['children', user?.id],
     queryFn: async () => {
-      if (!user) return [];
       const { data, error } = await supabase
         .from('children')
-        .select('id, full_name')
-        .eq('parent_id', user.id);
-      
+        .select('*')
+        .eq('parent_id', user?.id);
       if (error) throw error;
-      return data as Child[];
+      return data;
     },
     enabled: !!user?.id,
   });
 
-  // 2. Obtener asistencia del hijo seleccionado
-  const { data: attendance, isLoading: attendanceLoading, error: attendanceError, refetch } = useQuery({
+  const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
+
+  // Demo attendance data only for demo users
+  const demoAttendance = isDemoUser ? [
+    {
+      id: 'att-1',
+      child_id: selectedChildId,
+      class_date: '2024-10-28',
+      status: 'attended',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-2',
+      child_id: selectedChildId,
+      class_date: '2024-10-25',
+      status: 'attended',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-3',
+      child_id: selectedChildId,
+      class_date: '2024-10-23',
+      status: 'absent',
+      justification_reason: null,
+      children: { full_name: 'Mateo Pérez' },
+    },
+    {
+      id: 'att-4',
+      child_id: selectedChildId,
+      class_date: '2024-10-21',
+      status: 'justified',
+      justification_reason: 'Cita médica',
+      children: { full_name: 'Mateo Pérez' },
+    },
+  ] : [];
+
+  const { data: attendanceData, isLoading, error, refetch } = useQuery({
     queryKey: ['attendance', selectedChildId],
     queryFn: async () => {
-      if (!selectedChildId) return [];
-      
       const { data, error } = await supabase
         .from('attendance')
-        .select(`
-          *,
-          children ( full_name )
-        `)
+        .select('*, children(full_name)')
         .eq('child_id', selectedChildId)
         .order('class_date', { ascending: false });
-
       if (error) throw error;
-      
-      // FIX: Casteamos a 'any' primero para evitar el error de inferencia de TypeScript
-      // cuando la relación no está explícitamente definida en los tipos generados.
-      return (data as any) as AttendanceRecord[];
+      return data;
     },
-    enabled: !!selectedChildId,
+    enabled: !!selectedChildId && !selectedChildId.startsWith('demo-'),
   });
 
-  // 3. Mutación para justificar inasistencia
+  const attendance = (attendanceData && attendanceData.length > 0) || !selectedChildId.startsWith('demo-')
+    ? attendanceData
+    : demoAttendance;
+
   const justifyMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
       const { error } = await supabase
@@ -90,72 +111,82 @@ export default function AttendancePage() {
           justified_by: user?.id,
         })
         .eq('id', id);
-
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance', selectedChildId] });
       toast({
         title: 'Ausencia justificada',
-        description: 'La justificación ha sido registrada correctamente.',
+        description: 'La ausencia ha sido registrada correctamente',
       });
       setJustifyDialogOpen(false);
       setJustificationReason('');
-      setSelectedAttendance(null);
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo registrar la justificación.',
+        description: 'No se pudo justificar la ausencia',
         variant: 'destructive',
       });
     },
   });
 
-  // Helpers para UI
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'attended': return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'justified': return <AlertCircle className="w-5 h-5 text-blue-500" />;
-      case 'absent': return <XCircle className="w-5 h-5 text-red-500" />;
-      default: return <AlertCircle className="w-5 h-5 text-gray-400" />;
+      case 'attended':
+        return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case 'justified':
+        return <AlertCircle className="w-5 h-5 text-blue-500" />;
+      case 'absent':
+        return <XCircle className="w-5 h-5 text-red-500" />;
+      default:
+        return null;
     }
   };
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'attended': return 'Asistió';
-      case 'justified': return 'Justificada';
-      case 'absent': return 'Faltó';
-      default: return status;
+      case 'attended':
+        return 'Asistió';
+      case 'justified':
+        return 'Justificada';
+      case 'absent':
+        return 'Faltó';
+      default:
+        return status;
     }
   };
 
-  const stats = attendance ? {
-    total: attendance.length,
-    attended: attendance.filter((a) => a.status === 'attended').length,
-    justified: attendance.filter((a) => a.status === 'justified').length,
-    absent: attendance.filter((a) => a.status === 'absent').length,
-  } : null;
+  const stats = attendance
+    ? {
+        total: attendance.length,
+        attended: attendance.filter((a) => a.status === 'attended').length,
+        justified: attendance.filter((a) => a.status === 'justified').length,
+        absent: attendance.filter((a) => a.status === 'absent').length,
+      }
+    : null;
 
-  if (childrenLoading) {
-    return <LoadingSpinner fullScreen text="Cargando hijos..." />;
+  if (isLoading && selectedChildId) {
+    return <LoadingSpinner fullScreen text="Cargando asistencias..." />;
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Asistencias</h1>
-          <p className="text-muted-foreground mt-1">
-            Controla la asistencia de tus hijos a sus actividades deportivas
-          </p>
-        </div>
-        
-        <div className="w-full md:w-64">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Asistencias</h1>
+        <p className="text-muted-foreground mt-1">
+          Controla la asistencia de tus hijos a sus clases deportivas
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Seleccionar Hijo</CardTitle>
+        </CardHeader>
+        <CardContent>
           <Select value={selectedChildId} onValueChange={setSelectedChildId}>
             <SelectTrigger>
-              <SelectValue placeholder="Seleccionar hijo" />
+              <SelectValue placeholder="Selecciona un hijo para ver sus asistencias" />
             </SelectTrigger>
             <SelectContent>
               {children?.map((child) => (
@@ -165,80 +196,62 @@ export default function AttendancePage() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {!selectedChildId ? (
-        <EmptyState
-          icon={User}
-          title="Selecciona un hijo"
-          description="Elige uno de tus hijos registrados para ver su historial de asistencias."
-        />
-      ) : attendanceError ? (
-        <ErrorState
-          title="Error al cargar"
-          message="No pudimos cargar el historial de asistencias."
-          onRetry={refetch}
-        />
-      ) : attendanceLoading ? (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner text="Cargando asistencias..." />
-        </div>
-      ) : !attendance || attendance.length === 0 ? (
-        <EmptyState
-          icon={Calendar}
-          title="No hay registros"
-          description="Aún no hay registros de asistencia para este hijo."
-        />
-      ) : (
+      {selectedChildId && stats && (
         <>
-          {/* Stats Cards */}
-          {stats && (
-            <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-              <Card>
-                <CardContent className="pt-6 text-center">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
                   <p className="text-3xl font-bold">{stats.total}</p>
                   <p className="text-sm text-muted-foreground">Clases Totales</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6 text-center">
-                  <p className="text-3xl font-bold text-green-600">{stats.attended}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-green-500">{stats.attended}</p>
                   <p className="text-sm text-muted-foreground">Asistencias</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6 text-center">
-                  <p className="text-3xl font-bold text-blue-600">{stats.justified}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-blue-500">{stats.justified}</p>
                   <p className="text-sm text-muted-foreground">Justificadas</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6 text-center">
-                  <p className="text-3xl font-bold text-red-600">{stats.absent}</p>
-                  <p className="text-sm text-muted-foreground">Faltas</p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-red-500">{stats.absent}</p>
+                  <p className="text-sm text-muted-foreground">Ausencias</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-          {/* Attendance List */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-primary" />
-                Historial Detallado
-              </CardTitle>
+                <CardTitle>Historial de Asistencias</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {attendance.map((record) => (
+              <div className="space-y-3">
+                {attendance?.map((record) => (
                   <div
                     key={record.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors gap-4"
+                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="mt-1">{getStatusIcon(record.status)}</div>
+                    <div className="flex items-center gap-4">
+                      {getStatusIcon(record.status)}
                       <div>
                         <p className="font-medium">
                           {new Date(record.class_date).toLocaleDateString('es-CO', {
@@ -249,24 +262,24 @@ export default function AttendancePage() {
                           })}
                         </p>
                         {record.justification_reason && (
-                          <p className="text-sm text-muted-foreground mt-1 italic">
-                            "{record.justification_reason}"
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Motivo: {record.justification_reason}
                           </p>
                         )}
                       </div>
                     </div>
-                    
-                    <div className="flex items-center gap-3 self-end sm:self-auto">
+                    <div className="flex items-center gap-3">
                       <Badge
                         variant={
-                          record.status === 'attended' ? 'default' : 
-                          record.status === 'justified' ? 'secondary' : 
-                          'destructive'
+                          record.status === 'attended'
+                            ? 'default'
+                            : record.status === 'justified'
+                            ? 'secondary'
+                            : 'destructive'
                         }
                       >
                         {getStatusLabel(record.status)}
                       </Badge>
-                      
                       {record.status === 'absent' && (
                         <Button
                           size="sm"
@@ -288,35 +301,42 @@ export default function AttendancePage() {
         </>
       )}
 
-      {/* Justify Dialog */}
+      {!selectedChildId && children && children.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">Selecciona un hijo</h3>
+            <p className="text-muted-foreground">
+              Elige un hijo del menú superior para ver sus asistencias
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {error && (
+        <ErrorState
+          title="Error al cargar"
+          message="No pudimos cargar las asistencias"
+          onRetry={refetch}
+        />
+      )}
+
       <Dialog open={justifyDialogOpen} onOpenChange={setJustifyDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Justificar Ausencia</DialogTitle>
             <DialogDescription>
-              Indica el motivo de la ausencia para notificar a la academia.
+              Indica el motivo de la ausencia para notificar a la academia
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Fecha</Label>
-              <div className="p-2 bg-muted rounded-md text-sm">
-                {selectedAttendance && new Date(selectedAttendance.class_date).toLocaleDateString('es-CO', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="reason">Motivo</Label>
+          <div className="space-y-4">
+            <div>
+              <Label>Motivo</Label>
               <Textarea
-                id="reason"
                 value={justificationReason}
                 onChange={(e) => setJustificationReason(e.target.value)}
-                placeholder="Ej: Cita médica, Enfermedad, Calamidad doméstica..."
-                rows={3}
+                placeholder="Ej: Cita médica, Viaje familiar, Enfermedad..."
+                className="mt-2"
               />
             </div>
           </div>
@@ -339,9 +359,9 @@ export default function AttendancePage() {
                   });
                 }
               }}
-              disabled={!justificationReason.trim() || justifyMutation.isPending}
+              disabled={!justificationReason.trim()}
             >
-              {justifyMutation.isPending ? 'Guardando...' : 'Enviar Justificación'}
+              Justificar Ausencia
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -51,6 +51,13 @@ export const DEMO_USERS: Record<string, DemoUser> = {
     password: 'SportMapsDemo2025!',
     fullName: 'Tienda Equípate Más',
     description: 'Tienda de artículos deportivos'
+  },
+  admin: {
+    role: 'admin',
+    email: 'admin@demo.sportmaps.com',
+    password: 'SportMapsDemo2025!',
+    fullName: 'Administrador Sistema',
+    description: 'Control total de la plataforma'
   }
 };
 

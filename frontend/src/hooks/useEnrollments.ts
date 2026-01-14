@@ -19,7 +19,10 @@ export interface EnrollmentWithProgram extends Enrollment {
     id: string;
     name: string;
     sport: string;
+<<<<<<< HEAD
     schedule: string;
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     school_id: string;
     school: {
       name: string;
@@ -28,6 +31,13 @@ export interface EnrollmentWithProgram extends Enrollment {
   };
 }
 
+<<<<<<< HEAD
+=======
+/**
+ * Custom hook for managing user enrollments
+ * Provides CRUD operations for enrollments with proper error handling
+ */
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 export function useEnrollments() {
   const [enrollments, setEnrollments] = useState<EnrollmentWithProgram[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,21 +60,35 @@ export function useEnrollments() {
 
       const { data, error: fetchError } = await supabase
         .from('enrollments')
+<<<<<<< HEAD
         .select(`
+=======
+        .select(
+          `
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           *,
           program:programs(
             id,
             name,
             sport,
+<<<<<<< HEAD
             schedule,
             school_id,
             school:schools(name, city)
           )
         `)
+=======
+            school_id,
+            school:schools(name, city)
+          )
+        `
+        )
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
+<<<<<<< HEAD
       setEnrollments(data as unknown as EnrollmentWithProgram[] || []);
     } catch (err: any) {
       console.error('Error fetching enrollments:', err);
@@ -155,6 +179,19 @@ export function useEnrollments() {
         variant: 'destructive',
       });
       return { success: false, error: err };
+=======
+      setEnrollments(data as EnrollmentWithProgram[] || []);
+    } catch (err: any) {
+      console.error('Error fetching enrollments:', err);
+      setError(err.message);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar tus inscripciones',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     }
   };
 
@@ -176,6 +213,14 @@ export function useEnrollments() {
       return { success: true };
     } catch (err: any) {
       console.error('Error cancelling enrollment:', err);
+<<<<<<< HEAD
+=======
+      toast({
+        title: 'Error',
+        description: 'No se pudo cancelar la inscripción',
+        variant: 'destructive',
+      });
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       return { success: false, error: err };
     }
   };
@@ -190,7 +235,13 @@ export function useEnrollments() {
     loading,
     error,
     refetch: fetchEnrollments,
+<<<<<<< HEAD
     createEnrollment,
     cancelEnrollment,
   };
 }
+=======
+    cancelEnrollment,
+  };
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

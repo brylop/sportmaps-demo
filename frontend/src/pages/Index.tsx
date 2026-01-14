@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -154,3 +155,12 @@ export default function Index() {
     </div>
   );
 }
+=======
+import Landing from "@/components/pages/Landing";
+
+const Index = () => {
+  return <Landing />;
+};
+
+export default Index;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

@@ -1,8 +1,15 @@
+<<<<<<< HEAD
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEnrollments } from '@/hooks/useEnrollments';
+=======
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import {
+<<<<<<< HEAD
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -20,6 +28,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   MapPin,
   Phone,
   Mail,
@@ -32,10 +42,24 @@ import {
   Heart,
   Share2,
   ArrowLeft,
+<<<<<<< HEAD
   Calendar
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AuthModal } from '@/components/explore/AuthModal';
+=======
+  Calendar,
+  Award,
+  GraduationCap,
+  Building,
+  CalendarCheck
+} from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
+import { PaymentModal } from '@/components/payment/PaymentModal';
+import { DirectionsButton } from '@/components/common/DirectionsButton';
+import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 interface School {
   id: string;
@@ -54,6 +78,15 @@ interface School {
   logo_url: string | null;
   cover_image_url: string | null;
   owner_id: string;
+<<<<<<< HEAD
+=======
+  latitude?: number | null;
+  longitude?: number | null;
+  // New evolution fields
+  certifications?: string[] | null;
+  levels_offered?: string[] | null;
+  accepts_reservations?: boolean;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 }
 
 interface Program {
@@ -68,6 +101,22 @@ interface Program {
   max_participants: number | null;
   current_participants: number;
   active: boolean;
+<<<<<<< HEAD
+=======
+  // New evolution fields
+  level?: string;
+  spots_available?: number;
+}
+
+interface Facility {
+  id: string;
+  name: string;
+  type: string;
+  capacity: number;
+  status: string;
+  hourly_rate?: number;
+  booking_enabled?: boolean;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 }
 
 export default function SchoolDetailPage() {
@@ -75,6 +124,7 @@ export default function SchoolDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+<<<<<<< HEAD
   const { createEnrollment } = useEnrollments();
   
   const [school, setSchool] = useState<School | null>(null);
@@ -90,6 +140,19 @@ export default function SchoolDetailPage() {
   
   // Ref para scroll
   const programsRef = useRef<HTMLDivElement>(null);
+=======
+  
+  const [school, setSchool] = useState<School | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [reservationModalOpen, setReservationModalOpen] = useState(false);
+  const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   useEffect(() => {
     if (id) {
@@ -97,6 +160,7 @@ export default function SchoolDetailPage() {
     }
   }, [id]);
 
+<<<<<<< HEAD
   // EFECTO CLAVE: Detectar login exitoso para retomar flujo
   useEffect(() => {
     if (user && pendingAction && programToEnroll) {
@@ -107,10 +171,16 @@ export default function SchoolDetailPage() {
     }
   }, [user, pendingAction, programToEnroll]);
 
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   const fetchSchoolData = async () => {
     try {
       setLoading(true);
 
+<<<<<<< HEAD
+=======
+      // Fetch school details
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       const { data: schoolData, error: schoolError } = await supabase
         .from('schools')
         .select('*')
@@ -120,6 +190,10 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
+<<<<<<< HEAD
+=======
+      // Fetch programs
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       const { data: programsData, error: programsError } = await supabase
         .from('programs')
         .select('*')
@@ -129,6 +203,7 @@ export default function SchoolDetailPage() {
 
       if (programsError) throw programsError;
       
+<<<<<<< HEAD
       // Use fetched or demo programs
       if (!programsData || programsData.length === 0) {
          // Demo fallback if needed
@@ -141,6 +216,37 @@ export default function SchoolDetailPage() {
       toast({
         title: 'Error',
         description: 'No se pudo cargar la escuela',
+=======
+      // If no programs, add demo programs
+      if (!programsData || programsData.length === 0) {
+        setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+      } else {
+        setPrograms(programsData);
+      }
+
+      // Fetch facilities for reservations
+      const { data: facilitiesData } = await supabase
+        .from('facilities')
+        .select('*')
+        .eq('school_id', id)
+        .eq('status', 'available');
+      
+      if (facilitiesData && facilitiesData.length > 0) {
+        setFacilities(facilitiesData);
+      } else {
+        // Demo facilities
+        setFacilities([
+          { id: 'demo-fac-1', name: 'Cancha Principal', type: 'Cancha', capacity: 22, status: 'available', hourly_rate: 50000, booking_enabled: true },
+          { id: 'demo-fac-2', name: 'Cancha Sintética', type: 'Cancha', capacity: 14, status: 'available', hourly_rate: 35000, booking_enabled: true },
+          { id: 'demo-fac-3', name: 'Gimnasio', type: 'Gimnasio', capacity: 30, status: 'available', hourly_rate: 15000, booking_enabled: true },
+        ]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching school data:', error);
+      toast({
+        title: 'Error',
+        description: 'No se pudo cargar la información de la escuela',
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         variant: 'destructive',
       });
     } finally {
@@ -148,6 +254,7 @@ export default function SchoolDetailPage() {
     }
   };
 
+<<<<<<< HEAD
   // Iniciar flujo de inscripción
   const handleEnrollClick = (program: Program) => {
     setProgramToEnroll(program);
@@ -193,6 +300,31 @@ export default function SchoolDetailPage() {
   };
 
   // Helpers visuales
+=======
+  const handleEnroll = (program: Program) => {
+    setSelectedProgram(program);
+    
+    if (!user) {
+      // Usuario no autenticado - mostrar modal de auth con selección de rol
+      setAuthModalOpen(true);
+      return;
+    }
+
+    // Usuario autenticado - mostrar modal de pago directamente
+    setPaymentModalOpen(true);
+  };
+
+  const handlePaymentSuccess = () => {
+    toast({
+      title: 'SportMaps: Tu inscripción se ha sincronizado con tu calendario',
+      description: 'Revisa tu calendario para ver los detalles de tus clases',
+    });
+    fetchSchoolData();
+    setPaymentModalOpen(false);
+    setSelectedProgram(null);
+  };
+
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   const getAgeRange = (program: Program) => {
     if (!program.age_min && !program.age_max) return 'Todas las edades';
     if (!program.age_max) return `${program.age_min}+ años`;
@@ -206,6 +338,94 @@ export default function SchoolDetailPage() {
     return available > 0 ? `${available} cupos disponibles` : 'Lleno';
   };
 
+<<<<<<< HEAD
+=======
+  const getDemoPrograms = (schoolName: string, sport: string): Program[] => {
+    return [
+      {
+        id: 'demo-1',
+        name: `${sport} Inicial`,
+        description: 'Programa diseñado para principiantes. Aprende las técnicas básicas y fundamentos del deporte en un ambiente divertido y seguro.',
+        sport: sport,
+        schedule: 'Lunes y Miércoles 4:00 PM - 5:30 PM',
+        price_monthly: 45000,
+        age_min: 6,
+        age_max: 10,
+        max_participants: 20,
+        current_participants: 12,
+        active: true
+      },
+      {
+        id: 'demo-2',
+        name: `${sport} Intermedio`,
+        description: 'Nivel intermedio para estudiantes con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
+        sport: sport,
+        schedule: 'Martes y Jueves 5:00 PM - 6:30 PM',
+        price_monthly: 55000,
+        age_min: 11,
+        age_max: 15,
+        max_participants: 18,
+        current_participants: 15,
+        active: true
+      },
+      {
+        id: 'demo-3',
+        name: `${sport} Competitivo`,
+        description: 'Programa de alto rendimiento para atletas que buscan competir a nivel profesional. Entrenamientos intensivos y preparación para torneos.',
+        sport: sport,
+        schedule: 'Lunes a Viernes 6:00 PM - 8:00 PM',
+        price_monthly: 75000,
+        age_min: 14,
+        age_max: 18,
+        max_participants: 15,
+        current_participants: 14,
+        active: true
+      }
+    ];
+  };
+
+  const getDemoReviews = () => {
+    return [
+      {
+        id: 'review-1',
+        author: 'María González',
+        rating: 5,
+        date: 'Hace 2 semanas',
+        comment: 'Excelente academia! Los entrenadores son muy profesionales y dedicados. Mi hijo ha mejorado muchísimo desde que empezó.'
+      },
+      {
+        id: 'review-2',
+        author: 'Carlos Martínez',
+        rating: 5,
+        date: 'Hace 1 mes',
+        comment: 'Las instalaciones son de primera calidad y el ambiente es muy amigable. Totalmente recomendado para niños y adolescentes.'
+      },
+      {
+        id: 'review-3',
+        author: 'Ana López',
+        rating: 4,
+        date: 'Hace 2 meses',
+        comment: 'Muy buena experiencia en general. Los horarios son flexibles y el equipo es muy atento. Solo mejoraría la comunicación con los padres.'
+      }
+    ];
+  };
+
+  const handleReserveNow = () => {
+    if (!user) {
+      // Si hay programas, seleccionar el primero para mostrar el modal
+      if (programs.length > 0) {
+        setSelectedProgram(programs[0]);
+        setAuthModalOpen(true);
+      }
+    } else {
+      toast({
+        title: 'Información',
+        description: 'Por favor selecciona un programa para inscribirte',
+      });
+    }
+  };
+
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -227,6 +447,7 @@ export default function SchoolDetailPage() {
   }
 
   return (
+<<<<<<< HEAD
     <div className="min-h-screen bg-background pb-20">
       {/* Auth Modal */}
       <AuthModal 
@@ -272,6 +493,58 @@ export default function SchoolDetailPage() {
       <div
         className="h-64 md:h-80 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center relative"
         style={school.cover_image_url ? { backgroundImage: `url(${school.cover_image_url})` } : undefined}
+=======
+    <div className="min-h-screen bg-background">
+      {/* Enrollment Auth Modal - For unauthenticated users */}
+      <EnrollmentAuthModal 
+        open={authModalOpen} 
+        onOpenChange={setAuthModalOpen}
+        program={selectedProgram ? {
+          id: selectedProgram.id,
+          name: selectedProgram.name,
+          price: selectedProgram.price_monthly
+        } : undefined}
+        school={school ? {
+          id: school.id,
+          name: school.name
+        } : undefined}
+      />
+
+      {/* Payment Modal - For authenticated users */}
+      {selectedProgram && (
+        <PaymentModal
+          open={paymentModalOpen}
+          onOpenChange={setPaymentModalOpen}
+          item={{
+            type: 'enrollment',
+            id: selectedProgram.id,
+            name: selectedProgram.name,
+            description: school?.name,
+            amount: selectedProgram.price_monthly,
+            schoolId: school?.id,
+            programId: selectedProgram.id,
+          }}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
+
+      {/* Facility Reservation Modal */}
+      <FacilityReservationModal
+        open={reservationModalOpen}
+        onOpenChange={setReservationModalOpen}
+        facility={selectedFacility}
+        schoolName={school?.name || ''}
+      />
+
+      {/* Cover Image */}
+      <div
+        className="h-64 md:h-80 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center relative"
+        style={
+          school.cover_image_url
+            ? { backgroundImage: `url(${school.cover_image_url})` }
+            : undefined
+        }
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       >
         <div className="absolute inset-0 bg-black/40" />
         <div className="container mx-auto px-4 h-full flex items-end pb-8 relative">
@@ -287,6 +560,7 @@ export default function SchoolDetailPage() {
         </div>
       </div>
 
+<<<<<<< HEAD
       <div className="container mx-auto px-4 -mt-16 relative z-10">
         <Card className="mb-6">
           <CardContent className="p-6">
@@ -296,6 +570,22 @@ export default function SchoolDetailPage() {
                 <AvatarFallback className="text-2xl">{school.name.charAt(0)}</AvatarFallback>
               </Avatar>
 
+=======
+      <div className="container mx-auto px-4 -mt-16 relative z-10 pb-8">
+        {/* Header Card */}
+        <Card className="mb-6">
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Logo */}
+              <Avatar className="h-24 w-24 border-4 border-background">
+                <AvatarImage src={school.logo_url || undefined} />
+                <AvatarFallback className="text-2xl">
+                  {school.name.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+
+              {/* Info */}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               <div className="flex-1">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
@@ -303,12 +593,18 @@ export default function SchoolDetailPage() {
                       <h1 className="text-3xl font-bold">{school.name}</h1>
                       {school.verified && (
                         <Badge variant="default" className="gap-1">
+<<<<<<< HEAD
                           <CheckCircle2 className="h-3 w-3" /> Verificada
+=======
+                          <CheckCircle2 className="h-3 w-3" />
+                          Verificada
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                         </Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-4 text-muted-foreground">
                       <div className="flex items-center gap-1">
+<<<<<<< HEAD
                         <MapPin className="h-4 w-4" /> {school.city}
                       </div>
                       <div className="flex items-center gap-1">
@@ -323,20 +619,93 @@ export default function SchoolDetailPage() {
                   </div>
                 </div>
                 <p className="text-muted-foreground mb-4">{school.description}</p>
+=======
+                        <MapPin className="h-4 w-4" />
+                        <span>{school.city}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        <span className="font-semibold">{school.rating.toFixed(1)}</span>
+                        <span>({school.total_reviews} reseñas)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="icon">
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="icon">
+                      <Heart className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {school.description && (
+                  <p className="text-muted-foreground mb-4">{school.description}</p>
+                )}
+
+                {/* Certifications/Endorsements - NEW */}
+                {school.certifications && school.certifications.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {school.certifications.map((cert) => (
+                      <Badge key={cert} variant="outline" className="gap-1 border-primary/30 text-primary">
+                        <Award className="h-3 w-3" />
+                        {cert}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Levels Offered - NEW */}
+                {school.levels_offered && school.levels_offered.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {school.levels_offered.map((level) => (
+                      <Badge key={level} variant="secondary" className="gap-1">
+                        <GraduationCap className="h-3 w-3" />
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Sports */}
+                {school.sports && school.sports.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {school.sports.map((sport) => (
+                      <Badge key={sport} variant="secondary">
+                        {sport}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </div>
             </div>
           </CardContent>
         </Card>
 
+<<<<<<< HEAD
         <div className="grid gap-6 md:grid-cols-3">
           <div className="md:col-span-2 space-y-6">
             <Tabs defaultValue="programs" className="w-full">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="programs">Programas</TabsTrigger>
+=======
+        {/* Main Content */}
+        <div className="grid gap-6 md:grid-cols-3">
+          {/* Left Column - Details */}
+          <div className="md:col-span-2 space-y-6">
+            <Tabs defaultValue="programs" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="programs">Programas</TabsTrigger>
+                <TabsTrigger value="reservations">Reservas</TabsTrigger>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 <TabsTrigger value="about">Info</TabsTrigger>
                 <TabsTrigger value="reviews">Reseñas</TabsTrigger>
               </TabsList>
 
+<<<<<<< HEAD
               <TabsContent value="programs" className="space-y-4" ref={programsRef}>
                 {programs.length === 0 ? (
                   <Card className="p-12 text-center">
@@ -379,6 +748,87 @@ export default function SchoolDetailPage() {
                           {program.max_participants !== null && program.current_participants >= program.max_participants 
                             ? 'Cupos Agotados' 
                             : 'Inscribirme Ahora'}
+=======
+              {/* Programs Tab */}
+              <TabsContent value="programs" className="space-y-4">
+                {programs.length === 0 ? (
+                  <Card className="p-12 text-center">
+                    <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold mb-2">
+                      No hay programas disponibles
+                    </h3>
+                    <p className="text-muted-foreground">
+                      Esta escuela aún no ha publicado programas
+                    </p>
+                  </Card>
+                ) : (
+                  programs.map((program) => (
+                    <Card key={program.id} className="overflow-hidden">
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <CardTitle>{program.name}</CardTitle>
+                              {program.level && (
+                                <Badge variant="outline" className="text-xs">
+                                  <GraduationCap className="h-3 w-3 mr-1" />
+                                  {program.level.charAt(0).toUpperCase() + program.level.slice(1)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">{program.sport}</Badge>
+                              {program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0 && (
+                                <Badge variant="destructive" className="animate-pulse">
+                                  ¡Solo {program.spots_available} cupos!
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-primary">
+                              ${program.price_monthly.toLocaleString()}
+                            </p>
+                            <p className="text-sm text-muted-foreground">por mes</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {program.description && (
+                          <p className="text-muted-foreground">{program.description}</p>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            <span>{getAgeRange(program)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Trophy className="h-4 w-4 text-muted-foreground" />
+                            <span>{getAvailability(program)}</span>
+                          </div>
+                          {program.schedule && (
+                            <div className="flex items-center gap-2 col-span-2">
+                              <Clock className="h-4 w-4 text-muted-foreground" />
+                              <span>{program.schedule}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <Button
+                          className="w-full"
+                          onClick={() => handleEnroll(program)}
+                          disabled={
+                            program.max_participants !== null &&
+                              program.current_participants >= program.max_participants
+                          }
+                        >
+                          <Calendar className="h-4 w-4 mr-2" />
+                          {program.max_participants !== null &&
+                          program.current_participants >= program.max_participants
+                            ? 'Programa Lleno'
+                            : 'Inscribirme'}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                         </Button>
                       </CardContent>
                     </Card>
@@ -386,6 +836,81 @@ export default function SchoolDetailPage() {
                 )}
               </TabsContent>
 
+<<<<<<< HEAD
+=======
+              {/* Reservations Tab - NEW */}
+              <TabsContent value="reservations" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarCheck className="h-5 w-5 text-primary" />
+                      Prácticas Libres y Reservas
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground mb-4">
+                      Reserva canchas y espacios para prácticas libres. Desde $15,000/hora.
+                    </p>
+                    
+                    {facilities.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Building className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="text-muted-foreground">No hay instalaciones disponibles para reservar</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {facilities.filter(f => f.booking_enabled !== false).map((facility) => (
+                          <div 
+                            key={facility.id}
+                            className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Building className="h-5 w-5 text-primary" />
+                              </div>
+                              <div>
+                                <p className="font-semibold">{facility.name}</p>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Users className="h-3 w-3" />
+                                  <span>Capacidad: {facility.capacity}</span>
+                                  <span>•</span>
+                                  <span>{facility.type}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className="font-bold text-primary">
+                                  ${(facility.hourly_rate || 15000).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-muted-foreground">por hora</p>
+                              </div>
+                              <Button 
+                                size="sm"
+                                className="bg-[#FB9F1E] hover:bg-[#e08a1a] text-white"
+                                onClick={() => {
+                                  if (!user) {
+                                    setAuthModalOpen(true);
+                                  } else {
+                                    setSelectedFacility(facility);
+                                    setReservationModalOpen(true);
+                                  }
+                                }}
+                              >
+                                <CalendarCheck className="h-4 w-4 mr-1" />
+                                Reservar
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* About Tab */}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               <TabsContent value="about">
                 <Card>
                   <CardContent className="p-6 space-y-4">
@@ -431,16 +956,47 @@ export default function SchoolDetailPage() {
                 </Card>
               </TabsContent>
 
+<<<<<<< HEAD
               <TabsContent value="reviews">
                 <Card>
                     <CardContent className="p-6 text-center text-muted-foreground">
                         Próximamente: Sistema de reseñas y calificaciones.
                     </CardContent>
+=======
+              {/* Reviews Tab */}
+              <TabsContent value="reviews" className="space-y-4">
+                {getDemoReviews().map((review) => (
+                  <Card key={review.id}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold">{review.author}</p>
+                          <p className="text-sm text-muted-foreground">{review.date}</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: review.rating }).map((_, i) => (
+                            <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground">{review.comment}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+                
+                <Card className="bg-muted/50">
+                  <CardContent className="p-6 text-center">
+                    <p className="text-muted-foreground">
+                      ¿Ya conoces esta academia? Inicia sesión para dejar tu reseña
+                    </p>
+                  </CardContent>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 </Card>
               </TabsContent>
             </Tabs>
           </div>
 
+<<<<<<< HEAD
           <div className="space-y-6">
             <Card>
               <CardHeader><CardTitle>Contacto</CardTitle></CardHeader>
@@ -452,6 +1008,98 @@ export default function SchoolDetailPage() {
                 <Button className="w-full" size="lg" onClick={handleReserveNow}>
                   <Calendar className="mr-2 h-4 w-4" /> Ver Horarios
                 </Button>
+=======
+          {/* Right Column - Contact Info */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Información de Contacto</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <MapPin className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Dirección</p>
+                    <p className="text-sm text-muted-foreground">{school.address}</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex items-start gap-3">
+                  <Phone className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Teléfono</p>
+                    <a
+                      href={`tel:${school.phone}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {school.phone}
+                    </a>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex items-start gap-3">
+                  <Mail className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Email</p>
+                    <a
+                      href={`mailto:${school.email}`}
+                      className="text-sm text-primary hover:underline break-all"
+                    >
+                      {school.email}
+                    </a>
+                  </div>
+                </div>
+
+                {school.website && (
+                  <>
+                    <Separator />
+                    <div className="flex items-start gap-3">
+                      <Globe className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Sitio Web</p>
+                        <a
+                          href={school.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary hover:underline break-all"
+                        >
+                          {school.website}
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <Separator />
+
+                {/* Directions Button */}
+                <DirectionsButton
+                  latitude={4.6097} // Default Bogotá coordinates - would use school.latitude if available
+                  longitude={-74.0817}
+                  placeName={school.name}
+                  address={`${school.address}, ${school.city}`}
+                  className="w-full"
+                  size="lg"
+                />
+
+                <Button 
+                  className="w-full" 
+                  onClick={handleReserveNow}
+                  size="lg"
+                  variant="outline"
+                >
+                  <Calendar className="h-5 w-5 mr-2" />
+                  Reservar Ahora
+                </Button>
+                
+                <p className="text-xs text-center text-muted-foreground mt-2">
+                  Selecciona un programa y completa tu reserva
+                </p>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </CardContent>
             </Card>
           </div>
@@ -459,4 +1107,8 @@ export default function SchoolDetailPage() {
       </div>
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

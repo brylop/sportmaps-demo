@@ -1,10 +1,14 @@
+<<<<<<< HEAD
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar } from '@/components/ui/calendar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+<<<<<<< HEAD
 import { AlertCircle, CheckCircle2, Clock, CalendarDays } from 'lucide-react';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -22,10 +26,15 @@ interface Session {
     total: number;
   };
 }
+=======
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { useState } from 'react';
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 export default function AttendanceSupervisionPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
 
+<<<<<<< HEAD
   // Fetch sessions for the selected date
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['attendance-supervision', date?.toISOString()],
@@ -102,12 +111,54 @@ export default function AttendanceSupervisionPage() {
   });
 
   const pendingSessions = sessions?.filter(s => s.status === 'pending') || [];
+=======
+  const sessions = [
+    {
+      id: '1',
+      program: 'Fútbol Sub-12',
+      coach: 'Luis F. Rodríguez',
+      date: '2024-10-28',
+      status: 'registered',
+      attendance: { present: 18, total: 20 },
+    },
+    {
+      id: '2',
+      program: 'Tenis Infantil',
+      coach: 'Diana Silva',
+      date: '2024-10-29',
+      status: 'pending',
+      attendance: { present: 0, total: 8 },
+    },
+    {
+      id: '3',
+      program: 'Fútbol Sub-10',
+      coach: 'Luis F. Rodríguez',
+      date: '2024-10-28',
+      status: 'registered',
+      attendance: { present: 17, total: 18 },
+    },
+    {
+      id: '4',
+      program: 'Voleibol Juvenil',
+      coach: 'Sin asignar',
+      date: '2024-10-30',
+      status: 'scheduled',
+      attendance: { present: 0, total: 8 },
+    },
+  ];
+
+  const pendingSessions = sessions.filter(s => s.status === 'pending');
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'registered':
         return (
+<<<<<<< HEAD
           <Badge className="bg-green-500 hover:bg-green-600">
+=======
+          <Badge className="bg-green-500">
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             <CheckCircle2 className="mr-1 h-3 w-3" />
             Registrada
           </Badge>
@@ -132,6 +183,7 @@ export default function AttendanceSupervisionPage() {
   };
 
   return (
+<<<<<<< HEAD
     <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
@@ -140,22 +192,38 @@ export default function AttendanceSupervisionPage() {
             Monitoreo del registro de asistencia por parte de los entrenadores
           </p>
         </div>
+=======
+    <div className="container mx-auto p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Supervisión de Asistencias</h1>
+        <p className="text-muted-foreground">Monitoreo de registro por entrenadores</p>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       </div>
 
       {pendingSessions.length > 0 && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
+<<<<<<< HEAD
             <strong>{pendingSessions.length} sesiones pendientes de registro</strong> para el día seleccionado. 
             Es necesario recordar a los entrenadores tomar la lista.
+=======
+            <strong>{pendingSessions.length} sesiones pendientes de registro.</strong> Los siguientes entrenadores no han tomado la lista.
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           </AlertDescription>
         </Alert>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<<<<<<< HEAD
         <Card className="lg:col-span-1 h-fit">
           <CardHeader>
             <CardTitle>Calendario</CardTitle>
+=======
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle>Calendario de Sesiones</CardTitle>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           </CardHeader>
           <CardContent>
             <Calendar
@@ -163,13 +231,17 @@ export default function AttendanceSupervisionPage() {
               selected={date}
               onSelect={setDate}
               className="rounded-md border"
+<<<<<<< HEAD
               locale={es}
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             />
           </CardContent>
         </Card>
 
         <Card className="lg:col-span-2">
           <CardHeader>
+<<<<<<< HEAD
             <CardTitle>
               Sesiones del {date ? format(date, "d 'de' MMMM, yyyy", { locale: es }) : 'Selecciona una fecha'}
             </CardTitle>
@@ -223,9 +295,42 @@ export default function AttendanceSupervisionPage() {
                 ))}
               </div>
             )}
+=======
+            <CardTitle>Estado de Sesiones</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <h3 className="font-semibold">{session.program}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {session.coach} • {new Date(session.date).toLocaleDateString('es-ES', {
+                        day: 'numeric',
+                        month: 'long',
+                      })}
+                    </p>
+                    {session.status === 'registered' && (
+                      <p className="text-sm mt-1">
+                        Asistencia: {session.attendance.present}/{session.attendance.total} estudiantes
+                      </p>
+                    )}
+                  </div>
+                  <div>{getStatusBadge(session.status)}</div>
+                </div>
+              ))}
+            </div>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           </CardContent>
         </Card>
       </div>
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

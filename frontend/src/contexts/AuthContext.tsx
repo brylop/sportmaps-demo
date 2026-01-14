@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
+  const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -60,9 +60,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Error fetching profile:', error);
       return null;
     }
-  };
+  }, []);
 
-  const createProfile = async (userId: string, userData: Partial<UserProfile>) => {
+  const createProfile = useCallback(async (userId: string, userData: Partial<UserProfile>) => {
     try {
       // Check if profile already exists
       const existingProfile = await fetchProfile(userId);
@@ -92,12 +92,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Error creating profile:', error);
       throw error;
     }
-  };
+  }, [fetchProfile]);
 
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session
+    // Get initial session from Supabase
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!mounted) return;
       
@@ -237,8 +237,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Clear demo session storage
+      sessionStorage.removeItem('demo_mode');
+      sessionStorage.removeItem('demo_role');
+      sessionStorage.removeItem('demo_tour_pending');
+      
+      // Regular Supabase signout
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      
+      if (currentSession) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      }
+      
+      // Clear local state
+      setUser(null);
+      setSession(null);
+      setProfile(null);
       
       toast({
         title: "Sesión cerrada",
@@ -246,11 +261,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error: any) {
       console.error('Error signing out:', error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      // Still clear local state even if signOut fails
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      
+      // Only show error if it's not a session missing error
+      if (!error.message?.includes('session')) {
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        // Session was already gone, treat as success
+        toast({
+          title: "Sesión cerrada",
+          description: "Has cerrado sesión exitosamente",
+        });
+      }
     }
   };
 
@@ -283,7 +312,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     profile,
     session,
@@ -292,7 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signOut,
     updateProfile,
-  };
+  }), [user, profile, session, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -2,7 +2,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+<<<<<<< HEAD
 import { Progress } from '@/components/ui/progress';
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { 
   Dumbbell,
   Calendar,
@@ -10,15 +13,21 @@ import {
   User,
   ArrowRight,
   Sparkles,
+<<<<<<< HEAD
   Trophy,
   Activity,
   CheckCircle
 } from 'lucide-react';
 import { useEnrollments } from '@/hooks/useEnrollments';
+=======
+  Trophy
+} from 'lucide-react';
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 export default function AthleteOnboardingPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+<<<<<<< HEAD
   
   // Conectamos con los datos reales de inscripciones
   const { activeEnrollments, loading } = useEnrollments();
@@ -37,12 +46,19 @@ export default function AthleteOnboardingPage() {
   };
 
   const completionPercentage = calculateProfileCompletion();
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   const quickActions = [
     {
       id: 'programs',
+<<<<<<< HEAD
       title: 'Explorar Programas',
       description: 'Descubre clases y programas deportivos para ti',
+=======
+      title: 'Explorar Programas Disponibles',
+      description: 'Descubre todas las clases y programas deportivos disponibles para ti',
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       icon: Dumbbell,
       gradient: 'from-blue-500 to-cyan-500',
       route: '/explore',
@@ -50,6 +66,7 @@ export default function AthleteOnboardingPage() {
     },
     {
       id: 'facilities',
+<<<<<<< HEAD
       title: 'Reservar Espacios',
       description: 'Reserva canchas y espacios disponibles',
       icon: Building2,
@@ -57,12 +74,24 @@ export default function AthleteOnboardingPage() {
       // Nota: Asegúrate de tener una ruta pública/atleta para instalaciones, 
       // o redirige a /explore con filtro de instalaciones
       route: '/explore', 
+=======
+      title: 'Reservar Instalaciones',
+      description: 'Reserva canchas, piscinas y otros espacios deportivos disponibles',
+      icon: Building2,
+      gradient: 'from-purple-500 to-pink-500',
+      route: '/facilities',
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       buttonText: 'Hacer Reserva',
     },
     {
       id: 'calendar',
+<<<<<<< HEAD
       title: 'Mi Agenda',
       description: 'Consulta tus próximos entrenamientos',
+=======
+      title: 'Mi Calendario Personal',
+      description: 'Tu calendario está vacío. Cuando te inscribas a programas o reserves instalaciones, aparecerán aquí',
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       icon: Calendar,
       gradient: 'from-green-500 to-emerald-500',
       route: '/calendar',
@@ -71,6 +100,7 @@ export default function AthleteOnboardingPage() {
   ];
 
   return (
+<<<<<<< HEAD
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background p-6 animate-in fade-in duration-500">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Welcome Header */}
@@ -205,12 +235,85 @@ export default function AthleteOnboardingPage() {
                   
                   <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground min-h-[40px]">
+=======
+    <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background p-6">
+      <div className="max-w-6xl mx-auto space-y-8">
+        {/* Welcome Header */}
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary/60 mb-4">
+            <Trophy className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-4xl font-bold tracking-tight">
+            ¡Bienvenido, {profile?.full_name}!
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            ¿Listo para empezar tu aventura deportiva?
+          </p>
+        </div>
+
+        {/* Status Card */}
+        <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-6 h-6 text-primary" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-semibold text-lg">Comienza tu Viaje Deportivo</h3>
+                <p className="text-muted-foreground">
+                  Aún no te has inscrito a ningún programa. Explora las opciones disponibles
+                  y encuentra el programa perfecto para ti.
+                </p>
+                <Button 
+                  className="mt-3"
+                  onClick={() => navigate('/explore')}
+                >
+                  <Dumbbell className="w-4 h-4 mr-2" />
+                  Explorar Programas
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quick Actions Grid */}
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold">Acciones Rápidas</h2>
+          <div className="grid gap-6 md:grid-cols-3">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+
+              return (
+                <Card 
+                  key={action.id}
+                  className="relative overflow-hidden hover:shadow-lg transition-all duration-300"
+                >
+                  {/* Gradient top bar */}
+                  <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${action.gradient}`} />
+                  
+                  <CardHeader>
+                    <div className="flex items-start gap-4">
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className="w-6 h-6 text-white" />
+                      </div>
+                      <CardTitle className="text-lg">{action.title}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                       {action.description}
                     </p>
                     
                     <Button 
+<<<<<<< HEAD
                       variant="secondary"
                       className="w-full justify-between group-hover:bg-primary group-hover:text-primary-foreground transition-colors"
+=======
+                      className="w-full group"
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                       onClick={() => navigate(action.route)}
                     >
                       {action.buttonText}
@@ -223,6 +326,7 @@ export default function AthleteOnboardingPage() {
           </div>
         </div>
 
+<<<<<<< HEAD
         {/* Footer Tip */}
         <div className="bg-muted/30 border border-dashed rounded-xl p-6 text-center max-w-2xl mx-auto">
           <h3 className="font-semibold mb-1">¿Necesitas ayuda?</h3>
@@ -234,3 +338,43 @@ export default function AthleteOnboardingPage() {
     </div>
   );
 }
+=======
+        {/* Profile Completion */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-5 h-5 text-primary" />
+              Completa tu Perfil
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground mb-4">
+              Añade tu foto de perfil y actualiza tu información de contacto para una mejor experiencia.
+            </p>
+            <Button 
+              variant="outline"
+              onClick={() => navigate('/profile')}
+            >
+              <User className="w-4 h-4 mr-2" />
+              Editar Mi Perfil
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Help Card */}
+        <Card className="bg-muted/50 border-dashed">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-2">
+              <h3 className="font-semibold">¿Necesitas ayuda?</h3>
+              <p className="text-sm text-muted-foreground">
+                Si tienes preguntas sobre cómo inscribirte a programas o reservar instalaciones,
+                estamos aquí para ayudarte.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

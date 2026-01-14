@@ -164,6 +164,45 @@ export type Database = {
         }
         Relationships: []
       }
+      athlete_stats: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          stat_date: string
+          stat_type: string
+          unit: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          stat_date?: string
+          stat_type: string
+          unit: string
+          updated_at?: string
+          value: number
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          stat_date?: string
+          stat_type?: string
+          unit?: string
+          updated_at?: string
+          value?: number
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
           child_id: string
@@ -348,6 +387,151 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      facilities: {
+        Row: {
+          available_hours: Json | null
+          booking_enabled: boolean | null
+          capacity: number
+          created_at: string
+          description: string | null
+          hourly_rate: number | null
+          id: string
+          name: string
+          school_id: string | null
+          status: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          available_hours?: Json | null
+          booking_enabled?: boolean | null
+          capacity?: number
+          created_at?: string
+          description?: string | null
+          hourly_rate?: number | null
+          id?: string
+          name: string
+          school_id?: string | null
+          status?: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          available_hours?: Json | null
+          booking_enabled?: boolean | null
+          capacity?: number
+          created_at?: string
+          description?: string | null
+          hourly_rate?: number | null
+          id?: string
+          name?: string
+          school_id?: string | null
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facilities_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_reservations: {
+        Row: {
+          created_at: string | null
+          end_time: string
+          facility_id: string
+          id: string
+          notes: string | null
+          price: number | null
+          reservation_date: string
+          start_time: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          end_time: string
+          facility_id: string
+          id?: string
+          notes?: string | null
+          price?: number | null
+          reservation_date: string
+          start_time: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          end_time?: string
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          price?: number | null
+          reservation_date?: string
+          start_time?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_reservations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      health_records: {
+        Row: {
+          athlete_id: string
+          attachments: Json | null
+          created_at: string
+          diagnosis: string | null
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          professional_id: string
+          record_type: string
+          treatment: string | null
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          attachments?: Json | null
+          created_at?: string
+          diagnosis?: string | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id: string
+          record_type: string
+          treatment?: string | null
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          attachments?: Json | null
+          created_at?: string
+          diagnosis?: string | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id?: string
+          record_type?: string
+          treatment?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       match_results: {
         Row: {
@@ -589,9 +773,12 @@ export type Database = {
           id: string
           parent_id: string
           payment_date: string | null
+          payment_type: string | null
           receipt_number: string | null
           receipt_url: string | null
           status: string
+          subscription_end_date: string | null
+          subscription_start_date: string | null
           updated_at: string
         }
         Insert: {
@@ -602,9 +789,12 @@ export type Database = {
           id?: string
           parent_id: string
           payment_date?: string | null
+          payment_type?: string | null
           receipt_number?: string | null
           receipt_url?: string | null
           status: string
+          subscription_end_date?: string | null
+          subscription_start_date?: string | null
           updated_at?: string
         }
         Update: {
@@ -615,9 +805,12 @@ export type Database = {
           id?: string
           parent_id?: string
           payment_date?: string | null
+          payment_type?: string | null
           receipt_number?: string | null
           receipt_url?: string | null
           status?: string
+          subscription_end_date?: string | null
+          subscription_start_date?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -723,12 +916,14 @@ export type Database = {
           id: string
           image_url: string | null
           is_demo: boolean | null
+          level: string | null
           max_participants: number | null
           name: string
           price_monthly: number
           schedule: string | null
           school_id: string | null
           sport: string
+          spots_available: number | null
           updated_at: string
         }
         Insert: {
@@ -741,12 +936,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_demo?: boolean | null
+          level?: string | null
           max_participants?: number | null
           name: string
           price_monthly: number
           schedule?: string | null
           school_id?: string | null
           sport: string
+          spots_available?: number | null
           updated_at?: string
         }
         Update: {
@@ -759,12 +956,14 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_demo?: boolean | null
+          level?: string | null
           max_participants?: number | null
           name?: string
           price_monthly?: number
           schedule?: string | null
           school_id?: string | null
           sport?: string
+          spots_available?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -822,10 +1021,59 @@ export type Database = {
           },
         ]
       }
+      school_staff: {
+        Row: {
+          certifications: string[] | null
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          phone: string | null
+          school_id: string | null
+          specialty: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          certifications?: string[] | null
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          phone?: string | null
+          school_id?: string | null
+          specialty?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          certifications?: string[] | null
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          phone?: string | null
+          school_id?: string | null
+          specialty?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_staff_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schools: {
         Row: {
+          accepts_reservations: boolean | null
           address: string
           amenities: string[] | null
+          certifications: string[] | null
           city: string
           cover_image_url: string | null
           created_at: string
@@ -833,7 +1081,10 @@ export type Database = {
           email: string
           id: string
           is_demo: boolean | null
+          latitude: number | null
+          levels_offered: string[] | null
           logo_url: string | null
+          longitude: number | null
           name: string
           owner_id: string | null
           phone: string
@@ -845,8 +1096,10 @@ export type Database = {
           website: string | null
         }
         Insert: {
+          accepts_reservations?: boolean | null
           address: string
           amenities?: string[] | null
+          certifications?: string[] | null
           city: string
           cover_image_url?: string | null
           created_at?: string
@@ -854,7 +1107,10 @@ export type Database = {
           email: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
+          levels_offered?: string[] | null
           logo_url?: string | null
+          longitude?: number | null
           name: string
           owner_id?: string | null
           phone: string
@@ -866,8 +1122,10 @@ export type Database = {
           website?: string | null
         }
         Update: {
+          accepts_reservations?: boolean | null
           address?: string
           amenities?: string[] | null
+          certifications?: string[] | null
           city?: string
           cover_image_url?: string | null
           created_at?: string
@@ -875,7 +1133,10 @@ export type Database = {
           email?: string
           id?: string
           is_demo?: boolean | null
+          latitude?: number | null
+          levels_offered?: string[] | null
           logo_url?: string | null
+          longitude?: number | null
           name?: string
           owner_id?: string | null
           phone?: string
@@ -1080,6 +1341,48 @@ export type Database = {
         }
         Relationships: []
       }
+      training_logs: {
+        Row: {
+          athlete_id: string
+          calories_burned: number | null
+          created_at: string
+          duration_minutes: number
+          exercise_type: string
+          id: string
+          intensity: string | null
+          is_demo: boolean | null
+          notes: string | null
+          training_date: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          calories_burned?: number | null
+          created_at?: string
+          duration_minutes: number
+          exercise_type: string
+          id?: string
+          intensity?: string | null
+          is_demo?: boolean | null
+          notes?: string | null
+          training_date?: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          calories_burned?: number | null
+          created_at?: string
+          duration_minutes?: number
+          exercise_type?: string
+          id?: string
+          intensity?: string | null
+          is_demo?: boolean | null
+          notes?: string | null
+          training_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       training_plans: {
         Row: {
           created_at: string
@@ -1143,6 +1446,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_search_preferences: {
         Row: {
           created_at: string | null
@@ -1182,15 +1506,141 @@ export type Database = {
         }
         Relationships: []
       }
+      wellness_appointments: {
+        Row: {
+          appointment_date: string
+          appointment_time: string
+          athlete_id: string | null
+          athlete_name: string | null
+          created_at: string
+          duration_minutes: number | null
+          id: string
+          is_demo: boolean | null
+          notes: string | null
+          professional_id: string
+          service_type: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          appointment_date: string
+          appointment_time: string
+          athlete_id?: string | null
+          athlete_name?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id: string
+          service_type: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          appointment_date?: string
+          appointment_time?: string
+          athlete_id?: string | null
+          athlete_name?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          id?: string
+          is_demo?: boolean | null
+          notes?: string | null
+          professional_id?: string
+          service_type?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wellness_evaluations: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          evaluation_date: string
+          evaluation_type: string
+          follow_up_date: string | null
+          health_record_id: string | null
+          id: string
+          is_demo: boolean | null
+          metrics: Json | null
+          professional_id: string
+          recommendations: string | null
+          score: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          evaluation_date?: string
+          evaluation_type: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
+          id?: string
+          is_demo?: boolean | null
+          metrics?: Json | null
+          professional_id: string
+          recommendations?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          evaluation_date?: string
+          evaluation_type?: string
+          follow_up_date?: string | null
+          health_record_id?: string | null
+          id?: string
+          is_demo?: boolean | null
+          metrics?: Json | null
+          professional_id?: string
+          recommendations?: string | null
+          score?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wellness_evaluations_health_record_id_fkey"
+            columns: ["health_record_id"]
+            isOneToOne: false
+            referencedRelation: "health_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      get_user_roles: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"][]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       is_demo_user: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       activity_status: "scheduled" | "in_progress" | "completed" | "cancelled"
+      app_role:
+        | "athlete"
+        | "parent"
+        | "coach"
+        | "school"
+        | "wellness_professional"
+        | "store_owner"
+        | "admin"
       subscription_tier: "free" | "basic" | "premium" | "enterprise"
       user_role:
         | "athlete"
@@ -1328,6 +1778,15 @@ export const Constants = {
   public: {
     Enums: {
       activity_status: ["scheduled", "in_progress", "completed", "cancelled"],
+      app_role: [
+        "athlete",
+        "parent",
+        "coach",
+        "school",
+        "wellness_professional",
+        "store_owner",
+        "admin",
+      ],
       subscription_tier: ["free", "basic", "premium", "enterprise"],
       user_role: [
         "athlete",

@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
+<<<<<<< HEAD
 import { EmptyState } from '@/components/common/EmptyState';
 import { TrendingUp, MessageSquare, Award, Calendar, User } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,6 +28,11 @@ interface ProgressItem {
   comments: string | null;
   coach_id?: string;
 }
+=======
+import { TrendingUp, MessageSquare, Award } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useState } from 'react';
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 export default function AcademicProgressPage() {
   const { user } = useAuth();
@@ -36,6 +42,7 @@ export default function AcademicProgressPage() {
   const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
 
   // Demo children only for demo users
+<<<<<<< HEAD
   const demoChildren: Child[] = isDemoUser ? [
     { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id || 'demo-parent' },
     { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id || 'demo-parent' },
@@ -53,10 +60,27 @@ export default function AcademicProgressPage() {
       
       if (error) throw error;
       return data as Child[];
+=======
+  const demoChildren = isDemoUser ? [
+    { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
+    { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
+  ] : [];
+
+  const { data: childrenData } = useQuery({
+    queryKey: ['children', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('children')
+        .select('*')
+        .eq('parent_id', user?.id);
+      if (error) throw error;
+      return data;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     },
     enabled: !!user?.id,
   });
 
+<<<<<<< HEAD
   const children = (childrenData && childrenData.length > 0) ? childrenData : demoChildren;
 
   // Auto-select first child if available and none selected
@@ -68,6 +92,12 @@ export default function AcademicProgressPage() {
 
   // Demo progress data only for demo users
   const demoProgress: ProgressItem[] = isDemoUser ? [
+=======
+  const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
+
+  // Demo progress data only for demo users
+  const demoProgress = isDemoUser ? [
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     {
       id: 'prog-1',
       child_id: selectedChildId,
@@ -75,6 +105,10 @@ export default function AcademicProgressPage() {
       skill_level: 85,
       evaluation_date: '2024-10-28',
       comments: 'Excelente mejora en la precisión de los pases. Demuestra gran control del balón.',
+<<<<<<< HEAD
+=======
+      children: { full_name: 'Mateo Pérez' },
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     },
     {
       id: 'prog-2',
@@ -83,6 +117,10 @@ export default function AcademicProgressPage() {
       skill_level: 78,
       evaluation_date: '2024-10-25',
       comments: 'Buena resistencia. Sigue trabajando en velocidad.',
+<<<<<<< HEAD
+=======
+      children: { full_name: 'Mateo Pérez' },
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     },
     {
       id: 'prog-3',
@@ -91,6 +129,7 @@ export default function AcademicProgressPage() {
       skill_level: 92,
       evaluation_date: '2024-10-20',
       comments: 'Sobresaliente. Siempre apoya a sus compañeros.',
+<<<<<<< HEAD
     },
   ] : [];
 
@@ -108,19 +147,42 @@ export default function AcademicProgressPage() {
       
       if (error) throw error;
       return data as ProgressItem[];
+=======
+      children: { full_name: 'Mateo Pérez' },
+    },
+  ] : [];
+
+  const { data: progressData, isLoading, error, refetch } = useQuery({
+    queryKey: ['academic-progress', selectedChildId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('academic_progress')
+        .select('*, children(full_name)')
+        .eq('child_id', selectedChildId)
+        .order('evaluation_date', { ascending: false });
+      if (error) throw error;
+      return data;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     },
     enabled: !!selectedChildId && !selectedChildId.startsWith('demo-'),
   });
 
+<<<<<<< HEAD
   const progress = (progressData && progressData.length > 0) || (!selectedChildId.startsWith('demo-') && progressData)
     ? progressData
     : (selectedChildId.startsWith('demo-') ? demoProgress : []);
+=======
+  const progress = (progressData && progressData.length > 0) || !selectedChildId.startsWith('demo-')
+    ? progressData
+    : demoProgress;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   const getStars = (level: number) => {
     const stars = Math.ceil(level / 20);
     return '⭐️'.repeat(stars);
   };
 
+<<<<<<< HEAD
   const getSkillColor = (level: number) => {
     if (level >= 90) return "bg-green-500";
     if (level >= 70) return "bg-blue-500";
@@ -164,12 +226,39 @@ export default function AcademicProgressPage() {
             </SelectTrigger>
             <SelectContent>
               {children.map((child) => (
+=======
+  if (isLoading && selectedChildId) {
+    return <LoadingSpinner fullScreen text="Cargando progreso académico..." />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Progreso Académico</h1>
+        <p className="text-muted-foreground mt-1">
+          Seguimiento del desarrollo deportivo de tus hijos
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Seleccionar Hijo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Select value={selectedChildId} onValueChange={setSelectedChildId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona un hijo para ver su progreso" />
+            </SelectTrigger>
+            <SelectContent>
+              {children?.map((child) => (
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 <SelectItem key={child.id} value={child.id}>
                   {child.full_name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+<<<<<<< HEAD
         </div>
       </div>
 
@@ -193,6 +282,14 @@ export default function AcademicProgressPage() {
         <div className="grid gap-6 md:grid-cols-2">
           {/* Skills Overview */}
           <Card className="h-fit">
+=======
+        </CardContent>
+      </Card>
+
+      {selectedChildId && progress && (
+        <>
+          <Card>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             <CardHeader>
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-primary" />
@@ -200,7 +297,10 @@ export default function AcademicProgressPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+<<<<<<< HEAD
               {/* Filter unique skills to show latest status */}
+=======
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               {progress
                 .filter((item, index, self) =>
                   index === self.findIndex((t) => t.skill_name === item.skill_name)
@@ -210,6 +310,7 @@ export default function AcademicProgressPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{item.skill_name}</span>
+<<<<<<< HEAD
                         <span className="text-xs text-muted-foreground" title="Nivel de habilidad">
                           {getStars(item.skill_level)}
                         </span>
@@ -226,25 +327,41 @@ export default function AcademicProgressPage() {
                     <p className="text-xs text-muted-foreground text-right">
                       Última actualización: {new Date(item.evaluation_date).toLocaleDateString()}
                     </p>
+=======
+                        <span className="text-lg">{getStars(item.skill_level)}</span>
+                      </div>
+                      <Badge variant="secondary">{item.skill_level}%</Badge>
+                    </div>
+                    <Progress value={item.skill_level} className="h-2" />
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                   </div>
                 ))}
             </CardContent>
           </Card>
 
+<<<<<<< HEAD
           {/* History / Comments */}
           <Card className="h-fit">
+=======
+          <Card>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             <CardHeader>
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-primary" />
                 <CardTitle>Historial de Evaluaciones</CardTitle>
               </div>
             </CardHeader>
+<<<<<<< HEAD
             <CardContent className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+=======
+            <CardContent className="space-y-4">
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               {progress
                 .filter((item) => item.comments)
                 .map((item) => (
                   <div
                     key={item.id}
+<<<<<<< HEAD
                     className="p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors flex flex-col gap-2"
                   >
                     <div className="flex items-start justify-between">
@@ -270,6 +387,25 @@ export default function AcademicProgressPage() {
                       <div className="bg-muted/30 p-3 rounded-md mt-1">
                         <p className="text-sm text-foreground italic">"{item.comments}"</p>
                       </div>
+=======
+                    className="p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(item.evaluation_date).toLocaleDateString('es-CO', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                        <p className="font-medium">{item.skill_name}</p>
+                      </div>
+                      <Badge>{item.skill_level}%</Badge>
+                    </div>
+                    {item.comments && (
+                      <p className="text-sm text-muted-foreground mt-2">{item.comments}</p>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                     )}
                   </div>
                 ))}
@@ -277,13 +413,45 @@ export default function AcademicProgressPage() {
               {progress.filter((item) => item.comments).length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Award className="w-12 h-12 mx-auto mb-2 opacity-20" />
+<<<<<<< HEAD
                   <p>No hay evaluaciones con comentarios detallados aún</p>
+=======
+                  <p>No hay evaluaciones con comentarios aún</p>
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 </div>
               )}
             </CardContent>
           </Card>
+<<<<<<< HEAD
         </div>
       )}
     </div>
   );
 }
+=======
+        </>
+      )}
+
+      {!selectedChildId && children && children.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <Award className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">Selecciona un hijo</h3>
+            <p className="text-muted-foreground">
+              Elige un hijo del menú superior para ver su progreso académico
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {error && (
+        <ErrorState
+          title="Error al cargar"
+          message="No pudimos cargar el progreso académico"
+          onRetry={refetch}
+        />
+      )}
+    </div>
+  );
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

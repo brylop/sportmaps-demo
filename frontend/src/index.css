@@ -1,13 +1,32 @@
+<<<<<<< HEAD
+=======
+@import 'leaflet/dist/leaflet.css';
+
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+<<<<<<< HEAD
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
+=======
+/* 
+  SportMaps Design System
+  ========================
+  Brand Colors:
+  - Verde Oficial: #248223 → HSL(119, 60%, 32%)
+  - Naranja Acento: #FB9F1E → HSL(35, 97%, 55%)
+  - Blanco: #FFFFFF
+  
+  Typography: Poppins (Bold for titles, Regular for body)
+  All colors MUST be HSL.
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 */
 
 @layer base {
   :root {
+<<<<<<< HEAD
     /* SportsMaps Brand Identity - Verde y Naranja */
     --background: 0 0% 100%;
     --foreground: 121 47% 10%;
@@ -29,10 +48,35 @@ All colors MUST be HSL.
     
     /* Background variations */
     --background-dark: 121 35% 12%;
+=======
+    /* SportMaps Brand Identity */
+    --background: 0 0% 100%;
+    --foreground: 119 60% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 119 60% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 119 60% 10%;
+
+    /* Primary: Verde Oficial #248223 */
+    --primary: 119 60% 32%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 119 55% 42%;
+    --primary-dark: 119 65% 25%;
+
+    /* Secondary: Verde claro para fondos */
+    --secondary: 119 30% 96%;
+    --secondary-foreground: 119 60% 15%;
+    
+    /* Background variations */
+    --background-dark: 119 50% 8%;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     --background-light: 0 0% 100%;
     
     /* Text colors */
     --text-dark-primary: 0 0% 100%;
+<<<<<<< HEAD
     --text-dark-secondary: 121 20% 75%;
     --text-light-primary: 121 47% 10%;
     --text-light-secondary: 121 30% 45%;
@@ -47,11 +91,29 @@ All colors MUST be HSL.
     --muted-foreground: 121 20% 45%;
 
     --accent: 38 99% 56%;
+=======
+    --text-dark-secondary: 119 20% 75%;
+    --text-light-primary: 119 60% 10%;
+    --text-light-secondary: 119 30% 45%;
+    
+    /* Orange accent - Naranja Oficial #FB9F1E */
+    --accent-orange: 35 97% 55%;
+    --accent-orange-light: 38 97% 62%;
+    --accent-orange-dark: 32 97% 48%;
+    
+    /* Muted tones */
+    --muted: 119 20% 96%;
+    --muted-foreground: 119 15% 45%;
+
+    /* Accent (Orange) */
+    --accent: 35 97% 55%;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
+<<<<<<< HEAD
     --border: 121 25% 90%;
     --input: 121 25% 90%;
     --ring: 121 47% 26%;
@@ -66,11 +128,31 @@ All colors MUST be HSL.
     --shadow-elevation: 0 25px 50px -12px hsl(var(--primary) / 0.15);
     --shadow-performance: 0 10px 40px -10px hsl(var(--primary) / 0.2);
     --shadow-card: 0 4px 6px -1px hsl(140 10% 8% / 0.1);
+=======
+    --border: 119 20% 90%;
+    --input: 119 20% 90%;
+    --ring: 119 60% 32%;
+    
+    /* SportMaps Design Tokens */
+    --gradient-hero: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
+    --gradient-performance: linear-gradient(45deg, hsl(119 60% 32%), hsl(38 97% 62%));
+    --gradient-elevation: linear-gradient(180deg, hsl(var(--muted)), hsl(var(--background)));
+    --gradient-orange: linear-gradient(90deg, hsl(35 97% 55%), hsl(38 97% 62%));
+    --gradient-dark-bg: linear-gradient(180deg, hsl(119 50% 8%), hsl(119 45% 5%));
+    --gradient-brand: linear-gradient(135deg, hsl(119 60% 32%) 0%, hsl(119 55% 42%) 50%, hsl(35 97% 55%) 100%);
+    
+    --shadow-elevation: 0 25px 50px -12px hsl(119 60% 32% / 0.15);
+    --shadow-performance: 0 10px 40px -10px hsl(119 60% 32% / 0.2);
+    --shadow-card: 0 4px 6px -1px hsl(119 60% 10% / 0.08);
+    --shadow-glow-green: 0 0 30px hsl(119 60% 32% / 0.3);
+    --shadow-glow-orange: 0 0 30px hsl(35 97% 55% / 0.3);
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-spring: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     
     --radius: 0.5rem;
+<<<<<<< HEAD
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -79,6 +161,18 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+=======
+    
+    /* Sidebar - Light Theme */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 119 60% 15%;
+    --sidebar-primary: 119 60% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 119 30% 96%;
+    --sidebar-accent-foreground: 119 60% 15%;
+    --sidebar-border: 119 20% 90%;
+    --sidebar-ring: 119 60% 32%;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   }
   
   /* Additional utility classes */
@@ -96,6 +190,7 @@ All colors MUST be HSL.
     transform: translateY(-4px);
   }
 
+<<<<<<< HEAD
   .dark {
     --background: 121 40% 8%;
     --foreground: 0 0% 100%;
@@ -116,11 +211,48 @@ All colors MUST be HSL.
     --muted-foreground: 121 20% 65%;
 
     --accent: 38 99% 56%;
+=======
+  /* Brand slogan utility */
+  .brand-slogan {
+    @apply text-sm font-medium tracking-wide uppercase;
+    background: linear-gradient(90deg, hsl(119 60% 32%), hsl(35 97% 55%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Dark Theme - Verde muy oscuro/negro */
+  .dark {
+    --background: 119 45% 6%;
+    --foreground: 0 0% 98%;
+
+    --card: 119 40% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 119 40% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Primary: Verde brillante en dark mode */
+    --primary: 119 55% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 119 50% 55%;
+    --primary-dark: 119 60% 35%;
+
+    --secondary: 119 35% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 119 30% 15%;
+    --muted-foreground: 119 15% 65%;
+
+    /* Accent (Orange) - Más brillante en dark */
+    --accent: 35 97% 58%;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
+<<<<<<< HEAD
     --border: 121 30% 25%;
     --input: 121 30% 25%;
     --ring: 121 47% 35%;
@@ -133,6 +265,21 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 121 30% 25%;
     --sidebar-ring: 121 47% 35%;
+=======
+    --border: 119 30% 20%;
+    --input: 119 30% 20%;
+    --ring: 119 55% 45%;
+    
+    /* Sidebar - Dark Theme */
+    --sidebar-background: 119 45% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 119 55% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 119 35% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 119 30% 20%;
+    --sidebar-ring: 119 55% 45%;
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   }
 }
 
@@ -142,6 +289,89 @@ All colors MUST be HSL.
   }
 
   body {
+<<<<<<< HEAD
     @apply bg-background text-foreground font-poppins;
   }
 }
+=======
+    @apply bg-background text-foreground font-poppins antialiased;
+  }
+
+  /* Typography - Poppins */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-poppins font-bold;
+  }
+
+  p, span, div {
+    @apply font-poppins;
+  }
+}
+
+@layer utilities {
+  .text-gradient-brand {
+    background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .bg-gradient-brand {
+    background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
+  }
+}
+
+/* Leaflet Map Styles */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  font-family: 'Poppins', sans-serif;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+  margin: 8px 12px;
+}
+
+.custom-marker, .user-marker {
+  background: transparent;
+  border: none;
+}
+
+/* Mobile Bottom Nav Safe Area */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Ensure content doesn't get hidden behind bottom nav on mobile */
+@media (max-width: 768px) {
+  .main-content-with-nav {
+    padding-bottom: 80px;
+  }
+}
+
+/* PWA Standalone mode styles */
+@media (display-mode: standalone) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+}
+
+/* Loading Spinner with brand colors */
+.loading-spinner {
+  border: 3px solid hsl(var(--muted));
+  border-top-color: hsl(119 60% 32%);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+>>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

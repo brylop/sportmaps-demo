@@ -69,7 +69,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
-          { title: 'Bienestar', href: '/wellness', icon: Heart }
+          { title: 'Bienestar', href: '/wellness', icon: Heart },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -88,14 +89,15 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Progreso Académico', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
-          { title: 'Pagos', href: '/payments', icon: DollarSign }
+          { title: 'Pagos', href: '/my-payments', icon: DollarSign }
         ]
       },
       {
         title: 'Comunidad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin }
+          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -122,7 +124,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Comunicación',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Anuncios', href: '/announcements', icon: Bell }
+          { title: 'Anuncios', href: '/announcements', icon: Bell },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -148,9 +151,11 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Administración',
         items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Instalaciones', href: '/facilities', icon: Building }
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -176,7 +181,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Recursos',
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
-          { title: 'Reportes', href: '/reports', icon: FileText }
+          { title: 'Reportes', href: '/wellness-reports', icon: FileText }
         ]
       }
     ],
@@ -202,7 +207,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Ventas',
         items: [
           { title: 'Clientes', href: '/customers', icon: Users },
-          { title: 'Reportes', href: '/reports', icon: FileText },
+          { title: 'Reportes', href: '/store-reports', icon: FileText },
           { title: 'Promociones', href: '/promotions', icon: Trophy }
         ]
       }
@@ -220,9 +225,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Sistema',
         items: [
-          { title: 'Reportes', href: '/admin/reports', icon: BarChart3 },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
+          { title: 'Reportes', href: '/admin/reports', icon: FileText },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: FileText }
+          { title: 'Logs', href: '/admin/logs', icon: Bell }
         ]
       }
     ]
