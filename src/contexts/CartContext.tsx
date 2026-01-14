@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { CartItem, Product } from '@/types/shop';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface CartContextType {
   items: CartItem[];
@@ -15,14 +17,82 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [items, setItems] = useState<CartItem[]>(() => {
     const saved = localStorage.getItem('sportmaps_cart');
     return saved ? JSON.parse(saved) : [];
   });
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // Sync with Supabase on mount/login
   useEffect(() => {
+    const loadCart = async () => {
+      if (!user) {
+        setIsInitialized(true);
+        return;
+      }
+
+      try {
+        const { data, error } = await (supabase as any)
+          .from('carts')
+          .select('items')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data && data.items) {
+          // Merge or replace? For now, let's use DB version if exists and strictly better (or just use it)
+          // Simple strategy: DB overrides local if exists
+          setItems(data.items as CartItem[]);
+        } else {
+          // If no cart in DB, maybe we should save local there?
+          // If local has items, save them to DB
+          if (items.length > 0) {
+            await (supabase as any).from('carts').upsert({
+              user_id: user.id,
+              items: items
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error loading cart:', error);
+      } finally {
+        setIsInitialized(true);
+      }
+    };
+
+    loadCart();
+  }, [user]);
+
+  // Sync with LocalStorage and Supabase on change
+  useEffect(() => {
+    // LocalStorage
     localStorage.setItem('sportmaps_cart', JSON.stringify(items));
-  }, [items]);
+
+    // Supabase (debounce could be good here, but for simplicity direct save)
+    const saveToSupabase = async () => {
+      if (!user || !isInitialized) return;
+
+      try {
+        const { error } = await (supabase as any)
+          .from('carts')
+          .upsert({
+            user_id: user.id,
+            items: items,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
+
+        if (error) throw error;
+      } catch (error) {
+        console.error('Error saving cart to Supabase:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(saveToSupabase, 1000); // Debounce 1s
+    return () => clearTimeout(timeoutId);
+
+  }, [items, user, isInitialized]);
 
   const addItem = (product: Product, quantity = 1) => {
     setItems((current) => {

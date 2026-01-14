@@ -51,7 +51,7 @@ export function useCreateProduct() {
       const { data, error } = await supabase
         .from('products')
         .insert([product])
-        .select()
+           }       .select()
         .single();
 
       if (error) throw error;
