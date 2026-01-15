@@ -31,7 +31,7 @@ Valor: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6
 Environments: ✓ Production ✓ Preview ✓ Development
 
 Nombre: REACT_APP_BACKEND_URL
-Valor: https://ux-analysis-5.preview.emergentagent.com
+Valor: https://sportmaps-db.preview.emergentagent.com
 Environments: ✓ Production ✓ Preview ✓ Development
 ```
 
@@ -101,7 +101,7 @@ Buscar: REACT_APP_BACKEND_URL
 
 Si NO existe, agregar:
 Key: REACT_APP_BACKEND_URL
-Value: https://ux-analysis-5.preview.emergentagent.com
+Value: https://sportmaps-db.preview.emergentagent.com
 Environments: ✓ Production ✓ Preview ✓ Development
 ```
 

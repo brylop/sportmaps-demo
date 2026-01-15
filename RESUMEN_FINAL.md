@@ -124,7 +124,7 @@ Node.js Version: 18.x
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 ```
 
 ### **3. Limpiar Cache y Redeploy:**

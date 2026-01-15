@@ -48,7 +48,7 @@ Settings → Environment Variables
 
 **Verificar que existe:**
 ```
-REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 ```
 
 Si no existe, agregar.

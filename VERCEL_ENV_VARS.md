@@ -50,7 +50,7 @@ REACT_APP_BACKEND_URL
 
 **Value:**
 ```
-https://ux-analysis-5.preview.emergentagent.com
+https://sportmaps-db.preview.emergentagent.com
 ```
 
 **Environments:** ✓ Production ✓ Preview ✓ Development

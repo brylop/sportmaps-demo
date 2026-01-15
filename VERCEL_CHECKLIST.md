@@ -95,7 +95,7 @@ Node Version: 18.x
 Settings → Environment Variables → Add New
 
 Name: REACT_APP_BACKEND_URL
-Value: https://ux-analysis-5.preview.emergentagent.com
+Value: https://sportmaps-db.preview.emergentagent.com
 Environment: Production, Preview, Development (seleccionar todos)
 
 Click "Save"
@@ -278,7 +278,7 @@ sh: line 1: vite: command not found
 **Solución:**
 ```
 1. Verificar Environment Variable:
-   REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+   REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 
 2. Verificar en Console:
    console.log(import.meta.env.REACT_APP_BACKEND_URL)
