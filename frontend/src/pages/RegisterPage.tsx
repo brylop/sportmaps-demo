@@ -120,6 +120,7 @@ export default function RegisterPage() {
                   <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
                   <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
                   <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
+                  <SelectItem value="organizer">🎯 Organizador de Eventos</SelectItem>
                   <SelectItem value="wellness_professional">💚 Profesional de Bienestar</SelectItem>
                   <SelectItem value="store_owner">🏪 Tienda/Vendedor</SelectItem>
                 </SelectContent>
