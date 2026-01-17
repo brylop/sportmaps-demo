@@ -2,11 +2,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-<<<<<<< HEAD
-=======
 import { useTrainingLogs, useAthleteStats, useTrainingAggregates } from '@/hooks/useAthleteData';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import {
   BarChart3,
   TrendingUp,
@@ -19,43 +16,6 @@ import {
 } from 'lucide-react';
 
 export default function StatsPage() {
-<<<<<<< HEAD
-  const { profile } = useAuth();
-
-  const performanceData = [
-    { month: 'Ene', value: 65 },
-    { month: 'Feb', value: 72 },
-    { month: 'Mar', value: 68 },
-    { month: 'Abr', value: 78 },
-    { month: 'May', value: 85 },
-    { month: 'Jun', value: 82 }
-  ];
-
-  const stats = {
-    overall: {
-      matches: 45,
-      wins: 32,
-      draws: 8,
-      losses: 5,
-      goals: 87,
-      assists: 34,
-      minutesPlayed: 3420
-    },
-    recent: {
-      last5: ['W', 'W', 'D', 'W', 'L'],
-      streak: 3,
-      form: 85
-    },
-    personal: {
-      topSpeed: 32.5,
-      distance: 245.3,
-      stamina: 92,
-      technique: 88
-    }
-  };
-
-  const winRate = Math.round((stats.overall.wins / stats.overall.matches) * 100);
-=======
   const { profile, user } = useAuth();
   const { data: trainingLogs, isLoading: logsLoading } = useTrainingLogs();
   const { data: athleteStats, isLoading: statsLoading } = useAthleteStats();
@@ -96,7 +56,6 @@ export default function StatsPage() {
   }
 
   const hasData = totalSessions > 0;
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -118,15 +77,6 @@ export default function StatsPage() {
             <div className="flex items-center justify-between mb-4">
               <Trophy className="h-8 w-8 text-primary" />
               <Badge variant="secondary" className="bg-green-500/10 text-green-600">
-<<<<<<< HEAD
-                +12%
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">Tasa de Victoria</p>
-            <p className="text-3xl font-bold">{winRate}%</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.overall.wins} victorias en {stats.overall.matches} partidos
-=======
                 Activo
               </Badge>
             </div>
@@ -134,7 +84,6 @@ export default function StatsPage() {
             <p className="text-3xl font-bold">{totalSessions}</p>
             <p className="text-xs text-muted-foreground mt-1">
               Últimos 30 días
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             </p>
           </CardContent>
         </Card>
@@ -142,17 +91,6 @@ export default function StatsPage() {
         <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-<<<<<<< HEAD
-              <Target className="h-8 w-8 text-orange-500" />
-              <Badge variant="secondary" className="bg-orange-500/10 text-orange-600">
-                Top 5%
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">Goles</p>
-            <p className="text-3xl font-bold">{stats.overall.goals}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.overall.assists} asistencias
-=======
               <Flame className="h-8 w-8 text-orange-500" />
               <Badge variant="secondary" className="bg-orange-500/10 text-orange-600">
                 {totalCalories > 0 ? '+' + Math.round(totalCalories / totalSessions) + '/sesión' : '-'}
@@ -162,7 +100,6 @@ export default function StatsPage() {
             <p className="text-3xl font-bold">{totalCalories.toLocaleString()}</p>
             <p className="text-xs text-muted-foreground mt-1">
               kcal totales
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             </p>
           </CardContent>
         </Card>
@@ -170,17 +107,6 @@ export default function StatsPage() {
         <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-4">
-<<<<<<< HEAD
-              <Flame className="h-8 w-8 text-blue-500" />
-              <Badge variant="secondary" className="bg-blue-500/10 text-blue-600">
-                {stats.recent.streak} partidos
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">Racha Actual</p>
-            <p className="text-3xl font-bold">{stats.recent.streak}W</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Sin perder
-=======
               <Target className="h-8 w-8 text-blue-500" />
               <Badge variant="secondary" className="bg-blue-500/10 text-blue-600">
                 {maxSpeed > 0 ? maxSpeed + ' km/h' : '-'}
@@ -190,7 +116,6 @@ export default function StatsPage() {
             <p className="text-3xl font-bold">{maxSpeed.toFixed(1)}</p>
             <p className="text-xs text-muted-foreground mt-1">
               km/h registrados
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             </p>
           </CardContent>
         </Card>
@@ -200,17 +125,6 @@ export default function StatsPage() {
             <div className="flex items-center justify-between mb-4">
               <Clock className="h-8 w-8 text-purple-500" />
               <Badge variant="secondary" className="bg-purple-500/10 text-purple-600">
-<<<<<<< HEAD
-                57h
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">Minutos Jugados</p>
-            <p className="text-3xl font-bold">
-              {Math.round(stats.overall.minutesPlayed / 60)}h
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Este mes
-=======
                 {Math.round(totalMinutes / 60)}h
               </Badge>
             </div>
@@ -220,7 +134,6 @@ export default function StatsPage() {
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               minutos totales
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             </p>
           </CardContent>
         </Card>
@@ -241,33 +154,6 @@ export default function StatsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-primary" />
-<<<<<<< HEAD
-                  Evolución Mensual
-                </CardTitle>
-                <CardDescription>
-                  Tu rendimiento en los últimos 6 meses
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 flex items-end justify-between gap-2">
-                  {performanceData.map((data, index) => (
-                    <div key={data.month} className="flex-1 flex flex-col items-center gap-2">
-                      <div
-                        className="w-full bg-gradient-to-t from-primary to-primary/50 rounded-t-lg transition-all hover:scale-105 animate-in slide-in-from-bottom"
-                        style={{
-                          height: `${data.value}%`,
-                          animationDelay: `${index * 100}ms`
-                        }}
-                      />
-                      <span className="text-xs text-muted-foreground">{data.month}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Form */}
-=======
                   Actividad Reciente
                 </CardTitle>
                 <CardDescription>
@@ -299,78 +185,10 @@ export default function StatsPage() {
             </Card>
 
             {/* Intensity Distribution */}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Activity className="h-5 w-5 text-primary" />
-<<<<<<< HEAD
-                  Forma Reciente
-                </CardTitle>
-                <CardDescription>
-                  Últimos 5 partidos
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2 justify-center">
-                  {stats.recent.last5.map((result, index) => (
-                    <div
-                      key={index}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-white animate-in zoom-in ${
-                        result === 'W' ? 'bg-green-500' :
-                        result === 'D' ? 'bg-yellow-500' :
-                        'bg-red-500'
-                      }`}
-                      style={{ animationDelay: `${index * 100}ms` }}
-                    >
-                      {result}
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm text-muted-foreground">Forma</span>
-                    <span className="text-sm font-medium">{stats.recent.form}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-primary-glow transition-all duration-1000 animate-in slide-in-from-left"
-                      style={{ width: `${stats.recent.form}%` }}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Detailed Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Estadísticas Detalladas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-6 md:grid-cols-3">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Partidos Jugados</p>
-                  <p className="text-2xl font-bold">{stats.overall.matches}</p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Victorias / Empates / Derrotas</p>
-                  <p className="text-2xl font-bold">
-                    {stats.overall.wins} / {stats.overall.draws} / {stats.overall.losses}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Goles + Asistencias</p>
-                  <p className="text-2xl font-bold">
-                    {stats.overall.goals + stats.overall.assists}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-=======
                   Distribución de Intensidad
                 </CardTitle>
                 <CardDescription>
@@ -449,7 +267,6 @@ export default function StatsPage() {
               </CardContent>
             </Card>
           </div>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         </TabsContent>
 
         {/* Physical Tab */}
@@ -457,48 +274,6 @@ export default function StatsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
-<<<<<<< HEAD
-                <CardTitle>Capacidades Físicas</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Resistencia</span>
-                    <span className="text-sm font-medium">{stats.personal.stamina}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-green-500 to-green-600"
-                      style={{ width: `${stats.personal.stamina}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Técnica</span>
-                    <span className="text-sm font-medium">{stats.personal.technique}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
-                      style={{ width: `${stats.personal.technique}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">Velocidad</span>
-                    <span className="text-sm font-medium">{stats.personal.topSpeed} km/h</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-orange-500 to-orange-600"
-                      style={{ width: '88%' }}
-                    />
-                  </div>
-=======
                 <CardTitle>Métricas de Rendimiento</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -519,34 +294,12 @@ export default function StatsPage() {
                   <span className="font-bold">
                     {totalSessions > 0 ? Math.round(totalMinutes / totalSessions) : 0} min
                   </span>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-<<<<<<< HEAD
-                <CardTitle>Métricas de Rendimiento</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Distancia Recorrida</span>
-                    <span className="font-bold">{stats.personal.distance} km</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Velocidad Máxima</span>
-                    <span className="font-bold">{stats.personal.topSpeed} km/h</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
-                    <span className="text-sm">Promedio por Partido</span>
-                    <span className="font-bold">
-                      {(stats.personal.distance / stats.overall.matches).toFixed(1)} km
-                    </span>
-                  </div>
-                </div>
-=======
                 <CardTitle>Estadísticas Registradas</CardTitle>
               </CardHeader>
               <CardContent>
@@ -571,7 +324,6 @@ export default function StatsPage() {
                     No hay estadísticas registradas
                   </div>
                 )}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </CardContent>
             </Card>
           </div>
@@ -581,20 +333,6 @@ export default function StatsPage() {
         <TabsContent value="history" className="space-y-4">
           <Card>
             <CardHeader>
-<<<<<<< HEAD
-              <CardTitle>Próximamente</CardTitle>
-              <CardDescription>
-                Historial completo de partidos y eventos
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  Esta sección estará disponible próximamente
-                </p>
-              </div>
-=======
               <CardTitle>Historial de Entrenamientos</CardTitle>
               <CardDescription>
                 Tus sesiones de entrenamiento recientes
@@ -651,7 +389,6 @@ export default function StatsPage() {
                   </p>
                 </div>
               )}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
             </CardContent>
           </Card>
         </TabsContent>

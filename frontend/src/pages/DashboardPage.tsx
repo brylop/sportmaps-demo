@@ -1,19 +1,10 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-<<<<<<< HEAD
-import { useEffect } from 'react';
-=======
 import { useEffect, useState } from 'react';
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
-<<<<<<< HEAD
-import { useDashboardConfig } from '@/hooks/useDashboardConfig';
-import { useDashboardStats } from '@/hooks/useDashboardStats';
-import { UserRole } from '@/types/dashboard';
-=======
 import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
 import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletionBanner';
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
@@ -23,29 +14,10 @@ import { UserRole } from '@/types/dashboard';
 import { DemoTour } from '@/components/demo/DemoTour';
 import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
 import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
-<<<<<<< HEAD
-  
-  // 1. Obtener estadísticas reales
-  // El hook useDashboardStats se encarga de traer los datos frescos de Supabase
-  const { stats, loading: statsLoading } = useDashboardStats((profile?.role as UserRole) || 'athlete');
-  
-  // 2. Pasar estadísticas a la configuración para actualizar la UI
-  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', stats);
-
-  // Redirect users to onboarding if they haven't completed setup
-  useEffect(() => {
-    if (!profile || !user) return;
-
-    // Verificamos si el onboarding está marcado como completado en localStorage
-    const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
-    
-    if (!hasCompletedOnboarding) {
-=======
   const [showProfileBanner, setShowProfileBanner] = useState(true);
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete');
   const { data: stats } = useDashboardStats();
@@ -63,7 +35,6 @@ export default function DashboardPage() {
     
     if (!hasCompletedOnboarding) {
       // Redirect each role to their respective onboarding
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       switch (profile.role) {
         case 'school':
           navigate('/school-onboarding');
@@ -80,20 +51,11 @@ export default function DashboardPage() {
         case 'store_owner':
           navigate('/store-onboarding');
           break;
-<<<<<<< HEAD
-=======
         // parent doesn't need onboarding, they go directly to dashboard
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         default:
           break;
       }
     }
-<<<<<<< HEAD
-  }, [profile, user, navigate]);
-
-  // Mostrar spinner mientras cargamos perfil o estadísticas
-  if (!profile || statsLoading) return (
-=======
   }, [profile, user, navigate, isDemoMode]);
 
   // Get demo data if in demo mode
@@ -101,32 +63,19 @@ export default function DashboardPage() {
   const demoParentData = isDemoMode && profile?.role === 'parent' ? getDemoParentData() : null;
 
   if (!profile) return (
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     <div className="flex items-center justify-center h-[60vh]">
       <div className="text-center space-y-3">
         <div className="flex items-center justify-center">
           <div className="flex flex-col items-center gap-2">
             <span className="sr-only">Cargando panel</span>
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
-<<<<<<< HEAD
-            <p className="text-sm text-muted-foreground">Actualizando tu panel...</p>
-=======
             <p className="text-sm text-muted-foreground">Cargando tu panel...</p>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           </div>
         </div>
       </div>
     </div>
   );
 
-<<<<<<< HEAD
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">{config.title}</h2>
-        <p className="text-muted-foreground">{config.description}</p>
-=======
   // Override static stats with real or demo data
   const dynamicStats = config.stats.map((stat, index) => {
     // If demo mode, use demo data
@@ -230,18 +179,10 @@ export default function DashboardPage() {
       <div>
         <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
         <p className="text-muted-foreground font-poppins">{config.description}</p>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       </div>
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-<<<<<<< HEAD
-        {config.stats.map((stat, index) => (
-          <StatCard 
-            key={index} 
-            {...stat} 
-          />
-=======
         {dynamicStats.map((stat, index) => (
           <div key={index} data-tour={
             index === 0 ? 'revenue-card' : 
@@ -251,7 +192,6 @@ export default function DashboardPage() {
           }>
             <StatCard {...stat} />
           </div>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         ))}
       </div>
 
@@ -259,13 +199,9 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* Quick Actions - Always show */}
         {config.quickActions && config.quickActions.length > 0 && (
-<<<<<<< HEAD
-          <QuickActions actions={config.quickActions} />
-=======
           <div data-tour="quick-actions">
             <QuickActions actions={config.quickActions} />
           </div>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         )}
 
         {/* Activities - Only show if there are activities */}
@@ -278,21 +214,11 @@ export default function DashboardPage() {
           </div>
         )}
 
-<<<<<<< HEAD
-        {/* Notifications - Only show if there are notifications */}
-        {config.notifications && config.notifications.length > 0 && (
-          <NotificationList notifications={config.notifications} />
-=======
         {/* Notifications - Show real or demo notifications */}
         {displayNotifications && displayNotifications.length > 0 && (
           <NotificationList notifications={displayNotifications} />
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         )}
       </div>
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
