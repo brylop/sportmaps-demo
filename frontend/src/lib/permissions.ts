@@ -263,6 +263,13 @@ export const featureFlags: Record<UserRole, Record<string, boolean>> = {
     canAccessAdmin: false,
     canExportData: true
   },
+  organizer: {
+    canCreateEvents: true,
+    canManageTeams: false,
+    canViewFinances: true,
+    canAccessAdmin: false,
+    canExportData: true
+  },
   admin: {
     canCreateEvents: true,
     canManageTeams: true,
