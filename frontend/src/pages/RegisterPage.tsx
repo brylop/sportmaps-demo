@@ -17,7 +17,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().optional(),
-  role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'admin']),
+  role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'organizer', 'admin']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
