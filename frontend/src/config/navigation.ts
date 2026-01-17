@@ -15,7 +15,10 @@ import {
   MapPin,
   MessageSquare,
   FileText,
-  DollarSign
+  DollarSign,
+  Plus,
+  Map,
+  Ticket
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
