@@ -333,6 +333,12 @@ export const dataVisibility = {
     canSeeFinancialData: true,
     canSeeSystemLogs: false
   },
+  organizer: {
+    canSeeOwnData: true,
+    canSeeEventRegistrations: true,
+    canSeeFinancialData: true,
+    canSeeSystemLogs: false
+  },
   admin: {
     canSeeOwnData: true,
     canSeeTeamData: true,
