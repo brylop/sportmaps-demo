@@ -1,6 +1,6 @@
 {
   "env_image_name": "fastapi_react_mongo_base_image_cloud_arm:release-07012026-1",
   "source": "lovable",
-  "job_id": "8cd33053-6427-40d8-bfe5-3614a6618a71",
-  "created_at": "2026-01-08T16:42:25.062683+00:00Z"
+  "job_id": "cacc55d9-bfb0-4447-ba5b-f3c94db3a403",
+  "created_at": "2026-01-17T05:19:40.421736+00:00Z"
 }
