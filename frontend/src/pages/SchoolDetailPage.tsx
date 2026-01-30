@@ -1,15 +1,7 @@
-<<<<<<< HEAD
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
-import { useEnrollments } from '@/hooks/useEnrollments';
-=======
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,19 +9,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import {
-<<<<<<< HEAD
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-=======
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   MapPin,
   Phone,
   Mail,
@@ -42,12 +21,6 @@ import {
   Heart,
   Share2,
   ArrowLeft,
-<<<<<<< HEAD
-  Calendar
-} from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import { AuthModal } from '@/components/explore/AuthModal';
-=======
   Calendar,
   Award,
   GraduationCap,
@@ -59,7 +32,6 @@ import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
 interface School {
   id: string;
@@ -78,15 +50,12 @@ interface School {
   logo_url: string | null;
   cover_image_url: string | null;
   owner_id: string;
-<<<<<<< HEAD
-=======
   latitude?: number | null;
   longitude?: number | null;
   // New evolution fields
   certifications?: string[] | null;
   levels_offered?: string[] | null;
   accepts_reservations?: boolean;
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 }
 
 interface Program {
@@ -101,8 +70,6 @@ interface Program {
   max_participants: number | null;
   current_participants: number;
   active: boolean;
-<<<<<<< HEAD
-=======
   // New evolution fields
   level?: string;
   spots_available?: number;
@@ -116,7 +83,6 @@ interface Facility {
   status: string;
   hourly_rate?: number;
   booking_enabled?: boolean;
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 }
 
 export default function SchoolDetailPage() {
@@ -124,23 +90,6 @@ export default function SchoolDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-<<<<<<< HEAD
-  const { createEnrollment } = useEnrollments();
-  
-  const [school, setSchool] = useState<School | null>(null);
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [enrolling, setEnrolling] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  
-  // Estados para el modal de confirmación
-  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-  const [programToEnroll, setProgramToEnroll] = useState<Program | null>(null);
-  const [pendingAction, setPendingAction] = useState<boolean>(false);
-  
-  // Ref para scroll
-  const programsRef = useRef<HTMLDivElement>(null);
-=======
   
   const [school, setSchool] = useState<School | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -152,7 +101,6 @@ export default function SchoolDetailPage() {
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 
   useEffect(() => {
     if (id) {
@@ -160,27 +108,11 @@ export default function SchoolDetailPage() {
     }
   }, [id]);
 
-<<<<<<< HEAD
-  // EFECTO CLAVE: Detectar login exitoso para retomar flujo
-  useEffect(() => {
-    if (user && pendingAction && programToEnroll) {
-      // Si el usuario se logueó y tenía una acción pendiente
-      setAuthModalOpen(false);
-      setPendingAction(false);
-      setConfirmModalOpen(true); // Abrir confirmación automáticamente
-    }
-  }, [user, pendingAction, programToEnroll]);
-
-=======
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   const fetchSchoolData = async () => {
     try {
       setLoading(true);
 
-<<<<<<< HEAD
-=======
       // Fetch school details
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       const { data: schoolData, error: schoolError } = await supabase
         .from('schools')
         .select('*')
@@ -190,10 +122,7 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-<<<<<<< HEAD
-=======
       // Fetch programs
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       const { data: programsData, error: programsError } = await supabase
         .from('programs')
         .select('*')
@@ -203,20 +132,6 @@ export default function SchoolDetailPage() {
 
       if (programsError) throw programsError;
       
-<<<<<<< HEAD
-      // Use fetched or demo programs
-      if (!programsData || programsData.length === 0) {
-         // Demo fallback if needed
-         setPrograms([]); 
-      } else {
-        setPrograms(programsData);
-      }
-    } catch (error: any) {
-      console.error('Error fetching school:', error);
-      toast({
-        title: 'Error',
-        description: 'No se pudo cargar la escuela',
-=======
       // If no programs, add demo programs
       if (!programsData || programsData.length === 0) {
         setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
@@ -246,7 +161,6 @@ export default function SchoolDetailPage() {
       toast({
         title: 'Error',
         description: 'No se pudo cargar la información de la escuela',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
         variant: 'destructive',
       });
     } finally {
@@ -254,53 +168,6 @@ export default function SchoolDetailPage() {
     }
   };
 
-<<<<<<< HEAD
-  // Iniciar flujo de inscripción
-  const handleEnrollClick = (program: Program) => {
-    setProgramToEnroll(program);
-    
-    if (!user) {
-      // Si no hay usuario, marcamos acción pendiente y pedimos auth
-      setPendingAction(true);
-      setAuthModalOpen(true);
-      return;
-    }
-    
-    // Si hay usuario, vamos directo a confirmar
-    setConfirmModalOpen(true);
-  };
-
-  const handleConfirmEnrollment = async () => {
-    if (!programToEnroll || !user) return;
-
-    try {
-      setEnrolling(true);
-      // Pasamos detalles para el calendario
-      const result = await createEnrollment(programToEnroll.id, {
-        name: programToEnroll.name,
-        schedule: programToEnroll.schedule || 'Horario por confirmar'
-      });
-
-      if (result.success) {
-        fetchSchoolData(); // Recargar cupos
-        setConfirmModalOpen(false);
-        setProgramToEnroll(null);
-        // Redirigir al dashboard o calendario después de un momento
-        setTimeout(() => navigate('/calendar'), 2000);
-      }
-    } finally {
-      setEnrolling(false);
-    }
-  };
-
-  const handleReserveNow = () => {
-    if (programsRef.current) {
-      programsRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  // Helpers visuales
-=======
   const handleEnroll = (program: Program) => {
     setSelectedProgram(program);
     
@@ -324,7 +191,6 @@ export default function SchoolDetailPage() {
     setSelectedProgram(null);
   };
 
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   const getAgeRange = (program: Program) => {
     if (!program.age_min && !program.age_max) return 'Todas las edades';
     if (!program.age_max) return `${program.age_min}+ años`;
@@ -338,8 +204,6 @@ export default function SchoolDetailPage() {
     return available > 0 ? `${available} cupos disponibles` : 'Lleno';
   };
 
-<<<<<<< HEAD
-=======
   const getDemoPrograms = (schoolName: string, sport: string): Program[] => {
     return [
       {
@@ -425,7 +289,6 @@ export default function SchoolDetailPage() {
     }
   };
 
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -447,53 +310,6 @@ export default function SchoolDetailPage() {
   }
 
   return (
-<<<<<<< HEAD
-    <div className="min-h-screen bg-background pb-20">
-      {/* Auth Modal */}
-      <AuthModal 
-        open={authModalOpen} 
-        onOpenChange={(open) => {
-          setAuthModalOpen(open);
-          if (!open && !user) setPendingAction(false); // Cancelar flujo si cierra modal sin loguear
-        }}
-      />
-
-      {/* Confirmation Modal */}
-      <AlertDialog open={confirmModalOpen} onOpenChange={setConfirmModalOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Inscripción</AlertDialogTitle>
-            <AlertDialogDescription>
-              ¿Deseas inscribirte en <strong>{programToEnroll?.name}</strong>?
-              <br /><br />
-              Se enviará una confirmación a tu correo y se agendará en tu calendario.
-              <div className="mt-2 p-3 bg-muted rounded text-sm">
-                <strong>Horario:</strong> {programToEnroll?.schedule || 'Por definir'}<br/>
-                <strong>Precio:</strong> ${programToEnroll?.price_monthly.toLocaleString()}/mes
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={enrolling}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={(e) => {
-                e.preventDefault(); 
-                handleConfirmEnrollment();
-              }}
-              disabled={enrolling}
-              className="bg-primary text-primary-foreground"
-            >
-              {enrolling ? 'Procesando...' : 'Confirmar e Inscribirme'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Header Image & Info */}
-      <div
-        className="h-64 md:h-80 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center relative"
-        style={school.cover_image_url ? { backgroundImage: `url(${school.cover_image_url})` } : undefined}
-=======
     <div className="min-h-screen bg-background">
       {/* Enrollment Auth Modal - For unauthenticated users */}
       <EnrollmentAuthModal 
@@ -544,7 +360,6 @@ export default function SchoolDetailPage() {
             ? { backgroundImage: `url(${school.cover_image_url})` }
             : undefined
         }
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       >
         <div className="absolute inset-0 bg-black/40" />
         <div className="container mx-auto px-4 h-full flex items-end pb-8 relative">
@@ -560,17 +375,6 @@ export default function SchoolDetailPage() {
         </div>
       </div>
 
-<<<<<<< HEAD
-      <div className="container mx-auto px-4 -mt-16 relative z-10">
-        <Card className="mb-6">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row gap-6">
-              <Avatar className="h-24 w-24 border-4 border-background">
-                <AvatarImage src={school.logo_url || undefined} />
-                <AvatarFallback className="text-2xl">{school.name.charAt(0)}</AvatarFallback>
-              </Avatar>
-
-=======
       <div className="container mx-auto px-4 -mt-16 relative z-10 pb-8">
         {/* Header Card */}
         <Card className="mb-6">
@@ -585,7 +389,6 @@ export default function SchoolDetailPage() {
               </Avatar>
 
               {/* Info */}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               <div className="flex-1">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
@@ -593,33 +396,13 @@ export default function SchoolDetailPage() {
                       <h1 className="text-3xl font-bold">{school.name}</h1>
                       {school.verified && (
                         <Badge variant="default" className="gap-1">
-<<<<<<< HEAD
-                          <CheckCircle2 className="h-3 w-3" /> Verificada
-=======
                           <CheckCircle2 className="h-3 w-3" />
                           Verificada
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                         </Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-4 text-muted-foreground">
                       <div className="flex items-center gap-1">
-<<<<<<< HEAD
-                        <MapPin className="h-4 w-4" /> {school.city}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                        <span className="font-semibold">{school.rating?.toFixed(1) || 'N/A'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="icon"><Share2 className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="icon"><Heart className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-                <p className="text-muted-foreground mb-4">{school.description}</p>
-=======
                         <MapPin className="h-4 w-4" />
                         <span>{school.city}</span>
                       </div>
@@ -679,19 +462,11 @@ export default function SchoolDetailPage() {
                     ))}
                   </div>
                 )}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </div>
             </div>
           </CardContent>
         </Card>
 
-<<<<<<< HEAD
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2 space-y-6">
-            <Tabs defaultValue="programs" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="programs">Programas</TabsTrigger>
-=======
         {/* Main Content */}
         <div className="grid gap-6 md:grid-cols-3">
           {/* Left Column - Details */}
@@ -700,55 +475,10 @@ export default function SchoolDetailPage() {
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="programs">Programas</TabsTrigger>
                 <TabsTrigger value="reservations">Reservas</TabsTrigger>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 <TabsTrigger value="about">Info</TabsTrigger>
                 <TabsTrigger value="reviews">Reseñas</TabsTrigger>
               </TabsList>
 
-<<<<<<< HEAD
-              <TabsContent value="programs" className="space-y-4" ref={programsRef}>
-                {programs.length === 0 ? (
-                  <Card className="p-12 text-center">
-                    <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                    <h3 className="text-lg font-semibold">No hay programas activos</h3>
-                    <p className="text-muted-foreground">Vuelve más tarde para ver nuevas clases.</p>
-                  </Card>
-                ) : (
-                  programs.map((program) => (
-                    <Card key={program.id} className="overflow-hidden hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <CardTitle className="text-lg mb-1">{program.name}</CardTitle>
-                            <Badge variant="secondary">{program.sport}</Badge>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-primary">${program.price_monthly.toLocaleString()}</p>
-                            <p className="text-xs text-muted-foreground">/mes</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Users className="h-4 w-4" /> {getAgeRange(program)}
-                          </div>
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Trophy className="h-4 w-4" /> {getAvailability(program)}
-                          </div>
-                          <div className="flex items-center gap-2 text-muted-foreground col-span-2">
-                            <Clock className="h-4 w-4" /> {program.schedule || 'Horario a convenir'}
-                          </div>
-                        </div>
-                        <Button 
-                          className="w-full" 
-                          onClick={() => handleEnrollClick(program)}
-                          disabled={program.max_participants !== null && program.current_participants >= program.max_participants}
-                        >
-                          {program.max_participants !== null && program.current_participants >= program.max_participants 
-                            ? 'Cupos Agotados' 
-                            : 'Inscribirme Ahora'}
-=======
               {/* Programs Tab */}
               <TabsContent value="programs" className="space-y-4">
                 {programs.length === 0 ? (
@@ -828,7 +558,6 @@ export default function SchoolDetailPage() {
                           program.current_participants >= program.max_participants
                             ? 'Programa Lleno'
                             : 'Inscribirme'}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                         </Button>
                       </CardContent>
                     </Card>
@@ -836,8 +565,6 @@ export default function SchoolDetailPage() {
                 )}
               </TabsContent>
 
-<<<<<<< HEAD
-=======
               {/* Reservations Tab - NEW */}
               <TabsContent value="reservations" className="space-y-4">
                 <Card>
@@ -910,7 +637,6 @@ export default function SchoolDetailPage() {
               </TabsContent>
 
               {/* About Tab */}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               <TabsContent value="about">
                 <Card>
                   <CardContent className="p-6 space-y-4">
@@ -956,13 +682,6 @@ export default function SchoolDetailPage() {
                 </Card>
               </TabsContent>
 
-<<<<<<< HEAD
-              <TabsContent value="reviews">
-                <Card>
-                    <CardContent className="p-6 text-center text-muted-foreground">
-                        Próximamente: Sistema de reseñas y calificaciones.
-                    </CardContent>
-=======
               {/* Reviews Tab */}
               <TabsContent value="reviews" className="space-y-4">
                 {getDemoReviews().map((review) => (
@@ -990,25 +709,11 @@ export default function SchoolDetailPage() {
                       ¿Ya conoces esta academia? Inicia sesión para dejar tu reseña
                     </p>
                   </CardContent>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
                 </Card>
               </TabsContent>
             </Tabs>
           </div>
 
-<<<<<<< HEAD
-          <div className="space-y-6">
-            <Card>
-              <CardHeader><CardTitle>Contacto</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-3"><MapPin className="w-5 h-5 text-muted-foreground" /><p className="text-sm">{school.address}</p></div>
-                <div className="flex gap-3"><Phone className="w-5 h-5 text-muted-foreground" /><p className="text-sm">{school.phone}</p></div>
-                <div className="flex gap-3"><Mail className="w-5 h-5 text-muted-foreground" /><p className="text-sm truncate">{school.email}</p></div>
-                <Separator />
-                <Button className="w-full" size="lg" onClick={handleReserveNow}>
-                  <Calendar className="mr-2 h-4 w-4" /> Ver Horarios
-                </Button>
-=======
           {/* Right Column - Contact Info */}
           <div className="space-y-6">
             <Card>
@@ -1099,7 +804,6 @@ export default function SchoolDetailPage() {
                 <p className="text-xs text-center text-muted-foreground mt-2">
                   Selecciona un programa y completa tu reserva
                 </p>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </CardContent>
             </Card>
           </div>
@@ -1107,8 +811,4 @@ export default function SchoolDetailPage() {
       </div>
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3

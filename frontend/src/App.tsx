@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-import { Suspense, lazy } from 'react';
-=======
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,239 +5,29 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-<<<<<<< HEAD
-import { ProtectedRoute } from "@/components/ProtectedRoute";
-import ErrorBoundary from "@/components/ErrorBoundary";
-import AuthLayout from "@/layouts/AuthLayout";
-import { Loader2 } from "lucide-react";
-
-// Loading component for suspense
-const PageLoader = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-  </div>
-);
-
-// Critical pages (loaded immediately)
-import Index from "./pages/Index";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import DashboardPage from "./pages/DashboardPage";
-import NotFound from "./pages/NotFound";
-import UnauthorizedPage from "./pages/UnauthorizedPage";
-
-// Lazy loaded pages (loaded on demand)
-const DemoProfilesPage = lazy(() => import("./pages/DemoProfilesPage"));
-const CalendarPage = lazy(() => import("./pages/CalendarPage"));
-const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const TeamsPage = lazy(() => import("./pages/TeamsPage"));
-const StatsPage = lazy(() => import("./pages/StatsPage"));
-const MessagesPage = lazy(() => import("./pages/MessagesPage"));
-const MessagesDetailPage = lazy(() => import("./pages/MessagesDetailPage"));
-const CalendarAdvancedPage = lazy(() => import("./pages/CalendarAdvancedPage"));
-const AdvancedSearchPage = lazy(() => import("./pages/AdvancedSearchPage"));
-const AnalyticsDashboardPage = lazy(() => import("./pages/AnalyticsDashboardPage"));
-const InvitationsManagementPage = lazy(() => import("./pages/InvitationsManagementPage"));
-const ExplorePage = lazy(() => import("./pages/ExplorePage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
-const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
-const MyEnrollmentsPage = lazy(() => import("./pages/MyEnrollmentsPage"));
-const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
-const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
-const AttendancePage = lazy(() => import("./pages/AttendancePage"));
-const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
-const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
-const ResultsPage = lazy(() => import("./pages/ResultsPage"));
-const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
-const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
-const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
-const StudentsPage = lazy(() => import("./pages/StudentsPage"));
-const StaffPage = lazy(() => import("./pages/StaffPage"));
-const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
-const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
-const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
-const FinancesPage = lazy(() => import("./pages/FinancesPage"));
-const ReportsPage = lazy(() => import("./pages/ReportsPage"));
-const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
-const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
-const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
-const SchoolCoachesManagementPage = lazy(() => import("./pages/SchoolCoachesManagementPage"));
-const CoachOnboardingPage = lazy(() => import("./pages/CoachOnboardingPage"));
-const AthleteOnboardingPage = lazy(() => import("./pages/AthleteOnboardingPage"));
-const WellnessOnboardingPage = lazy(() => import("./pages/WellnessOnboardingPage"));
-const StoreOwnerOnboardingPage = lazy(() => import("./pages/StoreOwnerOnboardingPage"));
-const WellnessPage = lazy(() => import("./pages/WellnessPage"));
-const AthletesListPage = lazy(() => import("./pages/AthletesListPage"));
-const WellnessSchedulePage = lazy(() => import("./pages/WellnessSchedulePage"));
-const NutritionPage = lazy(() => import("./pages/NutritionPage"));
-const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
-const StorePage = lazy(() => import("./pages/StorePage"));
-const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
-const GoalsPage = lazy(() => import("./pages/GoalsPage"));
-const TrainingPage = lazy(() => import("./pages/TrainingPage"));
-const ShopPage = lazy(() => import("./pages/ShopPage"));
-const ProductDetailPage = lazy(() => import("./pages/ProductDetailPage"));
-const CartPage = lazy(() => import("./pages/CartPage"));
-const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
-const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
-const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
-
-const queryClient = new QueryClient();
-
-const App = () => (
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  {/* Public routes */}
-                  <Route path="/" element={<Index />} />
-                  <Route path="/explore" element={<ExplorePage />} />
-                  <Route path="/schools/:id" element={<SchoolDetailPage />} />
-                  <Route path="/shop" element={<ShopPage />} />
-                  <Route path="/product/:id" element={<ProductDetailPage />} />
-                  <Route path="/cart" element={<CartPage />} />
-                  <Route path="/checkout" element={<CheckoutPage />} />
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/register" element={<RegisterPage />} />
-                  <Route path="/demo-profiles" element={<DemoProfilesPage />} />
-                  <Route path="/unauthorized" element={<UnauthorizedPage />} />
-
-                  {/* Protected routes with layout */}
-                  <Route path="/" element={
-                    <ProtectedRoute>
-                      <AuthLayout />
-                    </ProtectedRoute>
-                  }>
-                    {/* Main routes */}
-                    <Route path="dashboard" element={<DashboardPage />} />
-                    <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
-                    <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
-                    <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
-                    <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
-                    <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
-                    <Route path="profile" element={<ProfilePage />} />
-                    <Route path="calendar" element={<CalendarPage />} />
-                    <Route path="notifications" element={<NotificationsPage />} />
-                    <Route path="settings" element={<SettingsPage />} />
-                    <Route path="messages" element={<MessagesPage />} />
-                    <Route path="messages/:conversationId" element={<MessagesDetailPage />} />
-                    <Route path="calendar-advanced" element={<CalendarAdvancedPage />} />
-                    <Route path="advanced-search" element={<AdvancedSearchPage />} />
-                    <Route path="analytics-dashboard" element={<AnalyticsDashboardPage />} />
-                    <Route path="payments-stripe" element={<PaymentsPage />} />
-                    <Route path="invitations-management" element={<InvitationsManagementPage />} />
-
-                    {/* Athlete routes */}
-                    <Route path="teams" element={<TeamsPage />} />
-                    <Route path="stats" element={<StatsPage />} />
-                    <Route path="goals" element={<GoalsPage />} />
-                    <Route path="training" element={<TrainingPage />} />
-                    <Route path="enrollments" element={<MyEnrollmentsPage />} />
-                    <Route path="wellness" element={<WellnessPage />} />
-                    <Route path="shop-marketplace" element={<StorePage />} />
-
-                    {/* Parent routes */}
-                    <Route path="children" element={<MyChildrenPage />} />
-                    <Route path="children/:childId/attendance" element={<ChildAttendancePage />} />
-                    <Route path="children/:childId/progress" element={<ChildProgressPage />} />
-                    <Route path="academic-progress" element={<AcademicProgressPage />} />
-                    <Route path="parent-attendance" element={<AttendancePage />} />
-                    <Route path="payments" element={<PaymentsPage />} />
-
-                    {/* Coach routes */}
-                    <Route path="coach-attendance" element={<CoachAttendancePage />} />
-                    <Route path="results" element={<ResultsPage />} />
-                    <Route path="training-plans" element={<TrainingPlansPage />} />
-                    <Route path="coach-reports" element={<CoachReportsPage />} />
-                    <Route path="announcements" element={<AnnouncementsPage />} />
-
-                    {/* School routes */}
-                    <Route path="students" element={<SchoolStudentsManagementPage />} />
-                    <Route path="staff" element={<SchoolCoachesManagementPage />} />
-                    <Route path="programs-management" element={<ProgramsManagementPage />} />
-                    <Route path="attendance-supervision" element={<AttendanceSupervisionPage />} />
-                    <Route path="results-overview" element={<ResultsOverviewPage />} />
-                    <Route path="finances" element={<FinancesPage />} />
-                    <Route path="school-reports" element={<ReportsPage />} />
-                    <Route path="facilities" element={<SchoolFacilitiesPage />} />
-
-                    {/* Wellness routes */}
-                    <Route path="wellness-dashboard" element={<WellnessPage />} />
-                    <Route path="athletes" element={<AthletesListPage />} />
-                    <Route path="schedule" element={<WellnessSchedulePage />} />
-                    <Route path="evaluations/new" element={<WellnessPage />} />
-                    <Route path="medical-history" element={<MedicalHistoryPage />} />
-                    <Route path="follow-ups" element={<MedicalHistoryPage />} />
-                    <Route path="nutrition" element={<NutritionPage />} />
-
-                    {/* Store routes */}
-                    <Route path="products" element={<StorePage />} />
-                    <Route path="orders" element={<StorePage />} />
-                    <Route path="inventory" element={<StorePage />} />
-                    <Route path="categories" element={<StorePage />} />
-                    <Route path="customers" element={<StorePage />} />
-                    <Route path="promotions" element={<StorePage />} />
-
-                    {/* Admin routes */}
-                    <Route path="admin/dashboard" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/users" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/clubs" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/reports" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/config" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/logs" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminPanelPage />
-                      </ProtectedRoute>
-                    } />
-                  </Route>
-
-                  {/* Catch-all route */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
-          </AuthProvider>
-        </ThemeProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </ErrorBoundary>
-=======
 import { CartProvider } from "@/contexts/CartContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+
+// Public pages
 import Index from "./pages/Index";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import ExplorePage from "./pages/ExplorePage";
+import SchoolDetailPage from "./pages/SchoolDetailPage";
+import UnauthorizedPage from "./pages/UnauthorizedPage";
+import NotFound from "./pages/NotFound";
+import CheckoutPage from "./pages/CheckoutPage";
+import ParentCheckoutPage from "./pages/ParentCheckoutPage";
+import DemoWelcomePage from "./pages/DemoWelcomePage";
 
+// Events (public)
+import EventsMapPage from "./pages/events/EventsMapPage";
+import EventPublicPage from "./pages/events/EventPublicPage";
+
+// Dashboard pages
 import DashboardPage from "./pages/DashboardPage";
 import CalendarPage from "./pages/CalendarPage";
 import NotificationsPage from "./pages/NotificationsPage";
@@ -249,41 +35,45 @@ import SettingsPage from "./pages/SettingsPage";
 import TeamsPage from "./pages/TeamsPage";
 import StatsPage from "./pages/StatsPage";
 import MessagesPage from "./pages/MessagesPage";
-import ExplorePage from "./pages/ExplorePage";
 import ProfilePage from "./pages/ProfilePage";
-import SchoolDetailPage from "./pages/SchoolDetailPage";
 import MyEnrollmentsPage from "./pages/MyEnrollmentsPage";
+import ShopPage from "./pages/ShopPage";
+
+// Parent pages
 import MyChildrenPage from "./pages/MyChildrenPage";
 import ChildProgressPage from "./pages/ChildProgressPage";
 import ChildAttendancePage from "./pages/ChildAttendancePage";
-import ShopPage from "./pages/ShopPage";
 import AcademicProgressPage from "./pages/AcademicProgressPage";
 import AttendancePage from "./pages/AttendancePage";
 import PaymentsPage from "./pages/PaymentsPage";
+import MyPaymentsPage from "./pages/MyPaymentsPage";
+
+// Coach pages
 import CoachAttendancePage from "./pages/CoachAttendancePage";
 import ResultsPage from "./pages/ResultsPage";
 import TrainingPlansPage from "./pages/TrainingPlansPage";
 import CoachReportsPage from "./pages/CoachReportsPage";
 import AnnouncementsPage from "./pages/AnnouncementsPage";
-import StudentsPage from "./pages/StudentsPage";
-import StaffPage from "./pages/StaffPage";
+
+// School pages
+import SchoolStudentsManagementPage from "./pages/SchoolStudentsManagementPage";
+import SchoolCoachesManagementPage from "./pages/SchoolCoachesManagementPage";
 import ProgramsManagementPage from "./pages/ProgramsManagementPage";
 import AttendanceSupervisionPage from "./pages/AttendanceSupervisionPage";
 import ResultsOverviewPage from "./pages/ResultsOverviewPage";
 import FinancesPage from "./pages/FinancesPage";
+import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
 import ReportsPage from "./pages/ReportsPage";
 import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
+
+// Onboarding pages
 import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
-import SchoolStudentsManagementPage from "./pages/SchoolStudentsManagementPage";
-import SchoolCoachesManagementPage from "./pages/SchoolCoachesManagementPage";
 import CoachOnboardingPage from "./pages/CoachOnboardingPage";
 import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
 import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
 import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
-import UnauthorizedPage from "./pages/UnauthorizedPage";
-import NotFound from "./pages/NotFound";
 
-// New functional pages (replacing "En construcción")
+// Athlete pages
 import GoalsPage from "./pages/GoalsPage";
 import TrainingPage from "./pages/TrainingPage";
 import AthleteWellnessPage from "./pages/AthleteWellnessPage";
@@ -299,21 +89,20 @@ import WellnessPatientsPage from "./pages/WellnessPatientsPage";
 import MedicalHistoryPage from "./pages/MedicalHistoryPage";
 import NutritionPage from "./pages/NutritionPage";
 
-// Checkout and Analytics
-import CheckoutPage from "./pages/CheckoutPage";
-import ParentCheckoutPage from "./pages/ParentCheckoutPage";
+// Admin pages
 import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
 
-// Demo pages
-import DemoWelcomePage from "./pages/DemoWelcomePage";
-import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
-import MyPaymentsPage from "./pages/MyPaymentsPage";
+// Organizer pages
+import OrganizerDashboardPage from "./pages/organizer/OrganizerDashboardPage";
+import OrganizerOnboardingPage from "./pages/organizer/OrganizerOnboardingPage";
+import CreateEventPage from "./pages/organizer/CreateEventPage";
+import EventManagementPage from "./pages/organizer/EventManagementPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutos
-      gcTime: 10 * 60 * 1000, // 10 minutos (antes cacheTime)
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -339,8 +128,11 @@ const App = () => (
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/checkout" element={<CheckoutPage />} />
                 <Route path="/parent-checkout" element={<ParentCheckoutPage />} />
-                
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                
+                {/* Public Events routes */}
+                <Route path="/events" element={<EventsMapPage />} />
+                <Route path="/event/:slug" element={<EventPublicPage />} />
                 
                 {/* Protected routes with layout */}
                 <Route path="/" element={
@@ -416,6 +208,12 @@ const App = () => (
                   <Route path="promotions" element={<StoreProductsPage />} />
                   <Route path="store-reports" element={<ReportsPage />} />
                   
+                  {/* Organizer routes */}
+                  <Route path="organizer-onboarding" element={<OrganizerOnboardingPage />} />
+                  <Route path="organizer/home" element={<OrganizerDashboardPage />} />
+                  <Route path="organizer/create-event" element={<CreateEventPage />} />
+                  <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                  
                   {/* Admin routes */}
                   <Route path="admin/users" element={
                     <ProtectedRoute allowedRoles={['admin']}>
@@ -464,7 +262,6 @@ const App = () => (
       </ThemeProvider>
     </TooltipProvider>
   </QueryClientProvider>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
 );
 
 export default App;

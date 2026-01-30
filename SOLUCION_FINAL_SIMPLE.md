@@ -52,7 +52,7 @@ Click "Save"
 **Verificar Variable 3 existe:**
 ```
 Name: REACT_APP_BACKEND_URL
-Value: https://ux-analysis-5.preview.emergentagent.com
+Value: https://sportmaps-db.preview.emergentagent.com
 ```
 
 ### **3. REDEPLOY (2 min)**

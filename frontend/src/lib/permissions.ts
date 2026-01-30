@@ -134,6 +134,21 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:edit'
   ],
   
+  organizer: [
+    'dashboard:view',
+    'calendar:view',
+    'calendar:create',
+    'calendar:edit',
+    'calendar:delete',
+    'stats:view',
+    'reports:view',
+    'reports:create',
+    'messages:view',
+    'messages:send',
+    'settings:view',
+    'settings:edit'
+  ],
+  
   admin: [
     'dashboard:view',
     'calendar:view',
@@ -248,6 +263,13 @@ export const featureFlags: Record<UserRole, Record<string, boolean>> = {
     canAccessAdmin: false,
     canExportData: true
   },
+  organizer: {
+    canCreateEvents: true,
+    canManageTeams: false,
+    canViewFinances: true,
+    canAccessAdmin: false,
+    canExportData: true
+  },
   admin: {
     canCreateEvents: true,
     canManageTeams: true,
@@ -308,6 +330,12 @@ export const dataVisibility = {
   store_owner: {
     canSeeOwnData: true,
     canSeeCustomerData: true,
+    canSeeFinancialData: true,
+    canSeeSystemLogs: false
+  },
+  organizer: {
+    canSeeOwnData: true,
+    canSeeEventRegistrations: true,
     canSeeFinancialData: true,
     canSeeSystemLogs: false
   },

@@ -15,7 +15,10 @@ import {
   MapPin,
   MessageSquare,
   FileText,
-  DollarSign
+  DollarSign,
+  Plus,
+  Map,
+  Ticket
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -229,6 +232,32 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/admin/reports', icon: FileText },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
           { title: 'Logs', href: '/admin/logs', icon: Bell }
+        ]
+      }
+    ],
+
+    organizer: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/organizer/home', icon: Home },
+          { title: 'Crear Evento', href: '/organizer/create-event', icon: Plus },
+          { title: 'Explorar Eventos', href: '/events', icon: Map }
+        ]
+      },
+      {
+        title: 'Gestión',
+        items: [
+          { title: 'Mis Eventos', href: '/organizer/home', icon: Ticket },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Mensajes', href: '/messages', icon: MessageSquare }
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Perfil', href: '/profile', icon: Users },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ]

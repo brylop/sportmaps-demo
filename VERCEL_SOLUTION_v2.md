@@ -59,7 +59,7 @@ Node Version: 18.x
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 ```
 
 **¿Por qué esta opción es mejor ahora?**
@@ -105,7 +105,7 @@ El `/app/vercel.json` ahora tiene comandos npm correctos.
 
 2. **Environment Variables:**
    ```
-   REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+   REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
    ```
 
 3. **Limpiar cache y redeploy:**

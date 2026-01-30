@@ -7,7 +7,7 @@ interface UserProfile {
   id: string;
   full_name: string | null;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;

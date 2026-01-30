@@ -80,7 +80,7 @@ Archivo: `/app/vercel.json`
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 ```
 
 **Por qué esta opción:**
@@ -106,7 +106,7 @@ REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 ```
 
 **Por qué esta opción:**
@@ -195,7 +195,7 @@ mongodb     RUNNING   pid 50
 
 **Backend URL:**
 ```
-https://ux-analysis-5.preview.emergentagent.com
+https://sportmaps-db.preview.emergentagent.com
 ```
 
 ---

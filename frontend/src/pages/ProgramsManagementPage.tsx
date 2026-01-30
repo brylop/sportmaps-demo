@@ -78,7 +78,6 @@ export default function ProgramsManagementPage() {
     setSelectedClass(classItem);
     setShowEnrollModal(true);
   };
-
   const filteredClasses = classes.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.sport.toLowerCase().includes(searchQuery.toLowerCase()) ||

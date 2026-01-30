@@ -3,7 +3,12 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+<<<<<<< HEAD
 // Production Supabase credentials (public keys - safe to expose)
+=======
+// Hardcoded credentials for demo deployment (public keys only - safe to expose)
+// These are the PUBLISHABLE keys, not secret keys, so it's safe
+>>>>>>> cb426b9a3a46d1327181571e62588ccfc62ea39f
 const PRODUCTION_SUPABASE_URL = 'https://sznbagbtwenyihpewczg.supabase.co';
 const PRODUCTION_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6bmJhZ2J0d2VueWlocGV3Y3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMTk4ODksImV4cCI6MjA3NDc5NTg4OX0.Aiv6tgIOGUw30jTW_InH-oJAxmx6ovK64SnWaGnKlJw';
 

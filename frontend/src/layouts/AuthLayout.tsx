@@ -1,31 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
-<<<<<<< HEAD
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Outlet } from "react-router-dom";
-import { Loader2 } from "lucide-react";
-
-export default function AuthLayout() {
-  const { user, profile } = useAuth();
-
-  return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          {/* Header with sidebar trigger */}
-          <header className="h-14 flex items-center border-b px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <SidebarTrigger className="mr-4" />
-            <div className="flex-1">
-              <h1 className="text-lg font-semibold">SportMaps</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <ThemeToggle />
-              <div className="text-sm text-muted-foreground">
-                Bienvenido, {profile?.full_name || user?.email}
-=======
 import { useCart } from "@/contexts/CartContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalSearch } from "@/components/global/GlobalSearch";
@@ -80,22 +55,15 @@ export default function AuthLayout() {
               
               <div className="hidden md:block text-sm text-muted-foreground truncate max-w-[150px]">
                 {profile?.full_name || user?.email}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               </div>
             </div>
           </header>
 
-<<<<<<< HEAD
-          {/* Main content */}
-          <main className="flex-1 p-6 overflow-auto">
-            <Outlet />
-=======
           {/* Main content - with padding for mobile bottom nav */}
           <main className="flex-1 p-3 md:p-4 lg:p-6 overflow-auto pb-24 md:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
               <Outlet />
             </div>
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
           </main>
         </div>
       </div>

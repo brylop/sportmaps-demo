@@ -25,7 +25,7 @@ El archivo `/app/vercel.json` (raíz) **ha sido actualizado** con la configuraci
 
 3. Environment Variables:
    Settings → Environment Variables → Add
-   REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+   REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 
 4. Redeploy:
    Deployments → Click último deployment → "..." → Redeploy
@@ -53,7 +53,7 @@ El archivo `/app/vercel.json` (raíz) **ha sido actualizado** con la configuraci
 
 3. Environment Variables:
    Settings → Environment Variables → Add
-   REACT_APP_BACKEND_URL = https://ux-analysis-5.preview.emergentagent.com
+   REACT_APP_BACKEND_URL = https://sportmaps-db.preview.emergentagent.com
 
 4. Redeploy:
    Deployments → Click último deployment → "..." → Redeploy

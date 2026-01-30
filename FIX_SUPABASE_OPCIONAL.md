@@ -119,7 +119,7 @@ cd /app/frontend
 cat > .env.production << 'EOF'
 VITE_SUPABASE_URL=https://sznbagbtwenyihpewczg.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6bmJhZ2J0d2VueWlocGV3Y3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMTk4ODksImV4cCI6MjA3NDc5NTg4OX0.Aiv6tgIOGUw30jTW_InH-oJAxmx6ovK64SnWaGnKlJw
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 EOF
 
 git add .env.production

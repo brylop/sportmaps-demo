@@ -61,7 +61,7 @@ Node Version: 18.x
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 ```
 
 ### **Por qué funciona:**
@@ -91,7 +91,7 @@ Node Version: 18.x
 
 **Environment Variables:**
 ```
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 ```
 
 ### **Por qué funciona:**
@@ -121,7 +121,7 @@ REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
    - Settings → Environment Variables
    - Agregar:
      ```
-     REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+     REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
      ```
 
 4. **Redeploy**
@@ -265,7 +265,7 @@ Install Command: (empty - uses vercel.json)
 Node Version: 18.x
 
 Environment Variables:
-REACT_APP_BACKEND_URL=https://ux-analysis-5.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://sportmaps-db.preview.emergentagent.com
 ```
 
 ---

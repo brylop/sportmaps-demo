@@ -185,3 +185,23 @@ export function useDashboardStats(role?: UserRole) {
     staleTime: 30000,
   });
 }
+
+export function useNotifications() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['notifications', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+}
