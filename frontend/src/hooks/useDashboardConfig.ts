@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
 import { DashboardConfig, UserRole } from '@/types/dashboard';
-<<<<<<< HEAD
-import { DashboardStatsData } from './useDashboardStats';
-=======
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
+import { DashboardStats } from './useDashboardStats';
 import {
   Users,
   Calendar,
@@ -23,24 +20,31 @@ import {
  * Custom hook that returns dashboard configuration based on user role
  * Centralizes all role-specific data and layouts
  */
-<<<<<<< HEAD
-export function useDashboardConfig(role: UserRole, statsData?: DashboardStatsData): DashboardConfig {
+export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): DashboardConfig {
   return useMemo(() => {
-    // Valores por defecto si no hay datos cargados aún
+    // Default empty stats if not provided
     const stats = statsData || {
+      children: 0,
+      teams: 0,
+      products: 0,
+      orders: 0,
+      appointments: 0,
+      evaluations: 0,
+      programs: 0,
+      activePrograms: 0,
+      notifications: 0,
+      unreadNotifications: 0,
+      payments: 0,
+      pendingPayments: 0,
+      totalStudents: 0,
+      totalRevenue: 0,
       activeEnrollments: 0,
       upcomingEvents: 0,
       completedActivities: 0,
       attendanceRate: 0,
-      activePrograms: 0,
-      totalStudents: 0,
-      totalRevenue: 0
+      activeTeams: 0
     };
 
-=======
-export function useDashboardConfig(role: UserRole): DashboardConfig {
-  return useMemo(() => {
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
     switch (role) {
       case 'athlete':
         return {
@@ -49,67 +53,38 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           description: 'Resumen de tu actividad deportiva',
           stats: [
             {
-<<<<<<< HEAD
               title: 'Programas Activos',
-              value: stats.activeEnrollments, // ¡Dato Real!
+              value: stats.activeEnrollments,
               description: stats.activeEnrollments === 0 ? 'Sin inscripciones activas' : 'En curso actualmente',
-=======
-              title: 'Equipos Activos',
-              value: 0,
-              description: 'Aún no estás en ningún equipo',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               icon: Trophy
             },
             {
               title: 'Próximos Eventos',
-<<<<<<< HEAD
               value: stats.upcomingEvents,
-=======
-              value: 0,
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               description: 'Esta semana',
               icon: Calendar
             },
             {
-<<<<<<< HEAD
               title: 'Actividades Completadas',
               value: stats.completedActivities,
               description: 'Total histórico',
-=======
-              title: 'Partidos Jugados',
-              value: 0,
-              description: 'Este mes',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               icon: Target
             },
             {
               title: 'Asistencia',
-<<<<<<< HEAD
               value: `${stats.attendanceRate}%`,
               description: 'Promedio general',
-=======
-              value: '0%',
-              description: 'Sin registros aún',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               icon: BarChart3
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Ver Calendario', icon: Calendar, href: '/calendar' },
-<<<<<<< HEAD
-            { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments' }, // Actualizado a la nueva página
-=======
-            { label: 'Mis Estadísticas', icon: BarChart3, href: '/stats' },
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
-            { label: 'Explorar Programas', icon: Users, href: '/explore' }
+            { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
+            { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments', variant: 'outline' },
+            { label: 'Explorar Programas', icon: Users, href: '/explore', variant: 'outline' }
           ]
         };
 
-<<<<<<< HEAD
-      // ... (El resto de roles se mantienen igual por ahora, pero ya preparados para recibir stats)
-      
-=======
       case 'parent':
         return {
           role: 'parent',
@@ -118,33 +93,34 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Hijos Registrados',
-              value: 0,
-              description: 'Aún no has agregado hijos',
+              value: stats.children,
+              description: stats.children === 0 ? 'Aún no has agregado hijos' : 'Registrados',
               icon: Users
             },
             {
-              title: 'Próximas Actividades',
-              value: 0,
-              description: 'Esta semana',
-              icon: Calendar
+              title: 'Pagos Pendientes',
+              value: stats.pendingPayments,
+              description: stats.pendingPayments === 0 ? 'Al día' : 'Por pagar',
+              icon: TrendingUp
             },
             {
-              title: 'Asistencia Global',
-              value: '0%',
-              description: 'Sin registros aún',
-              icon: BarChart3
+              title: 'Suscripciones Activas',
+              value: stats.activeEnrollments, // Using active enrollments as proxy for subscriptions/active kids programs
+              description: 'En curso',
+              icon: Activity
             },
             {
               title: 'Notificaciones',
-              value: 0,
+              value: stats.unreadNotifications,
               description: 'Sin leer',
               icon: Bell
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'orange' },
-            { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' }
+            { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
+            { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' },
+            { label: 'Mis Pagos', icon: TrendingUp, href: '/payments', variant: 'outline' }
           ]
         };
 
@@ -156,25 +132,25 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Equipos',
-              value: 0,
-              description: 'Aún no tienes equipos asignados',
+              value: stats.teams,
+              description: stats.teams === 0 ? 'Aún no tienes equipos' : 'Asignados',
               icon: Users
             },
             {
               title: 'Jugadores Totales',
-              value: 0,
+              value: stats.totalStudents || 0, // Assuming totalStudents maps to players for coach context if needed, or 0
               description: 'En todos los equipos',
               icon: Users
             },
             {
               title: 'Próximos Eventos',
-              value: 0,
+              value: stats.upcomingEvents,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Asistencia Promedio',
-              value: '0%',
+              value: `${stats.attendanceRate}%`,
               description: 'Sin registros aún',
               icon: TrendingUp
             }
@@ -188,7 +164,6 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           notifications: []
         };
 
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       case 'school':
         return {
           role: 'school',
@@ -197,60 +172,34 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Estudiantes Activos',
-<<<<<<< HEAD
-              value: stats.totalStudents || 0,
-              description: 'Total matriculados',
-=======
-              value: 0,
-              description: 'Aún no tienes estudiantes',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
+              value: stats.totalStudents,
+              description: stats.totalStudents === 0 ? 'Aún no tienes estudiantes' : 'Total matriculados',
               icon: Users
             },
             {
               title: 'Programas',
-<<<<<<< HEAD
-              value: stats.activePrograms || 0,
-              description: 'Programas ofertados',
-=======
-              value: 0,
-              description: 'Crea tu primer programa',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
+              value: stats.programs,
+              description: stats.programs === 0 ? 'Crea tu primer programa' : `${stats.activePrograms} activos`,
               icon: Activity
             },
             {
               title: 'Entrenadores',
-              value: 0,
-<<<<<<< HEAD
+              value: stats.activeTeams, // Using activeTeams as proxy or 0 if not counted separate
               description: 'Equipo técnico',
-=======
-              description: 'Agrega tu equipo',
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
               icon: Users
             },
             {
               title: 'Ingresos Mensuales',
-              value: '$0',
+              value: `$${stats.totalRevenue || 0}`,
               description: 'Este mes',
               icon: TrendingUp
             }
           ],
           activities: [],
           quickActions: [
-<<<<<<< HEAD
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
             { label: 'Agregar Entrenador', icon: Users, href: '/school-coaches', variant: 'outline' }
-          ]
-        };
-
-      // ... Mantener los demás casos (parent, coach, etc) igual, 
-      // solo asegúrate de cerrar el switch y retornar el default.
-      
-=======
-            { label: 'Ver Cobros Automáticos', icon: TrendingUp, href: '/payments-automation', variant: 'default' },
-            { label: 'Tu Perfil Público', icon: Building, href: '/explore', variant: 'outline' },
-            { label: 'Gestionar Programas', icon: Activity, href: '/programs', variant: 'outline' },
-            { label: 'Ver Estudiantes', icon: Users, href: '/students', variant: 'outline' }
           ]
         };
 
@@ -262,19 +211,19 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Atletas Asignados',
-              value: 0,
+              value: 0, // Helper needed for dedicated athlete assignation count
               description: 'Aún no tienes atletas asignados',
               icon: Users
             },
             {
               title: 'Consultas Programadas',
-              value: 0,
+              value: stats.appointments,
               description: 'Esta semana',
               icon: Calendar
             },
             {
               title: 'Evaluaciones Pendientes',
-              value: 0,
+              value: stats.evaluations,
               description: 'Por completar',
               icon: Activity
             },
@@ -301,8 +250,8 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: [
             {
               title: 'Productos Activos',
-              value: 0,
-              description: 'Crea tu primer producto',
+              value: stats.products,
+              description: stats.products === 0 ? 'Crea tu primer producto' : 'En catálogo',
               icon: ShoppingBag
             },
             {
@@ -313,7 +262,7 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
             },
             {
               title: 'Pedidos Pendientes',
-              value: 0,
+              value: stats.orders,
               description: 'Por procesar',
               icon: Clock
             },
@@ -371,7 +320,6 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           ]
         };
 
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
       default:
         return {
           role: 'athlete',
@@ -380,10 +328,5 @@ export function useDashboardConfig(role: UserRole): DashboardConfig {
           stats: []
         };
     }
-<<<<<<< HEAD
-  }, [role, statsData]); // Importante: recalculate cuando cambien los datos
+  }, [role, statsData]);
 }
-=======
-  }, [role]);
-}
->>>>>>> 695a09708dac622318dbbb51a95d9e666a9ac0c3
