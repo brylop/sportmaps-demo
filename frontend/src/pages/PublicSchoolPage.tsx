@@ -10,12 +10,52 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useToast } from '@/hooks/use-toast';
 
+// Helper to convert hex to HSL for Tailwind variables
+function hexToHSL(hex: string) {
+    let r = 0, g = 0, b = 0;
+    if (hex.length === 4) {
+        r = parseInt("0x" + hex[1] + hex[1]);
+        g = parseInt("0x" + hex[2] + hex[2]);
+        b = parseInt("0x" + hex[3] + hex[3]);
+    } else if (hex.length === 7) {
+        r = parseInt("0x" + hex[1] + hex[2]);
+        g = parseInt("0x" + hex[3] + hex[4]);
+        b = parseInt("0x" + hex[5] + hex[6]);
+    }
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    const cmin = Math.min(r, g, b),
+        cmax = Math.max(r, g, b),
+        delta = cmax - cmin;
+    let h = 0, s = 0, l = 0;
+
+    if (delta === 0) h = 0;
+    else if (cmax === r) h = ((g - b) / delta) % 6;
+    else if (cmax === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+
+    l = (cmax + cmin) / 2;
+    s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+    s = +(s * 100).toFixed(1);
+    l = +(l * 100).toFixed(1);
+
+    return `${h} ${s}% ${l}%`;
+}
+
 // Mock data for demo fallback
 const DEMO_SCHOOL_DATA = {
     name: "Academia Deportiva Los Tigres",
     description: "Formando campeones desde 2010. Somos la academia líder en formación integral deportiva, con instalaciones de primera clase y un equipo de entrenadores certificados.",
     banner_url: "https://images.unsplash.com/photo-1526304640152-d4619684e484?auto=format&fit=crop&q=80&w=2000",
     logo_url: "", // Will use initials
+    branding: {
+        primaryColor: "#E11D48", // Example: Rose-600 (User can change this)
+        secondaryColor: "#1e293b"
+    },
     address: "Av. Principal #123-45",
     city: "Bogotá",
     email: "contacto@lostigres.com",
@@ -71,8 +111,14 @@ export default function PublicSchoolPage() {
 
     if (!school) return <div>Escuela no encontrada</div>;
 
+    // Calculate dynamic styles based on school branding
+    const customStyles = school.branding ? {
+        '--primary': hexToHSL(school.branding.primaryColor),
+        '--primary-foreground': '0 0% 100%', // Assume white text on primary for now
+    } as React.CSSProperties : {};
+
     return (
-        <div className="min-h-screen bg-gray-50 pb-20">
+        <div className="min-h-screen bg-gray-50 pb-20" style={customStyles}>
             {/* Hero Section */}
             <div className="relative h-[400px] w-full overflow-hidden">
                 <div className="absolute inset-0 bg-black/60 z-10" />
@@ -83,7 +129,7 @@ export default function PublicSchoolPage() {
                 />
                 <div className="absolute inset-0 z-20 container mx-auto px-4 flex flex-col justify-end pb-12 text-white">
                     <div className="flex flex-col md:flex-row items-end md:items-center gap-6">
-                        <div className="h-24 w-24 md:h-32 md:w-32 rounded-xl bg-primary flex items-center justify-center border-4 border-white shadow-xl text-4xl font-bold uppercase">
+                        <div className="h-24 w-24 md:h-32 md:w-32 rounded-xl bg-primary flex items-center justify-center border-4 border-white shadow-xl text-4xl font-bold uppercase transition-colors duration-500">
                             {school.name.substring(0, 2)}
                         </div>
                         <div className="flex-1 space-y-2">
@@ -103,7 +149,7 @@ export default function PublicSchoolPage() {
                             </p>
                         </div>
                         <div className="flex gap-3 mt-4 md:mt-0">
-                            <Button size="lg" className="bg-primary hover:bg-primary/90 text-white shadow-lg" onClick={() => handleAction('Inscribirse')}>
+                            <Button size="lg" className="bg-primary hover:bg-primary/90 text-white shadow-lg border-2 border-transparent hover:border-white/20" onClick={() => handleAction('Inscribirse')}>
                                 Inscribirse Ahora
                             </Button>
                             <Button size="lg" variant="outline" className="bg-white/10 hover:bg-white/20 text-white border-white/40 backdrop-blur-sm" onClick={() => handleAction('Contactar')}>
@@ -147,7 +193,7 @@ export default function PublicSchoolPage() {
 
                         <Card className="bg-blue-50/50 border-blue-100">
                             <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-blue-700">
+                                <CardTitle className="flex items-center gap-2 text-primary">
                                     <Clock className="w-5 h-5" /> Horarios de Atención
                                 </CardTitle>
                             </CardHeader>
@@ -171,7 +217,7 @@ export default function PublicSchoolPage() {
                     {/* Right Column: Tabs (Programs, Facilities, etc) */}
                     <div className="lg:col-span-2 space-y-6">
                         <Tabs defaultValue="programs" className="w-full">
-                            <TabsList className="w-full justify-start h-auto p-1 bg-white border rounded-xl mb-6 shadow-sm">
+                            <TabsList className="w-full justify-start h-auto p-1 bg-white border rounded-xl mb-6 shadow-sm overflow-x-auto">
                                 <TabsTrigger value="programs" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Programas</TabsTrigger>
                                 <TabsTrigger value="facilities" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Instalaciones</TabsTrigger>
                                 <TabsTrigger value="services" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Servicios</TabsTrigger>
