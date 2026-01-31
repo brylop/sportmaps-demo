@@ -22,6 +22,7 @@ import NotFound from "./pages/NotFound";
 import CheckoutPage from "./pages/CheckoutPage";
 import ParentCheckoutPage from "./pages/ParentCheckoutPage";
 import DemoWelcomePage from "./pages/DemoWelcomePage";
+import PublicSchoolPage from "./pages/PublicSchoolPage";
 
 // Events (public)
 import EventsMapPage from "./pages/events/EventsMapPage";
@@ -129,11 +130,12 @@ const App = () => (
                 <Route path="/checkout" element={<CheckoutPage />} />
                 <Route path="/parent-checkout" element={<ParentCheckoutPage />} />
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
-                
+
                 {/* Public Events routes */}
                 <Route path="/events" element={<EventsMapPage />} />
                 <Route path="/event/:slug" element={<EventPublicPage />} />
-                
+                <Route path="/s/:slug" element={<PublicSchoolPage />} />
+
                 {/* Protected routes with layout */}
                 <Route path="/" element={
                   <ProtectedRoute>
@@ -152,7 +154,7 @@ const App = () => (
                   <Route path="notifications" element={<NotificationsPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                   <Route path="messages" element={<MessagesPage />} />
-                  
+
                   {/* Athlete routes */}
                   <Route path="teams" element={<TeamsPage />} />
                   <Route path="stats" element={<StatsPage />} />
@@ -161,7 +163,7 @@ const App = () => (
                   <Route path="enrollments" element={<MyEnrollmentsPage />} />
                   <Route path="shop" element={<ShopPage />} />
                   <Route path="wellness" element={<AthleteWellnessPage />} />
-                  
+
                   {/* Parent routes */}
                   <Route path="children" element={<MyChildrenPage />} />
                   <Route path="my-payments" element={<MyPaymentsPage />} />
@@ -170,14 +172,14 @@ const App = () => (
                   <Route path="academic-progress" element={<AcademicProgressPage />} />
                   <Route path="parent-attendance" element={<AttendancePage />} />
                   <Route path="payments" element={<PaymentsPage />} />
-                  
+
                   {/* Coach routes */}
                   <Route path="coach-attendance" element={<CoachAttendancePage />} />
                   <Route path="results" element={<ResultsPage />} />
                   <Route path="training-plans" element={<TrainingPlansPage />} />
                   <Route path="coach-reports" element={<CoachReportsPage />} />
                   <Route path="announcements" element={<AnnouncementsPage />} />
-                  
+
                   {/* School routes */}
                   <Route path="students" element={<SchoolStudentsManagementPage />} />
                   <Route path="staff" element={<SchoolCoachesManagementPage />} />
@@ -188,7 +190,7 @@ const App = () => (
                   <Route path="payments-automation" element={<PaymentsAutomationPage />} />
                   <Route path="school-reports" element={<ReportsPage />} />
                   <Route path="facilities" element={<SchoolFacilitiesPage />} />
-                  
+
                   {/* Wellness routes */}
                   <Route path="athletes" element={<WellnessPatientsPage />} />
                   <Route path="schedule" element={<WellnessSchedulePage />} />
@@ -197,7 +199,7 @@ const App = () => (
                   <Route path="follow-ups" element={<WellnessPatientsPage />} />
                   <Route path="nutrition" element={<NutritionPage />} />
                   <Route path="wellness-reports" element={<ReportsPage />} />
-                  
+
                   {/* Store routes */}
                   <Route path="products" element={<StoreProductsPage />} />
                   <Route path="orders" element={<StoreOrdersPage />} />
@@ -207,13 +209,13 @@ const App = () => (
                   <Route path="customers" element={<StoreOrdersPage />} />
                   <Route path="promotions" element={<StoreProductsPage />} />
                   <Route path="store-reports" element={<ReportsPage />} />
-                  
+
                   {/* Organizer routes */}
                   <Route path="organizer-onboarding" element={<OrganizerOnboardingPage />} />
                   <Route path="organizer/home" element={<OrganizerDashboardPage />} />
                   <Route path="organizer/create-event" element={<CreateEventPage />} />
                   <Route path="organizer/event/:id" element={<EventManagementPage />} />
-                  
+
                   {/* Admin routes */}
                   <Route path="admin/users" element={
                     <ProtectedRoute allowedRoles={['admin']}>
@@ -246,14 +248,14 @@ const App = () => (
                     </ProtectedRoute>
                   } />
                 </Route>
-                
+
                 {/* Catch-all route */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
-              
+
               {/* Mobile Bottom Navigation */}
               <MobileBottomNav />
-              
+
               {/* Global Cart Drawer */}
               <CartDrawer />
             </BrowserRouter>
