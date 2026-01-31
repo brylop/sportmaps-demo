@@ -66,6 +66,7 @@ import FinancesPage from "./pages/FinancesPage";
 import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
 import ReportsPage from "./pages/ReportsPage";
 import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
+import PickupMonitorPage from "./pages/school/PickupMonitorPage";
 
 // Onboarding pages
 import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
@@ -190,6 +191,7 @@ const App = () => (
                   <Route path="payments-automation" element={<PaymentsAutomationPage />} />
                   <Route path="school-reports" element={<ReportsPage />} />
                   <Route path="facilities" element={<SchoolFacilitiesPage />} />
+                  <Route path="pickup" element={<PickupMonitorPage />} />
 
                   {/* Wellness routes */}
                   <Route path="athletes" element={<WellnessPatientsPage />} />

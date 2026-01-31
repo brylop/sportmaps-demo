@@ -18,7 +18,8 @@ import {
   DollarSign,
   Plus,
   Map,
-  Ticket
+  Ticket,
+  Car
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -75,7 +76,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
-      }
+      },
     ],
 
     parent: [
@@ -138,6 +139,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
