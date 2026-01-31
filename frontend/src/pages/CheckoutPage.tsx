@@ -7,10 +7,10 @@ import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { 
-  ArrowLeft, 
-  CreditCard, 
-  Building2, 
+import {
+  ArrowLeft,
+  CreditCard,
+  Building2,
   ShoppingCart,
   School,
   Package,
@@ -24,13 +24,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { checkoutAPI } from '@/lib/api/checkout';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
   const { toast } = useToast();
-  
+
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'pse'>('card');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -71,53 +72,17 @@ export default function CheckoutPage() {
       // Process each item type
       for (const item of items) {
         if (item.type === 'enrollment' && item.metadata.programId) {
-          // Create enrollment
-          await supabase.from('enrollments').insert({
-            user_id: user.id,
-            program_id: item.metadata.programId,
-            status: 'active',
-            start_date: new Date().toISOString().split('T')[0],
-          });
-
-          // Create payment record
-          await supabase.from('payments').insert({
+          // Use adapter layer for V4 migration
+          const result = await checkoutAPI.processEnrollment({
+            student_id: user.id,
             parent_id: user.id,
+            class_id: item.metadata.programId,
+            school_id: item.metadata.schoolId,
             amount: item.price,
-            concept: `Inscripción: ${item.name}`,
-            status: 'paid',
-            payment_date: new Date().toISOString(),
-            due_date: new Date().toISOString().split('T')[0],
-            receipt_number: newReceiptNumber,
-            payment_type: 'one_time',
+            payment_method: paymentMethod
           });
 
-          // Notify school
-          if (item.metadata.schoolId) {
-            const { data: school } = await supabase
-              .from('schools')
-              .select('owner_id')
-              .eq('id', item.metadata.schoolId)
-              .single();
-
-            if (school?.owner_id) {
-              await supabase.from('notifications').insert({
-                user_id: school.owner_id,
-                title: 'Nueva Inscripción',
-                message: `Nueva inscripción en ${item.name}`,
-                type: 'enrollment',
-                link: '/students',
-              });
-            }
-          }
-
-          // Add to calendar
-          await supabase.from('calendar_events').insert({
-            user_id: user.id,
-            title: `Inicio: ${item.name}`,
-            event_type: 'enrollment',
-            start_time: new Date().toISOString(),
-            end_time: new Date(Date.now() + 3600000).toISOString(),
-          });
+          if (!result.success) throw new Error(result.error || 'Enrollment failed');
         }
 
         if (item.type === 'product' && item.metadata.productId) {
@@ -449,8 +414,8 @@ export default function CheckoutPage() {
                   <span className="text-primary">{formatPrice(getTotal())}</span>
                 </div>
 
-                <Button 
-                  className="w-full" 
+                <Button
+                  className="w-full"
                   size="lg"
                   onClick={handlePayment}
                   disabled={processing}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { supabase } from '@/integrations/supabase/client';
+import { parentsAPI } from '@/lib/api/parents';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   Dialog,
@@ -60,15 +60,13 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
 
     setIsSubmitting(true);
     try {
-      const { error } = await supabase.from('children').insert({
+      await parentsAPI.addChild({
         parent_id: user.id,
         full_name: values.full_name,
         date_of_birth: values.date_of_birth,
-        sport: values.sport || null,
-        team_name: values.team_name || null,
+        sport: values.sport,
+        team_name: values.team_name,
       });
-
-      if (error) throw error;
 
       toast.success('Hijo añadido exitosamente');
       form.reset();

@@ -9,6 +9,7 @@ import { MapPin, Mail, Phone, Globe, Calendar, Users, Star, Clock, CheckCircle2 
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useToast } from '@/hooks/use-toast';
+import { schoolsAPI } from '@/lib/api/schools';
 
 // Helper to convert hex to HSL for Tailwind variables
 function hexToHSL(hex: string) {
@@ -46,37 +47,6 @@ function hexToHSL(hex: string) {
     return `${h} ${s}% ${l}%`;
 }
 
-// Mock data for demo fallback
-const DEMO_SCHOOL_DATA = {
-    name: "Academia Deportiva Los Tigres",
-    description: "Formando campeones desde 2010. Somos la academia líder en formación integral deportiva, con instalaciones de primera clase y un equipo de entrenadores certificados.",
-    banner_url: "https://images.unsplash.com/photo-1526304640152-d4619684e484?auto=format&fit=crop&q=80&w=2000",
-    logo_url: "", // Will use initials
-    branding: {
-        primaryColor: "#E11D48", // Example: Rose-600 (User can change this)
-        secondaryColor: "#1e293b"
-    },
-    address: "Av. Principal #123-45",
-    city: "Bogotá",
-    email: "contacto@lostigres.com",
-    phone: "+57 300 123 4567",
-    services: [
-        { title: "Entrenamiento Personalizado", description: "Clases 1 a 1 para mejorar técnica", price: "$50.000/hora" },
-        { title: "Torneos Mensuales", description: "Competencia interna y externa", price: "Incluido" },
-        { title: "Evaluación Nutricional", description: "Seguimiento trimestral", price: "$80.000" },
-        { title: "Tienda Deportiva", description: "Venta de uniformes y equipos", price: "Varios" }
-    ],
-    programs: [
-        { name: "Fútbol Base", age: "5-10 años", schedule: "Lun-Mie-Vie" },
-        { name: "Fútbol Juvenil", age: "11-15 años", schedule: "Mar-Jue-Sab" },
-        { name: "Alto Rendimiento", age: "16+ años", schedule: "Todos los días" }
-    ],
-    staff: [
-        { name: "Carlos Ruiz", role: "Director Técnico", exp: "15 años" },
-        { name: "Ana María Polo", role: "Preparadora Física", exp: "8 años" }
-    ]
-};
-
 export default function PublicSchoolPage() {
     const { slug } = useParams();
     const { toast } = useToast();
@@ -88,13 +58,9 @@ export default function PublicSchoolPage() {
     const { data: school, isLoading: isLoadingSchool } = useQuery({
         queryKey: ['public-school', slug],
         queryFn: async () => {
-            // Simulate API call delay
-            await new Promise(resolve => setTimeout(resolve, 800));
-
-            // In a real implementation: fetch by slug from 'schools' table
-            // const { data, error } = await supabase.from('schools').select('*').eq('slug', slug).single();
-            // For Demo: Return demo data always
-            return DEMO_SCHOOL_DATA;
+            const data = await schoolsAPI.getSchoolBySlug(slug || '');
+            if (!data) throw new Error('School not found');
+            return data;
         }
     });
 
