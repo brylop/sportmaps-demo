@@ -81,7 +81,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
       }, 200);
 
       const response = await studentsAPI.bulkUpload(file, schoolId);
-      
+
       clearInterval(progressInterval);
       setUploadProgress(100);
 
@@ -125,12 +125,12 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
   };
 
   const handleClose = () => {
-    if (!uploading) {
-      setFile(null);
-      setResult(null);
-      setUploadProgress(0);
-      onClose();
-    }
+    // Allow closing even if uploading to prevent trapped users
+    setFile(null);
+    setResult(null);
+    setUploadProgress(0);
+    setUploading(false); // Force reset
+    onClose();
   };
 
   const downloadTemplate = () => {
@@ -138,7 +138,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
 Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,María García,maria.garcia@email.com,3009876543
 Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carlos Martínez,carlos.martinez@email.com,3108765432
 `;
-    
+
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -161,6 +161,9 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
             <FileSpreadsheet className="h-5 w-5 text-primary" />
             Importar Estudiantes desde CSV
           </DialogTitle>
+          <DialogDescription>
+            Sube un archivo CSV con la lista de estudiantes para importarlos masivamente.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -326,15 +329,14 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
         </div>
 
         <DialogFooter>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handleClose}
-            disabled={uploading}
           >
             {result ? 'Cerrar' : 'Cancelar'}
           </Button>
           {!result && (
-            <Button 
+            <Button
               onClick={handleUpload}
               disabled={!file || uploading}
             >

@@ -30,8 +30,16 @@ export default function StudentsPage() {
   const loadStudents = async () => {
     try {
       setLoading(true);
+      const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
+      const schoolId = isDemoMode ? 'demo-school' : profile?.id;
+
+      if (!schoolId) {
+        setLoading(false);
+        return;
+      }
+
       const data = await studentsAPI.getStudents({
-        school_id: profile?.id || 'demo-school',
+        school_id: schoolId,
         limit: 500
       });
       setStudents(data);
@@ -117,15 +125,15 @@ export default function StudentsPage() {
             )}
             Actualizar
           </Button>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
             className="flex-1 md:flex-initial"
           >
             <UserPlus className="h-4 w-4 mr-2" />
             Nuevo Alumno
           </Button>
-          <Button 
+          <Button
             size="sm"
             onClick={() => setShowImportModal(true)}
             className="flex-1 md:flex-initial"
@@ -133,7 +141,7 @@ export default function StudentsPage() {
             <FileUp className="h-4 w-4 mr-2" />
             Importar CSV
           </Button>
-          <Button 
+          <Button
             size="sm"
             onClick={() => setShowEnrollModal(true)}
             variant="secondary"

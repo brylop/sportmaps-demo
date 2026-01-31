@@ -38,7 +38,8 @@ export default function SchoolStudentsManagementPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  
+  const [viewingStudent, setViewingStudent] = useState<any | null>(null);
+
   // Local students state for demo + imported
   const [localStudents, setLocalStudents] = useState([
     { id: '1', full_name: 'Mateo Pérez', date_of_birth: '2013-05-15', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid' },
@@ -85,7 +86,7 @@ export default function SchoolStudentsManagementPage() {
         paymentStatus: 'pending',
       };
       setLocalStudents(prev => [...prev, newStudent]);
-      
+
       toast({
         title: '✅ Estudiante agregado',
         description: `${data.full_name} ha sido registrado exitosamente`,
@@ -214,7 +215,13 @@ export default function SchoolStudentsManagementPage() {
                     <TableCell>{student.phone}</TableCell>
                     <TableCell>{getPaymentBadge(student.paymentStatus)}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm">Ver Perfil</Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setViewingStudent(student)}
+                      >
+                        Ver Perfil
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -240,7 +247,7 @@ export default function SchoolStudentsManagementPage() {
                 <User className="w-4 h-4" />
                 Información del Estudiante
               </h3>
-              
+
               <div className="grid gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="full_name">Nombre Completo *</Label>
@@ -293,7 +300,7 @@ export default function SchoolStudentsManagementPage() {
                 <Mail className="w-4 h-4" />
                 Contacto del Padre/Tutor
               </h3>
-              
+
               <div className="grid gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
@@ -332,7 +339,7 @@ export default function SchoolStudentsManagementPage() {
                 <FileText className="w-4 h-4" />
                 Información Adicional
               </h3>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="medical_info">Información Médica (Alergias, Condiciones)</Label>
                 <Textarea
@@ -373,11 +380,63 @@ export default function SchoolStudentsManagementPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Student Details Dialog */}
+      <Dialog open={!!viewingStudent} onOpenChange={(open) => !open && setViewingStudent(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Perfil del Estudiante</DialogTitle>
+            <DialogDescription>Detalles académicos y de contacto</DialogDescription>
+          </DialogHeader>
+          {viewingStudent && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-xl font-bold text-muted-foreground uppercase">
+                  {viewingStudent.full_name.substring(0, 2)}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">{viewingStudent.full_name}</h3>
+                  <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)} años</p>
+                  {getPaymentBadge(viewingStudent.paymentStatus)}
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Acudiente:</span>
+                  <span className="text-sm">{viewingStudent.parent_name}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Teléfono:</span>
+                  <span className="text-sm">{viewingStudent.phone}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Email:</span>
+                  <span className="text-sm text-muted-foreground">-</span>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button onClick={() => setViewingStudent(null)}>Cerrar</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* CSV Import Modal */}
       <CSVImportModal
         open={showImportModal}
-        onOpenChange={setShowImportModal}
-        onImport={handleCSVImport}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          // Reload logic or just close for now as handleCSVImport was for local state only
+          // But since CSVImportModal handles upload internally, we should refresh data.
+          // Since we use local state here mixed with query, it's tricky.
+          // For now, let's just close it.
+          setShowImportModal(false);
+          toast({ title: "Importación completada", description: "La lista de estudiantes se ha actualizado." });
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+        }}
+        schoolId={user?.id || 'demo-school'}
       />
     </div>
   );

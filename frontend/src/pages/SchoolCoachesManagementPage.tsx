@@ -132,6 +132,7 @@ export default function SchoolCoachesManagementPage() {
                       Sube una foto del entrenador
                     </p>
                     <Input
+                      id="photo"
                       type="file"
                       accept="image/*"
                       className="max-w-xs mx-auto"

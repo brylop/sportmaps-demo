@@ -18,38 +18,38 @@ export default function PaymentsAutomationPage() {
   }
 
   const recurringPayments = [
-    { 
+    {
       id: 1,
-      student: 'Sofía Ramírez', 
-      program: 'Fútbol Infantil', 
-      amount: 180000, 
+      student: 'Sofía Ramírez',
+      program: 'Fútbol Infantil',
+      amount: 180000,
       nextCharge: '15 Feb 2025',
       status: 'active',
       method: 'Tarjeta **** 1234'
     },
-    { 
+    {
       id: 2,
-      student: 'Mateo Torres', 
-      program: 'Fútbol Juvenil', 
-      amount: 220000, 
+      student: 'Mateo Torres',
+      program: 'Fútbol Juvenil',
+      amount: 220000,
       nextCharge: '20 Feb 2025',
       status: 'active',
       method: 'PSE - Bancolombia'
     },
-    { 
+    {
       id: 3,
-      student: 'Lucas Martínez', 
-      program: 'Porteros', 
-      amount: 280000, 
+      student: 'Lucas Martínez',
+      program: 'Porteros',
+      amount: 280000,
       nextCharge: '18 Feb 2025',
       status: 'card_expiring',
       method: 'Tarjeta **** 5678'
     },
-    { 
+    {
       id: 4,
-      student: 'Valentina Gómez', 
-      program: 'Técnica', 
-      amount: 200000, 
+      student: 'Valentina Gómez',
+      program: 'Técnica',
+      amount: 200000,
       nextCharge: '22 Feb 2025',
       status: 'active',
       method: 'Nequi'
@@ -64,31 +64,58 @@ export default function PaymentsAutomationPage() {
   ];
 
   const stats = [
-    { 
-      label: 'Cobrado este mes', 
-      value: formatCurrency(demoData.monthly_revenue), 
+    {
+      label: 'Cobrado este mes',
+      value: formatCurrency(demoData.monthly_revenue),
       change: '+24%',
       icon: TrendingUp
     },
-    { 
-      label: 'Tasa de éxito', 
-      value: '98.5%', 
+    {
+      label: 'Tasa de éxito',
+      value: '98.5%',
       change: '+2.1%',
       icon: CheckCircle2
     },
-    { 
-      label: 'Pagos pendientes', 
-      value: `${demoData.pending_payments}`, 
+    {
+      label: 'Pagos pendientes',
+      value: `${demoData.pending_payments}`,
       change: formatCurrency(560000),
       icon: Clock
     },
-    { 
-      label: 'Próximo cobro', 
-      value: '15 Feb', 
+    {
+      label: 'Próximo cobro',
+      value: '15 Feb',
       change: formatCurrency(3200000),
       icon: CreditCard
     },
   ];
+
+  const handleExport = () => {
+    const headers = ['ID', 'Estudiante', 'Monto', 'Fecha', 'Estado'];
+
+    const rows = recentTransactions.map(t => [
+      t.id,
+      t.student,
+      t.amount,
+      t.date,
+      t.status === 'success' ? 'Exitoso' : 'Fallido'
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transacciones_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
@@ -217,7 +244,7 @@ export default function PaymentsAutomationPage() {
                 <CardTitle>Historial de Transacciones</CardTitle>
                 <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
               </div>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="h-4 w-4 mr-2" />
                 Exportar
               </Button>

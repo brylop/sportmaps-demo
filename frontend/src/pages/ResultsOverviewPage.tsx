@@ -3,7 +3,9 @@ import { Badge } from '@/components/ui/badge';
 import { Trophy, TrendingUp, Calendar } from 'lucide-react';
 
 export default function ResultsOverviewPage() {
-  const results = [
+  const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
+
+  const demoResults = [
     {
       id: '1',
       date: '2024-10-25',
@@ -42,10 +44,18 @@ export default function ResultsOverviewPage() {
     },
   ];
 
-  const monthStats = {
+  const results = isDemoMode ? demoResults : [];
+
+  const demoMonthStats = {
     wins: 2,
     draws: 1,
     losses: 0,
+  };
+
+  const monthStats = isDemoMode ? demoMonthStats : {
+    wins: 0,
+    draws: 0,
+    losses: 0
   };
 
   const getResultBadge = (homeScore: number, awayScore: number, isHome: boolean = true) => {

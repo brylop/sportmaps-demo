@@ -18,7 +18,9 @@ import {
   Globe,
   Shield,
   Camera,
-  Save
+  Save,
+  Plus,
+  Trash2
 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -43,14 +45,14 @@ export default function ProfilePage() {
 
   const handleProfileUpdate = async () => {
     if (!profile) return;
-    
+
     setIsLoading(true);
     try {
       await updateProfile({
         full_name: fullName,
         phone: phone
       });
-      
+
       toast({
         title: "Perfil actualizado",
         description: "Tus cambios han sido guardados correctamente",
@@ -115,6 +117,10 @@ export default function ProfilePage() {
           <TabsTrigger value="notifications" className="gap-2">
             <Bell className="h-4 w-4" />
             Notificaciones
+          </TabsTrigger>
+          <TabsTrigger value="services" className="gap-2">
+            <Globe className="h-4 w-4" />
+            Servicios
           </TabsTrigger>
           <TabsTrigger value="privacy" className="gap-2">
             <Shield className="h-4 w-4" />
@@ -201,6 +207,18 @@ export default function ProfilePage() {
                     placeholder="+34 600 000 000"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="bio">Descripción / Biografía</Label>
+                  <textarea
+                    id="bio"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Cuéntanos sobre tu escuela..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Esta descripción aparecerá en tu perfil público.
+                  </p>
+                </div>
               </div>
 
               <div className="flex justify-end">
@@ -282,6 +300,58 @@ export default function ProfilePage() {
                   <Save className="h-4 w-4" />
                   Guardar Preferencias
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Services Tab */}
+        <TabsContent value="services" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Mis Productos y Servicios</CardTitle>
+              <CardDescription>
+                Gestiona los servicios que aparecerán en el buscador "Explorar Escuelas" para que los usuarios te encuentren.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-muted/50 p-4 rounded-lg flex items-start gap-4">
+                <Globe className="h-6 w-6 text-primary mt-1" />
+                <div>
+                  <h4 className="font-semibold">Visibilidad en el Buscador</h4>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Al agregar servicios aquí, tu escuela aparecerá cuando los usuarios busquen estas categorías en la sección Explorar.
+                    Asegúrate de incluir todos los deportes y programas que ofreces.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-medium">Servicios Activos</h3>
+                  <Button size="sm" className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Agregar Servicio
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {[
+                    { title: 'Clases de Fútbol', price: '$180.000/mes', desc: 'Entrenamiento para niños de 5-12 años, 3 veces por semana.' },
+                    { title: 'Alquiler de Canchas', price: '$80.000/hora', desc: 'Canchas sintéticas disponibles fines de semana y noches.' }
+                  ].map((service, i) => (
+                    <div key={i} className="border rounded-lg p-4 flex justify-between items-start">
+                      <div>
+                        <h4 className="font-semibold">{service.title}</h4>
+                        <p className="text-sm font-medium text-primary mt-1">{service.price}</p>
+                        <p className="text-sm text-muted-foreground mt-2">{service.desc}</p>
+                      </div>
+                      <Button variant="ghost" size="icon">
+                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive transition-colors" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>

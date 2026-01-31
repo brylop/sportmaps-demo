@@ -7,6 +7,8 @@ import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { FacilityFormDialog } from '@/components/school/FacilityFormDialog';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -78,96 +80,156 @@ export default function SchoolFacilitiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Instalaciones</h1>
-          <p className="text-muted-foreground mt-1">
-            {facilities.length} instalación{facilities.length !== 1 ? 'es' : ''} registrada{facilities.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Building2 className="w-4 h-4 mr-2" />
-          Agregar Instalación
-        </Button>
-      </div>
+      <Tabs defaultValue="facilities" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="facilities">Instalaciones</TabsTrigger>
+          <TabsTrigger value="reservations">Reservas</TabsTrigger>
+        </TabsList>
 
-      {/* Facilities Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {facilities.map((facility) => (
-          <Card key={facility.id} className="p-6 hover:shadow-lg transition-shadow">
-            <div className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-primary" />
-                  <h3 className="font-semibold">{facility.name}</h3>
+        <TabsContent value="facilities" className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Instalaciones</h1>
+              <p className="text-muted-foreground mt-1">
+                {facilities.length} instalación{facilities.length !== 1 ? 'es' : ''} registrada{facilities.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Building2 className="w-4 h-4 mr-2" />
+              Agregar Instalación
+            </Button>
+          </div>
+
+          {/* Facilities Grid */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {facilities.map((facility) => (
+              <Card key={facility.id} className="p-6 hover:shadow-lg transition-shadow">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-primary" />
+                      <h3 className="font-semibold">{facility.name}</h3>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteId(facility.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+
+                  <Badge variant="secondary">{facility.type}</Badge>
+
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Users className="w-4 h-4" />
+                    <span>Capacidad: {facility.capacity} personas</span>
+                  </div>
+
+                  {facility.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {facility.description}
+                    </p>
+                  )}
+
+                  <Badge
+                    variant={facility.status === 'available' ? 'default' : 'secondary'}
+                    className={facility.status === 'available' ? 'bg-primary' : ''}
+                  >
+                    {facility.status === 'available' ? 'Disponible' : 'Ocupado'}
+                  </Badge>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  onClick={() => setDeleteId(facility.id)}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-              
-              <Badge variant="secondary">{facility.type}</Badge>
-              
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="w-4 h-4" />
-                <span>Capacidad: {facility.capacity} personas</span>
-              </div>
+              </Card>
+            ))}
+          </div>
 
-              {facility.description && (
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                  {facility.description}
-                </p>
-              )}
-
-              <Badge 
-                variant={facility.status === 'available' ? 'default' : 'secondary'}
-                className={facility.status === 'available' ? 'bg-primary' : ''}
-              >
-                {facility.status === 'available' ? 'Disponible' : 'Ocupado'}
-              </Badge>
+          {/* Calendar View */}
+          <Card>
+            <div className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Calendario de Reservas - Hoy</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="p-3 text-left font-medium">Hora</th>
+                      {facilities.map((facility) => (
+                        <th key={facility.id} className="p-3 text-left font-medium">
+                          {facility.name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schedule.map((slot, idx) => (
+                      <tr key={idx} className="border-b hover:bg-muted/50">
+                        <td className="p-3 font-medium">{slot.time}</td>
+                        {facilities.map((facility) => (
+                          <td key={facility.id} className="p-3">
+                            <Badge variant="outline" className="text-xs">
+                              Libre
+                            </Badge>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </Card>
-        ))}
-      </div>
+        </TabsContent>
 
-      {/* Calendar View */}
-      <Card>
-        <div className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Calendario de Reservas - Hoy</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-3 text-left font-medium">Hora</th>
-                  {facilities.map((facility) => (
-                    <th key={facility.id} className="p-3 text-left font-medium">
-                      {facility.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {schedule.map((slot, idx) => (
-                  <tr key={idx} className="border-b hover:bg-muted/50">
-                    <td className="p-3 font-medium">{slot.time}</td>
-                    {facilities.map((facility) => (
-                      <td key={facility.id} className="p-3">
-                        <Badge variant="outline" className="text-xs">
-                          Libre
-                        </Badge>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <TabsContent value="reservations" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold">Gestión de Reservas</h1>
+              <p className="text-muted-foreground">Administra las solicitudes y reservas de tus espacios</p>
+            </div>
+            <Button>
+              <Users className="mr-2 h-4 w-4" />
+              Nueva Reserva
+            </Button>
           </div>
-        </div>
-      </Card>
+
+          <Card>
+            <div className="p-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Instalación</TableHead>
+                    <TableHead>Solicitante</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Hora</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    { facility: 'Cancha 1', user: 'Club Los Tigres', date: '2025-02-01', time: '16:00 - 18:00', status: 'confirmed' },
+                    { facility: 'Piscina Olímpica', user: 'Juan Pérez', date: '2025-02-02', time: '09:00 - 10:00', status: 'pending' },
+                  ].map((res, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium">{res.facility}</TableCell>
+                      <TableCell>{res.user}</TableCell>
+                      <TableCell>{res.date}</TableCell>
+                      <TableCell>{res.time}</TableCell>
+                      <TableCell>
+                        <Badge variant={res.status === 'confirmed' ? 'default' : 'secondary'}>
+                          {res.status === 'confirmed' ? 'Confirmada' : 'Pendiente'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm">Ver detalles</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <FacilityFormDialog
         open={dialogOpen}

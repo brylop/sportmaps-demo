@@ -8,7 +8,9 @@ import { useState } from 'react';
 export default function AttendanceSupervisionPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
 
-  const sessions = [
+  const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
+
+  const demoSessions = [
     {
       id: '1',
       program: 'Fútbol Sub-12',
@@ -42,6 +44,8 @@ export default function AttendanceSupervisionPage() {
       attendance: { present: 0, total: 8 },
     },
   ];
+
+  const sessions = isDemoMode ? demoSessions : [];
 
   const pendingSessions = sessions.filter(s => s.status === 'pending');
 
