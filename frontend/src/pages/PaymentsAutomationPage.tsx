@@ -5,16 +5,20 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download } from 'lucide-react';
-import { getDemoSchoolData, formatCurrency } from '@/lib/demo-data';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
 
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const demoData = getDemoSchoolData();
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [manualPayments, setManualPayments] = useState([
+    { id: 1, student: 'Santiago García', team: 'Firesquad', amount: 280000, file: 'ver_comprobante.jpg' }
+  ]);
 
   // Only schools can access this page
   if (profile?.role !== 'school') {
@@ -119,6 +123,15 @@ export default function PaymentsAutomationPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleManualAction = (id: number, action: 'approve' | 'reject') => {
+    setManualPayments(prev => prev.filter(p => p.id !== id));
+    toast({
+      title: action === 'approve' ? '✅ Pago Aprobado' : '❌ Pago Rechazado',
+      description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} y el estado del estudiante actualizado.`,
+      variant: action === 'approve' ? 'default' : 'destructive',
+    });
   };
 
   useEffect(() => {
@@ -316,24 +329,43 @@ export default function PaymentsAutomationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell className="font-medium">Santiago García</TableCell>
-                    <TableCell>Firesquad</TableCell>
-                    <TableCell>{formatCurrency(280000)}</TableCell>
-                    <TableCell>
-                      <Button variant="link" size="sm" className="p-0 text-blue-600">
-                        ver_comprobante.jpg
-                      </Button>
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
-                        Aprobar
-                      </Button>
-                      <Button variant="outline" size="sm" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
-                        Rechazar
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                  {manualPayments.map((payment) => (
+                    <TableRow key={payment.id}>
+                      <TableCell className="font-medium">{payment.student}</TableCell>
+                      <TableCell>{payment.team}</TableCell>
+                      <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                      <TableCell>
+                        <Button variant="link" size="sm" className="p-0 text-blue-600">
+                          {payment.file}
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                          onClick={() => handleManualAction(payment.id, 'approve')}
+                        >
+                          Aprobar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                          onClick={() => handleManualAction(payment.id, 'reject')}
+                        >
+                          Rechazar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {manualPayments.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                        No hay pagos pendientes por validar
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
