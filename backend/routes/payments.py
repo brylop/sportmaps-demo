@@ -216,6 +216,115 @@ async def process_demo_payment(intent_id: str, simulate_failure: bool = False):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/register-manual")
+async def register_manual_payment(payment_data: dict):
+    """
+    Register a manual payment (transfer) with a proof image
+    Lógica PetTrust
+    """
+    try:
+        # Create a payment intent for manual flow
+        manual_id = str(uuid.uuid4())
+        intent = {
+            "id": manual_id,
+            "student_id": payment_data.get("student_id"),
+            "program_id": payment_data.get("program_id"),
+            "amount": payment_data.get("amount"),
+            "payment_method": "transfer",
+            "proof_url": payment_data.get("proof_url"),
+            "status": "awaiting_approval",
+            "created_at": datetime.utcnow(),
+            "metadata": {
+                "team_id": payment_data.get("team_id"),
+                "category_id": payment_data.get("category_id"),
+                "concept": payment_data.get("concept")
+            }
+        }
+        
+        await db.payment_intents.insert_one(intent)
+        
+        # In a real app, we would update Supabase enrollments here too
+        # For demo, we just return success
+        
+        return {
+            "success": True,
+            "intent_id": manual_id,
+            "status": "awaiting_approval",
+            "message": "Tu comprobante ha sido registrado. La administración lo validará pronto."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/school/report/{school_id}")
+async def get_school_payments_report(school_id: str):
+    """
+    Get payment report grouped by teams/categories
+    Vista para Escuelas
+    """
+    try:
+        # Fetch intents and transactions
+        intents = await db.payment_intents.find({"status": "awaiting_approval"}).to_list(100)
+        transactions = await db.transactions.find({"school_id": school_id}).to_list(100)
+        
+        # Mocking grouping for demo if no real data
+        report = {
+            "total_collected": sum(t["amount"] for t in transactions if t["status"] == "approved"),
+            "total_pending": sum(i["amount"] for i in intents),
+            "by_teams": {}
+        }
+        
+        # Example categories
+        categories = ["Sub-10", "Sub-12", "Sub-15", "Juvenil"]
+        
+        for cat in categories:
+            report["by_teams"][cat] = {
+                "paid": random.randint(5, 15),
+                "pending": random.randint(0, 3),
+                "overdue": random.randint(0, 2),
+                "students": []
+            }
+            
+        return {
+            "success": True,
+            "report": report
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/admin/review/{intent_id}")
+async def review_payment(intent_id: str, action: str):
+    """
+    Approve or reject a manual payment
+    """
+    try:
+        status = "approved" if action == "approve" else "rejected"
+        
+        result = await db.payment_intents.update_one(
+            {"id": intent_id},
+            {"$set": {"status": status}}
+        )
+        
+        if status == "approved":
+            # Create a transaction if approved
+            intent = await db.payment_intents.find_one({"id": intent_id})
+            if intent:
+                transaction = Transaction(
+                    payment_intent_id=intent_id,
+                    student_id=intent['student_id'],
+                    school_id="school_elite",
+                    program_id=intent['program_id'],
+                    amount=intent['amount'],
+                    payment_method="transfer",
+                    status="approved",
+                    reference=f"MAN{random.randint(1000, 9999)}",
+                    metadata=intent.get('metadata')
+                )
+                await db.transactions.insert_one(transaction.dict())
+        
+        return {"success": True, "new_status": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/transactions/{student_id}")
 async def get_student_transactions(student_id: str, limit: int = 20):
     """

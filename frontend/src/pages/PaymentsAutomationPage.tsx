@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,9 @@ import { Navigate } from 'react-router-dom';
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const demoData = getDemoSchoolData();
+  const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   // Only schools can access this page
   if (profile?.role !== 'school') {
@@ -117,6 +121,26 @@ export default function PaymentsAutomationPage() {
     document.body.removeChild(link);
   };
 
+  useEffect(() => {
+    const fetchReport = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch('/api/payments/school/report/school_elite');
+        const data = await response.json();
+        if (data.success) {
+          setReport(data.report);
+        }
+      } catch (error) {
+        console.error('Error fetching report:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchReport();
+  }, []);
+
+  const teams = ["Sub-10", "Sub-12", "Sub-15", "Juvenil"];
+
   return (
     <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -152,6 +176,7 @@ export default function PaymentsAutomationPage() {
       <Tabs defaultValue="recurring" className="space-y-4">
         <TabsList>
           <TabsTrigger value="recurring">Cobros Recurrentes</TabsTrigger>
+          <TabsTrigger value="by-team">Vista por Equipos</TabsTrigger>
           <TabsTrigger value="transactions">Transacciones</TabsTrigger>
           <TabsTrigger value="settings">Configuración</TabsTrigger>
         </TabsList>
@@ -237,81 +262,157 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="transactions" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Historial de Transacciones</CardTitle>
-                <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
+        <TabsContent value="by-team" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {teams.map((team) => {
+              const teamData = report?.by_teams[team] || { paid: 0, pending: 0, overdue: 0 };
+              return (
+                <Card key={team}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg">{team}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Pagados</span>
+                      <Badge variant="default" className="bg-green-500">{teamData.paid}</Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Pendientes</span>
+                      <Badge variant="secondary">{teamData.pending}</Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Vencidos</span>
+                      <Badge variant="destructive">{teamData.overdue}</Badge>
+                    </div>
+                    <Button variant="outline" className="w-full text-xs" size="sm">
+                      Ver Jugadores
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Manual Payments Review */}
+          <Card className="mt-6 border-blue-200 bg-blue-50/20">
+            <CardHeader>
+              <CardTitle className="text-blue-700 flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Validación de Pagos Manuales
+              </CardTitle>
+              <CardDescription>
+                Pagos recibidos por transferencia que requieren aprobación manual
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Estudiante</TableHead>
+                    <TableHead>Equipo</TableHead>
                     <TableHead>Monto</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Estado</TableHead>
+                    <TableHead>Comprobante</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentTransactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell className="font-medium">{transaction.student}</TableCell>
-                      <TableCell>{formatCurrency(transaction.amount)}</TableCell>
-                      <TableCell className="text-muted-foreground">{transaction.date}</TableCell>
-                      <TableCell>
-                        {transaction.status === 'success' ? (
-                          <Badge variant="default" className="bg-green-500">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Exitoso
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            Fallido
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  <TableRow>
+                    <TableCell className="font-medium">Santiago García</TableCell>
+                    <TableCell>Sub-12</TableCell>
+                    <TableCell>{formatCurrency(180000)}</TableCell>
+                    <TableCell>
+                      <Button variant="link" size="sm" className="p-0 text-blue-600">
+                        ver_comprobante.jpg
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-right space-x-2">
+                      <Button variant="outline" size="sm" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                        Aprobar
+                      </Button>
+                      <Button variant="outline" size="sm" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                        Rechazar
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </TabsContent>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Historial de Transacciones</CardTitle>
+              <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />
+              Exportar
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Estudiante</TableHead>
+                  <TableHead>Monto</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentTransactions.map((transaction) => (
+                  <TableRow key={transaction.id}>
+                    <TableCell className="font-medium">{transaction.student}</TableCell>
+                    <TableCell>{formatCurrency(transaction.amount)}</TableCell>
+                    <TableCell className="text-muted-foreground">{transaction.date}</TableCell>
+                    <TableCell>
+                      {transaction.status === 'success' ? (
+                        <Badge variant="default" className="bg-green-500">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Exitoso
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          Fallido
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
 
-        <TabsContent value="settings" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuración de Cobros</CardTitle>
-              <CardDescription>Personaliza cómo y cuándo se cobran los pagos</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <h4 className="font-medium">Día de cobro mensual</h4>
-                <p className="text-sm text-muted-foreground">Los cobros se procesaran automáticamente el día 15 de cada mes</p>
-                <Button variant="outline">Cambiar fecha</Button>
-              </div>
-              <div className="space-y-2">
-                <h4 className="font-medium">Reintentos automáticos</h4>
-                <p className="text-sm text-muted-foreground">Si un pago falla, se reintentará automáticamente después de 3 días</p>
-                <Button variant="outline">Configurar</Button>
-              </div>
-              <div className="space-y-2">
-                <h4 className="font-medium">Notificaciones</h4>
-                <p className="text-sm text-muted-foreground">Recibe notificaciones por email y WhatsApp de pagos exitosos y fallidos</p>
-                <Button variant="outline">Gestionar notificaciones</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+      <TabsContent value="settings" className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuración de Cobros</CardTitle>
+            <CardDescription>Personaliza cómo y cuándo se cobran los pagos</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <h4 className="font-medium">Día de cobro mensual</h4>
+              <p className="text-sm text-muted-foreground">Los cobros se procesaran automáticamente el día 15 de cada mes</p>
+              <Button variant="outline">Cambiar fecha</Button>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-medium">Reintentos automáticos</h4>
+              <p className="text-sm text-muted-foreground">Si un pago falla, se reintentará automáticamente después de 3 días</p>
+              <Button variant="outline">Configurar</Button>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-medium">Notificaciones</h4>
+              <p className="text-sm text-muted-foreground">Recibe notificaciones por email y WhatsApp de pagos exitosos y fallidos</p>
+              <Button variant="outline">Gestionar notificaciones</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
+    </div >
   );
 }
