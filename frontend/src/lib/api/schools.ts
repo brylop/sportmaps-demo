@@ -39,35 +39,36 @@ class SchoolsAPI {
         } catch (error) {
             console.warn('Error fetching school, using demo data:', error);
             // Demo Fallback
-            if (slug === 'academiadepor-tigres' || slug === 'demo') {
+            if (slug === 'academiadepor-tigres' || slug === 'demo' || slug === 'spirit-all-stars') {
                 return {
                     id: 'demo-school',
-                    name: 'Academia Deportiva Los Tigres',
+                    name: 'Spirit All Stars',
                     slug: slug,
-                    description: 'Formando campeones desde 2010. Somos la academia líder en formación integral deportiva, con instalaciones de primera clase y un equipo de entrenadores certificados.',
-                    banner_url: "https://images.unsplash.com/photo-1526304640152-d4619684e484?auto=format&fit=crop&q=80&w=2000",
+                    description: 'Liderando el cheerleading de alto rendimiento. Formamos atletas integrales con disciplina, pasión y técnica de nivel mundial en acrobatics y stunts.',
+                    banner_url: "https://images.unsplash.com/photo-1510531704581-5b2870972060?auto=format&fit=crop&q=80&w=2000",
                     branding: {
-                        primaryColor: "#E11D48",
-                        secondaryColor: "#1e293b"
+                        primaryColor: "#003366", // Navy
+                        secondaryColor: "#4D9EE0" // Sky Blue
                     },
-                    address: "Av. Principal #123-45",
+                    address: "Carrera 45 # 127-10",
                     city: "Bogotá",
-                    email: "contacto@lostigres.com",
-                    phone: "+57 300 123 4567",
+                    email: "info@spiritallstars.co",
+                    phone: "+57 321 987 6543",
                     services: [
-                        { title: "Entrenamiento Personalizado", description: "Clases 1 a 1 para mejorar técnica", price: "$50.000/hora" },
-                        { title: "Torneos Mensuales", description: "Competencia interna y externa", price: "Incluido" },
-                        { title: "Evaluación Nutricional", description: "Seguimiento trimestral", price: "$80.000" },
-                        { title: "Tienda Deportiva", description: "Venta de uniformes y equipos", price: "Varios" }
+                        { title: "Clínicas de Stunts", description: "Perfeccionamiento de elevaciones", price: "$60.000/sesión" },
+                        { title: "Tumbling Personalizado", description: "Técnica individual de acrobacia", price: "$80.000/hora" },
+                        { title: "Condicionamiento Core", description: "Preparación física específica", price: "Incluido" },
+                        { title: "Pro-Shop Spirit", description: "Venta de moños y uniformes", price: "Varios" }
                     ],
                     programs: [
-                        { name: "Fútbol Base", age: "5-10 años", schedule: "Lun-Mie-Vie" },
-                        { name: "Fútbol Juvenil", age: "11-15 años", schedule: "Mar-Jue-Sab" },
-                        { name: "Alto Rendimiento", age: "16+ años", schedule: "Todos los días" }
+                        { name: "Butterfly (Junior Prep)", age: "6-12 años", schedule: "Mar-Jue 4:00 PM" },
+                        { name: "Firesquad (Senior L3)", age: "12-18 años", schedule: "Lun-Mié-Vie 5:30 PM" },
+                        { name: "Bombsquad (Coed L5)", age: "16+ años", schedule: "Lun a Sáb 7:00 PM" },
+                        { name: "Legends (Open L6)", age: "18+ años", schedule: "Fines de semana" }
                     ],
                     staff: [
-                        { name: "Carlos Ruiz", role: "Director Técnico", exp: "15 años" },
-                        { name: "Ana María Polo", role: "Preparadora Física", exp: "8 años" }
+                        { name: "Andrés 'Cheer' Martínez", role: "Head Coach", exp: "20 años" },
+                        { name: "Lucía Fernández", role: "Especialista en Tumbling", exp: "12 años" }
                     ]
                 };
             }

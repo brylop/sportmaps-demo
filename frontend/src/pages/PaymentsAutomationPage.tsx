@@ -25,8 +25,8 @@ export default function PaymentsAutomationPage() {
     {
       id: 1,
       student: 'Sofía Ramírez',
-      program: 'Fútbol Infantil',
-      amount: 180000,
+      program: 'Butterfly (Junior Prep)',
+      amount: 240000,
       nextCharge: '15 Feb 2025',
       status: 'active',
       method: 'Tarjeta **** 1234'
@@ -34,8 +34,8 @@ export default function PaymentsAutomationPage() {
     {
       id: 2,
       student: 'Mateo Torres',
-      program: 'Fútbol Juvenil',
-      amount: 220000,
+      program: 'Firesquad (Senior L3)',
+      amount: 280000,
       nextCharge: '20 Feb 2025',
       status: 'active',
       method: 'PSE - Bancolombia'
@@ -43,8 +43,8 @@ export default function PaymentsAutomationPage() {
     {
       id: 3,
       student: 'Lucas Martínez',
-      program: 'Porteros',
-      amount: 280000,
+      program: 'Bombsquad (Coed L5)',
+      amount: 350000,
       nextCharge: '18 Feb 2025',
       status: 'card_expiring',
       method: 'Tarjeta **** 5678'
@@ -52,8 +52,8 @@ export default function PaymentsAutomationPage() {
     {
       id: 4,
       student: 'Valentina Gómez',
-      program: 'Técnica',
-      amount: 200000,
+      program: 'Legends (Open L6)',
+      amount: 400000,
       nextCharge: '22 Feb 2025',
       status: 'active',
       method: 'Nequi'
@@ -139,7 +139,7 @@ export default function PaymentsAutomationPage() {
     fetchReport();
   }, []);
 
-  const teams = ["Sub-10", "Sub-12", "Sub-15", "Juvenil"];
+  const teams = ["Butterfly", "Firesquad", "Bombsquad", "Legends"];
 
   return (
     <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
@@ -285,7 +285,7 @@ export default function PaymentsAutomationPage() {
                       <Badge variant="destructive">{teamData.overdue}</Badge>
                     </div>
                     <Button variant="outline" className="w-full text-xs" size="sm">
-                      Ver Jugadores
+                      Ver Atletas
                     </Button>
                   </CardContent>
                 </Card>
@@ -318,8 +318,8 @@ export default function PaymentsAutomationPage() {
                 <TableBody>
                   <TableRow>
                     <TableCell className="font-medium">Santiago García</TableCell>
-                    <TableCell>Sub-12</TableCell>
-                    <TableCell>{formatCurrency(180000)}</TableCell>
+                    <TableCell>Firesquad</TableCell>
+                    <TableCell>{formatCurrency(280000)}</TableCell>
                     <TableCell>
                       <Button variant="link" size="sm" className="p-0 text-blue-600">
                         ver_comprobante.jpg

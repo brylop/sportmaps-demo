@@ -80,29 +80,39 @@ class WebhookPayload(BaseModel):
 
 # Demo data generator
 def generate_demo_transactions(student_id: str) -> List[Transaction]:
-    """Generate realistic demo transactions"""
+    """Generate realistic demo transactions for Spirit All Stars"""
     programs = [
-        {'id': 'prog_1', 'name': 'Fútbol Juvenil', 'amount': 220000},
-        {'id': 'prog_2', 'name': 'Natación Infantil', 'amount': 180000}
+        {'id': 'prog_1', 'name': 'Butterfly (Junior Prep)', 'amount': 240000},
+        {'id': 'prog_2', 'name': 'Firesquad (Senior L3)', 'amount': 280000},
+        {'id': 'prog_3', 'name': 'Bombsquad (Coed L5)', 'amount': 350000}
+    ]
+    
+    concepts = [
+        "Mensualidad Entrenamiento",
+        "Cuota de Uniforme (Metallic Blue Edition)",
+        "Inscripción Campeonato Nacional",
+        "Seguro Atleta Alto Rendimiento"
     ]
     
     transactions = []
     for i in range(6):
         prog = random.choice(programs)
+        concept = random.choice(concepts)
         status = 'approved' if i < 5 else 'pending'
         
         transactions.append(Transaction(
             id=f"txn_{i+1}",
             payment_intent_id=f"pi_{i+1}",
             student_id=student_id,
-            school_id="school_elite",
+            school_id="spirit_all_stars",
             program_id=prog['id'],
-            amount=prog['amount'],
+            amount=prog['amount'] if "Mensualidad" in concept else random.randint(150000, 600000),
             payment_method=random.choice(['pse', 'card', 'nequi']),
             status=status,
             reference=f"REF{random.randint(100000, 999999)}",
             authorization_code=f"AUTH{random.randint(1000, 9999)}" if status == 'approved' else None,
-            transaction_date=datetime.utcnow() - timedelta(days=30*i)
+            transaction_date=datetime.utcnow() - timedelta(days=30*i),
+            metadata={'concept': concept}
         ))
     
     return transactions
@@ -273,14 +283,14 @@ async def get_school_payments_report(school_id: str):
             "by_teams": {}
         }
         
-        # Example categories
-        categories = ["Sub-10", "Sub-12", "Sub-15", "Juvenil"]
+        # Example Spirit Teams
+        categories = ["Butterfly", "Firesquad", "Bombsquad", "Legends"]
         
         for cat in categories:
             report["by_teams"][cat] = {
-                "paid": random.randint(5, 15),
-                "pending": random.randint(0, 3),
-                "overdue": random.randint(0, 2),
+                "paid": random.randint(8, 25),
+                "pending": random.randint(1, 5),
+                "overdue": random.randint(0, 3),
                 "students": []
             }
             
@@ -410,24 +420,27 @@ async def get_school_transactions(school_id: str, days: int = 30):
         if is_demo:
             # Generate demo data for school
             transactions = []
-            students = ['Santiago García', 'Emma García', 'Sofía Ramírez', 'Mateo Torres']
+            students = ['Santiago García', 'Emma García', 'Sofía Ramírez', 'Mateo Torres', 'Valentina Gómez']
+            programs = ['Butterfly', 'Firesquad', 'Bombsquad', 'Legends']
+            concepts = ['Mensualidad', 'Uniforme Metallic Blue', 'Inscripción Nacional']
             
-            for i in range(12):
+            for i in range(15):
                 transactions.append({
                     'id': f'txn_{i+1}',
                     'student_name': random.choice(students),
-                    'program_name': random.choice(['Fútbol Juvenil', 'Natación Infantil']),
-                    'amount': random.choice([220000, 180000]),
+                    'program_name': random.choice(programs),
+                    'amount': random.randint(240000, 600000),
                     'payment_method': random.choice(['PSE', 'Tarjeta', 'Nequi']),
-                    'status': 'approved' if i < 11 else 'pending',
-                    'transaction_date': (datetime.utcnow() - timedelta(days=i*2)).isoformat()
+                    'status': 'approved' if i < 14 else 'pending',
+                    'transaction_date': (datetime.utcnow() - timedelta(days=i*2)).isoformat(),
+                    'concept': random.choice(concepts)
                 })
             
             return {
                 "success": True,
                 "transactions": transactions,
                 "total_amount": sum(t['amount'] for t in transactions if t['status'] == 'approved'),
-                "success_rate": 0.985
+                "success_rate": 0.99
             }
         
         # Get real transactions
