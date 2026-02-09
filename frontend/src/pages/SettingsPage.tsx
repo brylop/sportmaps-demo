@@ -50,6 +50,51 @@ export default function ProfilePage() {
   const [showEmail, setShowEmail] = useState(false);
   const [showPhone, setShowPhone] = useState(false);
 
+  /* Avatar Upload Handler */
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: "Archivo demasiado grande",
+        description: "La imagen no debe superar los 2MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const publicUrl = await uploadFile('avatars', file);
+
+      if (publicUrl && user) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            avatar_url: publicUrl,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Foto actualizada",
+          description: "Tu foto de perfil ha sido cambiada exitosamente.",
+        });
+
+        // Update local state if needed (though profile context should update eventually)
+      }
+    } catch (error: any) {
+      console.error('Error uploading avatar:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo subir la imagen. Intenta de nuevo.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleProfileUpdate = async () => {
     if (!user) return;
 

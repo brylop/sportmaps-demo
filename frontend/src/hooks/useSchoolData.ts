@@ -57,7 +57,7 @@ export function useSchoolStaff() {
         .from('schools')
         .select('id')
         .eq('owner_id', user?.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -179,7 +179,7 @@ export function useSchoolFacilities() {
         .from('schools')
         .select('id')
         .eq('owner_id', user?.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -203,6 +203,7 @@ export function useSchoolFacilities() {
         return data as Facility[];
       } catch (error) {
         // Mock data for demo/restricted mode
+        console.warn("Using mock facilities due to error:", error);
         return [
           {
             id: 'mock-1',
@@ -240,9 +241,7 @@ export function useSchoolFacilities() {
         ] as Facility[];
       }
     },
-    enabled: true, // Always try to fetch/mock even if schoolId is missing? No, keep it bound but robust.
-    // Actually, if schoolId is undefined, it skips. But if fetching school failed, we should probably allow a fallback schoolId.
-    // For now, let's keep enabled as is, assuming user is logged in but has RLS issues.
+    enabled: !!schoolId,
   });
 
   // Create facility

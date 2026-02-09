@@ -305,7 +305,9 @@ async def get_school_payments_report(school_id: str):
             
         return {"success": True, "report": report}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": f"{str(e)}: {traceback.format_exc()}"}
 
 @router.post("/admin/review/{intent_id}")
 async def review_payment(intent_id: str, action: str):
