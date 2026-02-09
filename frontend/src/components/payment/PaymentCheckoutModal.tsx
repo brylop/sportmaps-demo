@@ -28,7 +28,7 @@ export function PaymentCheckoutModal({
   programName,
   onSuccess
 }: PaymentCheckoutModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'nequi' | 'transfer' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
@@ -53,24 +53,16 @@ export function PaymentCheckoutModal({
       fee: 0
     },
     {
-      id: 'nequi' as const,
-      name: 'Nequi',
-      description: 'Pago instantáneo',
-      icon: Smartphone,
-      popular: false,
-      fee: 0
-    },
-    {
       id: 'transfer' as const,
-      name: 'Transferencia Manual',
+      name: 'Transferencia / Nequi',
       description: 'Nequi, Daviplata o Bancolombia',
-      icon: Building2,
-      popular: false,
+      icon: Smartphone,
+      popular: true,
       fee: 0
     }
   ];
 
-  const handlePaymentMethod = (method: 'pse' | 'card' | 'nequi' | 'transfer') => {
+  const handlePaymentMethod = (method: 'pse' | 'card' | 'transfer') => {
     setSelectedMethod(method);
   };
 
@@ -269,6 +261,7 @@ export function PaymentCheckoutModal({
                     <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs">
                       <p><strong>Banco:</strong> Bancolombia (Ahorros)</p>
                       <p><strong>Número:</strong> 123-456789-01</p>
+                      <p><strong>Nequi:</strong> 300 123 4567</p>
                       <p><strong>Titular:</strong> SportMaps Academia</p>
                       <p><strong>NIT:</strong> 900.123.456-7</p>
                     </div>
@@ -356,7 +349,9 @@ export function PaymentCheckoutModal({
             <div>
               <h3 className="text-lg font-semibold text-blue-600">Pago en Verificación</h3>
               <p className="text-sm text-muted-foreground px-4">
-                Hemos recibido tu comprobante. Tu cupo está reservado y la administración validará el pago en un máximo de 24 horas.
+                Hemos recibido tu comprobante exitosamente.
+                Tu pago ahora está en estado "Pendiente de Aprobación" y será validado pronto por la escuela.
+                Podrás ver el estado actualizado en tu historial de pagos.
               </p>
             </div>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
