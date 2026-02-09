@@ -373,8 +373,8 @@ export default function ProfilePage() {
 
                 <div className="grid gap-4 md:grid-cols-2">
                   {[
-                    { title: 'Clases de Fútbol', price: '$180.000/mes', desc: 'Entrenamiento para niños de 5-12 años, 3 veces por semana.' },
-                    { title: 'Alquiler de Canchas', price: '$80.000/hora', desc: 'Canchas sintéticas disponibles fines de semana y noches.' }
+                    { title: 'Clases de Cheerleading', price: '$240.000/mes', desc: 'Entrenamiento de stunts, tumbling y coreografía, 3 veces por semana.' },
+                    { title: 'Alquiler de Spring Floor', price: '$100.000/hora', desc: 'Gimnasio profesional disponible para entrenamientos externos.' }
                   ].map((service, i) => (
                     <div key={i} className="border rounded-lg p-4 flex justify-between items-start">
                       <div>

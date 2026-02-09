@@ -48,7 +48,7 @@ export default function MyPaymentsPage() {
   const fetchPaymentData = async () => {
     try {
       setLoading(true);
-      
+
       // Fetch transactions
       const txnResponse = await fetch(`/api/payments/transactions/${user?.id || 'demo_parent'}`);
       const txnData = await txnResponse.json();
@@ -76,7 +76,7 @@ export default function MyPaymentsPage() {
         method: 'POST'
       });
       const data = await response.json();
-      
+
       if (data.success) {
         toast({
           title: "Suscripción cancelada",
@@ -174,8 +174,8 @@ export default function MyPaymentsPage() {
                     </p>
                   )}
                 </div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => handleCancelSubscription(sub.id)}
                 >
@@ -335,13 +335,13 @@ export default function MyPaymentsPage() {
       </Tabs>
 
       {/* Payment Checkout Modal */}
-      <PaymentCheckoutModal 
+      <PaymentCheckoutModal
         open={showCheckout}
         onOpenChange={setShowCheckout}
         studentId={user?.id || 'demo_student'}
         programId="prog_1"
         amount={220000}
-        programName="Fútbol Juvenil"
+        programName="Firesquad (Senior L3)"
         onSuccess={fetchPaymentData}
       />
     </div>

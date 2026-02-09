@@ -252,7 +252,7 @@ const Explore = ({ onNavigate }: ExploreProps) => {
           <CardContent className="space-y-3">
             <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
               <div className="flex justify-between items-start mb-2">
-                <h4 className="font-semibold">Fútbol Sub-12</h4>
+                <h4 className="font-semibold">Tumbling Nivel 2</h4>
                 <Badge className="bg-green-500/20 text-green-700">Activa</Badge>
               </div>
               <p className="text-sm text-muted-foreground mb-2">Lunes y Miércoles • 9:00 - 10:30 AM</p>
@@ -269,7 +269,7 @@ const Explore = ({ onNavigate }: ExploreProps) => {
             </div>
             <div className="p-4 rounded-lg bg-muted/50">
               <div className="flex justify-between items-start mb-2">
-                <h4 className="font-semibold">Fútbol Avanzado</h4>
+                <h4 className="font-semibold">Stunts Avanzado</h4>
                 <Badge variant="secondary">Programada</Badge>
               </div>
               <p className="text-sm text-muted-foreground mb-2">Martes y Jueves • 4:00 - 6:00 PM</p>
@@ -390,9 +390,9 @@ const Explore = ({ onNavigate }: ExploreProps) => {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-              <h4 className="font-semibold mb-2">Cancha de Fútbol Principal</h4>
+              <h4 className="font-semibold mb-2">Spring Floor Principal</h4>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>Capacidad: 100 personas</span>
+                <span>Capacidad: 30 atletas</span>
                 <Badge className="bg-green-500/20 text-green-700">Disponible</Badge>
               </div>
               <div className="mt-2">
@@ -401,9 +401,9 @@ const Explore = ({ onNavigate }: ExploreProps) => {
               </div>
             </div>
             <div className="p-4 rounded-lg bg-muted/50">
-              <h4 className="font-semibold mb-2">Piscina Olímpica</h4>
+              <h4 className="font-semibold mb-2">Sala de Tumbling</h4>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>8 carriles • 50m</span>
+                <span>Camas elásticas y foso</span>
                 <Badge variant="secondary">En uso</Badge>
               </div>
               <div className="mt-2">
@@ -426,21 +426,21 @@ const Explore = ({ onNavigate }: ExploreProps) => {
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
               <div>
-                <h4 className="font-semibold">Fútbol Juvenil</h4>
+                <h4 className="font-semibold">Firesquad (Senior L3)</h4>
                 <p className="text-sm text-muted-foreground">45 estudiantes</p>
               </div>
               <Badge>3 grupos</Badge>
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
               <div>
-                <h4 className="font-semibold">Natación</h4>
+                <h4 className="font-semibold">Butterfly (Junior Prep)</h4>
                 <p className="text-sm text-muted-foreground">38 estudiantes</p>
               </div>
               <Badge>2 grupos</Badge>
             </div>
             <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
               <div>
-                <h4 className="font-semibold">Baloncesto</h4>
+                <h4 className="font-semibold">Bombsquad (Coed L5)</h4>
                 <p className="text-sm text-muted-foreground">30 estudiantes</p>
               </div>
               <Badge>2 grupos</Badge>
