@@ -37,7 +37,7 @@ interface AdminSchool {
 export default function AdminPanelPage() {
   const { user } = useAuth(); // Aunque es ruta protegida, validamos acceso si es necesario
   const { toast } = useToast();
-  
+
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [schools, setSchools] = useState<AdminSchool[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,16 +91,20 @@ export default function AdminPanelPage() {
       setSchools(schoolsData || []);
 
       // 3. Calculate Stats (Conteos simples)
-      // Usamos { count: 'exact', head: true } para solo contar sin traer datos
-      const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-      const { count: schoolsCount } = await supabase.from('schools').select('*', { count: 'exact', head: true });
-      
-      setStats({
-        totalUsers: usersCount || 0,
-        activeSchools: schoolsCount || 0,
-        activityToday: Math.floor(Math.random() * 50) + 10, // Simulado
-        systemStatus: 'Online'
-      });
+      try {
+        const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+        const { count: schoolsCount } = await supabase.from('schools').select('*', { count: 'exact', head: true });
+
+        setStats({
+          totalUsers: usersCount || 0,
+          activeSchools: schoolsCount || 0,
+          activityToday: Math.floor(Math.random() * 50) + 10, // Simulado
+          systemStatus: 'Online'
+        });
+      } catch (statsError) {
+        console.warn('Error fetching counts, using placeholders:', statsError);
+        setStats(prev => ({ ...prev, systemStatus: 'Partial' }));
+      }
 
     } catch (error) {
       console.error('Error fetching admin data:', error);
@@ -114,7 +118,7 @@ export default function AdminPanelPage() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
+  const filteredUsers = users.filter(u =>
     u.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.role.toLowerCase().includes(searchTerm.toLowerCase())
   );

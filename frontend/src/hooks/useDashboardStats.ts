@@ -130,42 +130,48 @@ export function useDashboardStats(role?: UserRole) {
       }
 
       if (effectiveRole === 'school') {
-        const { data: school } = await supabase
-          .from('schools')
-          .select('id')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-
-        if (school) {
-          const { count: progCount } = await supabase
-            .from('programs')
-            .select('id', { count: 'exact' })
-            .eq('school_id', school.id);
-          stats.programs = progCount || 0;
-
-          const { count: activeProgCount } = await supabase
-            .from('programs')
-            .select('id', { count: 'exact' })
-            .eq('school_id', school.id)
-            .eq('active', true);
-          stats.activePrograms = activeProgCount || 0;
-
-          // Total students (enrollments)
-          const { data: myPrograms } = await supabase
-            .from('programs')
+        try {
+          const { data: schoolData } = await supabase
+            .from('schools')
             .select('id')
-            .eq('school_id', school.id);
+            .eq('owner_id', user.id)
+            .limit(1);
 
-          const programIds = myPrograms?.map(p => p.id) || [];
+          const school = schoolData && schoolData.length > 0 ? schoolData[0] : null;
 
-          if (programIds.length > 0) {
-            const { count: enrollCount } = await supabase
-              .from('enrollments')
-              .select('*', { count: 'exact', head: true })
-              .in('program_id', programIds)
-              .eq('status', 'active');
-            stats.totalStudents = enrollCount || 0;
+          if (school) {
+            const { count: progCount } = await supabase
+              .from('programs')
+              .select('id', { count: 'exact' })
+              .eq('school_id', school.id);
+            stats.programs = progCount || 0;
+
+            const { count: activeProgCount } = await supabase
+              .from('programs')
+              .select('id', { count: 'exact' })
+              .eq('school_id', school.id)
+              .eq('active', true);
+            stats.activePrograms = activeProgCount || 0;
+
+            // Total students (enrollments)
+            const { data: myPrograms } = await supabase
+              .from('programs')
+              .select('id')
+              .eq('school_id', school.id);
+
+            const programIds = myPrograms?.map(p => p.id) || [];
+
+            if (programIds.length > 0) {
+              const { count: enrollCount } = await supabase
+                .from('enrollments')
+                .select('id', { count: 'exact', head: true })
+                .in('program_id', programIds)
+                .eq('status', 'active');
+              stats.totalStudents = enrollCount || 0;
+            }
           }
+        } catch (error) {
+          console.warn('Error fetching school stats, falling back to 0:', error);
         }
       }
 
