@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useStorage } from '@/hooks/useStorage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Settings,
   User,
@@ -21,17 +23,21 @@ import {
   Save,
   Plus,
   Trash2,
-  ClipboardCopy
+  ClipboardCopy,
+  Loader2
 } from 'lucide-react';
 
 export default function ProfilePage() {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const { uploadFile, uploading } = useStorage();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Profile settings
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
+  const [bio, setBio] = useState(profile?.bio || '');
+  const [saving, setSaving] = useState(false);
 
   // Notification settings
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -45,24 +51,31 @@ export default function ProfilePage() {
   const [showPhone, setShowPhone] = useState(false);
 
   const handleProfileUpdate = async () => {
-    if (!profile) return;
+    if (!user) return;
 
-    setIsLoading(true);
+    setSaving(true);
     try {
-      await updateProfile({
-        full_name: fullName,
-        phone: phone
-      });
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          phone: phone,
+          bio: bio,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
 
       toast({
         title: "Perfil actualizado",
-        description: "Tus cambios han sido guardados correctamente",
+        description: "Tu información ha sido guardada correctamente.",
       });
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "Error al actualizar",
-        description: "No se pudieron guardar los cambios",
-        variant: "destructive"
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
       });
     } finally {
       setIsLoading(false);
@@ -146,15 +159,32 @@ export default function ProfilePage() {
               {/* Avatar Section */}
               <div className="flex items-center gap-6">
                 <Avatar className="h-24 w-24">
-                  <AvatarImage src={profile.avatar_url || undefined} />
+                  <AvatarImage src={profile?.avatar_url || undefined} />
                   <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
                     {getUserInitials()}
                   </AvatarFallback>
                 </Avatar>
                 <div className="space-y-2">
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Camera className="h-4 w-4" />
-                    Cambiar foto
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/jpeg,image/png,image/gif"
+                    onChange={handleAvatarUpload}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Camera className="h-4 w-4" />
+                    )}
+                    {uploading ? 'Subiendo...' : 'Cambiar foto'}
                   </Button>
                   <p className="text-xs text-muted-foreground">
                     JPG, PNG o GIF. Máximo 2MB.
