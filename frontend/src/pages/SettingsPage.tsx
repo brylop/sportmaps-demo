@@ -78,7 +78,7 @@ export default function ProfilePage() {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setSaving(false);
     }
   };
 
@@ -288,9 +288,9 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={handleProfileUpdate} disabled={isLoading} className="gap-2">
+                <Button onClick={handleProfileUpdate} disabled={saving} className="gap-2">
                   <Save className="h-4 w-4" />
-                  {isLoading ? 'Guardando...' : 'Guardar Cambios'}
+                  {saving ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
               </div>
             </CardContent>

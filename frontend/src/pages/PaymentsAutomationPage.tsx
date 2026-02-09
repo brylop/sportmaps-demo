@@ -8,6 +8,7 @@ import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download } fr
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { getDemoSchoolData, formatCurrency } from '@/lib/demo-data';
 
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
