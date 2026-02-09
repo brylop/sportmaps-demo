@@ -17,7 +17,7 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
     // Check if tour should run
     const tourPending = sessionStorage.getItem('demo_tour_pending');
     const demoMode = sessionStorage.getItem('demo_mode');
-    
+
     if (tourPending === 'true' && demoMode === 'true') {
       // Small delay to ensure DOM is ready
       setTimeout(() => {
@@ -35,8 +35,8 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
             target: 'body',
             content: (
               <div className="space-y-2">
-                <h3 className="text-lg font-bold">¡Bienvenido al Demo de SportMaps!</h3>
-                <p>En 2 minutos te mostraré cómo SportMaps transforma la gestión de tu academia deportiva.</p>
+                <h3 className="text-lg font-bold">¡Bienvenido al Demo de Spirit All Stars!</h3>
+                <p>En 2 minutos te mostraré cómo SportMaps transforma la gestión de tu academia de cheerleading.</p>
                 <p className="text-sm text-muted-foreground">Haz clic en "Siguiente" para comenzar el tour.</p>
               </div>
             ),
@@ -68,9 +68,9 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
             target: '[data-tour="programs-card"]',
             content: (
               <div className="space-y-2">
-                <h4 className="font-semibold">📚 Programas Deportivos</h4>
-                <p><strong>4 programas activos</strong>: Fútbol Infantil, Juvenil, Porteros y Técnica.</p>
-                <p className="text-sm text-muted-foreground">Gestiona horarios, precios y cupos desde un solo lugar.</p>
+                <h4 className="font-semibold">📚 Programas de Cheer</h4>
+                <p><strong>4 equipos activos</strong>: Butterfly, Firesquad, Bombsquad y Legends.</p>
+                <p className="text-sm text-muted-foreground">Gestiona entrenamientos, niveles y cuotas mensuales.</p>
               </div>
             ),
             placement: 'bottom',
@@ -109,7 +109,7 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
             placement: 'center',
           },
         ];
-      
+
       case 'parent':
         return [
           {
@@ -143,7 +143,7 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
             placement: 'right',
           },
         ];
-      
+
       default:
         return [];
     }
@@ -151,20 +151,20 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
 
   const handleJoyrideCallback = (data: CallBackProps) => {
     const { status, action } = data;
-    
+
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status as any)) {
       setRun(false);
-      
+
       if (status === STATUS.FINISHED) {
         // Show conversion modal
         sessionStorage.setItem('show_conversion_modal', 'true');
-        
+
         toast({
           title: "¡Tour completado!",
           description: "Ahora explora libremente todas las funcionalidades",
         });
       }
-      
+
       onComplete?.();
     }
   };
@@ -179,7 +179,7 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
       callback={handleJoyrideCallback}
       styles={{
         options: {
-          primaryColor: '#248223',
+          primaryColor: '#003366',
           zIndex: 10000,
         },
         tooltip: {
@@ -187,7 +187,7 @@ export function DemoTour({ role, onComplete }: DemoTourProps) {
           padding: 16,
         },
         buttonNext: {
-          backgroundColor: '#248223',
+          backgroundColor: '#003366',
           borderRadius: 6,
           padding: '8px 16px',
         },

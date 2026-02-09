@@ -95,7 +95,7 @@ export default function InvitationsManagementPage() {
             to: data.parentEmail,
             parentName: data.parentEmail.split('@')[0],
             childName: data.childName,
-            schoolName: 'Academia Deportiva Elite',
+            schoolName: 'Spirit All Stars',
             programName: demoPrograms.find(p => p.id === data.programId)?.name || '',
             invitationLink: `${window.location.origin}/accept-invitation`
           })
@@ -133,7 +133,7 @@ export default function InvitationsManagementPage() {
         title: '📧 Reenviando invitación',
         description: `Enviando nueva invitación a ${invitation.invited_email}...`,
       });
-      
+
       // Simulate API call
       return new Promise(resolve => setTimeout(resolve, 1000));
     },

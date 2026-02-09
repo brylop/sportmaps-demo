@@ -5,11 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  MapPin, 
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
   Calendar,
   Users,
   Award,
@@ -67,7 +67,7 @@ const Explore = ({ onNavigate }: ExploreProps) => {
       description: "Entrenador profesional de fútbol"
     },
     escuela: {
-      name: "Academia Deportiva Elite",
+      name: "Spirit All Stars",
       email: "admin@elite-sports.com",
       phone: "+57 601 234 5678",
       location: "Cali, Colombia",
@@ -656,14 +656,14 @@ const Explore = ({ onNavigate }: ExploreProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="icon"
                 onClick={() => onNavigate("landing")}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <button 
+              <button
                 className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate("landing")}
               >
@@ -672,15 +672,15 @@ const Explore = ({ onNavigate }: ExploreProps) => {
               </button>
             </div>
             <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => onNavigate("register")}
               >
                 Registrarse
               </Button>
-              <Button 
-                variant="default" 
+              <Button
+                variant="default"
                 size="sm"
                 onClick={() => onNavigate("login")}
               >

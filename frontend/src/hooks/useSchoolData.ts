@@ -202,16 +202,15 @@ export function useSchoolFacilities() {
         if (error) throw error;
         return data as Facility[];
       } catch (error) {
-        console.warn('Error fetching facilities (RLS/Demo), falling back to mock data:', error);
         // Mock data for demo/restricted mode
         return [
           {
             id: 'mock-1',
             school_id: schoolId || 'demo',
-            name: 'Cancha Principal (Demo)',
-            type: 'Cancha Sintética',
-            capacity: 14,
-            description: 'Cancha de fútbol 7 con iluminación LED',
+            name: 'Gimnasio de Acrobatics - Sede Norte',
+            type: 'Gimnasio de Porras',
+            capacity: 30,
+            description: 'Spring floor profesional con paneles de seguridad',
             status: 'available',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -219,10 +218,21 @@ export function useSchoolFacilities() {
           {
             id: 'mock-2',
             school_id: schoolId || 'demo',
-            name: 'Piscina Olímpica (Demo)',
-            type: 'Piscina',
+            name: 'Sala de Tumbling - Fontibón',
+            type: 'Pista de Tumbling',
+            capacity: 15,
+            description: 'Pista de tumbling con camas elásticas y fosos de espuma',
+            status: 'available',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 'mock-3',
+            school_id: schoolId || 'demo',
+            name: 'Área de Estiramientos - La Granja',
+            type: 'Sala de Preparación Física',
             capacity: 20,
-            description: 'Piscina climatizada para entrenamiento',
+            description: 'Espacio amplio para calentamiento y flexibilidad',
             status: 'occupied',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()

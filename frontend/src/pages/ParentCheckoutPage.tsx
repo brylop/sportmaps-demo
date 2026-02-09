@@ -17,7 +17,7 @@ export default function ParentCheckoutPage() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { toast } = useToast();
-  
+
   const [paymentMethod, setPaymentMethod] = useState<'pse' | 'nequi'>('pse');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -26,7 +26,7 @@ export default function ParentCheckoutPage() {
   const amount = parseInt(searchParams.get('amount') || '150000');
   const concept = searchParams.get('concept') || 'Mensualidad Octubre 2024';
   const studentName = searchParams.get('student') || 'Juan Vargas';
-  const schoolName = searchParams.get('school') || 'Academia Deportiva Los Campeones';
+  const schoolName = searchParams.get('school') || 'Spirit All Stars';
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
 
@@ -82,7 +82,7 @@ export default function ParentCheckoutPage() {
             <h2 className="text-2xl font-bold mb-2">¡Pago Exitoso!</h2>
             <p className="text-muted-foreground mb-2">Tu pago ha sido procesado correctamente.</p>
             <Badge variant="secondary" className="mb-6">Recibo #{receiptNumber}</Badge>
-            
+
             <div className="bg-muted/50 rounded-xl p-4 mb-6 text-left">
               <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span className="font-medium">{concept}</span></div>
               <div className="flex justify-between mb-2"><span className="text-muted-foreground">Estudiante</span><span className="font-medium">{studentName}</span></div>

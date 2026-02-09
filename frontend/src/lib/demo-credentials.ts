@@ -15,7 +15,7 @@ export const DEMO_USERS: Record<string, DemoUser> = {
     email: 'carlos.martinez@demo.sportmaps.com',
     password: 'SportMapsDemo2025!',
     fullName: 'Carlos Martínez López',
-    description: 'Estudiante de secundaria apasionado por el fútbol'
+    description: 'Atleta de cheerleading de alto rendimiento'
   },
   parent: {
     role: 'parent',
@@ -35,8 +35,8 @@ export const DEMO_USERS: Record<string, DemoUser> = {
     role: 'school',
     email: 'academia.elite@demo.sportmaps.com',
     password: 'SportMapsDemo2025!',
-    fullName: 'Academia Deportiva Elite',
-    description: 'Centro deportivo de alto rendimiento'
+    fullName: 'Spirit All Stars',
+    description: 'Academia de cheerleading de alto rendimiento'
   },
   wellness_professional: {
     role: 'wellness_professional',

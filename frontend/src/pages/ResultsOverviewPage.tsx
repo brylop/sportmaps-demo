@@ -8,47 +8,47 @@ export default function ResultsOverviewPage() {
   const demoResults = [
     {
       id: '1',
-      date: '2024-10-25',
-      program: 'Fútbol Sub-12',
-      sport: 'Fútbol',
-      homeTeam: 'SportMaps Sub-12',
-      awayTeam: 'Tigres FC',
-      homeScore: 2,
-      awayScore: 2,
-      coach: 'Luis F. Rodríguez',
-      matchType: 'Amistoso',
+      date: '2025-01-28',
+      program: 'Firesquad (Senior L3)',
+      sport: 'Cheerleading',
+      homeTeam: 'Spirit All Stars - Firesquad',
+      awayTeam: 'Campeonato Nacional Zona Centro',
+      homeScore: 92,
+      awayScore: 0,
+      coach: 'María García',
+      matchType: 'Campeonato',
     },
     {
       id: '2',
-      date: '2024-10-24',
-      program: 'Tenis Infantil',
-      sport: 'Tenis',
-      homeTeam: 'Torneo Inter-clubes',
-      awayTeam: '',
-      homeScore: 3,
+      date: '2025-01-21',
+      program: 'Bombsquad (Coed L5)',
+      sport: 'Cheerleading',
+      homeTeam: 'Spirit All Stars - Bombsquad',
+      awayTeam: 'Copa CheerMania',
+      homeScore: 96,
       awayScore: 0,
-      coach: 'Diana Silva',
-      matchType: 'Torneo',
+      coach: 'Carlos Rodríguez',
+      matchType: 'Copa Regional',
     },
     {
       id: '3',
-      date: '2024-10-18',
-      program: 'Fútbol Sub-12',
-      sport: 'Fútbol',
-      homeTeam: 'SportMaps Sub-12',
-      awayTeam: 'Leones',
-      homeScore: 3,
-      awayScore: 1,
-      coach: 'Luis F. Rodríguez',
-      matchType: 'Liga',
+      date: '2025-01-14',
+      program: 'Butterfly (Junior Prep)',
+      sport: 'Cheerleading',
+      homeTeam: 'Spirit All Stars - Butterfly',
+      awayTeam: 'Exhibición Interna',
+      homeScore: 88,
+      awayScore: 0,
+      coach: 'Laura Méndez',
+      matchType: 'Exhibición',
     },
   ];
 
   const results = isDemoMode ? demoResults : [];
 
   const demoMonthStats = {
-    wins: 2,
-    draws: 1,
+    wins: 3,
+    draws: 0,
     losses: 0,
   };
 
@@ -59,12 +59,13 @@ export default function ResultsOverviewPage() {
   };
 
   const getResultBadge = (homeScore: number, awayScore: number, isHome: boolean = true) => {
-    if (homeScore > awayScore) {
-      return <Badge className="bg-green-500">Victoria</Badge>;
-    } else if (homeScore === awayScore) {
-      return <Badge variant="secondary">Empate</Badge>;
+    // For cheerleading, homeScore is the routine score. We display it differently:
+    if (homeScore >= 90) {
+      return <Badge className="bg-yellow-400 text-black">Oro</Badge>;
+    } else if (homeScore >= 85) {
+      return <Badge className="bg-gray-300 text-black">Plata</Badge>;
     } else {
-      return <Badge variant="destructive">Derrota</Badge>;
+      return <Badge className="bg-amber-700 text-white">Bronce</Badge>;
     }
   };
 
@@ -78,7 +79,7 @@ export default function ResultsOverviewPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Victorias del Mes</CardTitle>
+            <CardTitle className="text-sm font-medium">Oros del Mes</CardTitle>
             <Trophy className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
@@ -88,7 +89,7 @@ export default function ResultsOverviewPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Empates</CardTitle>
+            <CardTitle className="text-sm font-medium">Platas</CardTitle>
             <TrendingUp className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
@@ -98,7 +99,7 @@ export default function ResultsOverviewPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Derrotas</CardTitle>
+            <CardTitle className="text-sm font-medium">Bronces</CardTitle>
             <Calendar className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
@@ -129,7 +130,7 @@ export default function ResultsOverviewPage() {
                     </div>
                     <div className="text-center px-4">
                       <p className="text-2xl font-bold">
-                        {result.homeScore} - {result.awayScore}
+                        {result.homeScore} pts
                       </p>
                     </div>
                     <div className="text-left flex-1">

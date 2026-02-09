@@ -70,8 +70,8 @@ export default function SchoolFacilitiesPage() {
 
               <EmptyState
                 icon={Building2}
-                title="Tu academia necesita espacios"
-                description="Crea tu primera instalación (cancha, piscina, gimnasio, etc.) para gestionar sus reservas y horarios."
+                title="Spirit All Stars necesita espacios"
+                description="Crea tu primera instalación (gimnasio de porras, camas elásticas, pista de tumbling, etc.) para gestionar sus reservas y horarios."
                 actionLabel="+ Agregar Instalación"
                 onAction={() => setDialogOpen(true)}
               />
@@ -201,8 +201,9 @@ export default function SchoolFacilitiesPage() {
                 </TableHeader>
                 <TableBody>
                   {[
-                    { facility: 'Cancha 1', user: 'Club Los Tigres', date: '2025-02-01', time: '16:00 - 18:00', status: 'confirmed' },
-                    { facility: 'Piscina Olímpica', user: 'Juan Pérez', date: '2025-02-02', time: '09:00 - 10:00', status: 'pending' },
+                    { facility: 'Gimnasio de Acrobatics - Sede Norte', user: 'Equipo Firesquad', date: '2025-02-10', time: '16:00 - 18:00', status: 'confirmed' },
+                    { facility: 'Pista de Spring Floor - Fontibón', user: 'Equipo Bombsquad', date: '2025-02-11', time: '09:00 - 11:00', status: 'pending' },
+                    { facility: 'Sala de Estiramientos - La Granja', user: 'Equipo Butterfly', date: '2025-02-12', time: '14:00 - 15:30', status: 'confirmed' },
                   ].map((res, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-medium">{res.facility}</TableCell>

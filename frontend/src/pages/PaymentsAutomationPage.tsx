@@ -297,7 +297,12 @@ export default function PaymentsAutomationPage() {
                       <span className="text-sm text-muted-foreground">Vencidos</span>
                       <Badge variant="destructive">{teamData.overdue}</Badge>
                     </div>
-                    <Button variant="outline" className="w-full text-xs" size="sm">
+                    <Button
+                      variant="outline"
+                      className="w-full text-xs"
+                      size="sm"
+                      onClick={() => toast({ title: `👥 Atletas de ${team}`, description: 'Navegando a la lista de atletas del equipo...' })}
+                    >
                       Ver Atletas
                     </Button>
                   </CardContent>

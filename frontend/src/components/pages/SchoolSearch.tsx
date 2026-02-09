@@ -5,10 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { 
-  MapPin, 
-  Star, 
-  Users, 
+import {
+  MapPin,
+  Star,
+  Users,
   Calendar,
   Search,
   Award,
@@ -36,21 +36,21 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
   const schools = [
     {
       id: 1,
-      name: "Academia Deportiva Elite",
-      location: "Bogotá - Sede Norte",
-      image: "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&auto=format&fit=crop",
+      name: "Spirit All Stars",
+      location: "Bogotá - Sede Norte, Fontibón, La Granja",
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       rating: 4.9,
       reviews: 245,
       students: 340,
-      sports: ["Fútbol", "Baloncesto", "Natación", "Atletismo"],
-      description: "Centro deportivo de alto rendimiento con instalaciones de primera clase y entrenadores certificados",
-      programs: ["Escuelas Deportivas", "Alto Rendimiento", "Torneos"],
+      sports: ["Cheerleading", "Tumbling", "Acrobatics", "Stunts"],
+      description: "Academia líder en cheerleading de alto rendimiento con instalaciones de primera clase y entrenadores certificados",
+      programs: ["Butterfly (Junior Prep)", "Firesquad (Senior L3)", "Bombsquad (Coed L5)", "Legends (Open L6)"],
       ageGroups: ["Niños (4-12)", "Jóvenes (13-17)", "Adultos"],
       schedule: "Lun-Sáb 6:00 AM - 9:00 PM",
-      price: "Desde $150.000/mes",
+      price: "Desde $240.000/mes",
       certified: true,
-      features: ["Piscina Olímpica", "Canchas Profesionales", "Gimnasio Completo", "Nutricionista"],
-      category: "Multi-deporte"
+      features: ["Spring Floor Profesional", "Camas Elásticas", "Gimnasio de Acrobatics", "Fisioterapia"],
+      category: "Cheerleading"
     },
     {
       id: 2,
@@ -145,11 +145,11 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
   ];
 
   const categories = ["Todas", "Multi-deporte", "Fútbol", "Natación", "Tenis", "Artes Marciales", "Gimnasio"];
-  
+
   const filteredSchools = schools.filter(school => {
     const matchesSearch = school.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         school.sports.some(s => s.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                         school.location.toLowerCase().includes(searchTerm.toLowerCase());
+      school.sports.some(s => s.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      school.location.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = activeCategory === "Todas" || school.category === activeCategory;
     const matchesAge = ageFilter === "all" || school.ageGroups.some(age => age.toLowerCase().includes(ageFilter.toLowerCase()));
     const matchesProgram = programFilter === "all" || school.programs.some(prog => prog.toLowerCase().includes(programFilter.toLowerCase()));
@@ -163,14 +163,14 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="icon"
                 onClick={() => onNavigate("dashboard")}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <button 
+              <button
                 className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate("landing")}
               >
@@ -179,7 +179,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
               </button>
             </div>
             <nav className="hidden md:flex items-center gap-6">
-              <button 
+              <button
                 className="font-medium hover:text-primary transition-colors"
                 onClick={() => onNavigate("dashboard")}
               >
@@ -188,13 +188,13 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
               <button className="font-medium text-primary">
                 Explorar
               </button>
-              <button 
+              <button
                 className="font-medium hover:text-primary transition-colors"
                 onClick={() => onNavigate("shop")}
               >
                 Tienda
               </button>
-              <button 
+              <button
                 className="font-medium hover:text-primary transition-colors"
                 onClick={() => onNavigate("wellness")}
               >
@@ -341,7 +341,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
           {filteredSchools.map((school) => (
             <Card key={school.id} className="overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
               <div className="relative">
-                <div 
+                <div
                   className="h-48 bg-cover bg-center"
                   style={{ backgroundImage: `url(${school.image})` }}
                 />
@@ -371,7 +371,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground mb-4">{school.description}</p>
-                  
+
                   {/* Sports Tags */}
                   <div className="flex flex-wrap gap-2 mb-4">
                     {school.sports.map((sport, index) => (
@@ -427,7 +427,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
                     ))}
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between pt-4 border-t">
                   <div>
                     <p className="text-sm text-muted-foreground">Desde</p>

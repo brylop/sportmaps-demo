@@ -49,8 +49,8 @@ export default function SchoolCoachesManagementPage() {
   };
 
   const sportsList = [
-    'Fútbol', 'Baloncesto', 'Voleibol', 'Tenis', 'Natación',
-    'Atletismo', 'Gimnasia', 'Artes Marciales', 'Padel', 'CrossFit'
+    'Stunts', 'Tumbling', 'Acrobatics', 'Coreografía', 'Bases',
+    'Flyers', 'Tumbling Avanzado', 'Preparación Física Cheer', 'Ritmo y Baile'
   ];
 
   if (coaches.length === 0) {
@@ -74,7 +74,7 @@ export default function SchoolCoachesManagementPage() {
         />
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Agregar Nuevo Entrenador</DialogTitle>
               <DialogDescription>
@@ -188,7 +188,7 @@ export default function SchoolCoachesManagementPage() {
                   <Label htmlFor="certifications">Certificaciones y Títulos</Label>
                   <Input
                     id="certifications"
-                    placeholder="Ej: Licenciado en Educación Física, Certificado UEFA B"
+                    placeholder="Ej: Certificado USASF, IASF Judge, Coach Certificado ICU"
                     {...form.register('certifications')}
                   />
                 </div>
