@@ -339,80 +339,81 @@ export default function PaymentsAutomationPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Historial de Transacciones</CardTitle>
-              <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              Exportar
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Estudiante</TableHead>
-                  <TableHead>Monto</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentTransactions.map((transaction) => (
-                  <TableRow key={transaction.id}>
-                    <TableCell className="font-medium">{transaction.student}</TableCell>
-                    <TableCell>{formatCurrency(transaction.amount)}</TableCell>
-                    <TableCell className="text-muted-foreground">{transaction.date}</TableCell>
-                    <TableCell>
-                      {transaction.status === 'success' ? (
-                        <Badge variant="default" className="bg-green-500">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Exitoso
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">
-                          <AlertCircle className="h-3 w-3 mr-1" />
-                          Fallido
-                        </Badge>
-                      )}
-                    </TableCell>
+        <TabsContent value="transactions" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Historial de Transacciones</CardTitle>
+                <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Estudiante</TableHead>
+                    <TableHead>Monto</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Estado</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
+                </TableHeader>
+                <TableBody>
+                  {recentTransactions.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell className="font-medium">{transaction.student}</TableCell>
+                      <TableCell>{formatCurrency(transaction.amount)}</TableCell>
+                      <TableCell className="text-muted-foreground">{transaction.date}</TableCell>
+                      <TableCell>
+                        {transaction.status === 'success' ? (
+                          <Badge variant="default" className="bg-green-500">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Exitoso
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">
+                            <AlertCircle className="h-3 w-3 mr-1" />
+                            Fallido
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <TabsContent value="settings" className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Configuración de Cobros</CardTitle>
-            <CardDescription>Personaliza cómo y cuándo se cobran los pagos</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <h4 className="font-medium">Día de cobro mensual</h4>
-              <p className="text-sm text-muted-foreground">Los cobros se procesaran automáticamente el día 15 de cada mes</p>
-              <Button variant="outline">Cambiar fecha</Button>
-            </div>
-            <div className="space-y-2">
-              <h4 className="font-medium">Reintentos automáticos</h4>
-              <p className="text-sm text-muted-foreground">Si un pago falla, se reintentará automáticamente después de 3 días</p>
-              <Button variant="outline">Configurar</Button>
-            </div>
-            <div className="space-y-2">
-              <h4 className="font-medium">Notificaciones</h4>
-              <p className="text-sm text-muted-foreground">Recibe notificaciones por email y WhatsApp de pagos exitosos y fallidos</p>
-              <Button variant="outline">Gestionar notificaciones</Button>
-            </div>
-          </CardContent>
-        </Card>
-      </TabsContent>
-    </Tabs>
-    </div >
+        <TabsContent value="settings" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Configuración de Cobros</CardTitle>
+              <CardDescription>Personaliza cómo y cuándo se cobran los pagos</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <h4 className="font-medium">Día de cobro mensual</h4>
+                <p className="text-sm text-muted-foreground">Los cobros se procesaran automáticamente el día 15 de cada mes</p>
+                <Button variant="outline">Cambiar fecha</Button>
+              </div>
+              <div className="space-y-2">
+                <h4 className="font-medium">Reintentos automáticos</h4>
+                <p className="text-sm text-muted-foreground">Si un pago falla, se reintentará automáticamente después de 3 días</p>
+                <Button variant="outline">Configurar</Button>
+              </div>
+              <div className="space-y-2">
+                <h4 className="font-medium">Notificaciones</h4>
+                <p className="text-sm text-muted-foreground">Recibe notificaciones por email y WhatsApp de pagos exitosos y fallidos</p>
+                <Button variant="outline">Gestionar notificaciones</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
