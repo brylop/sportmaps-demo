@@ -106,22 +106,22 @@ export default function LoginPage() {
 
     setIsDemoLoading(roleId);
     setIsDemoAccessing(true);
-    
+
     try {
       // Store demo mode info
       sessionStorage.setItem('demo_mode', 'true');
       sessionStorage.setItem('demo_role', roleId);
       sessionStorage.setItem('demo_tour_pending', 'true');
-      
+
       // Try to sign in with Supabase
       try {
         await signIn(demoUser.email, demoUser.password);
-        
+
         toast({
           title: "¡Acceso demo exitoso!",
           description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
         });
-        
+
         // Wait a bit for auth state to update, then navigate
         setTimeout(() => {
           navigate('/demo-welcome');
@@ -130,20 +130,20 @@ export default function LoginPage() {
         // If user doesn't exist, create it
         if (signInError.message?.includes('Invalid') || signInError.message?.includes('credentials')) {
           console.log('Creating demo user in Supabase...');
-          
+
           await signUp(demoUser.email, demoUser.password, {
             full_name: demoUser.fullName,
             role: demoUser.role as any,
           });
-          
+
           // Now sign in
           await signIn(demoUser.email, demoUser.password);
-          
+
           toast({
             title: "Demo creado exitosamente",
             description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
           });
-          
+
           setTimeout(() => {
             navigate('/demo-welcome');
           }, 100);
@@ -153,9 +153,17 @@ export default function LoginPage() {
       }
     } catch (error: any) {
       console.error('Error accessing demo:', error);
+
+      let errorMessage = error.message || "Por favor intenta de nuevo";
+
+      // Handle rate limit specifically
+      if (errorMessage.includes('rate limit') || error.status === 429) {
+        errorMessage = "Demasiados intentos. Por favor espera un momento antes de intentar de nuevo.";
+      }
+
       toast({
         title: "Error al acceder al demo",
-        description: error.message || "Por favor intenta de nuevo",
+        description: errorMessage,
         variant: "destructive",
       });
       setIsDemoAccessing(false);
@@ -180,13 +188,12 @@ export default function LoginPage() {
             <div className="grid md:grid-cols-2 gap-4 mb-4">
               {mainDemoRoles.map((role) => {
                 const Icon = role.icon;
-                
+
                 return (
                   <Card
                     key={role.id}
-                    className={`relative overflow-hidden transition-all duration-200 border-2 hover:shadow-lg cursor-pointer ${
-                      role.recommended ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary'
-                    } ${isDemoLoading === role.id ? 'opacity-60' : ''}`}
+                    className={`relative overflow-hidden transition-all duration-200 border-2 hover:shadow-lg cursor-pointer ${role.recommended ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary'
+                      } ${isDemoLoading === role.id ? 'opacity-60' : ''}`}
                     onClick={() => handleDemoAccess(role.id)}
                   >
                     {role.recommended && (
@@ -233,28 +240,27 @@ export default function LoginPage() {
 
             {/* Additional Roles - Collapsible */}
             {!showAdditionalRoles && (
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className="w-full"
                 onClick={() => setShowAdditionalRoles(true)}
               >
                 Ver más roles (Coach, Deportista) →
               </Button>
             )}
-            
+
             {showAdditionalRoles && (
               <div className="mt-4 pt-4 border-t">
                 <p className="text-sm text-muted-foreground text-center mb-3">Roles adicionales</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {additionalRoles.map((role) => {
                     const Icon = role.icon;
-                    
+
                     return (
                       <div
                         key={role.id}
-                        className={`relative overflow-hidden rounded-lg p-3 text-center transition-all duration-200 border-2 hover:border-primary hover:shadow-lg bg-card group cursor-pointer ${
-                          isDemoLoading === role.id ? 'opacity-60' : ''
-                        }`}
+                        className={`relative overflow-hidden rounded-lg p-3 text-center transition-all duration-200 border-2 hover:border-primary hover:shadow-lg bg-card group cursor-pointer ${isDemoLoading === role.id ? 'opacity-60' : ''
+                          }`}
                         onClick={() => handleDemoAccess(role.id)}
                       >
                         <div className="flex flex-col items-center gap-2">
