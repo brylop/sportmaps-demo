@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
+import {
   User,
   Mail,
   Phone,
@@ -56,32 +56,32 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
   const bookedClasses = [
     {
       id: 1,
-      name: "Clase de Fútbol Sub-12",
+      name: "Entrenamiento Firesquad",
       date: "Mañana",
       time: "9:00 - 10:30 AM",
-      instructor: "Carlos Valderrama",
-      location: "Academia Juvenil",
-      image: "https://images.unsplash.com/photo-1552667466-07770ae110d0?w=400&auto=format&fit=crop",
+      instructor: "María García",
+      location: "Spirit All Stars Gym",
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       status: "confirmed"
     },
     {
       id: 2,
-      name: "Natación Técnica",
+      name: "Clase de Tumbling",
       date: "Miércoles",
       time: "4:00 - 5:00 PM",
-      instructor: "María López",
-      location: "Centro Acuático",
-      image: "https://images.unsplash.com/photo-1530549387789-4c1017266635?w=400&auto=format&fit=crop",
+      instructor: "Carlos Rodríguez",
+      location: "Spring Floor A",
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       status: "confirmed"
     },
     {
       id: 3,
-      name: "Yoga Deportivo",
+      name: "Flexibilidad y Stunts",
       date: "Viernes",
       time: "6:00 - 7:00 PM",
       instructor: "Ana García",
       location: "Wellness Center",
-      image: "https://images.unsplash.com/photo-1506629905607-d7d39e2ee9bb?w=400&auto=format&fit=crop",
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       status: "pending"
     }
   ];
@@ -138,14 +138,14 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="icon"
                 onClick={() => onNavigate("dashboard")}
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <button 
+              <button
                 className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate("landing")}
               >
@@ -237,7 +237,7 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {bookedClasses.map((classItem) => (
                 <Card key={classItem.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                  <div 
+                  <div
                     className="h-40 bg-cover bg-center"
                     style={{ backgroundImage: `url(${classItem.image})` }}
                   />
@@ -365,7 +365,7 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
                     <p className="text-muted-foreground mb-6">
                       Usa IA para obtener sugerencias basadas en tu perfil y actividad
                     </p>
-                    <Button 
+                    <Button
                       onClick={generateRecommendations}
                       disabled={loadingRecommendations}
                       size="lg"
@@ -386,7 +386,7 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
                 ) : (
                   <div className="space-y-4">
                     <div className="flex justify-end">
-                      <Button 
+                      <Button
                         onClick={generateRecommendations}
                         disabled={loadingRecommendations}
                         variant="outline"

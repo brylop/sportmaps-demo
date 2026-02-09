@@ -22,8 +22,8 @@ export default function ChildAttendancePage() {
         return {
           id,
           full_name: id === 'demo-1' ? 'Mateo Pérez' : 'Sofía Pérez',
-          sport: id === 'demo-1' ? 'Fútbol' : 'Tenis',
-          team_name: id === 'demo-1' ? 'Fútbol Sub-12' : 'Tenis Infantil',
+          sport: 'Cheerleading',
+          team_name: id === 'demo-1' ? 'Firesquad (Senior L3)' : 'Butterfly (Junior Prep)',
         };
       }
       const { data, error } = await supabase
@@ -102,8 +102,8 @@ export default function ChildAttendancePage() {
     late: attendance?.filter(a => a.status === 'late').length || 0,
   };
 
-  const attendanceRate = stats.total > 0 
-    ? Math.round((stats.present / stats.total) * 100) 
+  const attendanceRate = stats.total > 0
+    ? Math.round((stats.present / stats.total) * 100)
     : 0;
 
   if (loadingChild || loadingAttendance) {

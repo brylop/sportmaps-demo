@@ -4,17 +4,17 @@ import { TrendingUp, Users, DollarSign } from 'lucide-react';
 
 export default function ReportsPage() {
   const occupancyData = [
-    { name: 'Fútbol Sub-12', occupied: 20, vacant: 0 },
-    { name: 'Fútbol Sub-10', occupied: 18, vacant: 2 },
-    { name: 'Tenis Infantil', occupied: 8, vacant: 4 },
-    { name: 'Voleibol Juvenil', occupied: 8, vacant: 12 },
+    { name: 'Firesquad (Senior L3)', occupied: 20, vacant: 0 },
+    { name: 'Bombsquad (Coed L5)', occupied: 18, vacant: 2 },
+    { name: 'Butterfly (Junior Prep)', occupied: 8, vacant: 4 },
+    { name: 'Legends (Open L6)', occupied: 8, vacant: 12 },
   ];
 
   const revenueData = [
-    { name: 'Fútbol Sub-12', value: 3000000 },
-    { name: 'Fútbol Sub-10', value: 2700000 },
-    { name: 'Tenis Infantil', value: 1440000 },
-    { name: 'Voleibol Juvenil', value: 1120000 },
+    { name: 'Firesquad (Senior L3)', value: 3000000 },
+    { name: 'Bombsquad (Coed L5)', value: 2700000 },
+    { name: 'Butterfly (Junior Prep)', value: 1440000 },
+    { name: 'Legends (Open L6)', value: 1120000 },
   ];
 
   const growthData = [

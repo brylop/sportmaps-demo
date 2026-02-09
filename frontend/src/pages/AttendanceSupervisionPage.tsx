@@ -13,15 +13,15 @@ export default function AttendanceSupervisionPage() {
   const demoSessions = [
     {
       id: '1',
-      program: 'Fútbol Sub-12',
-      coach: 'Luis F. Rodríguez',
+      program: 'Firesquad (Senior L3)',
+      coach: 'María García',
       date: '2024-10-28',
       status: 'registered',
       attendance: { present: 18, total: 20 },
     },
     {
       id: '2',
-      program: 'Tenis Infantil',
+      program: 'Butterfly (Junior Prep)',
       coach: 'Diana Silva',
       date: '2024-10-29',
       status: 'pending',
@@ -29,15 +29,15 @@ export default function AttendanceSupervisionPage() {
     },
     {
       id: '3',
-      program: 'Fútbol Sub-10',
-      coach: 'Luis F. Rodríguez',
+      program: 'Bombsquad (Coed L5)',
+      coach: 'Carlos Rodríguez',
       date: '2024-10-28',
       status: 'registered',
       attendance: { present: 17, total: 18 },
     },
     {
       id: '4',
-      program: 'Voleibol Juvenil',
+      program: 'Legends (Open L6)',
       coach: 'Sin asignar',
       date: '2024-10-30',
       status: 'scheduled',

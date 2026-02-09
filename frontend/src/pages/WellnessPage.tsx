@@ -33,9 +33,9 @@ export default function WellnessPage() {
   ]);
 
   const athletes = [
-    { id: '1', name: 'Carlos Martínez', sport: 'Fútbol' },
-    { id: '2', name: 'María González', sport: 'Tenis' },
-    { id: '3', name: 'Juan Pérez', sport: 'Natación' },
+    { id: '1', name: 'Carlos Martínez', sport: 'Cheerleading - Firesquad' },
+    { id: '2', name: 'María González', sport: 'Cheerleading - Butterfly' },
+    { id: '3', name: 'Juan Pérez', sport: 'Cheerleading - Bombsquad' },
   ];
 
   const handleCreateEvaluation = (e: React.FormEvent<HTMLFormElement>) => {
@@ -225,8 +225,8 @@ export default function WellnessPage() {
 
             <div className="space-y-2">
               <Label htmlFor="notes">Notas y Observaciones *</Label>
-              <Textarea 
-                name="notes" 
+              <Textarea
+                name="notes"
                 placeholder="Descripción de la evaluación, hallazgos, recomendaciones..."
                 rows={6}
                 required

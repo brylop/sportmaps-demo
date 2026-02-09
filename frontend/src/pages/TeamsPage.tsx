@@ -38,39 +38,39 @@ interface Team {
 const mockTeams: Team[] = [
   {
     id: '1',
-    name: 'Fútbol Sub-17',
-    sport: 'Fútbol',
-    category: 'Sub-17',
+    name: 'Firesquad (Senior L3)',
+    sport: 'Cheerleading',
+    category: 'Senior',
     players: 22,
     coach: 'Carlos Rodríguez',
     wins: 12,
     losses: 3,
     nextMatch: {
-      opponent: 'Academia Norte',
+      opponent: 'Rockets Bogotá',
       date: '2025-10-05',
-      location: 'Estadio Municipal'
+      location: 'Coliseo Mayor'
     }
   },
   {
     id: '2',
-    name: 'Baloncesto U-15',
-    sport: 'Baloncesto',
-    category: 'Sub-15',
+    name: 'Butterfly (Junior Prep)',
+    sport: 'Cheerleading',
+    category: 'Junior',
     players: 15,
     coach: 'Ana Martínez',
     wins: 8,
     losses: 5,
     nextMatch: {
-      opponent: 'Club Deportivo',
+      opponent: 'Thunder Cali',
       date: '2025-10-06',
-      location: 'Coliseo Central'
+      location: 'Centro de Eventos'
     }
   },
   {
     id: '3',
-    name: 'Voleibol Femenino',
-    sport: 'Voleibol',
-    category: 'Juvenil',
+    name: 'Bombsquad (Coed L5)',
+    sport: 'Cheerleading',
+    category: 'Coed',
     players: 12,
     coach: 'Laura Sánchez',
     wins: 10,
@@ -78,9 +78,9 @@ const mockTeams: Team[] = [
   },
   {
     id: '4',
-    name: 'Atletismo',
-    sport: 'Atletismo',
-    category: 'General',
+    name: 'Legends (Open L6)',
+    sport: 'Cheerleading',
+    category: 'Open',
     players: 18,
     coach: 'Miguel Torres',
     wins: 15,
@@ -95,7 +95,7 @@ export default function TeamsPage() {
 
   const filteredTeams = mockTeams.filter(team => {
     const matchesSearch = team.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         team.sport.toLowerCase().includes(searchQuery.toLowerCase());
+      team.sport.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesSport = selectedSport === 'all' || team.sport === selectedSport;
     return matchesSearch && matchesSport;
   });
@@ -120,7 +120,7 @@ export default function TeamsPage() {
             Gestiona tus equipos y deportistas
           </p>
         </div>
-        
+
         <PermissionGate permission="teams:create">
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
@@ -199,7 +199,7 @@ export default function TeamsPage() {
             className="pl-10"
           />
         </div>
-        
+
         <div className="flex gap-2">
           {sports.map(sport => (
             <Button

@@ -24,8 +24,8 @@ export default function ChildProgressPage() {
         return {
           id,
           full_name: id === 'demo-1' ? 'Mateo Pérez' : 'Sofía Pérez',
-          sport: id === 'demo-1' ? 'Fútbol' : 'Tenis',
-          team_name: id === 'demo-1' ? 'Fútbol Sub-12' : 'Tenis Infantil',
+          sport: 'Cheerleading',
+          team_name: id === 'demo-1' ? 'Firesquad (Senior L3)' : 'Butterfly (Junior Prep)',
         };
       }
       const { data, error } = await supabase
@@ -47,11 +47,11 @@ export default function ChildProgressPage() {
       if (id?.startsWith('demo-') || isDemoUser) {
         // Return demo progress
         return [
-          { id: '1', skill_name: 'Control del balón', skill_level: 85, comments: 'Excelente mejora', evaluation_date: '2024-10-15' },
-          { id: '2', skill_name: 'Velocidad', skill_level: 72, comments: 'Buen progreso', evaluation_date: '2024-10-15' },
+          { id: '1', skill_name: 'Técnica de Stunts', skill_level: 85, comments: 'Excelente mejora', evaluation_date: '2024-10-15' },
+          { id: '2', skill_name: 'Tumbling', skill_level: 72, comments: 'Buen progreso', evaluation_date: '2024-10-15' },
           { id: '3', skill_name: 'Trabajo en equipo', skill_level: 90, comments: 'Sobresaliente', evaluation_date: '2024-10-15' },
-          { id: '4', skill_name: 'Técnica de pase', skill_level: 78, comments: 'Mejorando cada semana', evaluation_date: '2024-10-10' },
-          { id: '5', skill_name: 'Resistencia', skill_level: 65, comments: 'Necesita más práctica', evaluation_date: '2024-10-10' },
+          { id: '4', skill_name: 'Coreografía', skill_level: 78, comments: 'Mejorando cada semana', evaluation_date: '2024-10-10' },
+          { id: '5', skill_name: 'Flexibilidad', skill_level: 65, comments: 'Necesita más práctica', evaluation_date: '2024-10-10' },
         ];
       }
       const { data, error } = await supabase
@@ -177,7 +177,7 @@ export default function ChildProgressPage() {
               </div>
               <div className="relative">
                 <Progress value={skill.skill_level} className="h-3" />
-                <div 
+                <div
                   className={`absolute top-0 left-0 h-3 rounded-full transition-all ${getProgressColor(skill.skill_level)}`}
                   style={{ width: `${skill.skill_level}%` }}
                 />

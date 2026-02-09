@@ -41,7 +41,7 @@ export default function InvitationsManagementPage() {
       id: '1',
       invited_email: 'maria.gonzalez@email.com',
       child_name: 'Mateo Pérez',
-      program_name: 'Fútbol Sub-12',
+      program_name: 'Firesquad (Senior L3)',
       status: 'accepted',
       created_at: new Date(Date.now() - 86400000).toISOString()
     },
@@ -49,7 +49,7 @@ export default function InvitationsManagementPage() {
       id: '2',
       invited_email: 'carlos.rodriguez@email.com',
       child_name: 'Laura Rodríguez',
-      program_name: 'Tenis Infantil',
+      program_name: 'Butterfly (Junior Prep)',
       status: 'pending',
       created_at: new Date(Date.now() - 172800000).toISOString()
     },
@@ -57,7 +57,7 @@ export default function InvitationsManagementPage() {
       id: '3',
       invited_email: 'ana.martinez@email.com',
       child_name: 'Santiago Martínez',
-      program_name: 'Natación Avanzada',
+      program_name: 'Bombsquad (Coed L5)',
       status: 'pending',
       created_at: new Date(Date.now() - 259200000).toISOString()
     },
@@ -65,7 +65,7 @@ export default function InvitationsManagementPage() {
       id: '4',
       invited_email: 'juan.perez@email.com',
       child_name: 'Valentina Pérez',
-      program_name: 'Voleibol Juvenil',
+      program_name: 'Legends (Open L6)',
       status: 'rejected',
       created_at: new Date(Date.now() - 345600000).toISOString()
     }
@@ -74,10 +74,10 @@ export default function InvitationsManagementPage() {
   const [invitations] = useState<Invitation[]>(demoInvitations);
 
   const demoPrograms = [
-    { id: '1', name: 'Fútbol Sub-12' },
-    { id: '2', name: 'Tenis Infantil' },
-    { id: '3', name: 'Natación Avanzada' },
-    { id: '4', name: 'Voleibol Juvenil' }
+    { id: '1', name: 'Firesquad (Senior L3)' },
+    { id: '2', name: 'Butterfly (Junior Prep)' },
+    { id: '3', name: 'Bombsquad (Coed L5)' },
+    { id: '4', name: 'Legends (Open L6)' }
   ];
 
   const sendInvitationMutation = useMutation({

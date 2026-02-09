@@ -5,17 +5,17 @@ import { Plus, MapPin } from 'lucide-react';
 
 export default function FacilitiesPage() {
   const facilities = [
-    { id: '1', name: 'Cancha 1', type: 'Fútbol', status: 'active' },
-    { id: '2', name: 'Cancha 2', type: 'Fútbol', status: 'active' },
-    { id: '3', name: 'Cancha Tenis 1', type: 'Tenis', status: 'active' },
-    { id: '4', name: 'Cancha Cubierta', type: 'Voleibol', status: 'maintenance' },
+    { id: '1', name: 'Spring Floor A', type: 'Cheerleading', status: 'active' },
+    { id: '2', name: 'Spring Floor B', type: 'Cheerleading', status: 'active' },
+    { id: '3', name: 'Sala Tumbling', type: 'Gimnasia', status: 'active' },
+    { id: '4', name: 'Área Stunts', type: 'Cheerleading', status: 'maintenance' },
   ];
 
   const schedule = [
     { time: '2:00 PM', cancha1: null, cancha2: null, tenis1: null },
-    { time: '3:00 PM', cancha1: null, cancha2: null, tenis1: 'Tenis Infantil (D. Silva)' },
-    { time: '4:00 PM', cancha1: 'Fútbol Sub-12 (L.F.R.)', cancha2: 'Fútbol Sub-10 (L.F.R.)', tenis1: 'Tenis Infantil (D. Silva)' },
-    { time: '5:00 PM', cancha1: 'Fútbol Sub-12 (L.F.R.)', cancha2: 'Fútbol Sub-10 (L.F.R.)', tenis1: null },
+    { time: '3:00 PM', cancha1: null, cancha2: null, tenis1: 'Butterfly (D. Silva)' },
+    { time: '4:00 PM', cancha1: 'Firesquad (M. García)', cancha2: 'Bombsquad (C. Rodríguez)', tenis1: 'Butterfly (D. Silva)' },
+    { time: '5:00 PM', cancha1: 'Firesquad (M. García)', cancha2: 'Bombsquad (C. Rodríguez)', tenis1: null },
     { time: '6:00 PM', cancha1: null, cancha2: null, tenis1: null },
   ];
 
@@ -65,9 +65,9 @@ export default function FacilitiesPage() {
               <thead>
                 <tr className="border-b">
                   <th className="p-3 text-left font-medium">Hora</th>
-                  <th className="p-3 text-left font-medium">Cancha 1 (Fútbol)</th>
-                  <th className="p-3 text-left font-medium">Cancha 2 (Fútbol)</th>
-                  <th className="p-3 text-left font-medium">Cancha Tenis 1</th>
+                  <th className="p-3 text-left font-medium">Spring Floor A</th>
+                  <th className="p-3 text-left font-medium">Spring Floor B</th>
+                  <th className="p-3 text-left font-medium">Sala Tumbling</th>
                 </tr>
               </thead>
               <tbody>

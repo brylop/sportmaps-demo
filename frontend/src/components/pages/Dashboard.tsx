@@ -2,11 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Logo from "@/components/Logo";
-import { 
-  Calendar, 
-  TrendingUp, 
-  Users, 
-  ShoppingBag, 
+import {
+  Calendar,
+  TrendingUp,
+  Users,
+  ShoppingBag,
   Trophy,
   Clock,
   MapPin,
@@ -21,25 +21,25 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
   const upcomingActivities = [
     {
       id: 1,
-      title: "Clase de Fútbol Sub-12",
+      title: "Entrenamiento Firesquad",
       time: "Mañana 9:00–10:30",
-      image: "https://images.unsplash.com/photo-1552667466-07770ae110d0?q=80&w=1200&auto=format&fit=crop",
-      tags: ["Fútbol", "Sub-12"]
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?q=80&w=1200&auto=format&fit=crop",
+      tags: ["Stunts", "Senior L3"]
     },
     {
       id: 2,
-      title: "Entrenamiento de Baloncesto",
+      title: "Clase de Tumbling",
       time: "Miércoles 4:00–5:30",
-      image: "https://images.unsplash.com/photo-1517649763962-0c623066013b?q=80&w=1200&auto=format&fit=crop",
-      tags: ["Baloncesto", "Sub-15"]
+      image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?q=80&w=1200&auto=format&fit=crop",
+      tags: ["Tumbling", "Nivel 2"]
     }
   ];
 
   const recommendations = [
-    { icon: Users, title: "Fútbol Avanzado", color: "text-primary" },
-    { icon: Trophy, title: "Yoga", color: "text-primary" },
-    { icon: TrendingUp, title: "Atletismo", color: "text-primary" },
-    { icon: ShoppingBag, title: "Equipamiento", color: "text-primary" }
+    { icon: Users, title: "Stunts Avanzado", color: "text-primary" },
+    { icon: Trophy, title: "Tumbling", color: "text-primary" },
+    { icon: TrendingUp, title: "Flexibilidad", color: "text-primary" },
+    { icon: ShoppingBag, title: "Uniformes", color: "text-primary" }
   ];
 
   return (
@@ -49,29 +49,29 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-6">
-              <button 
+              <button
                 className="flex items-center gap-3 text-xl font-bold hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate("landing")}
               >
                 <Logo size="md" />
                 <span>SportMaps</span>
               </button>
-              
+
               <nav className="hidden md:flex items-center gap-6">
                 <button className="font-medium text-primary">Inicio</button>
-                <button 
+                <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => onNavigate("schoolsearch")}
                 >
                   Explorar
                 </button>
-                <button 
+                <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => onNavigate("shop")}
                 >
                   Tienda
                 </button>
-                <button 
+                <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => onNavigate("wellness")}
                 >
@@ -79,8 +79,8 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                 </button>
               </nav>
             </div>
-            
-            <div 
+
+            <div
               className="w-10 h-10 rounded-full bg-cover bg-center cursor-pointer ring-2 ring-primary/20 hover:ring-primary/40 transition-all"
               style={{ backgroundImage: "url('https://images.unsplash.com/photo-1543466835-00a7907e9de1?q=80&w=800&auto=format&fit=crop')" }}
               onClick={() => onNavigate("profile")}
@@ -93,7 +93,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-6xl">
         <h1 className="text-3xl font-bold mb-8 text-foreground">¡Hola, Sofia! 👋</h1>
-        
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="hover:shadow-card transition-shadow">
@@ -102,11 +102,11 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
                 <Clock className="w-5 h-5 text-primary" />
                 <p className="text-sm text-muted-foreground">Próxima actividad</p>
               </div>
-              <p className="font-semibold text-foreground">Clase de Fútbol Sub-12</p>
+              <p className="font-semibold text-foreground">Entrenamiento Firesquad</p>
               <p className="text-sm text-primary">Mañana 9:00–10:30</p>
             </CardContent>
           </Card>
-          
+
           <Card className="hover:shadow-card transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-2">
@@ -116,7 +116,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
               <p className="font-semibold text-foreground">3 actividades</p>
             </CardContent>
           </Card>
-          
+
           <Card className="hover:shadow-card transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-2">
@@ -127,12 +127,12 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
             </CardContent>
           </Card>
         </div>
-        
+
         {/* Upcoming Activities */}
         <div className="grid md:grid-cols-2 gap-6 mb-10">
           {upcomingActivities.map((activity) => (
             <Card key={activity.id} className="overflow-hidden hover:shadow-card transition-shadow">
-              <div 
+              <div
                 className="h-44 bg-cover bg-center"
                 style={{ backgroundImage: `url(${activity.image})` }}
               />
@@ -153,7 +153,7 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
             </Card>
           ))}
         </div>
-        
+
         {/* Recommendations */}
         <Card className="hover:shadow-card transition-shadow">
           <CardHeader>
@@ -183,14 +183,14 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
 
         {/* Quick Actions */}
         <div className="mt-8 flex flex-wrap gap-4 justify-center">
-          <Button 
-            variant="hero" 
+          <Button
+            variant="hero"
             onClick={() => onNavigate("schoolsearch")}
           >
             <MapPin className="w-4 h-4 mr-2" />
             Explorar escuelas
           </Button>
-          <Button 
+          <Button
             variant="outline"
             onClick={() => onNavigate("shop")}
           >

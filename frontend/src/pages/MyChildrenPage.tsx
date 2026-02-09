@@ -39,8 +39,8 @@ export default function MyChildrenPage() {
       id: 'demo-1',
       full_name: 'Mateo Pérez',
       date_of_birth: '2013-05-15',
-      team_name: 'Fútbol Sub-12',
-      sport: 'Fútbol',
+      team_name: 'Firesquad (Senior L3)',
+      sport: 'Cheerleading',
       school_id: null,
       parent_id: user?.id,
       avatar_url: null,
@@ -52,8 +52,8 @@ export default function MyChildrenPage() {
       id: 'demo-2',
       full_name: 'Sofía Pérez',
       date_of_birth: '2015-08-22',
-      team_name: 'Tenis Infantil',
-      sport: 'Tenis',
+      team_name: 'Butterfly (Junior Prep)',
+      sport: 'Cheerleading',
       school_id: null,
       parent_id: user?.id,
       avatar_url: null,
@@ -86,52 +86,52 @@ export default function MyChildrenPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {displayChildren?.map((child) => (
-            <Card key={child.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader className="pb-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold text-lg">
-                      {child.full_name.charAt(0)}
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg">{child.full_name}</CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(child.date_of_birth).toLocaleDateString('es-CO', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
-                      </p>
-                    </div>
+          <Card key={child.id} className="hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold text-lg">
+                    {child.full_name.charAt(0)}
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">{child.full_name}</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(child.date_of_birth).toLocaleDateString('es-CO', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </p>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {child.team_name && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <School className="w-4 h-4 text-muted-foreground" />
-                    <span>{child.team_name}</span>
-                  </div>
-                )}
-                {child.sport && (
-                  <Badge variant="secondary">{child.sport}</Badge>
-                )}
-                <div className="pt-3 space-y-2">
-                  <Link to={`/children/${child.id}/progress`}>
-                    <Button variant="outline" size="sm" className="w-full">
-                      <User className="w-4 h-4 mr-2" />
-                      Ver Progreso
-                    </Button>
-                  </Link>
-                  <Link to={`/children/${child.id}/attendance`}>
-                    <Button variant="outline" size="sm" className="w-full">
-                      <Calendar className="w-4 h-4 mr-2" />
-                      Ver Asistencias
-                    </Button>
-                  </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {child.team_name && (
+                <div className="flex items-center gap-2 text-sm">
+                  <School className="w-4 h-4 text-muted-foreground" />
+                  <span>{child.team_name}</span>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+              {child.sport && (
+                <Badge variant="secondary">{child.sport}</Badge>
+              )}
+              <div className="pt-3 space-y-2">
+                <Link to={`/children/${child.id}/progress`}>
+                  <Button variant="outline" size="sm" className="w-full">
+                    <User className="w-4 h-4 mr-2" />
+                    Ver Progreso
+                  </Button>
+                </Link>
+                <Link to={`/children/${child.id}/attendance`}>
+                  <Button variant="outline" size="sm" className="w-full">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Ver Asistencias
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
