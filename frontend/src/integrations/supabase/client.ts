@@ -4,12 +4,12 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 // Production Supabase credentials (public keys - safe to expose)
-const PRODUCTION_SUPABASE_URL = 'https://luebjarufsiadojhvxgi.supabase.co';
-const PRODUCTION_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZWJqYXJ1ZnNpYWRvamh2eGdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MTU2NTgsImV4cCI6MjA3NDQ5MTY1OH0.yfmAH4N9UboL4p6UqK-_tQnfhBHlTQrXCrwRokALix4';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-// Try environment variables first (local dev), fallback to production
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || PRODUCTION_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || PRODUCTION_SUPABASE_KEY;
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  console.warn('⚠️ Supabase credentials not found in environment variables. Falling back to default demo project.');
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

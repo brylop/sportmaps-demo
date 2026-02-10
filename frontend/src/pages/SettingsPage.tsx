@@ -26,6 +26,7 @@ import {
   ClipboardCopy,
   Loader2
 } from 'lucide-react';
+import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
 
 export default function ProfilePage() {
   const { user, profile } = useAuth();
@@ -100,15 +101,25 @@ export default function ProfilePage() {
 
     setSaving(true);
     try {
+      // Sanitize inputs before updating
+      const cleanName = sanitizeName(fullName);
+      const cleanPhone = sanitizePhone(phone);
+      const cleanBio = sanitizeBio(bio);
+
       const { error } = await supabase
         .from('profiles')
         .update({
-          full_name: fullName,
-          phone: phone,
-          bio: bio,
+          full_name: cleanName,
+          phone: cleanPhone,
+          bio: cleanBio,
           updated_at: new Date().toISOString(),
         })
         .eq('id', user.id);
+
+      // Update local state with cleaned values
+      setFullName(cleanName);
+      setPhone(cleanPhone);
+      setBio(cleanBio);
 
       if (error) throw error;
 
