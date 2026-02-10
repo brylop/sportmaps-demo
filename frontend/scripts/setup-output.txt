@@ -1,0 +1,28 @@
+﻿­ƒÜÇ Setting up demo data...
+
+1´©ÅÔâú  Creating profiles...
+  Ô£à Spirit All Stars (school) 
+  Ô£à Mar├¡a Garc├¡a Hern├índez (parent) 
+  Ô£à Luis Fernando Rodr├¡guez (coach) 
+  Ô£à Carlos Mart├¡nez L├│pez (athlete) 
+  Ô£à Dra. Sof├¡a Rivera (wellness_professional) 
+  Ô£à Tienda Equ├¡pate M├ís (store_owner) 
+  Ô£à Administrador Sistema (admin) 
+
+2´©ÅÔâú  Adding child to Thunder team...
+  Ô£à Sof├¡a Garc├¡a ÔåÆ Thunder 
+
+3´©ÅÔâú  Adding athlete to Lightning team...
+  Ô£à Carlos ÔåÆ Lightning 
+
+4´©ÅÔâú  Checking enrollments schema...
+  Enrollments test: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'student_name' column of 'enrollments' in the schema cache"}
+  ÔØî Enrollment: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'parent_id' column of 'enrollments' in the schema cache"}
+
+Ô£à Demo data setup complete!
+
+Demo credentials:
+  School:  spoortmaps+school@gmail.com / SportMapsDemo2025!
+  Parent:  spoortmaps@gmail.com / SportMapsDemo2025!
+  Coach:   spoortmaps+coach@gmail.com / SportMapsDemo2025!
+  Athlete: spoortmaps+athlete@gmail.com / SportMapsDemo2025!

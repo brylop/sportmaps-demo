@@ -1,0 +1,4 @@
+team_members: [{"id":"ca1b156d-a960-4250-824b-ba674c2e2791","team_id":"d8838418-0462-4d88-b493-e656ee3e25d1","player_name":"Carlos Martínez","player_number":null,"position":"Flyer","parent_contact":"Carlos Padre - 3001112233","created_at":"2026-02-10T00:04:57.784861+00:00","profile_id":null}, 
+ {"id":"45e219b2-2105-4e72-820a-39719411b705","team_id":"d8838418-0462-4d88-b493-e656ee3e25d1","player_name":"Ana López","player_number":null,"position":"Base","parent_contact":"María Madre - 3004445566","created_at":"2026-02-10T00:04:57.784861+00:00","profile_id":null}]
+
+enrollments: []

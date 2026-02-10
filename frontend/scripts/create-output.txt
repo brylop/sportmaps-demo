@@ -1,0 +1,35 @@
+﻿­ƒÜÇ Creating demo users via Admin API...
+
+
+Creating: spoortmaps+school@gmail.com (school)
+  Ô£à Created: 04c1512c-517e-4a1e-b4a8-ba3b4b75470d
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps@gmail.com (parent)
+  Ô£à Created: 9158d496-7f39-46ad-95f9-83ca3379974e
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps+coach@gmail.com (coach)
+  Ô£à Created: 1c26edad-7691-4fc4-8a42-eab2d7d174d5
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps+athlete@gmail.com (athlete)
+  Ô£à Created: 6aeb3969-a225-462c-a4c4-b7f71c0b2bcd
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps+wellness@gmail.com (wellness_professional)
+  Ô£à Created: 51f449eb-5223-49b9-96ea-c1e817f334a5
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps+store@gmail.com (store_owner)
+  Ô£à Created: 9447e937-7aec-486e-ad85-e48725d42833
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+Creating: spoortmaps+admin@gmail.com (admin)
+  Ô£à Created: bcb88976-5998-440f-ba9b-803571bfb46f
+  ÔÜá´©Å Profile error: {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'sportmaps_points' column of 'profiles' in the schema cache"}
+
+========================================
+Ô£à Success: 7 | ÔØî Failed: 0
+========================================
+

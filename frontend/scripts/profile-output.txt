@@ -1,0 +1,18 @@
+﻿Fixing profiles...
+
+Profile for: Spirit All Stars (school)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Mar├¡a Garc├¡a Hern├índez (parent)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Luis Fernando Rodr├¡guez (coach)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Carlos Mart├¡nez L├│pez (athlete)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Dra. Sof├¡a Rivera (wellness_professional)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Tienda Equ├¡pate M├ís (store_owner)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+Profile for: Administrador Sistema (admin)
+  ÔØî {"code":"PGRST204","details":null,"hint":null,"message":"Could not find the 'subscription_tier' column of 'profiles' in the schema cache"}
+
+Done!
