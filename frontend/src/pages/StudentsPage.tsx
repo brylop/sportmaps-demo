@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw } from 'lucide-react';
+import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw, Share2 } from 'lucide-react';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
@@ -140,6 +140,22 @@ export default function StudentsPage() {
           >
             <FileUp className="h-4 w-4 mr-2" />
             Importar CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1 md:flex-initial gap-2"
+            onClick={() => {
+              const inviteLink = `${window.location.origin}/register?ref=${profile?.id || 'demo_school'}`;
+              navigator.clipboard.writeText(inviteLink);
+              toast({
+                title: "Enlace copiado",
+                description: "Comparte este enlace con los padres para que se registren.",
+              });
+            }}
+          >
+            <Share2 className="h-4 w-4 mr-2" />
+            Invitar
           </Button>
           <Button
             size="sm"

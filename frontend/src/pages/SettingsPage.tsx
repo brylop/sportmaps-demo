@@ -188,10 +188,12 @@ export default function ProfilePage() {
             <Bell className="h-4 w-4" />
             Notificaciones
           </TabsTrigger>
-          <TabsTrigger value="services" className="gap-2">
-            <Globe className="h-4 w-4" />
-            Servicios
-          </TabsTrigger>
+          {profile?.role === 'school' && (
+            <TabsTrigger value="services" className="gap-2">
+              <Globe className="h-4 w-4" />
+              Servicios
+            </TabsTrigger>
+          )}
           <TabsTrigger value="privacy" className="gap-2">
             <Shield className="h-4 w-4" />
             Privacidad

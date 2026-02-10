@@ -16,6 +16,7 @@ import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
 import { studentsAPI } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
+import { Plus } from 'lucide-react';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
@@ -259,6 +260,50 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Parent Dashboard: Children Section */}
+      {profile?.role === 'parent' && isDemoMode && (
+        <div className="space-y-4">
+          <h3 className="text-xl font-semibold tracking-tight">Mis Hijos</h3>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {demoParentData.children.map((child, i) => (
+              <div key={i} className="bg-card text-card-foreground rounded-xl border shadow-sm p-6 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+                    {child.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h4 className="font-semibold">{child.name}</h4>
+                    <p className="text-sm text-muted-foreground">{child.program}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Asistencia</span>
+                    <span className="font-medium">{child.attendance}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Próxima clase</span>
+                    <span className="font-medium text-right">{child.next_class}</span>
+                  </div>
+                  <div className="pt-2">
+                    <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-green-50 text-green-700 hover:bg-green-100">
+                      Activo
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {/* Add Child Button */}
+            <div className="bg-muted/30 border-dashed border-2 rounded-xl p-6 flex flex-col items-center justify-center gap-2 hover:bg-muted/50 transition-colors cursor-pointer text-muted-foreground hover:text-primary">
+              <div className="h-10 w-10 rounded-full bg-background flex items-center justify-center border shadow-sm">
+                <Plus className="h-5 w-5" />
+              </div>
+              <p className="font-medium">Registrar otro hijo</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
