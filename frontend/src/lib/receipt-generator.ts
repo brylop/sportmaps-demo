@@ -8,7 +8,7 @@ interface ReceiptData {
   concept: string;
   description?: string;
   amount: number;
-  paymentMethod: 'card' | 'pse' | 'nequi';
+  paymentMethod: string;
   paymentType: 'one_time' | 'subscription' | 'monthly';
   schoolName?: string;
   programName?: string;
@@ -23,7 +23,7 @@ const BRAND_ORANGE = [251, 159, 30] as const; // #FB9F1E
 export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
-  
+
   // Helper functions
   const centerText = (text: string, y: number, fontSize: number = 12) => {
     doc.setFontSize(fontSize);
@@ -42,13 +42,13 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   // Header with brand colors
   doc.setFillColor(...BRAND_GREEN);
   doc.rect(0, 0, pageWidth, 45, 'F');
-  
+
   // Logo area (text-based since we can't load external images easily)
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(28);
   doc.setFont('helvetica', 'bold');
   centerText('SPORTMAPS', 22);
-  
+
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   centerText('Tu ecosistema deportivo', 32);
@@ -56,7 +56,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   // Receipt title with orange accent
   doc.setFillColor(...BRAND_ORANGE);
   doc.rect(0, 45, pageWidth, 8, 'F');
-  
+
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
@@ -72,7 +72,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   doc.setFont('helvetica', 'bold');
   doc.text(`Recibo N°: ${data.receiptNumber}`, 20, y);
   doc.text(`Fecha: ${data.date}`, pageWidth - 20, y, { align: 'right' });
-  
+
   // Divider line
   y += 10;
   doc.setDrawColor(...BRAND_GREEN);
@@ -84,12 +84,12 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...BRAND_GREEN);
   doc.text('INFORMACIÓN DEL CLIENTE', 20, y);
-  
+
   y += 10;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(60, 60, 60);
   doc.text(`Nombre: ${data.customerName}`, 20, y);
-  
+
   if (data.customerEmail) {
     y += 7;
     doc.text(`Email: ${data.customerEmail}`, 20, y);
@@ -104,12 +104,12 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   y += 10;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(60, 60, 60);
-  
+
   // Concept
   doc.text('Concepto:', 20, y);
   doc.setFont('helvetica', 'bold');
   doc.text(data.concept, 60, y);
-  
+
   // School name if applicable
   if (data.schoolName) {
     y += 7;
@@ -137,7 +137,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
     y += 7;
     doc.setFont('helvetica', 'normal');
     doc.text('Descripción:', 20, y);
-    
+
     // Handle long descriptions with text wrapping
     const descriptionLines = doc.splitTextToSize(data.description, pageWidth - 80);
     doc.text(descriptionLines, 60, y);
@@ -168,12 +168,12 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   y += 20;
   doc.setFillColor(245, 245, 245);
   doc.roundedRect(20, y - 5, pageWidth - 40, 25, 3, 3, 'F');
-  
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(60, 60, 60);
   doc.text('TOTAL PAGADO:', 30, y + 8);
-  
+
   doc.setTextColor(...BRAND_GREEN);
   doc.setFontSize(18);
   doc.text(formatCurrency(data.amount), pageWidth - 30, y + 10, { align: 'right' });
@@ -198,7 +198,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   centerText('Este recibo es un comprobante válido de tu transacción en SportMaps.', y);
-  
+
   y += 5;
   centerText('Para cualquier consulta, contáctanos en soporte@sportmaps.co', y);
 

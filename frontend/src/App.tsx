@@ -21,6 +21,7 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFound from "./pages/NotFound";
 import CheckoutPage from "./pages/CheckoutPage";
 import ParentCheckoutPage from "./pages/ParentCheckoutPage";
+import PaymentResultPage from "./pages/PaymentResultPage";
 import DemoWelcomePage from "./pages/DemoWelcomePage";
 import PublicSchoolPage from "./pages/PublicSchoolPage";
 
@@ -138,6 +139,7 @@ const App = () => (
                     <ParentCheckoutPage />
                   </ProtectedRoute>
                 } />
+                <Route path="/payment-result" element={<PaymentResultPage />} />
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
                 {/* Public Events routes */}

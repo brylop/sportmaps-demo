@@ -8,6 +8,10 @@ import uuid
 import hmac
 import hashlib
 import random
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -24,8 +28,14 @@ except:
 mock_db = {
     "payment_intents": [],
     "transactions": [],
-    "subscriptions": []
+    "subscriptions": [],
+    "wompi_transactions": []
 }
+
+# Wompi credentials (use environment variables in production)
+WOMPI_INTEGRITY_SECRET = os.environ.get('WOMPI_INTEGRITY_SECRET', 'test_integrity_LrN9ny6kwmMjrrT6FHcBcLG7Xab1lOBe')
+WOMPI_EVENTS_KEY = os.environ.get('WOMPI_EVENTS_KEY', 'test_events_pA7ByJn9g6TUGbaSJ5LcTdnlPGjZTHNF')
+WOMPI_PRIVATE_KEY = os.environ.get('WOMPI_PRIVATE_KEY', 'prv_test_U0pKnKB8x70wfrZt9Wr421jGkFo35fg6')
 
 # Models
 class PaymentIntent(BaseModel):
@@ -446,33 +456,186 @@ async def get_school_transactions(school_id: str, days: int = 30):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ========================
+# Wompi Integration
+# ========================
+
+class WompiSignatureRequest(BaseModel):
+    reference: str
+    amount_in_cents: int
+    currency: str = "COP"
+
+@router.post("/wompi/create-signature")
+async def create_wompi_signature(req: WompiSignatureRequest):
+    """
+    Generate SHA-256 integrity signature for Wompi Widget Checkout.
+    Concatenation order: reference + amountInCents + currency + INTEGRITY_SECRET
+    """
+    try:
+        raw_signature = f"{req.reference}{req.amount_in_cents}{req.currency}{WOMPI_INTEGRITY_SECRET}"
+        signature_hash = hashlib.sha256(raw_signature.encode()).hexdigest()
+        logger.info(f"Wompi signature generated for ref={req.reference}, amount={req.amount_in_cents}")
+        return {
+            "signature": signature_hash,
+            "reference": req.reference,
+            "amount_in_cents": req.amount_in_cents,
+            "currency": req.currency
+        }
+    except Exception as e:
+        logger.error(f"Error generating Wompi signature: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/wompi/webhook")
+async def wompi_webhook(request: Request):
+    """
+    Wompi webhook endpoint.
+    Receives transaction events from Wompi and validates the checksum.
+    
+    Wompi sends events in this format:
+    {
+        "event": "transaction.updated",
+        "data": {
+            "transaction": {
+                "id": "...",
+                "status": "APPROVED",
+                "reference": "SPM-...",
+                "amount_in_cents": 15000000,
+                ...
+            }
+        },
+        "sent_at": "...",
+        "timestamp": 1234567890,
+        "signature": {
+            "checksum": "...",
+            "properties": ["transaction.id", "transaction.status", ...]
+        },
+        "environment": "test"
+    }
+    """
+    try:
+        body = await request.json()
+        event = body.get('event', '')
+        data = body.get('data', {})
+        signature_info = body.get('signature', {})
+        
+        logger.info(f"Wompi webhook received: event={event}")
+        
+        # 1. Validate checksum if present
+        if signature_info and signature_info.get('checksum'):
+            checksum = signature_info['checksum']
+            properties = signature_info.get('properties', [])
+            
+            # Build concatenation from properties
+            values = []
+            transaction = data.get('transaction', {})
+            for prop in properties:
+                # Navigate nested keys like "transaction.id"
+                keys = prop.split('.')
+                value = data
+                for key in keys:
+                    if isinstance(value, dict):
+                        value = value.get(key, '')
+                    else:
+                        value = ''
+                        break
+                values.append(str(value))
+            
+            # Append timestamp and events secret
+            values.append(str(body.get('timestamp', '')))
+            values.append(WOMPI_EVENTS_KEY)
+            
+            raw_checksum = ''.join(values)
+            expected_checksum = hashlib.sha256(raw_checksum.encode()).hexdigest()
+            
+            if checksum != expected_checksum:
+                logger.warning(f"Wompi webhook checksum mismatch! Expected={expected_checksum}, Got={checksum}")
+                raise HTTPException(status_code=401, detail="Invalid checksum")
+            
+            logger.info("Wompi webhook checksum validated successfully")
+        
+        # 2. Process the event
+        if event == 'transaction.updated':
+            transaction = data.get('transaction', {})
+            tx_id = transaction.get('id', '')
+            tx_status = transaction.get('status', '')
+            tx_reference = transaction.get('reference', '')
+            tx_amount = transaction.get('amount_in_cents', 0)
+            tx_method = transaction.get('payment_method_type', 'UNKNOWN')
+            
+            logger.info(f"Wompi TX update: id={tx_id}, status={tx_status}, ref={tx_reference}, amount={tx_amount}")
+            
+            # Store in mock DB
+            wompi_tx = {
+                'id': tx_id,
+                'status': tx_status,
+                'reference': tx_reference,
+                'amount_in_cents': tx_amount,
+                'payment_method_type': tx_method,
+                'raw_data': transaction,
+                'processed_at': datetime.utcnow().isoformat()
+            }
+            mock_db['wompi_transactions'].append(wompi_tx)
+            
+            # In production: update Supabase payments table
+            # supabase.from('payments').update({'status': tx_status.lower()}).eq('receipt_number', tx_reference).execute()
+            
+            # Also persist to MongoDB if available
+            if db:
+                try:
+                    await db['wompi_transactions'].update_one(
+                        {'reference': tx_reference},
+                        {'$set': wompi_tx},
+                        upsert=True
+                    )
+                except Exception as db_err:
+                    logger.warning(f"MongoDB update failed: {db_err}")
+        
+        return {"status": "ok", "event": event, "processed": True}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Wompi webhook error: {e}")
+        # Return 200 to Wompi even on errors to prevent retries flooding
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/wompi/transaction/{reference}")
+async def get_wompi_transaction(reference: str):
+    """
+    Get processed Wompi transaction by reference
+    """
+    # Check mock DB
+    tx = next((t for t in mock_db['wompi_transactions'] if t.get('reference') == reference), None)
+    if tx:
+        return {"success": True, "transaction": tx}
+    
+    # Check MongoDB
+    if db:
+        try:
+            tx = await db['wompi_transactions'].find_one({'reference': reference})
+            if tx:
+                tx.pop('_id', None)
+                return {"success": True, "transaction": tx}
+        except:
+            pass
+    
+    return {"success": False, "message": "Transaction not found"}
+
+
 @router.post("/webhook")
 async def payment_webhook(
     request: Request,
     x_signature: Optional[str] = Header(None)
 ):
     """
-    Webhook endpoint to receive payment notifications from payment gateway
-    In production: Verify signature and process payment
+    Legacy webhook endpoint to receive payment notifications.
+    For Wompi, use /wompi/webhook instead.
     """
     try:
         data = await request.json()
-        
-        # TODO: In production, verify signature
-        # webhook_secret = os.environ.get('PAYMENT_WEBHOOK_SECRET')
-        # expected_sig = hmac.new(
-        #     webhook_secret.encode(),
-        #     str(data).encode(),
-        #     hashlib.sha256
-        # ).hexdigest()
-        # if x_signature != expected_sig:
-        #     raise HTTPException(401, "Invalid signature")
-        
-        # Process webhook data
-        # This is where you'd update transaction status, send notifications, etc.
-        
         return {"status": "ok", "message": "Webhook received"}
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

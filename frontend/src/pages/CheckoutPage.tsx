@@ -6,18 +6,18 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import {
   ArrowLeft,
   CreditCard,
-  Building2,
   ShoppingCart,
   School,
   Package,
   Calendar,
   CheckCircle2,
   Download,
-  Shield
+  Shield,
+  Users,
+  Upload
 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +25,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { checkoutAPI } from '@/lib/api/checkout';
+import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -32,10 +33,12 @@ export default function CheckoutPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'pse'>('card');
+  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [receiptNumber, setReceiptNumber] = useState('');
+  const [wompiTransactionId, setWompiTransactionId] = useState('');
+  const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -49,115 +52,151 @@ export default function CheckoutPage() {
   const products = items.filter((i) => i.type === 'product');
   const appointments = items.filter((i) => i.type === 'appointment');
 
-  const handlePayment = async () => {
+  /**
+   * After a successful payment (Wompi callback or manual confirmation),
+   * register the enrollment/order in Supabase with full traceability:
+   * WHO paid, for WHICH program/team
+   */
+  const processPostPayment = async (reference: string, transactionId?: string) => {
+    for (const item of items) {
+      if (item.type === 'enrollment' && item.metadata.programId) {
+        const result = await checkoutAPI.processEnrollment({
+          student_id: user!.id,
+          parent_id: user!.id,
+          class_id: item.metadata.programId,
+          school_id: item.metadata.schoolId,
+          amount: item.price,
+          payment_method: paymentMethodUsed || paymentFlow,
+        });
+        if (!result.success) throw new Error(result.error || 'Enrollment failed');
+      }
+
+      if (item.type === 'product' && item.metadata.productId) {
+        await supabase.from('orders').insert({
+          user_id: user!.id,
+          items: [{ product_id: item.metadata.productId, name: item.name, quantity: item.quantity, price: item.price }],
+          total: item.price * item.quantity,
+          status: 'pending',
+          shipping_address: { pending: true },
+        });
+        if (item.metadata.vendorId) {
+          await supabase.from('notifications').insert({
+            user_id: item.metadata.vendorId, title: 'Nueva Venta',
+            message: `Vendiste ${item.quantity}x ${item.name}`, type: 'sale', link: '/store/orders',
+          });
+        }
+      }
+
+      if (item.type === 'appointment' && item.metadata.professionalId) {
+        await supabase.from('wellness_appointments').insert({
+          professional_id: item.metadata.professionalId, athlete_id: user!.id,
+          appointment_date: item.metadata.appointmentDate,
+          appointment_time: item.metadata.appointmentTime || '10:00',
+          service_type: item.metadata.serviceType || item.name, status: 'confirmed',
+        });
+        await supabase.from('notifications').insert({
+          user_id: item.metadata.professionalId, title: 'Nueva Cita',
+          message: `Nueva cita para ${item.name} el ${item.metadata.appointmentDate}`,
+          type: 'appointment', link: '/wellness/schedule',
+        });
+      }
+    }
+
+    // Notify user with traceability summary
+    const itemSummary = items.map(i => `${i.name} (${i.metadata?.schoolName || 'SportMaps'})`).join(', ');
+    await supabase.from('notifications').insert({
+      user_id: user!.id,
+      title: 'Compra Exitosa',
+      message: `Pedido #${reference} confirmado: ${itemSummary}`,
+      type: 'payment',
+      link: '/payments',
+    });
+  };
+
+  /**
+   * FLOW 1: Pay with Wompi (tarjeta, PSE, Nequi, Bancolombia)
+   */
+  const handleWompiPayment = async () => {
     if (!user) {
-      toast({
-        title: 'Inicia sesión',
-        description: 'Debes iniciar sesión para completar la compra',
-        variant: 'destructive',
-      });
+      toast({ title: 'Inicia sesión', description: 'Debes iniciar sesión para completar la compra', variant: 'destructive' });
       navigate('/login');
       return;
     }
 
     setProcessing(true);
+    const reference = generatePaymentReference();
+    setReceiptNumber(reference);
 
     try {
-      // Simulate payment processing
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const customerName = user.user_metadata?.full_name || user.email || 'Cliente';
+      const customerEmail = user.email || 'demo@sportmaps.co';
+      const totalCents = getTotal() * 100;
 
-      const newReceiptNumber = `SPM-${Date.now().toString(36).toUpperCase()}`;
-      setReceiptNumber(newReceiptNumber);
+      const transaction = await openWompiCheckout({
+        reference,
+        amountInCents: totalCents,
+        customerEmail,
+        customerName,
+        studentName: customerName,
+        programName: items[0]?.name,
+        schoolName: items[0]?.metadata?.schoolName || 'SportMaps',
+      });
 
-      // Process each item type
-      for (const item of items) {
-        if (item.type === 'enrollment' && item.metadata.programId) {
-          // Use adapter layer for V4 migration
-          const result = await checkoutAPI.processEnrollment({
-            student_id: user.id,
-            parent_id: user.id,
-            class_id: item.metadata.programId,
-            school_id: item.metadata.schoolId,
-            amount: item.price,
-            payment_method: paymentMethod
-          });
-
-          if (!result.success) throw new Error(result.error || 'Enrollment failed');
-        }
-
-        if (item.type === 'product' && item.metadata.productId) {
-          // Create order
-          await supabase.from('orders').insert({
-            user_id: user.id,
-            items: [{
-              product_id: item.metadata.productId,
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-            }],
-            total: item.price * item.quantity,
-            status: 'pending',
-            shipping_address: { pending: true },
-          });
-
-          // Notify vendor
-          if (item.metadata.vendorId) {
-            await supabase.from('notifications').insert({
-              user_id: item.metadata.vendorId,
-              title: 'Nueva Venta',
-              message: `Vendiste ${item.quantity}x ${item.name}`,
-              type: 'sale',
-              link: '/store/orders',
-            });
-          }
-        }
-
-        if (item.type === 'appointment' && item.metadata.professionalId) {
-          // Create appointment
-          await supabase.from('wellness_appointments').insert({
-            professional_id: item.metadata.professionalId,
-            athlete_id: user.id,
-            appointment_date: item.metadata.appointmentDate,
-            appointment_time: item.metadata.appointmentTime || '10:00',
-            service_type: item.metadata.serviceType || item.name,
-            status: 'confirmed',
-          });
-
-          // Notify professional
-          await supabase.from('notifications').insert({
-            user_id: item.metadata.professionalId,
-            title: 'Nueva Cita',
-            message: `Nueva cita para ${item.name} el ${item.metadata.appointmentDate}`,
-            type: 'appointment',
-            link: '/wellness/schedule',
-          });
-        }
+      if (transaction && transaction.status === 'APPROVED') {
+        setWompiTransactionId(transaction.id);
+        setPaymentMethodUsed(transaction.paymentMethodType || 'CARD');
+        await processPostPayment(reference, transaction.id);
+        setSuccess(true);
+        toast({ title: '¡Pago exitoso!', description: 'Tu compra ha sido procesada con Wompi' });
+      } else if (transaction && transaction.status === 'PENDING') {
+        setWompiTransactionId(transaction.id);
+        toast({ title: 'Pago pendiente', description: 'Tu pago está siendo procesado. Te notificaremos cuando se confirme.' });
+      } else if (transaction) {
+        toast({ title: 'Pago no completado', description: `Estado: ${transaction.status}. Intenta de nuevo.`, variant: 'destructive' });
+      } else {
+        toast({ title: 'Pago cancelado', description: 'Cerraste la ventana de pago. Puedes intentar de nuevo.' });
       }
-
-      // Notify user
-      await supabase.from('notifications').insert({
-        user_id: user.id,
-        title: 'Compra Exitosa',
-        message: `Tu pedido #${newReceiptNumber} ha sido confirmado`,
-        type: 'payment',
-        link: '/payments',
-      });
-
-      setSuccess(true);
-      toast({
-        title: '¡Pago exitoso!',
-        description: 'Tu compra ha sido procesada correctamente',
-      });
-
     } catch (error) {
       console.error('Payment error:', error);
-      toast({
-        title: 'Error en el pago',
-        description: 'Hubo un problema al procesar tu pago. Intenta nuevamente.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error en el pago', description: 'Hubo un problema al procesar tu pago.', variant: 'destructive' });
     } finally {
       setProcessing(false);
+    }
+  };
+
+  /**
+   * FLOW 2: Manual payment (transferencia/consignación)
+   */
+  const handleManualPayment = async () => {
+    if (!user) {
+      toast({ title: 'Inicia sesión', description: 'Debes iniciar sesión para completar la compra', variant: 'destructive' });
+      navigate('/login');
+      return;
+    }
+
+    setProcessing(true);
+    const reference = generatePaymentReference();
+    setReceiptNumber(reference);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      setPaymentMethodUsed('Transferencia manual');
+      await processPostPayment(reference);
+      setSuccess(true);
+      toast({ title: '¡Pago registrado!', description: 'La escuela confirmará tu pago' });
+    } catch (error) {
+      console.error('Manual payment error:', error);
+      toast({ title: 'Error al registrar', description: 'Intenta nuevamente.', variant: 'destructive' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handlePayment = () => {
+    if (paymentFlow === 'wompi') {
+      handleWompiPayment();
+    } else {
+      handleManualPayment();
     }
   };
 
@@ -169,7 +208,7 @@ export default function CheckoutPage() {
       customerEmail: user?.email,
       concept: items.map(i => i.name).join(', '),
       amount: getTotal(),
-      paymentMethod: paymentMethod,
+      paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'one_time',
       schoolName: items[0]?.metadata.schoolName,
       programName: items[0]?.name,
@@ -212,34 +251,37 @@ export default function CheckoutPage() {
             <p className="text-muted-foreground mb-2">
               Tu compra ha sido procesada correctamente
             </p>
-            <Badge variant="secondary" className="mb-6">
+            <Badge variant="secondary" className="mb-2">
               Recibo #{receiptNumber}
             </Badge>
+            {wompiTransactionId && (
+              <p className="text-xs text-muted-foreground mb-4 font-mono">Wompi TX: {wompiTransactionId}</p>
+            )}
 
             <div className="bg-muted/50 rounded-xl p-4 mb-6 text-left">
               <h3 className="font-semibold mb-3">Resumen de compra</h3>
-              {enrollments.length > 0 && (
-                <div className="flex items-center gap-2 mb-2">
-                  <School className="h-4 w-4 text-primary" />
-                  <span className="text-sm">{enrollments.length} inscripción(es)</span>
+              {items.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 mb-2">
+                  {item.type === 'enrollment' && <School className="h-4 w-4 text-primary" />}
+                  {item.type === 'product' && <Package className="h-4 w-4 text-accent" />}
+                  {item.type === 'appointment' && <Calendar className="h-4 w-4 text-green-600" />}
+                  <div className="flex-1">
+                    <span className="text-sm font-medium">{item.name}</span>
+                    {item.metadata?.schoolName && (
+                      <span className="text-xs text-muted-foreground ml-1">• {item.metadata.schoolName}</span>
+                    )}
+                  </div>
+                  <span className="text-sm font-bold">{formatPrice(item.price)}</span>
                 </div>
-              )}
-              {products.length > 0 && (
-                <div className="flex items-center gap-2 mb-2">
-                  <Package className="h-4 w-4 text-accent" />
-                  <span className="text-sm">{products.reduce((c, i) => c + i.quantity, 0)} producto(s)</span>
-                </div>
-              )}
-              {appointments.length > 0 && (
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar className="h-4 w-4 text-green-600" />
-                  <span className="text-sm">{appointments.length} cita(s)</span>
-                </div>
-              )}
+              ))}
               <Separator className="my-3" />
               <div className="flex justify-between font-bold">
                 <span>Total pagado</span>
                 <span className="text-primary">{formatPrice(getTotal())}</span>
+              </div>
+              <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                <Users className="h-3 w-3" />
+                <span>Pagado por: {user?.user_metadata?.full_name || user?.email}</span>
               </div>
             </div>
 
@@ -320,7 +362,7 @@ export default function CheckoutPage() {
               </CardContent>
             </Card>
 
-            {/* Payment Method */}
+            {/* Payment Method — Dual: Wompi OR Manual */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -329,55 +371,59 @@ export default function CheckoutPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'card' | 'pse')}>
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50">
-                    <RadioGroupItem value="card" id="card" />
-                    <Label htmlFor="card" className="flex items-center gap-3 cursor-pointer flex-1">
-                      <CreditCard className="h-5 w-5 text-primary" />
+                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'manual')}>
+                  {/* Wompi */}
+                  <div
+                    className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer transition-colors ${paymentFlow === 'wompi' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+                    onClick={() => setPaymentFlow('wompi')}
+                  >
+                    <RadioGroupItem value="wompi" id="wompi" />
+                    <Label htmlFor="wompi" className="flex items-center gap-3 cursor-pointer flex-1">
+                      <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                        <CreditCard className="h-5 w-5 text-green-600" />
+                      </div>
                       <div>
-                        <p className="font-medium">Tarjeta de crédito/débito</p>
-                        <p className="text-sm text-muted-foreground">Visa, Mastercard, Amex</p>
+                        <p className="font-medium">Pago en línea (Wompi)</p>
+                        <p className="text-sm text-muted-foreground">Tarjeta, PSE, Nequi, Bancolombia</p>
                       </div>
                     </Label>
                   </div>
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 mt-3">
-                    <RadioGroupItem value="pse" id="pse" />
-                    <Label htmlFor="pse" className="flex items-center gap-3 cursor-pointer flex-1">
-                      <Building2 className="h-5 w-5 text-primary" />
+
+                  {/* Manual */}
+                  <div
+                    className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer transition-colors mt-3 ${paymentFlow === 'manual' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+                    onClick={() => setPaymentFlow('manual')}
+                  >
+                    <RadioGroupItem value="manual" id="manual" />
+                    <Label htmlFor="manual" className="flex items-center gap-3 cursor-pointer flex-1">
+                      <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                        <Upload className="h-5 w-5 text-blue-600" />
+                      </div>
                       <div>
-                        <p className="font-medium">PSE - Débito bancario</p>
-                        <p className="text-sm text-muted-foreground">Pago desde tu banco</p>
+                        <p className="font-medium">Transferencia / Consignación</p>
+                        <p className="text-sm text-muted-foreground">Pago manual con comprobante</p>
                       </div>
                     </Label>
                   </div>
                 </RadioGroup>
 
-                {paymentMethod === 'card' && (
-                  <div className="mt-6 space-y-4">
-                    <div>
-                      <Label>Número de tarjeta</Label>
-                      <Input placeholder="1234 5678 9012 3456" className="mt-1" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label>Vencimiento</Label>
-                        <Input placeholder="MM/AA" className="mt-1" />
-                      </div>
-                      <div>
-                        <Label>CVV</Label>
-                        <Input placeholder="123" className="mt-1" />
-                      </div>
-                    </div>
-                    <div>
-                      <Label>Nombre en la tarjeta</Label>
-                      <Input placeholder="Como aparece en la tarjeta" className="mt-1" />
-                    </div>
+                {paymentFlow === 'wompi' && (
+                  <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/10 rounded-lg text-sm text-muted-foreground">
+                    <p>Se abrirá la ventana segura de <strong>Wompi</strong> para completar tu pago.</p>
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 mt-6 text-sm text-muted-foreground">
-                  <Shield className="h-4 w-4" />
-                  <span>Pago seguro encriptado con SSL</span>
+                {paymentFlow === 'manual' && (
+                  <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg text-sm space-y-1">
+                    <p className="font-medium text-foreground">Datos para transferencia:</p>
+                    <p className="text-muted-foreground">Banco: <strong>Bancolombia</strong> • Cuenta: <strong>123-456789-00</strong></p>
+                    <p className="text-xs text-muted-foreground">La escuela verificará y confirmará tu pago.</p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 mt-4 text-xs text-muted-foreground">
+                  <Shield className="h-3 w-3" />
+                  <span>{paymentFlow === 'wompi' ? 'Procesado por Wompi Colombia — Certificado PCI-DSS' : 'Pago verificado por la escuela'}</span>
                 </div>
               </CardContent>
             </Card>
