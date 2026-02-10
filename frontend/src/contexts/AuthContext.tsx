@@ -49,12 +49,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Error fetching profile:', error);
         throw error;
       }
-      
+
       if (!data) {
         console.warn('No profile found for user:', userId);
         return null;
       }
-      
+
       return data as UserProfile;
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -76,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: userId,
           full_name: userData.full_name || 'Usuario',
           phone: userData.phone || null,
-          role: userData.role || 'athlete',
+          role: (userData.role || 'athlete') as any,
           avatar_url: userData.avatar_url || null,
           bio: null,
           date_of_birth: null,
@@ -100,10 +100,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Get initial session from Supabase
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!mounted) return;
-      
+
       setSession(session);
       setUser(session?.user || null);
-      
+
       if (session?.user) {
         try {
           const userProfile = await fetchProfile(session.user.id);
@@ -122,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed to load/create profile:', error);
         }
       }
-      
+
       if (mounted) {
         setLoading(false);
       }
@@ -178,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string, userData: Partial<UserProfile>) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
-      
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -241,20 +241,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem('demo_mode');
       sessionStorage.removeItem('demo_role');
       sessionStorage.removeItem('demo_tour_pending');
-      
+
+      // Force-clear Supabase auth tokens to prevent zombie sessions
+      const supabaseKeys = Object.keys(localStorage).filter(k => k.startsWith('sb-'));
+      supabaseKeys.forEach(key => localStorage.removeItem(key));
+
       // Regular Supabase signout
       const { data: { session: currentSession } } = await supabase.auth.getSession();
-      
+
       if (currentSession) {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
       }
-      
+
       // Clear local state
       setUser(null);
       setSession(null);
       setProfile(null);
-      
+
       toast({
         title: "Sesión cerrada",
         description: "Has cerrado sesión exitosamente",
@@ -265,7 +269,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       setProfile(null);
-      
+
       // Only show error if it's not a session missing error
       if (!error.message?.includes('session')) {
         toast({
@@ -289,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...updates, updated_at: new Date().toISOString() } as any)
         .eq('id', user.id);
 
       if (error) throw error;

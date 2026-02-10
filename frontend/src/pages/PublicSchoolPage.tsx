@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Mail, Phone, Globe, Calendar, Users, Star, Clock, CheckCircle2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { useSchoolFacilities } from '@/hooks/useSchoolData';
 import { useToast } from '@/hooks/use-toast';
 import { schoolsAPI } from '@/lib/api/schools';
+import { supabase } from '@/integrations/supabase/client';
 
 // Helper to convert hex to HSL for Tailwind variables
 function hexToHSL(hex: string) {
@@ -51,10 +51,7 @@ export default function PublicSchoolPage() {
     const { slug } = useParams();
     const { toast } = useToast();
 
-    // Use existing hook specifically for facilities, which now supports mock fallback
-    const { facilities, isLoading: isLoadingFacilities } = useSchoolFacilities();
-
-    // Fetch school main info (mocking public access or actual fetch)
+    // Fetch school main info (public access)
     const { data: school, isLoading: isLoadingSchool } = useQuery({
         queryKey: ['public-school', slug],
         queryFn: async () => {
@@ -62,6 +59,25 @@ export default function PublicSchoolPage() {
             if (!data) throw new Error('School not found');
             return data;
         }
+    });
+
+    // Fetch facilities publicly by school_id (no auth required)
+    const { data: facilities = [], isLoading: isLoadingFacilities } = useQuery({
+        queryKey: ['public-facilities', school?.id],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('facilities')
+                .select('*')
+                .eq('school_id', school!.id)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.warn('Public facilities fetch error:', error);
+                return [];
+            }
+            return data || [];
+        },
+        enabled: !!school?.id,
     });
 
     const handleAction = (action: string) => {

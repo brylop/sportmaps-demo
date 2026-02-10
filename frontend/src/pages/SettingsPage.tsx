@@ -168,7 +168,7 @@ export default function ProfilePage() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="profile" className="gap-2">
             <User className="h-4 w-4" />
             Perfil
@@ -288,6 +288,8 @@ export default function ProfilePage() {
                   <Label htmlFor="bio">Descripción / Biografía</Label>
                   <textarea
                     id="bio"
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
                     className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="Cuéntanos sobre tu escuela..."
                   />

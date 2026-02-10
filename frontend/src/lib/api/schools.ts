@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 export interface SchoolProfile {
     id: string;
     name: string;
-    slug: string;
+    slug?: string;
     description?: string;
     logo_url?: string;
     banner_url?: string;
@@ -39,11 +39,11 @@ class SchoolsAPI {
             const { data, error } = await supabase
                 .from('schools')
                 .select('*')
-                .eq('name', slug) // fallback: try by name
+                .eq('name', slug)
                 .single();
 
             if (error) throw error;
-            return data;
+            return { ...data, slug } as SchoolProfile;
         } catch (error) {
             console.warn('Error fetching school, using demo fallback:', error);
             return this.getDemoFallback(slug);
@@ -67,7 +67,7 @@ class SchoolsAPI {
             // Fetch programs for this school
             const { data: programs } = await supabase
                 .from('programs')
-                .select('*, school_staff:coach_id(full_name)')
+                .select('*')
                 .eq('school_id', school.id)
                 .eq('active', true);
 
@@ -99,13 +99,12 @@ class SchoolsAPI {
                     { title: "Condicionamiento Core", description: "Preparación física específica para cheerleading", price: "Incluido" },
                     { title: "Pro-Shop Spirit", description: "Venta de moños, uniformes y accesorios", price: "Varios" }
                 ],
-                programs: (programs || []).map(p => ({
+                programs: (programs || []).map((p: any) => ({
                     name: p.name,
                     age: p.age_min && p.age_max ? `${p.age_min}-${p.age_max} años` : (p.sport || 'Todos'),
-                    schedule: p.schedule || 'Horario por definir',
-                    coach: p.school_staff?.full_name || null
+                    schedule: p.schedule || 'Horario por definir'
                 })),
-                staff: (staff || []).map(s => ({
+                staff: (staff || []).map((s: any) => ({
                     name: s.full_name,
                     role: s.specialty || 'Entrenador',
                     exp: (s.certifications || []).join(', ') || 'Certificado'
