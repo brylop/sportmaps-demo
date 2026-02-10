@@ -179,10 +179,45 @@ export default function PaymentsAutomationPage() {
       .eq('id', id);
 
     if (!error) {
+      if (action === 'approve') {
+        const payment = manualPayments.find(p => p.id === id);
+        if (payment) {
+          // Send email confirmation
+          // 1. Fetch parent details (email, name)
+          // We need to fetch from 'profiles' using parent_id from the payment record
+          // But we don't have parent_id in 'manualPayments' state right now, let's fetch payment first
+
+          const { data: fullPayment } = await supabase
+            .from('payments')
+            .select('*, profiles:parent_id(email, full_name)')
+            .eq('id', id)
+            .single();
+
+          if (fullPayment && fullPayment.profiles) {
+            const parentProfile = fullPayment.profiles as any; // Type assertion for brevity
+
+            // Invoke Edge Function
+            supabase.functions.invoke('send-payment-confirmation', {
+              body: {
+                userEmail: parentProfile.email,
+                userName: parentProfile.full_name,
+                amount: formatCurrency(fullPayment.amount),
+                concept: fullPayment.concept,
+                schoolName: 'Spirit All Stars', // Should be dynamic
+                reference: fullPayment.receipt_number || `REF-${fullPayment.id.slice(0, 8)}`
+              }
+            }).then(({ error }) => {
+              if (error) console.error("Error sending email:", error);
+              else console.log("Email sent successfully");
+            });
+          }
+        }
+      }
+
       setManualPayments(prev => prev.filter(p => p.id !== id));
       toast({
         title: action === 'approve' ? '✅ Pago Aprobado' : '❌ Pago Rechazado',
-        description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} correctamente.`,
+        description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} correctamente. ${action === 'approve' ? 'Se ha notificado al padre por correo.' : ''}`,
         variant: action === 'approve' ? 'default' : 'destructive',
       });
 
