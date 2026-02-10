@@ -105,21 +105,23 @@ export default function PaymentsAutomationPage() {
       setLoading(true);
       try {
         // Fetch manual payments (pending)
+        // We utilize RLS (assuming school can only see own payments) or explicit filter
         const { data: pendingData, error: pendingError } = await supabase
           .from('payments')
           .select('*')
           .eq('status', 'pending')
-          .eq('payment_type', 'transfer')
+          // .eq('payment_method', 'transfer') // Optional: if we want to show all pending
           .order('created_at', { ascending: false });
 
         if (pendingData) {
           setManualPayments(pendingData.map(p => ({
             id: p.id,
             student: 'Estudiante Demo', // In real app, join with profiles/children
-            team: 'Firesquad', // Mock for now, or fetch from concept
+            team: 'Firesquad', // Mock for now
             amount: p.amount,
             file: 'Ver Comprobante',
-            proof_url: p.receipt_url
+            proof_url: p.receipt_url,
+            payment_method: p.payment_method || p.payment_type // Handle both
           })));
         }
 
