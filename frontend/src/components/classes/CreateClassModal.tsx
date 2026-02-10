@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -46,7 +47,7 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name || !formData.sport) {
       toast({
         title: 'Campos requeridos',
@@ -58,7 +59,7 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
 
     try {
       setCreating(true);
-      
+
       await classesAPI.createClass({
         ...formData,
         school_id: schoolId,
@@ -109,6 +110,9 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
             <Plus className="h-5 w-5 text-primary" />
             Crear Nueva Clase
           </DialogTitle>
+          <DialogDescription>
+            Completa los detalles de la nueva clase para tu academia.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -198,7 +202,7 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
                 min="1"
                 max="100"
                 value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) || 20 })}
               />
             </div>
             <div className="space-y-2">
@@ -209,7 +213,7 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
                 min="0"
                 step="1000"
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
               />
             </div>
           </div>

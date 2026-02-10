@@ -1,5 +1,5 @@
 // Classes API service
-const API_URL = import.meta.env.REACT_APP_BACKEND_URL || process.env.REACT_APP_BACKEND_URL;
+const API_URL = import.meta.env.VITE_BACKEND_URL || '';
 
 export interface Schedule {
   day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -93,6 +93,13 @@ class ClassesAPI {
       },
       body: JSON.stringify(classData),
     });
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error('API Error (Non-JSON):', text);
+      throw new Error(`Error del servidor (${response.status})`);
+    }
 
     if (!response.ok) {
       const error = await response.json();
