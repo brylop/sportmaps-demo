@@ -1,8 +1,9 @@
 -- Migration to fix auth trigger and ensure profiles table exists
 -- Timestamp: 20260209170000
 
--- 1. Ensure UUID extension
+-- 1. Ensure extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 2. Ensure user_role type exists along with all values
 DO $$
@@ -95,10 +96,6 @@ EXCEPTION WHEN OTHERS THEN
   -- Log error (visible in Supabase logs)
   RAISE WARNING 'Error in handle_new_user trigger: %', SQLERRM;
   -- Return NEW anyway to allow user creation to succeed (profile might be missing, but user exists)
-  -- detailed error allows frontend to handle it or user to retry
-  -- However, if we suppress it, the user is created without a profile, which might break the app.
-  -- Better to Fail if profile creation is critical?
-  -- The app seems to rely on profile. Let's RAISE checking specifically for "demo" handling.
   RETURN NEW; 
 END;
 $$;
@@ -109,3 +106,56 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
+
+-- 9. Seed Demo Data (Safe Insert)
+DO $$
+DECLARE
+  v_user_id UUID;
+BEGIN
+  -- Check if user exists by email
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = 'academia.elite@sportmaps-demo.com') THEN
+    
+    INSERT INTO auth.users (
+      instance_id,
+      id,
+      aud,
+      role,
+      email,
+      encrypted_password,
+      email_confirmed_at,
+      recovery_sent_at,
+      last_sign_in_at,
+      raw_app_meta_data,
+      raw_user_meta_data,
+      created_at,
+      updated_at,
+      confirmation_token,
+      email_change,
+      email_change_token_new,
+      recovery_token
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000000',
+      uuid_generate_v4(),
+      'authenticated',
+      'authenticated',
+      'academia.elite@sportmaps-demo.com',
+      crypt('SportMapsDemo2025!', gen_salt('bf')),
+      NOW(),
+      NOW(),
+      NOW(),
+      '{"provider":"email","providers":["email"]}',
+      '{"full_name":"Spirit All Stars","role":"school"}',
+      NOW(),
+      NOW(),
+      '',
+      '',
+      '',
+      ''
+    );
+    
+    RAISE NOTICE 'Created demo user: academia.elite@sportmaps-demo.com';
+  ELSE
+    RAISE NOTICE 'Demo user already exists: academia.elite@sportmaps-demo.com';
+  END IF;
+END $$;
+

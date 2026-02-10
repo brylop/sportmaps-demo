@@ -1,5 +1,6 @@
 -- Create facilities table for school sports facilities
-CREATE TABLE public.facilities (
+-- Create facilities table for school sports facilities
+CREATE TABLE IF NOT EXISTS public.facilities (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   school_id UUID REFERENCES public.schools(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -15,23 +16,17 @@ CREATE TABLE public.facilities (
 ALTER TABLE public.facilities ENABLE ROW LEVEL SECURITY;
 
 -- School owners can manage their facilities
-CREATE POLICY "School owners can manage facilities" 
-ON public.facilities 
-FOR ALL 
-USING (EXISTS (
-  SELECT 1 FROM public.schools 
-  WHERE schools.id = facilities.school_id 
-  AND schools.owner_id = auth.uid()
-));
+DO $$ BEGIN
+  CREATE POLICY "School owners can manage facilities" ON public.facilities FOR ALL USING (EXISTS (SELECT 1 FROM public.schools WHERE schools.id = facilities.school_id AND schools.owner_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Anyone can view facilities (for public listing)
-CREATE POLICY "Anyone can view facilities" 
-ON public.facilities 
-FOR SELECT 
-USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can view facilities" ON public.facilities FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Create staff table for school employees/coaches
-CREATE TABLE public.school_staff (
+CREATE TABLE IF NOT EXISTS public.school_staff (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   school_id UUID REFERENCES public.schools(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL,
@@ -48,28 +43,20 @@ CREATE TABLE public.school_staff (
 ALTER TABLE public.school_staff ENABLE ROW LEVEL SECURITY;
 
 -- School owners can manage their staff
-CREATE POLICY "School owners can manage staff" 
-ON public.school_staff 
-FOR ALL 
-USING (EXISTS (
-  SELECT 1 FROM public.schools 
-  WHERE schools.id = school_staff.school_id 
-  AND schools.owner_id = auth.uid()
-));
+DO $$ BEGIN
+  CREATE POLICY "School owners can manage staff" ON public.school_staff FOR ALL USING (EXISTS (SELECT 1 FROM public.schools WHERE schools.id = school_staff.school_id AND schools.owner_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Coaches can view staff in their school
-CREATE POLICY "Staff is viewable by coaches" 
-ON public.school_staff 
-FOR SELECT 
-USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Staff is viewable by coaches" ON public.school_staff FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Create trigger for updated_at
-CREATE TRIGGER update_facilities_updated_at
-  BEFORE UPDATE ON public.facilities
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_facilities_updated_at BEFORE UPDATE ON public.facilities FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER update_school_staff_updated_at
-  BEFORE UPDATE ON public.school_staff
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_school_staff_updated_at BEFORE UPDATE ON public.school_staff FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

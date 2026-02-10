@@ -9,13 +9,9 @@ DROP POLICY IF EXISTS "Public can view demo users" ON spm_users;
 
 -- Add policy to allow viewing only basic public info (name and avatar) of other users
 -- This is useful for features like user search, mentions, etc. but excludes sensitive data
-CREATE POLICY "Users can view basic public info of others"
-ON spm_users
-FOR SELECT
-TO authenticated
-USING (
-  auth.uid() != id  -- Only for OTHER users, not own profile
-);
+DO $$ BEGIN
+  CREATE POLICY "Users can view basic public info of others" ON spm_users FOR SELECT TO authenticated USING (auth.uid() != id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Note: The above policy allows authenticated users to see the row exists and basic info,
 -- but the application layer should only display non-sensitive fields (full_name, avatar_url)

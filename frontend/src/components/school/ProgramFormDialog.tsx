@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +39,8 @@ interface ProgramFormData {
   age_min?: number;
   age_max?: number;
   max_participants?: number;
+  coach_id?: string;
+  facility_id?: string;
 }
 
 interface ProgramFormDialogProps {
@@ -56,6 +58,8 @@ interface ProgramFormDialogProps {
     age_min?: number | null;
     age_max?: number | null;
     max_participants?: number | null;
+    coach_id?: string | null;
+    facility_id?: string | null;
   };
 }
 
@@ -69,6 +73,7 @@ const sports = [
   'Artes Marciales',
   'Atletismo',
   'Béisbol',
+  'Cheerleading',
   'Otro',
 ];
 
@@ -83,6 +88,8 @@ export function ProgramFormDialog({
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [facilities, setFacilities] = useState<any[]>([]);
 
   const form = useForm<ProgramFormData>({
     defaultValues: {
@@ -94,8 +101,40 @@ export function ProgramFormDialog({
       age_min: program?.age_min || undefined,
       age_max: program?.age_max || undefined,
       max_participants: program?.max_participants || undefined,
+      coach_id: program?.coach_id || undefined,
+      facility_id: program?.facility_id || undefined,
     },
   });
+
+  useEffect(() => {
+    if (open && schoolId) {
+      fetchSchoolData();
+    }
+  }, [open, schoolId]);
+
+  const fetchSchoolData = async () => {
+    try {
+      // Fetch Staff (Coaches)
+      const { data: staffData } = await supabase
+        .from('school_staff')
+        .select('id, full_name, specialty')
+        .eq('school_id', schoolId)
+        .eq('status', 'active');
+
+      if (staffData) setStaff(staffData);
+
+      // Fetch Facilities
+      const { data: facilitiesData } = await supabase
+        .from('facilities')
+        .select('id, name, type')
+        .eq('school_id', schoolId);
+
+      if (facilitiesData) setFacilities(facilitiesData);
+
+    } catch (error) {
+      console.error('Error fetching school data:', error);
+    }
+  };
 
   const onSubmit = async (data: ProgramFormData) => {
     if (!user || !schoolId) return;
@@ -115,6 +154,8 @@ export function ProgramFormDialog({
             age_min: data.age_min || null,
             age_max: data.age_max || null,
             max_participants: data.max_participants || null,
+            coach_id: data.coach_id || null,
+            facility_id: data.facility_id || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', program.id);
@@ -132,6 +173,8 @@ export function ProgramFormDialog({
           age_min: data.age_min || null,
           age_max: data.age_max || null,
           max_participants: data.max_participants || null,
+          coach_id: data.coach_id || null,
+          facility_id: data.facility_id || null,
           current_participants: 0,
           active: true,
         });
@@ -225,71 +268,59 @@ export function ProgramFormDialog({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="sport"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Deporte</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="sport"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Deporte</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {sports.map((sport) => (
+                              <SelectItem key={sport} value={sport}>
+                                {sport}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="price_monthly"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Precio Mensual ($)</FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecciona un deporte" />
-                          </SelectTrigger>
+                          <Input type="number" placeholder="0" {...field} />
                         </FormControl>
-                        <SelectContent>
-                          {sports.map((sport) => (
-                            <SelectItem key={sport} value={sport}>
-                              {sport}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}
                   name="description"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Descripción (opcional)</FormLabel>
+                      <FormLabel>Descripción</FormLabel>
                       <FormControl>
                         <Textarea
-                          placeholder="Describe el programa..."
-                          className="resize-none"
+                          placeholder="Describe la clase, objetivos, etc."
+                          className="resize-none h-20"
                           {...field}
                         />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="schedule"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Horario</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ej: Lunes y Miércoles 4:00 PM - 6:00 PM" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="price_monthly"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Precio mensual (COP)</FormLabel>
-                      <FormControl>
-                        <Input type="number" placeholder="150000" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -299,10 +330,90 @@ export function ProgramFormDialog({
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
+                    name="coach_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Entrenador</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar entrenador" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {staff.map((coach) => (
+                              <SelectItem key={coach.id} value={coach.id}>
+                                {coach.full_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="facility_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Ubicación</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar ubicación" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {facilities.map((fac) => (
+                              <SelectItem key={fac.id} value={fac.id}>
+                                {fac.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="schedule"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Horario</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ej: Lunes y Miércoles 4:00 PM" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="max_participants"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Capacidad</FormLabel>
+                        <FormControl>
+                          <Input type="number" placeholder="20" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name="age_min"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Edad mínima</FormLabel>
+                        <FormLabel>Edad Mín</FormLabel>
                         <FormControl>
                           <Input type="number" placeholder="6" {...field} />
                         </FormControl>
@@ -316,7 +427,7 @@ export function ProgramFormDialog({
                     name="age_max"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Edad máxima</FormLabel>
+                        <FormLabel>Edad Máx</FormLabel>
                         <FormControl>
                           <Input type="number" placeholder="12" {...field} />
                         </FormControl>
@@ -325,20 +436,6 @@ export function ProgramFormDialog({
                     )}
                   />
                 </div>
-
-                <FormField
-                  control={form.control}
-                  name="max_participants"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cupos máximos (opcional)</FormLabel>
-                      <FormControl>
-                        <Input type="number" placeholder="20" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
 
                 <div className="flex gap-3 pt-4">
                   <Button
@@ -356,9 +453,9 @@ export function ProgramFormDialog({
                         Guardando...
                       </>
                     ) : program?.id ? (
-                      'Actualizar Programa'
+                      'Actualizar Clase'
                     ) : (
-                      'Crear Programa'
+                      'Crear Clase'
                     )}
                   </Button>
                 </div>

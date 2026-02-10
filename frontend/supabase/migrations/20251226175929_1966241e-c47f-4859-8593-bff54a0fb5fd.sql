@@ -3,7 +3,8 @@
 -- ===========================================
 
 -- Table for health records / patient files
-CREATE TABLE public.health_records (
+-- Table for health records / patient files
+CREATE TABLE IF NOT EXISTS public.health_records (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     athlete_id UUID NOT NULL,
     professional_id UUID NOT NULL,
@@ -18,7 +19,7 @@ CREATE TABLE public.health_records (
 );
 
 -- Table for wellness evaluations
-CREATE TABLE public.wellness_evaluations (
+CREATE TABLE IF NOT EXISTS public.wellness_evaluations (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     health_record_id UUID REFERENCES public.health_records(id) ON DELETE CASCADE,
     professional_id UUID NOT NULL,
@@ -36,7 +37,7 @@ CREATE TABLE public.wellness_evaluations (
 );
 
 -- Table for wellness appointments
-CREATE TABLE public.wellness_appointments (
+CREATE TABLE IF NOT EXISTS public.wellness_appointments (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     professional_id UUID NOT NULL,
     athlete_id UUID,
@@ -61,59 +62,50 @@ ALTER TABLE public.wellness_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.wellness_appointments ENABLE ROW LEVEL SECURITY;
 
 -- Health Records: Professionals can manage their own records
-CREATE POLICY "Wellness professionals can manage own health records"
-ON public.health_records
-FOR ALL
-USING (auth.uid() = professional_id);
+DO $$ BEGIN
+  CREATE POLICY "Wellness professionals can manage own health records" ON public.health_records FOR ALL USING (auth.uid() = professional_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Health Records: Athletes can view their own records
-CREATE POLICY "Athletes can view own health records"
-ON public.health_records
-FOR SELECT
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can view own health records" ON public.health_records FOR SELECT USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Evaluations: Professionals can manage their own evaluations
-CREATE POLICY "Wellness professionals can manage own evaluations"
-ON public.wellness_evaluations
-FOR ALL
-USING (auth.uid() = professional_id);
+DO $$ BEGIN
+  CREATE POLICY "Wellness professionals can manage own evaluations" ON public.wellness_evaluations FOR ALL USING (auth.uid() = professional_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Evaluations: Athletes can view their own evaluations
-CREATE POLICY "Athletes can view own evaluations"
-ON public.wellness_evaluations
-FOR SELECT
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can view own evaluations" ON public.wellness_evaluations FOR SELECT USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Appointments: Professionals can manage their own appointments
-CREATE POLICY "Wellness professionals can manage own appointments"
-ON public.wellness_appointments
-FOR ALL
-USING (auth.uid() = professional_id);
+DO $$ BEGIN
+  CREATE POLICY "Wellness professionals can manage own appointments" ON public.wellness_appointments FOR ALL USING (auth.uid() = professional_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Appointments: Athletes can view their own appointments
-CREATE POLICY "Athletes can view own appointments"
-ON public.wellness_appointments
-FOR SELECT
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can view own appointments" ON public.wellness_appointments FOR SELECT USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ===========================================
 -- TRIGGERS FOR updated_at
 -- ===========================================
 
-CREATE TRIGGER update_health_records_updated_at
-BEFORE UPDATE ON public.health_records
-FOR EACH ROW
-EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_health_records_updated_at BEFORE UPDATE ON public.health_records FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER update_wellness_evaluations_updated_at
-BEFORE UPDATE ON public.wellness_evaluations
-FOR EACH ROW
-EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_wellness_evaluations_updated_at BEFORE UPDATE ON public.wellness_evaluations FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER update_wellness_appointments_updated_at
-BEFORE UPDATE ON public.wellness_appointments
-FOR EACH ROW
-EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_wellness_appointments_updated_at BEFORE UPDATE ON public.wellness_appointments FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ===========================================
 -- INDEXES FOR PERFORMANCE

@@ -17,9 +17,8 @@ $$;
 -- Replace existing demo policy on schools to avoid direct auth.users reference
 drop policy if exists "Demo users can view demo schools" on public.schools;
 
-create policy "Demo users can view demo schools"
-on public.schools
-for select
-using (
-  is_demo = true and public.is_demo_user(auth.uid())
-);
+DO $$ BEGIN
+  create policy "Demo users can view demo schools" on public.schools for select using (
+    is_demo = true and public.is_demo_user(auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

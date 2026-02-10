@@ -3,6 +3,7 @@
 -- ============================================
 
 -- Tabla para registrar entrenamientos individuales de atletas
+-- Tabla para registrar entrenamientos individuales de atletas
 CREATE TABLE IF NOT EXISTS public.training_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     athlete_id UUID NOT NULL,
@@ -36,38 +37,36 @@ ALTER TABLE public.training_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.athlete_stats ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para training_logs
-CREATE POLICY "Athletes can view own training logs"
-ON public.training_logs FOR SELECT
-USING (auth.uid() = athlete_id OR is_demo_user(auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY "Athletes can view own training logs" ON public.training_logs FOR SELECT USING (auth.uid() = athlete_id OR is_demo_user(auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Athletes can create own training logs"
-ON public.training_logs FOR INSERT
-WITH CHECK (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can create own training logs" ON public.training_logs FOR INSERT WITH CHECK (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Athletes can update own training logs"
-ON public.training_logs FOR UPDATE
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can update own training logs" ON public.training_logs FOR UPDATE USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Athletes can delete own training logs"
-ON public.training_logs FOR DELETE
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can delete own training logs" ON public.training_logs FOR DELETE USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Políticas para athlete_stats
-CREATE POLICY "Athletes can view own stats"
-ON public.athlete_stats FOR SELECT
-USING (auth.uid() = athlete_id OR is_demo_user(auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY "Athletes can view own stats" ON public.athlete_stats FOR SELECT USING (auth.uid() = athlete_id OR is_demo_user(auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Athletes can manage own stats"
-ON public.athlete_stats FOR ALL
-USING (auth.uid() = athlete_id);
+DO $$ BEGIN
+  CREATE POLICY "Athletes can manage own stats" ON public.athlete_stats FOR ALL USING (auth.uid() = athlete_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Triggers para updated_at
-CREATE TRIGGER update_training_logs_updated_at
-    BEFORE UPDATE ON public.training_logs
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_training_logs_updated_at BEFORE UPDATE ON public.training_logs FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER update_athlete_stats_updated_at
-    BEFORE UPDATE ON public.athlete_stats
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_athlete_stats_updated_at BEFORE UPDATE ON public.athlete_stats FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

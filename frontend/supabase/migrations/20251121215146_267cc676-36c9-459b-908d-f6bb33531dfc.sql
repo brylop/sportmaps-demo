@@ -1,3 +1,11 @@
+-- Rename store_owner_id to vendor_id if it exists (fix for existing schema)
+DO $$ 
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'store_owner_id') THEN
+    ALTER TABLE public.products RENAME COLUMN store_owner_id TO vendor_id;
+  END IF;
+END $$;
+
 -- Create products table for e-commerce
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -19,28 +27,24 @@ CREATE TABLE IF NOT EXISTS public.products (
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 
 -- Everyone can view products
-CREATE POLICY "Anyone can view products"
-  ON public.products
-  FOR SELECT
-  USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can view products" ON public.products FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Store owners can create products
-CREATE POLICY "Store owners can create products"
-  ON public.products
-  FOR INSERT
-  WITH CHECK (auth.uid() = vendor_id);
+DO $$ BEGIN
+  CREATE POLICY "Store owners can create products" ON public.products FOR INSERT WITH CHECK (auth.uid() = vendor_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Store owners can update their own products
-CREATE POLICY "Store owners can update own products"
-  ON public.products
-  FOR UPDATE
-  USING (auth.uid() = vendor_id);
+DO $$ BEGIN
+  CREATE POLICY "Store owners can update own products" ON public.products FOR UPDATE USING (auth.uid() = vendor_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Store owners can delete their own products
-CREATE POLICY "Store owners can delete own products"
-  ON public.products
-  FOR DELETE
-  USING (auth.uid() = vendor_id);
+DO $$ BEGIN
+  CREATE POLICY "Store owners can delete own products" ON public.products FOR DELETE USING (auth.uid() = vendor_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Create orders table
 CREATE TABLE IF NOT EXISTS public.orders (
@@ -58,25 +62,21 @@ CREATE TABLE IF NOT EXISTS public.orders (
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 -- Users can view their own orders
-CREATE POLICY "Users can view own orders"
-  ON public.orders
-  FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view own orders" ON public.orders FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Users can create their own orders
-CREATE POLICY "Users can create own orders"
-  ON public.orders
-  FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can create own orders" ON public.orders FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Add trigger for updated_at on products
-CREATE TRIGGER update_products_updated_at
-  BEFORE UPDATE ON public.products
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Add trigger for updated_at on orders
-CREATE TRIGGER update_orders_updated_at
-  BEFORE UPDATE ON public.orders
-  FOR EACH ROW
-  EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

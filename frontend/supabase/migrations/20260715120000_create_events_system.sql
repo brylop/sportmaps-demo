@@ -124,71 +124,50 @@ ALTER TABLE public.event_registrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_telemetry ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para events
-CREATE POLICY "Anyone can view active events"
-ON public.events FOR SELECT
-USING (status = 'active' OR creator_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY "Anyone can view active events" ON public.events FOR SELECT USING (status = 'active' OR creator_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Creators can manage own events"
-ON public.events FOR ALL
-USING (creator_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY "Creators can manage own events" ON public.events FOR ALL USING (creator_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Anyone can create events"
-ON public.events FOR INSERT
-WITH CHECK (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can create events" ON public.events FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Políticas para event_registrations
-CREATE POLICY "Event creators can view registrations"
-ON public.event_registrations FOR SELECT
-USING (
-    EXISTS (
-        SELECT 1 FROM public.events
-        WHERE events.id = event_registrations.event_id
-        AND events.creator_id = auth.uid()
-    )
-);
+DO $$ BEGIN
+  CREATE POLICY "Event creators can view registrations" ON public.event_registrations FOR SELECT USING (EXISTS (SELECT 1 FROM public.events WHERE events.id = event_registrations.event_id AND events.creator_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Anyone can create registrations"
-ON public.event_registrations FOR INSERT
-WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can create registrations" ON public.event_registrations FOR INSERT WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Event creators can update registrations"
-ON public.event_registrations FOR UPDATE
-USING (
-    EXISTS (
-        SELECT 1 FROM public.events
-        WHERE events.id = event_registrations.event_id
-        AND events.creator_id = auth.uid()
-    )
-);
+DO $$ BEGIN
+  CREATE POLICY "Event creators can update registrations" ON public.event_registrations FOR UPDATE USING (EXISTS (SELECT 1 FROM public.events WHERE events.id = event_registrations.event_id AND events.creator_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Políticas para telemetry
-CREATE POLICY "Anyone can insert telemetry"
-ON public.event_telemetry FOR INSERT
-WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "Anyone can insert telemetry" ON public.event_telemetry FOR INSERT WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Creators can view own telemetry"
-ON public.event_telemetry FOR SELECT
-USING (
-    user_id = auth.uid() OR
-    EXISTS (
-        SELECT 1 FROM public.events
-        WHERE events.id = event_telemetry.event_id
-        AND events.creator_id = auth.uid()
-    )
-);
+DO $$ BEGIN
+  CREATE POLICY "Creators can view own telemetry" ON public.event_telemetry FOR SELECT USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.events WHERE events.id = event_telemetry.event_id AND events.creator_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =====================================================================
 -- TRIGGERS
 -- =====================================================================
-CREATE TRIGGER update_events_updated_at
-    BEFORE UPDATE ON public.events
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON public.events FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TRIGGER update_event_registrations_updated_at
-    BEFORE UPDATE ON public.event_registrations
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_updated_at();
+DO $$ BEGIN
+  CREATE TRIGGER update_event_registrations_updated_at BEFORE UPDATE ON public.event_registrations FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =====================================================================
 -- FUNCIÓN: Generar slug único

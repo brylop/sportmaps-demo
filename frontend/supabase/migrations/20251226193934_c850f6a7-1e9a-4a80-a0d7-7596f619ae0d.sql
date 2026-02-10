@@ -39,32 +39,27 @@ CREATE TABLE IF NOT EXISTS public.facility_reservations (
 ALTER TABLE public.facility_reservations ENABLE ROW LEVEL SECURITY;
 
 -- 6. RLS Policies for facility_reservations
-CREATE POLICY "Users can view own reservations"
-ON public.facility_reservations FOR SELECT
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view own reservations" ON public.facility_reservations FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can create reservations"
-ON public.facility_reservations FOR INSERT
-WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can create reservations" ON public.facility_reservations FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can update own reservations"
-ON public.facility_reservations FOR UPDATE
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update own reservations" ON public.facility_reservations FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can cancel own reservations"
-ON public.facility_reservations FOR DELETE
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can cancel own reservations" ON public.facility_reservations FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "School owners can manage facility reservations"
-ON public.facility_reservations FOR ALL
-USING (
-    EXISTS (
-        SELECT 1 FROM facilities f
-        JOIN schools s ON s.id = f.school_id
-        WHERE f.id = facility_reservations.facility_id
-        AND s.owner_id = auth.uid()
-    )
-);
+DO $$ BEGIN
+  CREATE POLICY "School owners can manage facility reservations" ON public.facility_reservations FOR ALL USING (
+    EXISTS (SELECT 1 FROM facilities f JOIN schools s ON s.id = f.school_id WHERE f.id = facility_reservations.facility_id AND s.owner_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 7. Add hourly rates and availability to facilities
 ALTER TABLE public.facilities 
@@ -73,10 +68,9 @@ ADD COLUMN IF NOT EXISTS available_hours jsonb DEFAULT '{"monday": ["06:00-22:00
 ADD COLUMN IF NOT EXISTS booking_enabled boolean DEFAULT true;
 
 -- 8. Create trigger for updated_at on facility_reservations
-CREATE TRIGGER update_facility_reservations_updated_at
-    BEFORE UPDATE ON public.facility_reservations
-    FOR EACH ROW
-    EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_facility_reservations_updated_at BEFORE UPDATE ON public.facility_reservations FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 9. Update demo schools with certifications
 UPDATE public.schools 

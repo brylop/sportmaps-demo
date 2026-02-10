@@ -107,21 +107,21 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
 
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view own calendar events"
-ON public.calendar_events FOR SELECT
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view own calendar events" ON public.calendar_events FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can create own calendar events"
-ON public.calendar_events FOR INSERT
-WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can create own calendar events" ON public.calendar_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can update own calendar events"
-ON public.calendar_events FOR UPDATE
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update own calendar events" ON public.calendar_events FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Users can delete own calendar events"
-ON public.calendar_events FOR DELETE
-USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can delete own calendar events" ON public.calendar_events FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Enable realtime for calendar events
 ALTER TABLE public.calendar_events REPLICA IDENTITY FULL;

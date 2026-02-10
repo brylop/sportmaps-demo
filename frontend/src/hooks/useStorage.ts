@@ -16,6 +16,10 @@ export function useStorage() {
     try {
       setUploading(true);
 
+      if (!file || !file.name) {
+        throw new Error('No se ha seleccionado ningún archivo válido');
+      }
+
       // Generate unique filename
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -86,7 +90,7 @@ export function useStorage() {
     const { data } = supabase.storage
       .from(bucket)
       .getPublicUrl(filePath);
-    
+
     return data.publicUrl;
   };
 
