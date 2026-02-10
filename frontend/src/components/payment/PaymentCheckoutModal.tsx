@@ -8,6 +8,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { FileUpload } from '@/components/common/FileUpload';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -34,6 +36,7 @@ export function PaymentCheckoutModal({
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const paymentMethods = [
     {

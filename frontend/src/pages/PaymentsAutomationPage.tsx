@@ -8,6 +8,7 @@ import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download } fr
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { getDemoSchoolData, formatCurrency } from '@/lib/demo-data';
 
 export default function PaymentsAutomationPage() {
@@ -17,60 +18,14 @@ export default function PaymentsAutomationPage() {
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [manualPayments, setManualPayments] = useState([
-    { id: 1, student: 'Santiago García', team: 'Firesquad', amount: 280000, file: 'ver_comprobante.jpg' }
-  ]);
+  const [manualPayments, setManualPayments] = useState<any[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [recurringPayments, setRecurringPayments] = useState<any[]>([]);
 
   // Only schools can access this page
   if (profile?.role !== 'school') {
     return <Navigate to="/dashboard" replace />;
   }
-
-  const recurringPayments = [
-    {
-      id: 1,
-      student: 'Sofía Ramírez',
-      program: 'Butterfly (Junior Prep)',
-      amount: 240000,
-      nextCharge: '15 Feb 2025',
-      status: 'active',
-      method: 'Tarjeta **** 1234'
-    },
-    {
-      id: 2,
-      student: 'Mateo Torres',
-      program: 'Firesquad (Senior L3)',
-      amount: 280000,
-      nextCharge: '20 Feb 2025',
-      status: 'active',
-      method: 'PSE - Bancolombia'
-    },
-    {
-      id: 3,
-      student: 'Lucas Martínez',
-      program: 'Bombsquad (Coed L5)',
-      amount: 350000,
-      nextCharge: '18 Feb 2025',
-      status: 'card_expiring',
-      method: 'Tarjeta **** 5678'
-    },
-    {
-      id: 4,
-      student: 'Valentina Gómez',
-      program: 'Legends (Open L6)',
-      amount: 400000,
-      nextCharge: '22 Feb 2025',
-      status: 'active',
-      method: 'Nequi'
-    },
-  ];
-
-  const recentTransactions = [
-    { id: 1, student: 'María López', amount: 180000, date: 'Hoy 10:30 AM', status: 'success' },
-    { id: 2, student: 'Juan Pérez', amount: 220000, date: 'Ayer 3:45 PM', status: 'success' },
-    { id: 3, student: 'Ana Rodríguez', amount: 200000, date: 'Hace 2 días', status: 'success' },
-    { id: 4, student: 'Carlos Hernández', amount: 280000, date: 'Hace 3 días', status: 'failed' },
-  ];
 
   const stats = [
     {
@@ -126,42 +81,133 @@ export default function PaymentsAutomationPage() {
     document.body.removeChild(link);
   };
 
-  const handleManualAction = (id: number, action: 'approve' | 'reject') => {
-    setManualPayments(prev => prev.filter(p => p.id !== id));
-    toast({
-      title: action === 'approve' ? '✅ Pago Aprobado' : '❌ Pago Rechazado',
-      description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} y el estado del estudiante actualizado.`,
-      variant: action === 'approve' ? 'default' : 'destructive',
-    });
+  const fetchTransactions = async () => {
+    const { data: txData } = await supabase
+      .from('payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (txData) {
+      setRecentTransactions(txData.map(t => ({
+        id: t.id,
+        student: 'Estudiante Demo',
+        amount: t.amount,
+        date: new Date(t.created_at).toLocaleDateString(),
+        status: t.status === 'paid' ? 'success' : t.status === 'pending' ? 'pending' : 'failed'
+      })));
+    }
   };
 
+  // Fetch data from Supabase
   useEffect(() => {
-    const fetchReport = async () => {
+    const fetchData = async () => {
       setLoading(true);
       try {
-        const response = await fetch('/api/payments/school/report/school_elite');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            setReport(data.report);
-            return;
-          }
-        }
-      } catch { /* API unavailable */ }
+        // Fetch manual payments (pending)
+        const { data: pendingData, error: pendingError } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('status', 'pending')
+          .eq('payment_type', 'transfer')
+          .order('created_at', { ascending: false });
 
-      // Demo fallback
-      setReport({
-        by_teams: {
-          Butterfly: { paid: 12, pending: 3, overdue: 1 },
-          Firesquad: { paid: 15, pending: 2, overdue: 0 },
-          Bombsquad: { paid: 8, pending: 4, overdue: 2 },
-          Legends: { paid: 10, pending: 1, overdue: 0 },
+        if (pendingData) {
+          setManualPayments(pendingData.map(p => ({
+            id: p.id,
+            student: 'Estudiante Demo', // In real app, join with profiles/children
+            team: 'Firesquad', // Mock for now, or fetch from concept
+            amount: p.amount,
+            file: 'Ver Comprobante',
+            proof_url: p.receipt_url
+          })));
         }
-      });
-      setLoading(false);
+
+        // Fetch recent transactions (all)
+        await fetchTransactions();
+
+        // Mock report data and recurring payments for now
+        setReport({
+          by_teams: {
+            Butterfly: { paid: 12, pending: 3, overdue: 1 },
+            Firesquad: { paid: 15, pending: 2, overdue: 0 },
+            Bombsquad: { paid: 8, pending: 4, overdue: 2 },
+            Legends: { paid: 10, pending: 1, overdue: 0 },
+          }
+        });
+
+        setRecurringPayments([
+          {
+            id: 1,
+            student: 'Sofía Ramírez',
+            program: 'Butterfly (Junior Prep)',
+            amount: 240000,
+            nextCharge: '15 Feb 2025',
+            status: 'active',
+            method: 'Tarjeta **** 1234'
+          },
+          {
+            id: 2,
+            student: 'Mateo Torres',
+            program: 'Firesquad (Senior L3)',
+            amount: 280000,
+            nextCharge: '20 Feb 2025',
+            status: 'active',
+            method: 'PSE - Bancolombia'
+          }
+        ]);
+
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchReport();
+
+    fetchData();
   }, []);
+
+  const handleManualAction = async (id: string, action: 'approve' | 'reject') => {
+    // Update Supabase
+    const newStatus = action === 'approve' ? 'paid' : 'rejected';
+
+    const { error } = await supabase
+      .from('payments')
+      .update({ status: newStatus })
+      .eq('id', id);
+
+    if (!error) {
+      setManualPayments(prev => prev.filter(p => p.id !== id));
+      toast({
+        title: action === 'approve' ? '✅ Pago Aprobado' : '❌ Pago Rechazado',
+        description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} correctamente.`,
+        variant: action === 'approve' ? 'default' : 'destructive',
+      });
+
+      // Refresh transactions
+      const { data: txData } = await supabase
+        .from('payments')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (txData) {
+        setRecentTransactions(txData.map(t => ({
+          id: t.id,
+          student: 'Estudiante Demo',
+          amount: t.amount,
+          date: new Date(t.created_at).toLocaleDateString(),
+          status: t.status === 'paid' ? 'success' : t.status === 'pending' ? 'pending' : 'failed'
+        })));
+      }
+    } else {
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el pago",
+        variant: "destructive"
+      });
+    }
+  };
 
   const teams = ["Butterfly", "Firesquad", "Bombsquad", "Legends"];
 
