@@ -65,7 +65,7 @@ export default function ProfilePage() {
     }
 
     try {
-      const publicUrl = await uploadFile('avatars', file);
+      const publicUrl = await uploadFile(file, 'avatars');
 
       if (publicUrl && user) {
         const { error } = await supabase
