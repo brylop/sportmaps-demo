@@ -15,10 +15,15 @@ from routes import payments, students, classes
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection (optional — demo works without it via mock_db)
+mongo_url = os.environ.get('MONGO_URL', '')
+if mongo_url:
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[os.environ.get('DB_NAME', 'sportmaps')]
+else:
+    logging.warning("MONGO_URL not set — running in demo mode without MongoDB")
+    client = None
+    db = None
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -58,11 +63,13 @@ app.include_router(api_router)
 app.include_router(payments.router)
 
 # Initialize students router with database
-students.init_db(db)
+if db is not None:
+    students.init_db(db)
 app.include_router(students.router)
 
 # Initialize classes router with database
-classes.init_db(db)
+if db is not None:
+    classes.init_db(db)
 app.include_router(classes.router)
 
 app.add_middleware(
@@ -82,4 +89,5 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client:
+        client.close()
