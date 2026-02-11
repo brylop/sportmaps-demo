@@ -12,8 +12,9 @@ import { Progress } from '@/components/ui/progress';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
-import { studentsAPI } from '@/lib/api/students';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface CSVImportModalProps {
   open: boolean;
@@ -22,17 +23,64 @@ interface CSVImportModalProps {
   schoolId: string;
 }
 
+interface ParsedStudent {
+  full_name: string;
+  email?: string;
+  phone?: string;
+  date_of_birth?: string;
+  gender?: string;
+  grade?: string;
+  parent_name?: string;
+  parent_email?: string;
+  parent_phone?: string;
+  monthly_fee: number;
+}
+
 export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImportModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [parsedStudents, setParsedStudents] = useState<ParsedStudent[]>([]);
   const [result, setResult] = useState<{
     success: number;
     failed: number;
     errors: Array<{ row: number; error: string }>;
   } | null>(null);
   const { toast } = useToast();
+
+  const DEFAULT_FEE = 150000;
+
+  const parseCSV = (text: string): ParsedStudent[] => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const students: ParsedStudent[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim());
+      const row: any = {};
+      headers.forEach((h, idx) => {
+        row[h] = values[idx] || '';
+      });
+
+      students.push({
+        full_name: row.full_name || row.nombre || '',
+        email: row.email || '',
+        phone: row.phone || row.telefono || '',
+        date_of_birth: row.date_of_birth || row.fecha_nacimiento || '',
+        gender: row.gender || row.genero || '',
+        grade: row.grade || row.grado || '',
+        parent_name: row.parent_name || row.nombre_acudiente || '',
+        parent_email: row.parent_email || row.email_acudiente || '',
+        parent_phone: row.parent_phone || row.telefono_acudiente || '',
+        monthly_fee: parseInt(row.monthly_fee || row.mensualidad) || DEFAULT_FEE,
+      });
+    }
+
+    return students.filter(s => s.full_name);
+  };
 
   const handleFile = useCallback((selectedFile: File) => {
     if (!selectedFile.name.endsWith('.csv')) {
@@ -43,6 +91,23 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
       });
       return;
     }
+
+    // Parse CSV locally
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const students = parseCSV(text);
+      setParsedStudents(students);
+      if (students.length === 0) {
+        toast({
+          title: 'CSV vacío',
+          description: 'No se encontraron estudiantes en el archivo',
+          variant: 'destructive',
+        });
+      }
+    };
+    reader.readAsText(selectedFile);
+
     setFile(selectedFile);
     setResult(null);
   }, [toast]);
@@ -69,45 +134,57 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
     if (selectedFile) handleFile(selectedFile);
   };
 
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
+
   const handleUpload = async () => {
-    if (!file) return;
+    if (parsedStudents.length === 0) return;
 
     try {
       setUploading(true);
-      setUploadProgress(10);
+      setUploadProgress(5);
 
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => Math.min(prev + 10, 90));
-      }, 200);
+      let successCount = 0;
+      let failedCount = 0;
+      const errors: Array<{ row: number; error: string }> = [];
 
-      const response = await studentsAPI.bulkUpload(file, schoolId);
+      for (let i = 0; i < parsedStudents.length; i++) {
+        const s = parsedStudents[i];
+        setUploadProgress(Math.round(((i + 1) / parsedStudents.length) * 90));
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      setResult({
-        success: response.success,
-        failed: response.failed,
-        errors: response.errors,
-      });
-
-      if (response.success > 0) {
-        toast({
-          title: '¡Importación exitosa!',
-          description: `${response.success} estudiante${response.success > 1 ? 's' : ''} importado${response.success > 1 ? 's' : ''} correctamente`,
-        });
-
-        // Wait a bit before calling onSuccess
-        setTimeout(() => {
-          onSuccess();
-        }, 1500);
+        try {
+          await createStudentWithPendingPayment({
+            fullName: s.full_name,
+            dateOfBirth: s.date_of_birth || undefined,
+            parentEmail: s.parent_email || undefined,
+            parentPhone: s.parent_phone || undefined,
+            parentName: s.parent_name || undefined,
+            schoolId,
+            monthlyFee: s.monthly_fee,
+            programName: s.grade || 'Importado CSV',
+          });
+          successCount++;
+        } catch (err: any) {
+          failedCount++;
+          errors.push({ row: i + 2, error: err.message || 'Error desconocido' });
+        }
       }
 
-      if (response.failed > 0) {
+      setUploadProgress(100);
+      setResult({ success: successCount, failed: failedCount, errors });
+
+      if (successCount > 0) {
+        toast({
+          title: '¡Importación exitosa!',
+          description: `${successCount} estudiante${successCount > 1 ? 's' : ''} importado${successCount > 1 ? 's' : ''} con pago pendiente`,
+        });
+        setTimeout(() => onSuccess(), 1500);
+      }
+
+      if (failedCount > 0) {
         toast({
           title: 'Algunas filas fallaron',
-          description: `${response.failed} fila${response.failed > 1 ? 's' : ''} con errores`,
+          description: `${failedCount} fila${failedCount > 1 ? 's' : ''} con errores`,
           variant: 'destructive',
         });
       }
@@ -115,7 +192,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
     } catch (error: any) {
       console.error('Upload error:', error);
       toast({
-        title: 'Error al subir archivo',
+        title: 'Error al procesar archivo',
         description: error.message || 'Por favor intenta de nuevo',
         variant: 'destructive',
       });
@@ -126,18 +203,18 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
   };
 
   const handleClose = () => {
-    // Allow closing even if uploading to prevent trapped users
     setFile(null);
     setResult(null);
+    setParsedStudents([]);
     setUploadProgress(0);
-    setUploading(false); // Force reset
+    setUploading(false);
     onClose();
   };
 
   const downloadTemplate = () => {
-    const template = `full_name,email,phone,date_of_birth,gender,grade,parent_name,parent_email,parent_phone
-Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,María García,maria.garcia@email.com,3009876543
-Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carlos Martínez,carlos.martinez@email.com,3108765432
+    const template = `full_name,email,phone,date_of_birth,gender,grade,parent_name,parent_email,parent_phone,monthly_fee
+Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,María García,maria.garcia@email.com,3009876543,150000
+Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carlos Martínez,carlos.martinez@email.com,3108765432,180000
 `;
 
     const blob = new Blob([template], { type: 'text/csv' });
@@ -150,7 +227,7 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
 
     toast({
       title: 'Plantilla descargada',
-      description: 'Edita el archivo y súbelo para importar estudiantes',
+      description: 'Edita el archivo y súbelo para importar estudiantes (incluye columna monthly_fee)',
     });
   };
 
@@ -163,7 +240,7 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
             Importar Estudiantes desde CSV
           </DialogTitle>
           <DialogDescription>
-            Sube un archivo CSV con la lista de estudiantes para importarlos masivamente.
+            Sube un archivo CSV con la lista de estudiantes. Se crearán con pago pendiente asociado a la escuela.
           </DialogDescription>
         </DialogHeader>
 
@@ -173,7 +250,7 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
             <Download className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
               <span className="text-sm">
-                ¿Primera vez? Descarga la plantilla CSV para empezar
+                ¿Primera vez? Descarga la plantilla CSV (incluye columna <code>monthly_fee</code>)
               </span>
               <Button variant="link" size="sm" onClick={downloadTemplate} className="h-auto p-0">
                 Descargar plantilla
@@ -198,14 +275,14 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                 <div>
                   <p className="font-medium text-lg">{file.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024).toFixed(2)} KB
+                    {(file.size / 1024).toFixed(2)} KB — {parsedStudents.length} estudiantes detectados
                   </p>
                 </div>
                 {!uploading && !result && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setFile(null)}
+                    onClick={() => { setFile(null); setParsedStudents([]); }}
                   >
                     Cambiar archivo
                   </Button>
@@ -235,13 +312,46 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
             )}
           </div>
 
+          {/* Preview Table */}
+          {parsedStudents.length > 0 && !uploading && !result && (
+            <div className="max-h-48 overflow-y-auto border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Nombre</TableHead>
+                    <TableHead className="text-xs">Acudiente</TableHead>
+                    <TableHead className="text-xs">Teléfono</TableHead>
+                    <TableHead className="text-xs">Mensualidad</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {parsedStudents.slice(0, 5).map((s, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-xs py-1">{s.full_name}</TableCell>
+                      <TableCell className="text-xs py-1">{s.parent_name || '-'}</TableCell>
+                      <TableCell className="text-xs py-1">{s.parent_phone || '-'}</TableCell>
+                      <TableCell className="text-xs py-1 font-semibold">{formatCurrency(s.monthly_fee)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {parsedStudents.length > 5 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-xs text-center text-muted-foreground py-1">
+                        ... y {parsedStudents.length - 5} más
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
           {/* Upload Progress */}
           {uploading && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="text-sm font-medium">
-                  Subiendo y procesando estudiantes...
+                  Creando estudiantes y pagos pendientes...
                 </span>
               </div>
               <Progress value={uploadProgress} className="h-2" />
@@ -264,7 +374,7 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                       </span>
                     </div>
                     <p className="text-sm text-green-700 dark:text-green-300">
-                      Estudiantes importados correctamente
+                      Estudiantes importados con pago pendiente
                     </p>
                   </div>
                 )}
@@ -315,14 +425,12 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                 <p><strong>Columnas requeridas:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
                   <li><code>full_name</code> - Nombre completo del estudiante (requerido)</li>
-                  <li><code>email</code> - Email del estudiante (opcional)</li>
-                  <li><code>phone</code> - Teléfono (opcional)</li>
-                  <li><code>date_of_birth</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
-                  <li><code>gender</code> - male, female, other (opcional)</li>
-                  <li><code>grade</code> - Grado o nivel (opcional)</li>
                   <li><code>parent_name</code> - Nombre del padre/madre</li>
                   <li><code>parent_email</code> - Email del padre/madre</li>
                   <li><code>parent_phone</code> - Teléfono del padre/madre</li>
+                  <li><code>monthly_fee</code> - <strong>Mensualidad en COP</strong> (ej: 150000)</li>
+                  <li><code>date_of_birth</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
+                  <li><code>grade</code> - Grado o nivel (opcional)</li>
                 </ul>
               </div>
             </div>
@@ -339,17 +447,17 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
           {!result && (
             <Button
               onClick={handleUpload}
-              disabled={!file || uploading}
+              disabled={parsedStudents.length === 0 || uploading}
             >
               {uploading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Subiendo...
+                  Procesando...
                 </>
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Subir y Procesar
+                  Importar {parsedStudents.length} Estudiante{parsedStudents.length > 1 ? 's' : ''}
                 </>
               )}
             </Button>

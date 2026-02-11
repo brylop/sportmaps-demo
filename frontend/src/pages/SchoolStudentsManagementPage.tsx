@@ -10,20 +10,24 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 
 const studentSchema = z.object({
   full_name: z.string().min(2, 'Nombre completo es requerido').max(100),
   date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
+  program_id: z.string().min(1, 'Selecciona un programa'),
+  monthly_fee: z.coerce.number().min(10000, 'Mínimo $10.000 COP'),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
 });
@@ -40,12 +44,15 @@ export default function SchoolStudentsManagementPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [viewingStudent, setViewingStudent] = useState<any | null>(null);
 
+  // Resolve school context (school_id, programs, fees)
+  const { schoolId, schoolName, programs, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+
   // Local students state for demo + imported
   const [localStudents, setLocalStudents] = useState([
-    { id: '1', full_name: 'Mateo Pérez', date_of_birth: '2013-05-15', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid' },
-    { id: '2', full_name: 'Sofía Pérez', date_of_birth: '2015-08-22', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid' },
-    { id: '3', full_name: 'Juan Vargas', date_of_birth: '2013-03-10', parent_name: 'Carlos Vargas', phone: '+57 310 234 5678', paymentStatus: 'overdue' },
-    { id: '4', full_name: 'Camila Torres', date_of_birth: '2012-11-28', parent_name: 'Elena Torres', phone: '+57 320 345 6789', paymentStatus: 'pending' },
+    { id: '1', full_name: 'Mateo Pérez', date_of_birth: '2013-05-15', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid', program: 'Firesquad (Senior L3)', monthly_fee: 180000 },
+    { id: '2', full_name: 'Sofía Pérez', date_of_birth: '2015-08-22', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid', program: 'Butterfly (Junior Prep)', monthly_fee: 150000 },
+    { id: '3', full_name: 'Juan Vargas', date_of_birth: '2013-03-10', parent_name: 'Carlos Vargas', phone: '+57 310 234 5678', paymentStatus: 'overdue', program: 'Bombsquad (Coed L5)', monthly_fee: 200000 },
+    { id: '4', full_name: 'Camila Torres', date_of_birth: '2012-11-28', parent_name: 'Elena Torres', phone: '+57 320 345 6789', paymentStatus: 'pending', program: 'Legends (Open L6)', monthly_fee: 220000 },
   ]);
 
   const form = useForm<StudentFormData>({
@@ -55,6 +62,8 @@ export default function SchoolStudentsManagementPage() {
       date_of_birth: '',
       parent_email: '',
       parent_phone: '',
+      program_id: '',
+      monthly_fee: defaultMonthlyFee,
       medical_info: '',
       notes: '',
     },
@@ -76,7 +85,33 @@ export default function SchoolStudentsManagementPage() {
 
   const createStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
-      // Add to local state
+      const selectedProgram = programs.find(p => p.id === data.program_id);
+
+      // Try to persist in Supabase
+      if (schoolId) {
+        const result = await createStudentWithPendingPayment({
+          fullName: data.full_name,
+          dateOfBirth: data.date_of_birth,
+          parentEmail: data.parent_email,
+          parentPhone: data.parent_phone,
+          parentName: data.parent_email.split('@')[0],
+          schoolId,
+          programId: data.program_id,
+          programName: selectedProgram?.name || 'Programa',
+          monthlyFee: data.monthly_fee,
+          medicalInfo: data.medical_info,
+          notes: data.notes,
+        });
+
+        if (result.success) {
+          toast({
+            title: '✅ Estudiante registrado',
+            description: `${data.full_name} asociado a ${schoolName} con mensualidad de $${data.monthly_fee.toLocaleString('es-CO')} COP`,
+          });
+        }
+      }
+
+      // Also add to local state for immediate UI
       const newStudent = {
         id: `new-${Date.now()}`,
         full_name: data.full_name,
@@ -84,13 +119,11 @@ export default function SchoolStudentsManagementPage() {
         parent_name: data.parent_email.split('@')[0],
         phone: data.parent_phone,
         paymentStatus: 'pending',
+        program: selectedProgram?.name || 'Sin programa',
+        monthly_fee: data.monthly_fee,
       };
       setLocalStudents(prev => [...prev, newStudent]);
 
-      toast({
-        title: '✅ Estudiante agregado',
-        description: `${data.full_name} ha sido registrado exitosamente`,
-      });
       return data;
     },
     onSuccess: () => {
@@ -104,6 +137,15 @@ export default function SchoolStudentsManagementPage() {
     createStudentMutation.mutate(data);
   };
 
+  // Update monthly_fee when program changes
+  const handleProgramChange = (programId: string) => {
+    form.setValue('program_id', programId);
+    const selectedProgram = programs.find(p => p.id === programId);
+    if (selectedProgram) {
+      form.setValue('monthly_fee', selectedProgram.monthly_fee);
+    }
+  };
+
   const handleCSVImport = (importedStudents: { name: string; parent: string; phone: string; monthlyFee: string }[]) => {
     const newStudents = importedStudents.map((s, index) => ({
       id: `imported-${Date.now()}-${index}`,
@@ -112,6 +154,8 @@ export default function SchoolStudentsManagementPage() {
       parent_name: s.parent,
       phone: s.phone,
       paymentStatus: 'pending' as const,
+      program: 'Importado',
+      monthly_fee: parseInt(s.monthlyFee) || defaultMonthlyFee,
     }));
 
     setLocalStudents(prev => [...prev, ...newStudents]);
@@ -121,6 +165,9 @@ export default function SchoolStudentsManagementPage() {
     student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     student.parent_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const getPaymentBadge = (status: string) => {
     switch (status) {
@@ -146,7 +193,7 @@ export default function SchoolStudentsManagementPage() {
     return age;
   };
 
-  if (isLoading) {
+  if (isLoading || schoolLoading) {
     return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
   }
 
@@ -156,7 +203,7 @@ export default function SchoolStudentsManagementPage() {
         <div>
           <h1 className="text-3xl font-bold">Estudiantes</h1>
           <p className="text-muted-foreground mt-1">
-            {filteredStudents.length} estudiante{filteredStudents.length !== 1 ? 's' : ''} registrado{filteredStudents.length !== 1 ? 's' : ''}
+            {filteredStudents.length} estudiante{filteredStudents.length !== 1 ? 's' : ''} registrado{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
           </p>
         </div>
         <div className="flex gap-2">
@@ -200,8 +247,9 @@ export default function SchoolStudentsManagementPage() {
                 <TableRow>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Edad</TableHead>
+                  <TableHead>Programa</TableHead>
                   <TableHead>Acudiente</TableHead>
-                  <TableHead>Teléfono</TableHead>
+                  <TableHead>Mensualidad</TableHead>
                   <TableHead>Estado Pago</TableHead>
                   <TableHead>Acciones</TableHead>
                 </TableRow>
@@ -211,8 +259,13 @@ export default function SchoolStudentsManagementPage() {
                   <TableRow key={student.id}>
                     <TableCell className="font-medium">{student.full_name}</TableCell>
                     <TableCell>{calculateAge(student.date_of_birth)} años</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{student.program}</Badge>
+                    </TableCell>
                     <TableCell>{student.parent_name}</TableCell>
-                    <TableCell>{student.phone}</TableCell>
+                    <TableCell className="font-semibold text-primary">
+                      {formatCurrency(student.monthly_fee)}
+                    </TableCell>
                     <TableCell>{getPaymentBadge(student.paymentStatus)}</TableCell>
                     <TableCell>
                       <Button
@@ -237,7 +290,7 @@ export default function SchoolStudentsManagementPage() {
           <DialogHeader>
             <DialogTitle>Agregar Nuevo Estudiante</DialogTitle>
             <DialogDescription>
-              Registra la información básica del estudiante y sus datos de contacto.
+              Registra la información del estudiante. Quedará asociado a <strong>{schoolName}</strong>.
             </DialogDescription>
           </DialogHeader>
 
@@ -291,6 +344,59 @@ export default function SchoolStudentsManagementPage() {
                       className="max-w-xs mx-auto"
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Program & Fee Section */}
+            <div className="space-y-4">
+              <h3 className="font-semibold flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                Programa y Mensualidad
+              </h3>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="program_id">Programa *</Label>
+                  <Select
+                    value={form.watch('program_id')}
+                    onValueChange={handleProgramChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar programa" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {programs.map(program => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.name} — {formatCurrency(program.monthly_fee)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {form.formState.errors.program_id && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.program_id.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="monthly_fee"
+                      type="number"
+                      className="pl-9"
+                      placeholder="150000"
+                      {...form.register('monthly_fee')}
+                    />
+                  </div>
+                  {form.formState.errors.monthly_fee && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.monthly_fee.message}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -402,16 +508,26 @@ export default function SchoolStudentsManagementPage() {
 
               <div className="grid gap-2">
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Escuela:</span>
+                  <span className="text-sm">{schoolName}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Programa:</span>
+                  <span className="text-sm">{viewingStudent.program || '-'}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                  <span className="text-sm font-medium">Mensualidad:</span>
+                  <span className="text-sm font-bold text-primary">
+                    {viewingStudent.monthly_fee ? formatCurrency(viewingStudent.monthly_fee) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Acudiente:</span>
                   <span className="text-sm">{viewingStudent.parent_name}</span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Teléfono:</span>
                   <span className="text-sm">{viewingStudent.phone}</span>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
-                  <span className="text-sm font-medium">Email:</span>
-                  <span className="text-sm text-muted-foreground">-</span>
                 </div>
               </div>
 
@@ -428,15 +544,11 @@ export default function SchoolStudentsManagementPage() {
         open={showImportModal}
         onClose={() => setShowImportModal(false)}
         onSuccess={() => {
-          // Reload logic or just close for now as handleCSVImport was for local state only
-          // But since CSVImportModal handles upload internally, we should refresh data.
-          // Since we use local state here mixed with query, it's tricky.
-          // For now, let's just close it.
           setShowImportModal(false);
           toast({ title: "Importación completada", description: "La lista de estudiantes se ha actualizado." });
           queryClient.invalidateQueries({ queryKey: ['school-students'] });
         }}
-        schoolId={user?.id || 'demo-school'}
+        schoolId={schoolId || 'demo-school'}
       />
     </div>
   );
