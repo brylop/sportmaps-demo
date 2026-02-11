@@ -104,8 +104,6 @@ export function PaymentCheckoutModal({
 
       if (!schoolId) throw new Error('No se encontró una escuela válida para procesar el pago.');
 
-      if (schoolData) schoolId = schoolData.id;
-
       if (selectedMethod === 'transfer') {
         // Direct Supabase Insert
         const { error: insertError } = await supabase
