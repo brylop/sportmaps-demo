@@ -187,14 +187,14 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg border bg-accent/50">
+              <div className="flex flex-col md:flex-row md:items-center justify-between p-4 rounded-lg border bg-accent/50 gap-4">
                 <div>
                   <p className="font-semibold text-lg">{pendingPayment.concept}</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     Vence: {new Date(pendingPayment.due_date).toLocaleDateString('es-CO')}
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="text-left md:text-right">
                   <p className="text-2xl font-bold">{formatCurrency(Number(pendingPayment.amount))}</p>
                   <Badge className={getStatusBadgeClass(pendingPayment.status)}>
                     {getStatusLabel(pendingPayment.status)}
@@ -223,10 +223,10 @@ export default function PaymentsPage() {
             {payments?.map((payment) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                className="flex flex-col md:flex-row md:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors gap-4"
               >
-                <div className="flex-1">
-                  <div className="flex items-start justify-between">
+                <div className="flex-1 w-full">
+                  <div className="flex items-start justify-between w-full">
                     <div>
                       <p className="font-medium">{payment.concept}</p>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -240,7 +240,13 @@ export default function PaymentsPage() {
                         </p>
                       )}
                     </div>
-                    <div className="text-right">
+                    <div className="text-right md:hidden">
+                      <p className="text-lg font-bold">{formatCurrency(Number(payment.amount))}</p>
+                      <Badge className={`mt-1 ${getStatusBadgeClass(payment.status)}`}>
+                        {getStatusLabel(payment.status)}
+                      </Badge>
+                    </div>
+                    <div className="text-right hidden md:block">
                       <p className="text-xl font-bold">{formatCurrency(Number(payment.amount))}</p>
                       <Badge className={`mt-1 ${getStatusBadgeClass(payment.status)}`}>
                         {getStatusLabel(payment.status)}
@@ -248,17 +254,20 @@ export default function PaymentsPage() {
                     </div>
                   </div>
                 </div>
-                {payment.status === 'paid' && (
-                  <Button variant="outline" size="sm" className="ml-4 gap-2">
-                    <Download className="w-4 h-4" />
-                    Ver Recibo
-                  </Button>
-                )}
-                {payment.status === 'pending' && (
-                  <Button size="sm" className="ml-4" onClick={() => handlePay(payment)}>
-                    Pagar
-                  </Button>
-                )}
+                <div className="w-full md:w-auto flex justify-end">
+                  {payment.status === 'paid' && (
+                    <Button variant="outline" size="sm" className="w-full md:w-auto gap-2">
+                      <Download className="w-4 h-4" />
+                      <span className="md:hidden">Descargar</span>
+                      <span className="hidden md:inline">Ver Recibo</span>
+                    </Button>
+                  )}
+                  {payment.status === 'pending' && (
+                    <Button size="sm" className="w-full md:w-auto" onClick={() => handlePay(payment)}>
+                      Pagar
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
