@@ -41,7 +41,9 @@ export default function MyChildrenPage() {
       date_of_birth: '2013-05-15',
       team_name: 'Firesquad (Senior L3)',
       sport: 'Cheerleading',
-      school_id: null,
+      school_name: 'Spirit All Stars',
+      monthly_fee: 180000,
+      school_id: 'demo-school',
       parent_id: user?.id,
       avatar_url: null,
       medical_info: null,
@@ -54,7 +56,9 @@ export default function MyChildrenPage() {
       date_of_birth: '2015-08-22',
       team_name: 'Butterfly (Junior Prep)',
       sport: 'Cheerleading',
-      school_id: null,
+      school_name: 'Spirit All Stars',
+      monthly_fee: 150000,
+      school_id: 'demo-school',
       parent_id: user?.id,
       avatar_url: null,
       medical_info: null,
@@ -115,6 +119,16 @@ export default function MyChildrenPage() {
               )}
               {child.sport && (
                 <Badge variant="secondary">{child.sport}</Badge>
+              )}
+              {(child as any).school_name && (
+                <div className="text-xs text-muted-foreground">
+                  🏫 {(child as any).school_name}
+                </div>
+              )}
+              {(child as any).monthly_fee && (
+                <div className="text-sm font-semibold text-primary">
+                  💰 Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format((child as any).monthly_fee)}
+                </div>
               )}
               <div className="pt-3 space-y-2">
                 <Link to={`/children/${child.id}/progress`}>
