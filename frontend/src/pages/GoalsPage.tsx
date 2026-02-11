@@ -1,8 +1,10 @@
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { Target, Plus, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
+import { Target, Plus, Calendar, CheckCircle, XCircle, Trophy, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
+import { isDemoUser } from '@/lib/demo-check';
 import { useState } from 'react';
 
 interface Goal {
@@ -16,9 +18,9 @@ interface Goal {
 
 export default function GoalsPage() {
   const { user } = useAuth();
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
-  const [goals] = useState<Goal[]>(isDemoUser ? [
+  const [goals] = useState<Goal[]>(isDemo ? [
     {
       id: '1',
       title: 'Mejorar velocidad de sprint',
@@ -148,9 +150,9 @@ export default function GoalsPage() {
                   <div
                     className="h-2 rounded-full transition-all"
                     style={{
-                      width: `${goal.progress}%`,
-                      backgroundColor: goal.status === 'completed' 
-                        ? 'hsl(119, 60%, 32%)' 
+                      width: `${goal.progress}% `,
+                      backgroundColor: goal.status === 'completed'
+                        ? 'hsl(119, 60%, 32%)'
                         : 'hsl(35, 97%, 55%)',
                     }}
                   />

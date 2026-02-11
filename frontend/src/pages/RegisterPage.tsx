@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().optional(),
+  code: z.string().optional(),
   role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'organizer', 'admin']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
@@ -30,6 +31,7 @@ export default function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { user, signUp } = useAuth();
+  const [searchParams] = useSearchParams();
 
   const {
     register,
@@ -39,6 +41,9 @@ export default function RegisterPage() {
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
+    defaultValues: {
+      code: searchParams.get('code') || '',
+    }
   });
 
   // Redirect if already logged in
@@ -53,6 +58,7 @@ export default function RegisterPage() {
         full_name: data.fullName,
         phone: data.phone,
         role: data.role as any,
+        invitation_code: data.code,
       });
     } catch (error) {
       // Error is handled in the context
@@ -192,7 +198,7 @@ export default function RegisterPage() {
               Inicia sesión aquí
             </Link>
           </div>
-          
+
           <div className="mt-2 text-center">
             <Link to="/" className="text-sm text-muted-foreground hover:underline">
               ← Volver al inicio

@@ -55,6 +55,7 @@ import CoachAttendancePage from "./pages/CoachAttendancePage";
 import ResultsPage from "./pages/ResultsPage";
 import TrainingPlansPage from "./pages/TrainingPlansPage";
 import CoachReportsPage from "./pages/CoachReportsPage";
+import CoachEvaluationsPage from "./pages/CoachEvaluationsPage";
 import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 // School pages
@@ -189,6 +190,7 @@ const App = () => (
                   <Route path="results" element={<ResultsPage />} />
                   <Route path="training-plans" element={<TrainingPlansPage />} />
                   <Route path="coach-reports" element={<CoachReportsPage />} />
+                  <Route path="evaluations" element={<CoachEvaluationsPage />} />
                   <Route path="announcements" element={<AnnouncementsPage />} />
 
                   {/* School routes (role-guarded) */}

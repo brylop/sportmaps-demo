@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { isDemoUser } from '@/lib/demo-check';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,21 +10,26 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { CreditCard, Download, DollarSign, AlertCircle, CheckCircle2 } from 'lucide-react';
 
+import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { useState } from 'react';
+
 export default function PaymentsPage() {
   const { user } = useAuth();
+  const isDemo = isDemoUser(user);
+  const [selectedPayment, setSelectedPayment] = useState<any>(null);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const handlePay = (payment: any) => {
+    setSelectedPayment(payment);
+    setIsCheckoutOpen(true);
+  };
 
   // Demo payments data only for demo users
-  const demoPayments = isDemoUser ? [
+  const demoPayments = isDemo ? [
     {
       id: 'pay-1',
       parent_id: user?.id,
       concept: 'Mensualidad Octubre 2024',
-      amount: 300000,
-      status: 'paid',
-      due_date: '2024-10-05',
       payment_date: '2024-10-03',
       receipt_number: 'REC-20241003-001',
       created_at: '2024-10-03',
@@ -163,7 +170,7 @@ export default function PaymentsPage() {
               )}
             </div>
             {pendingPayment && (
-              <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2" onClick={() => handlePay(pendingPayment)}>
                 <CreditCard className="w-5 h-5" />
                 Pagar Ahora
               </Button>
@@ -194,7 +201,7 @@ export default function PaymentsPage() {
                   </Badge>
                 </div>
               </div>
-              <Button className="w-full gap-2" size="lg">
+              <Button className="w-full gap-2" size="lg" onClick={() => handlePay(pendingPayment)}>
                 <CreditCard className="w-5 h-5" />
                 Realizar Pago
               </Button>
@@ -248,7 +255,7 @@ export default function PaymentsPage() {
                   </Button>
                 )}
                 {payment.status === 'pending' && (
-                  <Button size="sm" className="ml-4">
+                  <Button size="sm" className="ml-4" onClick={() => handlePay(payment)}>
                     Pagar
                   </Button>
                 )}
@@ -257,6 +264,20 @@ export default function PaymentsPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+
+      {selectedPayment && (
+        <PaymentCheckoutModal
+          open={isCheckoutOpen}
+          onOpenChange={setIsCheckoutOpen}
+          studentId={user?.id || ''}
+          programId={selectedPayment.id}
+          amount={Number(selectedPayment.amount)}
+          programName={selectedPayment.concept}
+          onSuccess={() => {
+            refetch();
+          }}
+        />
+      )}
+    </div >
   );
 }

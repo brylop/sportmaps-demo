@@ -9,13 +9,13 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { TrendingUp, MessageSquare, Award } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState } from 'react';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function AcademicProgressPage() {
   const { user } = useAuth();
   const [selectedChildId, setSelectedChildId] = useState<string>('');
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   // Demo children only for demo users
   const demoChildren = isDemoUser ? [

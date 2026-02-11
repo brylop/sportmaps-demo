@@ -7,12 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ArrowLeft, Calendar, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function ChildAttendancePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   // Fetch child info
   const { data: child, isLoading: loadingChild } = useQuery({

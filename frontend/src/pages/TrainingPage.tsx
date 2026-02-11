@@ -2,7 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { Dumbbell, Calendar, Clock, Play, Flame } from 'lucide-react';
+import { Dumbbell, Calendar, Clock, Flame, Play, Plus, Video } from 'lucide-react';
+import { isDemoUser } from '@/lib/demo-check';
 import { useState } from 'react';
 
 interface Training {
@@ -17,9 +18,9 @@ interface Training {
 
 export default function TrainingPage() {
   const { user } = useAuth();
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
-  const [trainings] = useState<Training[]>(isDemoUser ? [
+  const [trainings] = useState<Training[]>(isDemo ? [
     {
       id: '1',
       title: 'Entrenamiento de fuerza',

@@ -10,13 +10,13 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { Plus, Calendar, User, School } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   const { data: children, isLoading, error, refetch } = useQuery({
     queryKey: ['children', user?.id],

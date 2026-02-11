@@ -175,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signUp = async (email: string, password: string, userData: Partial<UserProfile>) => {
+  const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string }) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
 
@@ -187,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             full_name: userData.full_name,
             role: userData.role,
+            invitation_code: userData.invitation_code,
           }
         }
       });

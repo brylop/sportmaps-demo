@@ -8,12 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ArrowLeft, Trophy, TrendingUp, Star, Calendar } from 'lucide-react';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function ChildProgressPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   // Fetch child info
   const { data: child, isLoading: loadingChild } = useQuery({

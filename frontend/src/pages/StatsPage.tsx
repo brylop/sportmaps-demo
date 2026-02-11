@@ -14,21 +14,22 @@ import {
   Clock,
   Flame
 } from 'lucide-react';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function StatsPage() {
-  const { profile, user } = useAuth();
+  const { user } = useAuth();
   const { data: trainingLogs, isLoading: logsLoading } = useTrainingLogs();
   const { data: athleteStats, isLoading: statsLoading } = useAthleteStats();
   const aggregates = useTrainingAggregates();
 
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
   const isLoading = logsLoading || statsLoading;
 
   // Calculate stats from real data or use defaults
   const totalSessions = trainingLogs?.length || 0;
   const totalMinutes = trainingLogs?.reduce((acc, log) => acc + log.duration_minutes, 0) || 0;
   const totalCalories = trainingLogs?.reduce((acc, log) => acc + (log.calories_burned || 0), 0) || 0;
-  
+
   // Get specific stats
   const maxSpeed = athleteStats?.find(s => s.stat_type === 'Velocidad máxima')?.value || 0;
   const totalDistance = athleteStats?.filter(s => s.stat_type === 'Distancia recorrida')
@@ -346,11 +347,11 @@ export default function StatsPage() {
                       <div>
                         <p className="font-medium">{log.exercise_type}</p>
                         <p className="text-sm text-muted-foreground">
-                          {new Date(log.training_date).toLocaleDateString('es', { 
-                            weekday: 'long', 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
+                          {new Date(log.training_date).toLocaleDateString('es', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
                           })}
                         </p>
                         {log.notes && (
@@ -359,18 +360,18 @@ export default function StatsPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-bold">{log.duration_minutes} min</p>
-                        <Badge 
+                        <Badge
                           variant="outline"
                           className={
                             log.intensity === 'max' ? 'border-red-500 text-red-500' :
-                            log.intensity === 'high' ? 'border-orange-500 text-orange-500' :
-                            log.intensity === 'medium' ? 'border-yellow-500 text-yellow-600' :
-                            'border-green-500 text-green-500'
+                              log.intensity === 'high' ? 'border-orange-500 text-orange-500' :
+                                log.intensity === 'medium' ? 'border-yellow-500 text-yellow-600' :
+                                  'border-green-500 text-green-500'
                           }
                         >
                           {log.intensity === 'max' ? 'Máxima' :
-                           log.intensity === 'high' ? 'Alta' :
-                           log.intensity === 'medium' ? 'Media' : 'Baja'}
+                            log.intensity === 'high' ? 'Alta' :
+                              log.intensity === 'medium' ? 'Media' : 'Baja'}
                         </Badge>
                         {log.calories_burned && (
                           <p className="text-xs text-muted-foreground mt-1">

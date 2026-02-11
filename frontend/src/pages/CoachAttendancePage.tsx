@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { CheckCircle2, XCircle, Clock, AlertCircle, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isDemoUser } from '@/lib/demo-check';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
@@ -20,8 +21,7 @@ export default function CoachAttendancePage() {
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   // Demo teams data (only for demo users)
   const demoTeams = isDemoUser ? [

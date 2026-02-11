@@ -8,13 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { BarChart3, Download, TrendingUp, Users } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { isDemoUser } from '@/lib/demo-check';
 
 export default function CoachReportsPage() {
   const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
+  const isDemo = isDemoUser(user);
 
   // Demo teams data (only for demo users)
   const demoTeams = isDemoUser ? [
