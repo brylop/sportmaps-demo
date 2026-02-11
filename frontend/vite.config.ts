@@ -42,6 +42,11 @@ export default defineConfig(({ mode }) => ({
         icons: [
           {
             src: '/favicon.png',
+            sizes: '64x64 32x32 24x24 16x16',
+            type: 'image/png'
+          },
+          {
+            src: '/sportmaps-logo.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
@@ -61,14 +66,14 @@ export default defineConfig(({ mode }) => ({
             short_name: 'Explorar',
             description: 'Buscar escuelas deportivas cerca de ti',
             url: '/explore',
-            icons: [{ src: '/favicon.png', sizes: '96x96' }]
+            icons: [{ src: '/sportmaps-logo.png', sizes: '192x192' }]
           },
           {
             name: 'Mi Dashboard',
             short_name: 'Dashboard',
             description: 'Acceder a tu panel de control',
             url: '/dashboard',
-            icons: [{ src: '/favicon.png', sizes: '96x96' }]
+            icons: [{ src: '/sportmaps-logo.png', sizes: '192x192' }]
           }
         ]
       },
