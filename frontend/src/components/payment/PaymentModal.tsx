@@ -12,11 +12,11 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { 
-  CreditCard, 
-  CheckCircle2, 
-  Building2, 
-  Lock, 
+import {
+  CreditCard,
+  CheckCircle2,
+  Building2,
+  Lock,
   Shield,
   Loader2,
   Download,
@@ -67,18 +67,18 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
   const handleDownloadReceipt = () => {
     if (!user || !receiptNumber) return;
-    
+
     const today = new Date();
-    const subscriptionPeriod = paymentType === 'subscription' 
+    const subscriptionPeriod = paymentType === 'subscription'
       ? `${today.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' })}`
       : undefined;
 
     downloadReceipt({
       receiptNumber,
-      date: today.toLocaleDateString('es-CO', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      date: today.toLocaleDateString('es-CO', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       }),
       customerName: profile?.full_name || 'Cliente SportMaps',
       customerEmail: user.email,
@@ -100,7 +100,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
   const handlePayment = async () => {
     setProcessing(true);
-    
+
     // Simulate payment processing
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -178,6 +178,27 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
         });
       }
 
+      // Resolve School ID (Robustly)
+      let finalSchoolId = item.schoolId;
+      if (!finalSchoolId) {
+        const { data: demoSchool } = await supabase
+          .from('schools')
+          .select('id')
+          .eq('email', 'spoortmaps+school@gmail.com')
+          .maybeSingle();
+
+        if (demoSchool) {
+          finalSchoolId = demoSchool.id;
+        } else {
+          const { data: anySchool } = await supabase
+            .from('schools')
+            .select('id')
+            .limit(1)
+            .maybeSingle();
+          if (anySchool) finalSchoolId = anySchool.id;
+        }
+      }
+
       // Create payment record with payment type
       const { error: paymentError } = await supabase.from('payments').insert({
         parent_id: user.id,
@@ -190,6 +211,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
         payment_type: paymentType,
         subscription_start_date: subscriptionStartDate,
         subscription_end_date: subscriptionEndDate,
+        school_id: finalSchoolId // Added valid school_id
       });
 
       if (paymentError) throw paymentError;
@@ -252,7 +274,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => { 
+    <Dialog open={open} onOpenChange={(open) => {
       if (!open) handleClose();
       else onOpenChange(open);
     }}>
@@ -274,7 +296,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
             <Badge className="bg-primary/10 text-primary text-lg px-4 py-2">
               {formatCurrency(item.amount)}
             </Badge>
-            
+
             {/* Download Receipt Button */}
             <div className="space-y-3 pt-4">
               <Button
@@ -334,11 +356,10 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                   <Label className="font-poppins font-semibold">Tipo de pago</Label>
                   <RadioGroup value={paymentType} onValueChange={(v) => setPaymentType(v as 'one_time' | 'subscription')}>
                     <div
-                      className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                        paymentType === 'one_time'
+                      className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${paymentType === 'one_time'
                           ? 'border-primary bg-primary/5'
                           : 'border-border hover:border-primary/50'
-                      }`}
+                        }`}
                       onClick={() => setPaymentType('one_time')}
                     >
                       <RadioGroupItem value="one_time" id="one_time" />
@@ -348,13 +369,12 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                         <p className="text-xs text-muted-foreground">Pago por un mes de clases</p>
                       </div>
                     </div>
-                    
+
                     <div
-                      className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                        paymentType === 'subscription'
+                      className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${paymentType === 'subscription'
                           ? 'border-primary bg-primary/5'
                           : 'border-border hover:border-primary/50'
-                      }`}
+                        }`}
                       onClick={() => setPaymentType('subscription')}
                     >
                       <RadioGroupItem value="subscription" id="subscription" />
@@ -374,11 +394,10 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                 <Label className="font-poppins font-semibold">Método de pago</Label>
                 <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'card' | 'pse')}>
                   <div
-                    className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      paymentMethod === 'card'
+                    className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${paymentMethod === 'card'
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-primary/50'
-                    }`}
+                      }`}
                     onClick={() => setPaymentMethod('card')}
                   >
                     <RadioGroupItem value="card" id="card" />
@@ -388,13 +407,12 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                       <p className="text-sm text-muted-foreground">Visa, Mastercard, American Express</p>
                     </div>
                   </div>
-                  
+
                   <div
-                    className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      paymentMethod === 'pse'
+                    className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${paymentMethod === 'pse'
                         ? 'border-primary bg-primary/5'
                         : 'border-border hover:border-primary/50'
-                    }`}
+                      }`}
                     onClick={() => setPaymentMethod('pse')}
                   >
                     <RadioGroupItem value="pse" id="pse" />

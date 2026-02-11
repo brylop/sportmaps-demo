@@ -53,11 +53,36 @@ export default function ParentCheckoutPage() {
    * Record payment in Supabase with WHO paid and FOR WHICH student/team
    */
   const recordPaymentWithTraceability = async (reference: string) => {
+    // Resolve School ID (Robustly)
+    let schoolId = null;
+    const { data: demoSchool } = await supabase
+      .from('schools')
+      .select('id')
+      .eq('email', 'spoortmaps+school@gmail.com')
+      .maybeSingle();
+
+    if (demoSchool) {
+      schoolId = demoSchool.id;
+    } else {
+      const { data: anySchool } = await supabase
+        .from('schools')
+        .select('id')
+        .limit(1)
+        .maybeSingle();
+      if (anySchool) schoolId = anySchool.id;
+    }
+
+    if (!schoolId) {
+      toast({ title: 'Error', description: 'No se encontró una escuela válida', variant: 'destructive' });
+      return;
+    }
+
     await supabase.from('payments').insert({
       parent_id: user!.id, amount, concept, status: 'paid',
       payment_date: new Date().toISOString(),
       due_date: new Date().toISOString().split('T')[0],
       receipt_number: reference, payment_type: 'monthly',
+      school_id: schoolId // Added valid school_id
     });
 
     const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
