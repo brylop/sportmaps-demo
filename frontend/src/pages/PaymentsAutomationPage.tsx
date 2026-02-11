@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
@@ -21,6 +22,10 @@ export default function PaymentsAutomationPage() {
   const [manualPayments, setManualPayments] = useState<any[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [recurringPayments, setRecurringPayments] = useState<any[]>([]);
+  const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
+
+  // Demo proof image for payments without a real uploaded image
+  const DEMO_PROOF_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Receipt_sample.jpg/220px-Receipt_sample.jpg';
 
   // Only schools can access this page
   if (profile?.role !== 'school') {
@@ -434,8 +439,19 @@ export default function PaymentsAutomationPage() {
                       <TableCell>{payment.team}</TableCell>
                       <TableCell>{formatCurrency(payment.amount)}</TableCell>
                       <TableCell>
-                        <Button variant="link" size="sm" className="p-0 text-blue-600">
-                          {payment.file}
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="p-0 text-blue-600 flex items-center gap-1"
+                          onClick={() => setViewingProof({
+                            open: true,
+                            url: payment.proof_url || DEMO_PROOF_URL,
+                            student: payment.student,
+                            amount: payment.amount,
+                          })}
+                        >
+                          <Eye className="h-3 w-3" />
+                          Ver Comprobante
                         </Button>
                       </TableCell>
                       <TableCell className="text-right space-x-2">
@@ -469,6 +485,49 @@ export default function PaymentsAutomationPage() {
               </Table>
             </CardContent>
           </Card>
+
+          {/* Proof Viewer Dialog */}
+          <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Comprobante de Pago</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-3">
+                  <div>
+                    <p className="font-semibold">{viewingProof.student}</p>
+                    <p className="text-sm text-muted-foreground">Transferencia bancaria</p>
+                  </div>
+                  <p className="text-lg font-bold text-primary">{formatCurrency(viewingProof.amount)}</p>
+                </div>
+                <div className="border rounded-lg overflow-hidden bg-white">
+                  <img
+                    src={viewingProof.url}
+                    alt={`Comprobante de pago - ${viewingProof.student}`}
+                    className="w-full h-auto max-h-[60vh] object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = DEMO_PROOF_URL;
+                    }}
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (viewingProof.url) window.open(viewingProof.url, '_blank');
+                    }}
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Descargar
+                  </Button>
+                  <Button size="sm" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
+                    Cerrar
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
         <TabsContent value="transactions" className="space-y-4">
           <Card>
