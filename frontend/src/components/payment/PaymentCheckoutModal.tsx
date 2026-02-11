@@ -80,14 +80,29 @@ export function PaymentCheckoutModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuario no autenticado');
 
-      // 1. Resolve School ID (Mock or Fetch)
+      // 1. Resolve School ID (Robustly)
       let schoolId = null;
-      const { data: schoolData } = await supabase
-        .from('profiles')
+      // FIRST: Try to find the specific demo school if possible
+      const { data: demoSchool } = await supabase
+        .from('schools')
         .select('id')
-        .eq('role', 'school')
-        .limit(1)
-        .single();
+        .eq('email', 'spoortmaps+school@gmail.com')
+        .maybeSingle();
+
+      if (demoSchool) {
+        schoolId = demoSchool.id;
+      } else {
+        // FALLBACK: Find any valid school in the schools table
+        const { data: anySchool } = await supabase
+          .from('schools')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+
+        if (anySchool) schoolId = anySchool.id;
+      }
+
+      if (!schoolId) throw new Error('No se encontró una escuela válida para procesar el pago.');
 
       if (schoolData) schoolId = schoolData.id;
 
