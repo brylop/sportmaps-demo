@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
@@ -39,6 +40,18 @@ export default function MyPaymentsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showChildPicker, setShowChildPicker] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<{ childName: string; programName: string; amount: number }>({
+    childName: '',
+    programName: 'Firesquad (Senior L3)',
+    amount: 180000,
+  });
+
+  // Demo children for payment selection
+  const demoChildren = [
+    { id: 'demo-1', name: 'Mateo Pérez', program: 'Firesquad (Senior L3)', amount: 180000 },
+    { id: 'demo-2', name: 'Sofía Pérez', program: 'Butterfly (Junior Prep)', amount: 150000 },
+  ];
 
   useEffect(() => {
     if (user) {
@@ -144,7 +157,7 @@ export default function MyPaymentsPage() {
           <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Mis Pagos</h1>
           <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona tus pagos y suscripciones</p>
         </div>
-        <Button onClick={() => setShowCheckout(true)} size="sm" className="w-full md:w-auto">
+        <Button onClick={() => setShowChildPicker(true)} size="sm" className="w-full md:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           Nuevo Pago
         </Button>
@@ -343,14 +356,57 @@ export default function MyPaymentsPage() {
         </TabsContent>
       </Tabs>
 
+      {/* Child Picker Dialog */}
+      <Dialog open={showChildPicker} onOpenChange={setShowChildPicker}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>¿Para quién es el pago?</DialogTitle>
+            <DialogDescription>
+              Selecciona el hijo/a al que deseas realizarle el pago de mensualidad.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {demoChildren.map((child) => (
+              <button
+                key={child.id}
+                className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
+                onClick={() => {
+                  setSelectedPayment({
+                    childName: child.name,
+                    programName: child.program,
+                    amount: child.amount,
+                  });
+                  setShowChildPicker(false);
+                  setShowCheckout(true);
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
+                    {child.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-semibold">{child.name}</p>
+                    <p className="text-xs text-muted-foreground">{child.program}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-primary">{formatCurrency(child.amount)}</p>
+                  <p className="text-xs text-muted-foreground">/mes</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Payment Checkout Modal */}
       <PaymentCheckoutModal
         open={showCheckout}
         onOpenChange={setShowCheckout}
         studentId={user?.id || 'demo_student'}
         programId="prog_1"
-        amount={220000}
-        programName="Firesquad (Senior L3)"
+        amount={selectedPayment.amount}
+        programName={`${selectedPayment.programName} — ${selectedPayment.childName}`}
         onSuccess={fetchPaymentData}
       />
     </div>
