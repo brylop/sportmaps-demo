@@ -73,16 +73,19 @@ export default function MyPaymentsPage() {
         // Demo fallback
         const now = new Date();
         setTransactions([
-          { id: 'txn_1', amount: 220000, payment_method: 'PSE', status: 'approved', reference: 'SP-2026-001', transaction_date: new Date(now.getTime() - 2 * 86400000).toISOString(), authorization_code: 'AUTH-78523' },
-          { id: 'txn_2', amount: 220000, payment_method: 'Nequi', status: 'approved', reference: 'SP-2026-002', transaction_date: new Date(now.getTime() - 32 * 86400000).toISOString(), authorization_code: 'AUTH-91234' },
-          { id: 'txn_3', amount: 220000, payment_method: 'card', status: 'approved', reference: 'SP-2026-003', transaction_date: new Date(now.getTime() - 62 * 86400000).toISOString(), authorization_code: 'AUTH-45678' },
-          { id: 'txn_4', amount: 150000, payment_method: 'transfer', status: 'pending', reference: 'SP-2026-004', transaction_date: new Date(now.getTime() - 1 * 86400000).toISOString() },
+          { id: 'txn_1', amount: 180000, payment_method: 'PSE', status: 'approved', reference: 'SP-2026-001', transaction_date: new Date(now.getTime() - 2 * 86400000).toISOString(), authorization_code: 'AUTH-78523' },
+          { id: 'txn_2', amount: 150000, payment_method: 'PSE', status: 'approved', reference: 'SP-2026-002', transaction_date: new Date(now.getTime() - 2 * 86400000).toISOString(), authorization_code: 'AUTH-78524' },
+          { id: 'txn_3', amount: 180000, payment_method: 'Nequi', status: 'approved', reference: 'SP-2026-003', transaction_date: new Date(now.getTime() - 32 * 86400000).toISOString(), authorization_code: 'AUTH-91234' },
+          { id: 'txn_4', amount: 150000, payment_method: 'Nequi', status: 'approved', reference: 'SP-2026-004', transaction_date: new Date(now.getTime() - 32 * 86400000).toISOString(), authorization_code: 'AUTH-91235' },
+          { id: 'txn_5', amount: 180000, payment_method: 'card', status: 'approved', reference: 'SP-2026-005', transaction_date: new Date(now.getTime() - 62 * 86400000).toISOString(), authorization_code: 'AUTH-45678' },
+          { id: 'txn_6', amount: 150000, payment_method: 'card', status: 'approved', reference: 'SP-2026-006', transaction_date: new Date(now.getTime() - 62 * 86400000).toISOString(), authorization_code: 'AUTH-45679' },
         ]);
       }
 
-      // Subscriptions (demo only for now)
+      // Subscriptions: 2 per child with different amounts
       setSubscriptions([
-        { id: 'sub_1', program_id: 'Thunder Senior L3', amount: 220000, payment_method: 'PSE', status: 'active', next_charge_date: new Date(Date.now() + 15 * 86400000).toISOString(), bank_name: 'Bancolombia' },
+        { id: 'sub_1', program_id: 'Firesquad (Senior L3) — Mateo Pérez', amount: 180000, payment_method: 'PSE', status: 'active', next_charge_date: new Date(Date.now() + 15 * 86400000).toISOString(), bank_name: 'Bancolombia' },
+        { id: 'sub_2', program_id: 'Butterfly (Junior Prep) — Sofía Pérez', amount: 150000, payment_method: 'PSE', status: 'active', next_charge_date: new Date(Date.now() + 15 * 86400000).toISOString(), bank_name: 'Bancolombia' },
       ]);
     } catch (error) {
       console.error('Error fetching payment data:', error);
