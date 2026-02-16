@@ -195,7 +195,7 @@ const App = () => (
 
                   {/* School routes (role-guarded) */}
                   <Route path="students" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
+                    <ProtectedRoute allowedRoles={['school', 'admin', 'coach']}>
                       <SchoolStudentsManagementPage />
                     </ProtectedRoute>
                   } />

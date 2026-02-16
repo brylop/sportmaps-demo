@@ -56,14 +56,14 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const form = useForm<StudentFormData>({
-    resolver: zodResolver(studentSchema),
+    resolver: zodResolver(studentSchema) as any,
     defaultValues: {
       full_name: '',
       date_of_birth: '',
       parent_email: '',
       parent_phone: '',
       program_id: '',
-      monthly_fee: defaultMonthlyFee,
+      monthly_fee: Number(defaultMonthlyFee) || 0,
       medical_info: '',
       notes: '',
     },
@@ -98,8 +98,6 @@ export default function SchoolStudentsManagementPage() {
       }
 
       // Local state update removed - relying on React Query invalidation
-      return data;
-
       return data;
     },
     onSuccess: () => {

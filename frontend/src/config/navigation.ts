@@ -112,6 +112,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
+          { title: 'Mis Estudiantes', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
       },

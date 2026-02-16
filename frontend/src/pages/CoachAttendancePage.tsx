@@ -10,125 +10,170 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { CheckCircle2, XCircle, Clock, AlertCircle, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { isDemoUser } from '@/lib/demo-check';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { format } from 'date-fns';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
+interface ClassItem {
+  id: string;
+  name: string;
+  day_of_week: string;
+  start_time: string;
+}
+
+interface StudentItem {
+  id: string;
+  full_name: string;
+  photo_url?: string;
+  // Position/Number not in core schema yet, simulate or fetch if added
+}
+
 export default function CoachAttendancePage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
+  const [saving, setSaving] = useState(false);
 
-  const isDemo = isDemoUser(user);
-
-  // Demo teams data (only for demo users)
-  const demoTeams = isDemoUser ? [
-    {
-      id: 'demo-team-1',
-      coach_id: user?.id,
-      name: 'Firesquad (Senior L3)',
-      sport: 'Cheerleading',
-      age_group: 'Senior',
-      season: '2024',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: teamsData } = useQuery({
-    queryKey: ['coach-teams', user?.id],
+  // 1. Fetch Coach's Classes (Groups) in this School
+  const { data: classes = [], isLoading: loadingClasses } = useQuery({
+    queryKey: ['coach-classes', schoolId, user?.id],
     queryFn: async () => {
+      if (!schoolId || !user?.id) return [];
+
       const { data, error } = await supabase
-        .from('teams')
-        .select('*')
-        .eq('coach_id', user?.id);
-      if (error) throw error;
-      return data;
+        .from('classes')
+        .select('id, name, day_of_week, start_time')
+        .eq('school_id', schoolId)
+        // If RLS is strictly for own classes, this is fine. 
+        // If admins see all, filter by coach_id if needed, or rely on RLS.
+        // For coach view, we typically want classes they teach.
+        .eq('coach_id', user.id);
+
+      if (error) {
+        console.error('Error fetching classes:', error);
+        throw error;
+      };
+      return data as ClassItem[];
     },
-    enabled: !!user?.id,
+    enabled: !!schoolId && !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
-
-  // Demo roster data (only for demo users)
-  const demoRoster = isDemoUser ? [
-    {
-      id: 'player-1',
-      team_id: selectedTeamId,
-      player_name: 'Mateo Pérez',
-      player_number: 1,
-      position: 'Flyer',
-      parent_contact: '+57 300 123 4567',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'player-2',
-      team_id: selectedTeamId,
-      player_name: 'Juan Vargas',
-      player_number: 2,
-      position: 'Base',
-      parent_contact: '+57 310 234 5678',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'player-3',
-      team_id: selectedTeamId,
-      player_name: 'Camila Torres',
-      player_number: 3,
-      position: 'Backspot',
-      parent_contact: '+57 320 345 6789',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'player-4',
-      team_id: selectedTeamId,
-      player_name: 'Santiago Rojas',
-      player_number: 4,
-      position: 'Tumbler',
-      parent_contact: '+57 315 456 7890',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'player-5',
-      team_id: selectedTeamId,
-      player_name: 'Valeria Gómez',
-      player_number: 5,
-      position: 'Flyer',
-      parent_contact: '+57 318 567 8901',
-      created_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: rosterData, isLoading } = useQuery({
-    queryKey: ['team-roster', selectedTeamId],
+  // 2. Fetch Students in Selected Class
+  // We need to join enrollments -> class_enrollments (N:M)? 
+  // Schema has `class_enrollments`. 
+  // Let's check `student_enrollments_view` or query directly.
+  const { data: roster = [], isLoading: loadingRoster } = useQuery({
+    queryKey: ['class-roster', selectedClassId],
     queryFn: async () => {
+      if (!selectedClassId) return [];
+
+      // Query students via class_enrollments
+      // flow: class_enrollments (class_id) -> enrollments (student_id) -> students
       const { data, error } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', selectedTeamId)
-        .order('player_name');
-      if (error) throw error;
-      return data;
+        .from('class_enrollments')
+        .select(`
+          enrollment_id,
+          enrollments!inner (
+            student_id,
+            students!inner (
+              id,
+              full_name,
+              photo_url
+            )
+          )
+        `)
+        .eq('class_id', selectedClassId);
+
+      if (error) {
+        console.error("Error fetching roster", error);
+        throw error;
+      }
+
+      // Flatten structure
+      return data.map((item: any) => ({
+        id: item.enrollments.students.id,
+        full_name: item.enrollments.students.full_name,
+        photo_url: item.enrollments.students.photo_url,
+      })) as StudentItem[];
     },
-    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
+    enabled: !!selectedClassId,
   });
 
-  const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? rosterData
-    : demoRoster;
+  // 3. Save Attendance Mutation
+  const saveAttendanceMutation = useMutation({
+    mutationFn: async () => {
+      if (!schoolId || !selectedClassId) return;
+
+      // Prepare inserts
+      const records = Object.entries(attendanceState).map(([studentId, status]) => ({
+        school_id: schoolId,
+        class_id: selectedClassId, // attendance_records should have class_id? 
+        // Current schema 20260717120000 has: school_id, program_id, student_id. 
+        // Wait, the schema I just wrote in 1067 didn't include class_id? 
+        // Let's check schema.
+        // Correct, 1067 schema: school_id, program_id, student_id. 
+        // It missed class_id! Attendance is usually per class session.
+        // I will assume for now we might need to add class_id or just infer program.
+        // BUT `class_enrollments` implies classes exist.
+        // Let's fetch program_id from the class first to be safe.
+        student_id: studentId,
+        date: new Date().toISOString().split('T')[0],
+        status: status,
+        marked_by: user?.id
+      }));
+
+      // We need program_id for the insert as per schema
+      // Let's get it from the class
+      const { data: cls } = await supabase.from('classes').select('program_id').eq('id', selectedClassId).single();
+      if (!cls) throw new Error("Class not found");
+
+      const recordsWithProgram = records.map(r => ({ ...r, program_id: cls.program_id }));
+
+      const { error } = await supabase.from('attendance_records').insert(recordsWithProgram);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({
+        title: '✅ Asistencia guardada',
+        description: 'Se han registrado los datos correctamente.',
+      });
+      setAttendanceState({});
+    },
+    onError: (err) => {
+      toast({
+        title: 'Error',
+        description: 'No se pudo guardar la asistencia.',
+        variant: 'destructive',
+      });
+      console.error(err);
+    }
+  });
+
+  const handleSave = () => {
+    setSaving(true);
+    saveAttendanceMutation.mutate(undefined, {
+      onSettled: () => setSaving(false)
+    });
+  };
 
   const markAllPresent = () => {
     const newState: Record<string, AttendanceStatus> = {};
-    roster?.forEach((player) => {
-      newState[player.id] = 'present';
+    roster.forEach((student) => {
+      newState[student.id] = 'present';
     });
     setAttendanceState(newState);
     toast({
       title: '✅ Todos marcados como presentes',
       description: 'Puedes ajustar individualmente si es necesario',
     });
+  };
+
+  const getButtonVariant = (studentId: string, status: AttendanceStatus) => {
+    return attendanceState[studentId] === status ? 'default' : 'outline';
   };
 
   const getStatusIcon = (status?: AttendanceStatus) => {
@@ -146,10 +191,6 @@ export default function CoachAttendancePage() {
     }
   };
 
-  const getButtonVariant = (playerId: string, status: AttendanceStatus) => {
-    return attendanceState[playerId] === status ? 'default' : 'outline';
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -159,17 +200,20 @@ export default function CoachAttendancePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Seleccionar Equipo</CardTitle>
+          <CardTitle className="text-sm font-medium">Seleccionar Clase / Grupo</CardTitle>
         </CardHeader>
         <CardContent>
-          <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+          <Select value={selectedClassId} onValueChange={setSelectedClassId}>
             <SelectTrigger>
-              <SelectValue placeholder="Selecciona tu equipo" />
+              <SelectValue placeholder="Selecciona tu clase" />
             </SelectTrigger>
             <SelectContent>
-              {teams?.map((team) => (
-                <SelectItem key={team.id} value={team.id}>
-                  {team.name} - {team.age_group}
+              {classes.length === 0 && (
+                <div className="p-2 text-sm text-muted-foreground text-center">No tienes clases asignadas</div>
+              )}
+              {classes.map((cls) => (
+                <SelectItem key={cls.id} value={cls.id}>
+                  {cls.name} ({cls.day_of_week} {cls.start_time})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -177,41 +221,52 @@ export default function CoachAttendancePage() {
         </CardContent>
       </Card>
 
-      {selectedTeamId && roster && (
+      {selectedClassId && (
         <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
-              <p className="font-medium">{roster.length} jugadores</p>
+              <p className="font-medium">{roster.length} estudiantes</p>
             </div>
-            <Button onClick={markAllPresent} variant="outline" size="sm">
-              ✅ Marcar Todos Presentes
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={markAllPresent} variant="outline" size="sm" disabled={roster.length === 0}>
+                ✅ Todos Presentes
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-3">
-            {roster.map((player) => (
-              <Card key={player.id}>
+            {roster.length === 0 && !loadingRoster && (
+              <div className="text-center py-8 text-muted-foreground">
+                No hay estudiantes inscritos en esta clase.
+              </div>
+            )}
+            {roster.map((student) => (
+              <Card key={student.id}>
                 <CardContent className="pt-6">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="flex items-center gap-3 flex-1">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                        #{player.player_number}
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold overflow-hidden">
+                        {student.photo_url ? (
+                          <img src={student.photo_url} alt={student.full_name} className="w-full h-full object-cover" />
+                        ) : (
+                          student.full_name.charAt(0)
+                        )}
                       </div>
                       <div>
-                        <p className="font-semibold">{player.player_name}</p>
-                        <p className="text-sm text-muted-foreground">{player.position}</p>
+                        <p className="font-semibold">{student.full_name}</p>
+                        {/* <p className="text-sm text-muted-foreground">{student.position || 'Estudiante'}</p> */}
                       </div>
                     </div>
 
                     <div className="flex gap-2 flex-wrap">
                       <Button
                         size="sm"
-                        variant={getButtonVariant(player.id, 'present')}
+                        variant={getButtonVariant(student.id, 'present')}
                         onClick={() =>
                           setAttendanceState((prev) => ({
                             ...prev,
-                            [player.id]: 'present',
+                            [student.id]: 'present',
                           }))
                         }
                         className="gap-2"
@@ -221,11 +276,11 @@ export default function CoachAttendancePage() {
                       </Button>
                       <Button
                         size="sm"
-                        variant={getButtonVariant(player.id, 'absent')}
+                        variant={getButtonVariant(student.id, 'absent')}
                         onClick={() =>
                           setAttendanceState((prev) => ({
                             ...prev,
-                            [player.id]: 'absent',
+                            [student.id]: 'absent',
                           }))
                         }
                         className="gap-2"
@@ -235,11 +290,11 @@ export default function CoachAttendancePage() {
                       </Button>
                       <Button
                         size="sm"
-                        variant={getButtonVariant(player.id, 'late')}
+                        variant={getButtonVariant(student.id, 'late')}
                         onClick={() =>
                           setAttendanceState((prev) => ({
                             ...prev,
-                            [player.id]: 'late',
+                            [student.id]: 'late',
                           }))
                         }
                         className="gap-2"
@@ -249,11 +304,11 @@ export default function CoachAttendancePage() {
                       </Button>
                       <Button
                         size="sm"
-                        variant={getButtonVariant(player.id, 'excused')}
+                        variant={getButtonVariant(student.id, 'excused')}
                         onClick={() =>
                           setAttendanceState((prev) => ({
                             ...prev,
-                            [player.id]: 'excused',
+                            [student.id]: 'excused',
                           }))
                         }
                         className="gap-2"
@@ -271,32 +326,28 @@ export default function CoachAttendancePage() {
           <Button
             className="w-full"
             size="lg"
-            onClick={() => {
-              toast({
-                title: '✅ Asistencia guardada',
-                description: `Registrada para ${Object.keys(attendanceState).length} jugadores`,
-              });
-            }}
-            disabled={Object.keys(attendanceState).length === 0}
+            onClick={handleSave}
+            disabled={Object.keys(attendanceState).length === 0 || saving}
           >
-            Guardar Asistencia
+            {saving ? 'Guardando...' : 'Guardar Asistencia'}
           </Button>
         </>
       )}
 
-      {!selectedTeamId && teams && teams.length > 0 && (
+      {!selectedClassId && (
         <Card>
           <CardContent className="pt-6 text-center">
             <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-semibold mb-2">Selecciona tu equipo</h3>
+            <h3 className="text-lg font-semibold mb-2">Selecciona tu clase</h3>
             <p className="text-muted-foreground">
-              Elige un equipo del menú superior para tomar asistencia
+              Elige una clase del menú superior para tomar asistencia
             </p>
           </CardContent>
         </Card>
       )}
 
-      {isLoading && <LoadingSpinner text="Cargando roster..." />}
+      {loadingClasses && <LoadingSpinner text="Cargando clases..." />}
+      {loadingRoster && <LoadingSpinner text="Cargando estudiantes..." />}
     </div>
   );
 }

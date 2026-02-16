@@ -39,6 +39,7 @@ interface PaymentItem {
   programId?: string;
   programName?: string;
   vendorId?: string;
+  childId?: string; // Add childId
 }
 
 interface PaymentModalProps {
@@ -119,14 +120,25 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
       const subscriptionEndDate = paymentType === 'subscription' ? dueDate.toISOString().split('T')[0] : null;
 
       if (item.type === 'enrollment') {
+        // Validation: Enrollments MUST have a student/child selected
+        // In previous design, user_id (parent) was used as student_id possibly? 
+        // But with children table, student_id should be childId.
+        // Fallback: If no childId provided, use user.id (which assumes user is the student / backward compat)
+        // However, childId is preferred.
+
+        const targetStudentId = item.childId || user.id;
+
         // Create enrollment record
         const { error: enrollmentError } = await supabase
           .from('enrollments')
           .insert({
-            user_id: user.id,
+            user_id: user.id, // Who performed the action / Owner of enrollment record
+            student_id: targetStudentId, // The person enrolled (Main FK)
+            child_id: item.childId || null, // Specific child reference (New column)
             program_id: item.programId,
             start_date: today.toISOString().split('T')[0],
             status: 'active',
+            school_id: item.schoolId, // Important for RLS
           });
 
         if (enrollmentError) throw enrollmentError;
@@ -202,6 +214,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
       // Create payment record with payment type
       const { error: paymentError } = await supabase.from('payments').insert({
         parent_id: user.id,
+        child_id: item.childId || null, // Add child_id link
         amount: item.amount,
         concept: `${item.type === 'enrollment' ? 'Inscripción' : item.type === 'product' ? 'Compra' : 'Reserva'}: ${item.name}`,
         due_date: dueDate.toISOString().split('T')[0],
@@ -357,8 +370,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                   <RadioGroup value={paymentType} onValueChange={(v) => setPaymentType(v as 'one_time' | 'subscription')}>
                     <div
                       className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${paymentType === 'one_time'
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50'
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50'
                         }`}
                       onClick={() => setPaymentType('one_time')}
                     >
@@ -372,8 +385,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
                     <div
                       className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${paymentType === 'subscription'
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50'
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50'
                         }`}
                       onClick={() => setPaymentType('subscription')}
                     >
@@ -395,8 +408,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                 <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'card' | 'pse')}>
                   <div
                     className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${paymentMethod === 'card'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/50'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50'
                       }`}
                     onClick={() => setPaymentMethod('card')}
                   >
@@ -410,8 +423,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
                   <div
                     className={`flex items-center gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${paymentMethod === 'pse'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/50'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50'
                       }`}
                     onClick={() => setPaymentMethod('pse')}
                   >

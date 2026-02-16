@@ -1,8 +1,9 @@
-// Dashboard stats hook with real API data
-import { useEffect, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { studentsAPI } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface DashboardStats {
   // School stats
@@ -13,16 +14,16 @@ export interface DashboardStats {
   total_enrolled?: number;
   monthly_revenue?: number;
   pending_payments?: number;
-  
+
   // Parent stats
   children?: number;
   children_attendance?: string;
   upcoming_payments?: number;
-  
+
   // Coach stats
   my_classes?: number;
   my_students?: number;
-  
+
   // Common
   notifications?: number;
   messages?: number;
@@ -30,25 +31,53 @@ export interface DashboardStats {
 
 export function useDashboardStatsReal() {
   const { profile } = useAuth();
+  const { schoolId } = useSchoolContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Ref to avoid infinite loops if dependencies change too fast
+  const loadingRef = useRef(false);
+
   useEffect(() => {
-    loadStats();
-  }, [profile]);
+    if (schoolId) {
+      loadStats();
+    } else {
+      setLoading(false);
+    }
+  }, [profile, schoolId]);
 
   const loadStats = async () => {
-    if (!profile) {
-      setLoading(false);
+    if (!profile || !schoolId || loadingRef.current) {
       return;
     }
 
     try {
+      loadingRef.current = true;
       setLoading(true);
-      const schoolId = profile.id || 'demo-school';
 
-      if (profile.role === 'school') {
+      if (profile.role === 'school' || profile.role === 'admin' || profile.role === 'coach') {
         // Load real school stats
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        // Revenue query
+        const { data: revenueData } = await supabase
+          .from('payments')
+          .select('amount')
+          .eq('school_id', schoolId)
+          .eq('status', 'paid')
+          .gte('payment_date', startOfMonth.toISOString());
+
+        const monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+        // Pending payments query
+        const { count: pendingCount } = await supabase
+          .from('payments')
+          .select('*', { count: 'exact', head: true })
+          .eq('school_id', schoolId)
+          .eq('status', 'pending');
+
         const [studentStats, classStats] = await Promise.all([
           studentsAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
           classesAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
@@ -60,8 +89,8 @@ export function useDashboardStatsReal() {
           classes_count: classStats.total,
           active_classes: classStats.active,
           total_enrolled: classStats.total_enrolled,
-          monthly_revenue: 0, // TODO: Implement payments stats
-          pending_payments: 0, // TODO: Implement payments stats
+          monthly_revenue: monthlyRevenue,
+          pending_payments: pendingCount || 0,
         });
       } else if (profile.role === 'parent') {
         // TODO: Load parent-specific stats
@@ -70,17 +99,12 @@ export function useDashboardStatsReal() {
           children_attendance: '0%',
           upcoming_payments: 0,
         });
-      } else if (profile.role === 'coach') {
-        // TODO: Load coach-specific stats
-        setStats({
-          my_classes: 0,
-          my_students: 0,
-        });
       }
     } catch (error) {
       console.error('Error loading dashboard stats:', error);
       setStats(null);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   };

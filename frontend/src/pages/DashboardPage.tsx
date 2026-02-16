@@ -10,11 +10,10 @@ import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletio
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
+import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import { UserRole } from '@/types/dashboard';
 import { DemoTour } from '@/components/demo/DemoTour';
 import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
-import { studentsAPI } from '@/lib/api/students';
-import { classesAPI } from '@/lib/api/classes';
 import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
 import { Plus } from 'lucide-react';
 
@@ -22,15 +21,11 @@ export default function DashboardPage() {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
-  const [realStats, setRealStats] = useState<{
-    students: number;
-    classes: number;
-    activeClasses: number;
-    totalEnrolled: number;
-  } | null>(null);
-  const [loadingStats, setLoadingStats] = useState(true);
 
-  // Get real stats from hook (Supabase/Backend)
+  // Get real stats from NEW hook (Multitenant aware)
+  const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
+
+  // Keep old hook for structure config
   const { data: statsData } = useDashboardStats((profile?.role as UserRole) || 'athlete');
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
   const { data: notifications } = useNotifications();
@@ -42,41 +37,6 @@ export default function DashboardPage() {
   // Get demo data objects
   const demoSchoolData = getDemoSchoolData();
   const demoParentData = getDemoParentData();
-
-  // Load real stats from Supabase API (Specifically for School role which needs separate API calls currently)
-  // Ideally this should be moved to useDashboardStats hook entirely, but keeping strict separation for now as requested
-  useEffect(() => {
-    const loadRealStats = async () => {
-      if (!profile || profile.role !== 'school') {
-        setLoadingStats(false);
-        return;
-      }
-
-      try {
-        setLoadingStats(true);
-        const schoolId = profile.id || 'demo-school';
-
-        // Fetch real stats from Supabase backend
-        const [studentsData, classesStats] = await Promise.all([
-          studentsAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
-          classesAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }))
-        ]);
-
-        setRealStats({
-          students: studentsData.total,
-          classes: classesStats.total,
-          activeClasses: classesStats.active,
-          totalEnrolled: classesStats.total_enrolled
-        });
-      } catch (error) {
-        console.error('Error loading real stats:', error);
-      } finally {
-        setLoadingStats(false);
-      }
-    };
-
-    loadRealStats();
-  }, [profile]);
 
   // Redirect users to onboarding if they haven't completed setup (skip for demo users)
   useEffect(() => {
@@ -142,44 +102,55 @@ export default function DashboardPage() {
       return stat;
     }
 
-    // 2. REAL USER: SHOW REAL DATA (useDashboardConfig already loaded it from useDashboardStats, 
-    // but we might need to override School specifics if they come from separate API)
+    // 2. REAL USER: SHOW REAL DATA
+    if (realStats && !realStatsLoading) {
+      if (profile.role === 'school') {
+        if (index === 0) {
+          // Revenue
+          return {
+            ...stat,
+            value: formatCurrency(realStats.monthly_revenue || 0),
+            description: 'Ingresos confirmados este mes'
+          };
+        }
+        if (index === 1) {
+          // Students
+          const count = realStats.students_count || 0;
+          return {
+            ...stat,
+            value: count,
+            description: count > 0
+              ? `${count} estudiante${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
+              : 'Agrega tu primer estudiante'
+          };
+        }
+        if (index === 2) {
+          // Classes/Programs
+          const count = realStats.classes_count || 0;
+          // Note: classes_count maps to 'programs' or 'classes' depending on naming, 
+          // assumes classesAPI.getStats returns total programs/classes.
+          return {
+            ...stat,
+            value: count,
+            description: 'Clases/Programas creados'
+          };
+        }
+        if (index === 3) {
+          // Pending Payments or Enrolled
+          const pending = realStats.pending_payments || 0;
+          return {
+            ...stat,
+            value: pending,
+            description: 'Pagos pendientes de cobro'
+          };
+        }
+      }
 
-    // For School role, override with MongoDB API data if available
-    if (profile.role === 'school' && realStats && !loadingStats) {
-      if (index === 0) {
-        // Revenue - Placeholder for now until connected to real payments
-        return { ...stat, value: '$0', description: 'Configura pagos' };
-      }
-      if (index === 1) {
-        return {
-          ...stat,
-          value: realStats.students,
-          description: realStats.students > 0
-            ? `${realStats.students} estudiante${realStats.students !== 1 ? 's' : ''}`
-            : 'Agrega tu primer estudiante'
-        };
-      }
-      if (index === 2) {
-        return {
-          ...stat,
-          value: realStats.classes,
-          description: realStats.classes > 0
-            ? `${realStats.activeClasses} activa${realStats.activeClasses !== 1 ? 's' : ''}`
-            : 'Crea tu primera clase'
-        };
-      }
-      if (index === 3) {
-        return {
-          ...stat,
-          value: realStats.totalEnrolled,
-          description: 'Estudiantes inscritos'
-        };
+      // Add logic for Parent real stats here if useDashboardStatsReal supports it
+      if (profile.role === 'parent') {
+        // Fallback to defaults or map if `realStats` has parent data
       }
     }
-
-    // For Parent and other roles, useDashboardConfig already has the correct 0s from useDashboardStats
-    // No manual override needed here, ensuring Clean State for new users!
 
     return stat;
   });
