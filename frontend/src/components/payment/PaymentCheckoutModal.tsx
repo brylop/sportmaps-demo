@@ -15,9 +15,9 @@ interface PaymentCheckoutModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   studentId: string;
-  programId: string;
+  paymentId: string; // ID of the existing pending payment
   amount: number;
-  programName: string;
+  concept: string;
   onSuccess?: () => void;
 }
 
@@ -25,9 +25,9 @@ export function PaymentCheckoutModal({
   open,
   onOpenChange,
   studentId,
-  programId,
+  paymentId,
   amount,
-  programName,
+  concept,
   onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
@@ -81,46 +81,31 @@ export function PaymentCheckoutModal({
       if (!user) throw new Error('Usuario no autenticado');
 
       // 1. Resolve School ID (Robustly)
-      let schoolId = null;
-      // FIRST: Try to find the specific demo school if possible
-      const { data: demoSchool } = await supabase
-        .from('schools')
-        .select('id')
-        .eq('email', 'spoortmaps+school@gmail.com')
-        .maybeSingle();
+      // 1. Fetch the existing payment to get School ID and verify ownership
+      const { data: existingPayment, error: fetchError } = await supabase
+        .from('payments')
+        .select('school_id, status')
+        .eq('id', paymentId)
+        .single();
 
-      if (demoSchool) {
-        schoolId = demoSchool.id;
-      } else {
-        // FALLBACK: Find any valid school in the schools table
-        const { data: anySchool } = await supabase
-          .from('schools')
-          .select('id')
-          .limit(1)
-          .maybeSingle();
+      if (fetchError || !existingPayment) throw new Error('No se encontró el pago pendiente.');
+      if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
 
-        if (anySchool) schoolId = anySchool.id;
-      }
-
-      if (!schoolId) throw new Error('No se encontró una escuela válida para procesar el pago.');
+      const schoolId = existingPayment.school_id;
 
       if (selectedMethod === 'transfer') {
-        // Direct Supabase Insert
-        const { error: insertError } = await supabase
+        const { error: updateError } = await supabase
           .from('payments')
-          .insert({
-            parent_id: user.id,
-            amount: amount,
-            concept: `Pago mensual - ${programName}`,
-            status: 'pending',
+          .update({
+            status: 'awaiting_approval',
             payment_method: 'transfer',
-            due_date: new Date().toISOString(),
             payment_date: new Date().toISOString(),
             receipt_url: proofUrl,
-            school_id: schoolId
-          });
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', paymentId);
 
-        if (insertError) throw insertError;
+        if (updateError) throw updateError;
 
         setPaymentStatus('awaiting_approval');
         toast({
@@ -137,21 +122,18 @@ export function PaymentCheckoutModal({
       // PSE / Card flow (Simulation)
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const { error: insertPaidError } = await supabase
+      const { error: updatePaidError } = await supabase
         .from('payments')
-        .insert({
-          parent_id: user.id,
-          amount: amount,
-          concept: `Pago mensual - ${programName}`,
-          status: 'paid', // Auto-approved for demo
+        .update({
+          status: 'paid', // Auto-approved for demo/simulation
           payment_method: selectedMethod,
-          due_date: new Date().toISOString(),
           payment_date: new Date().toISOString(),
-          school_id: schoolId,
-          receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-        });
+          receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', paymentId);
 
-      if (insertPaidError) throw insertPaidError;
+      if (updatePaidError) throw updatePaidError;
 
       setPaymentStatus('success');
       toast({
@@ -205,8 +187,8 @@ export function PaymentCheckoutModal({
           <div className="space-y-6 py-4">
             {/* Payment Summary */}
             <div className="bg-primary/5 rounded-lg p-4 space-y-2">
-              <p className="text-sm text-muted-foreground">Programa</p>
-              <p className="font-semibold text-lg">{programName}</p>
+              <p className="text-sm text-muted-foreground">Concepto</p>
+              <p className="font-semibold text-lg">{concept}</p>
               <div className="flex items-baseline gap-2">
                 <p className="text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
                 <p className="text-sm text-muted-foreground">/mes</p>

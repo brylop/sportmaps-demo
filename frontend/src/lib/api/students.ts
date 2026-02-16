@@ -11,7 +11,7 @@ export interface Student {
   gender?: 'male' | 'female' | 'other';
   grade?: string;
   school_id: string;
-  parent_id?: string;
+  parent_id?: string | null; // Nullable now
   parent_name?: string;
   parent_email?: string;
   parent_phone?: string;
@@ -31,6 +31,8 @@ export interface StudentCreate {
   full_name: string;
   date_of_birth: string;
   school_id: string;
+  grade?: string;
+  emergency_contact?: string;
   parent_id?: string;
   medical_info?: string;
   sport?: string;
@@ -41,6 +43,8 @@ export interface StudentCreate {
 export interface StudentUpdate {
   full_name?: string;
   date_of_birth?: string;
+  grade?: string;
+  emergency_contact?: string;
   medical_info?: string;
   sport?: string;
   team_name?: string;
@@ -73,7 +77,9 @@ class StudentsAPI {
         full_name: student.full_name,
         date_of_birth: student.date_of_birth,
         school_id: student.school_id,
-        parent_id: student.parent_id,
+        grade: student.grade,
+        emergency_contact: student.emergency_contact,
+        parent_id: student.parent_id || null,
         medical_info: student.medical_info,
         sport: student.sport,
         team_name: student.team_name,
@@ -109,6 +115,9 @@ class StudentsAPI {
 
       if (params?.school_id) {
         query = query.eq('school_id', params.school_id);
+      }
+      if (params?.grade) {
+        query = query.eq('grade', params.grade);
       }
       if (params?.search) {
         query = query.ilike('full_name', `%${params.search}%`);
@@ -220,9 +229,12 @@ class StudentsAPI {
             full_name: fullName,
             date_of_birth: dob || '2015-01-01',
             school_id: schoolId,
+            grade: row['grade'] || row['grado'] || null,
+            emergency_contact: row['emergency_contact'] || row['contacto_emergencia'] || null,
             medical_info: row['medical_info'] || row['notas_medicas'] || null,
             sport: row['sport'] || row['deporte'] || null,
             team_name: row['team_name'] || row['equipo'] || null,
+            parent_id: null // Explicitly null for bulk uploads until linked
           })
           .select()
           .single();
@@ -250,17 +262,24 @@ class StudentsAPI {
    */
   async getStats(schoolId: string): Promise<StudentStats> {
     try {
-      const { count: total } = await supabase
+      const { data: students, count: total } = await supabase
         .from('children')
-        .select('*', { count: 'exact', head: true })
+        .select('grade', { count: 'exact' })
         .eq('school_id', schoolId);
 
-      // Children table doesn't have status column, so all are "active"
+      // Calculations
+      const by_grade: Record<string, number> = {};
+      students?.forEach(s => {
+        if (s.grade) {
+          by_grade[s.grade] = (by_grade[s.grade] || 0) + 1;
+        }
+      });
+
       return {
         total: total || 0,
         active: total || 0,
         inactive: 0,
-        by_grade: {},
+        by_grade,
       };
     } catch (error) {
       console.warn('Error fetching student stats:', error);
@@ -278,6 +297,8 @@ class StudentsAPI {
       full_name: child.full_name,
       date_of_birth: child.date_of_birth,
       school_id: child.school_id || '',
+      grade: child.grade,
+      emergency_contact: child.emergency_contact,
       parent_id: child.parent_id,
       parent_name: parentProfile?.full_name || undefined,
       parent_phone: parentProfile?.phone || undefined,
@@ -289,7 +310,6 @@ class StudentsAPI {
       status: 'active', // children table doesn't have status
       created_at: child.created_at,
       updated_at: child.updated_at,
-      is_demo: child.is_demo,
     } as Student;
   }
 }

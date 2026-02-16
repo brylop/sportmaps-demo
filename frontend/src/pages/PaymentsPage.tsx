@@ -279,9 +279,9 @@ export default function PaymentsPage() {
           open={isCheckoutOpen}
           onOpenChange={setIsCheckoutOpen}
           studentId={user?.id || ''}
-          programId={selectedPayment.id}
+          paymentId={selectedPayment.id}
           amount={Number(selectedPayment.amount)}
-          programName={selectedPayment.concept}
+          concept={selectedPayment.concept}
           onSuccess={() => {
             refetch();
           }}
