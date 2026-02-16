@@ -1,4 +1,5 @@
 -- Enable Schools to view their own received payments
+DROP POLICY IF EXISTS "Schools can view received payments" ON public.payments;
 CREATE POLICY "Schools can view received payments"
 ON public.payments FOR SELECT
 USING (
@@ -10,6 +11,7 @@ USING (
 );
 
 -- Enable Schools to update/approve payments
+DROP POLICY IF EXISTS "Schools can update received payments" ON public.payments;
 CREATE POLICY "Schools can update received payments"
 ON public.payments FOR UPDATE
 USING (
