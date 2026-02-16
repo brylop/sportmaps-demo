@@ -43,7 +43,7 @@ export default function DashboardPage() {
   const demoSchoolData = getDemoSchoolData();
   const demoParentData = getDemoParentData();
 
-  // Load real stats from MongoDB API (Specifically for School role which needs separate API calls currently)
+  // Load real stats from Supabase API (Specifically for School role which needs separate API calls currently)
   // Ideally this should be moved to useDashboardStats hook entirely, but keeping strict separation for now as requested
   useEffect(() => {
     const loadRealStats = async () => {
@@ -56,7 +56,7 @@ export default function DashboardPage() {
         setLoadingStats(true);
         const schoolId = profile.id || 'demo-school';
 
-        // Fetch real stats from MongoDB backend
+        // Fetch real stats from Supabase backend
         const [studentsData, classesStats] = await Promise.all([
           studentsAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
           classesAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }))
