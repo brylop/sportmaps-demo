@@ -406,7 +406,8 @@ export default function MyPaymentsPage() {
         studentId={user?.id || 'demo_student'}
         programId="prog_1"
         amount={selectedPayment.amount}
-        programName={`${selectedPayment.programName} — ${selectedPayment.childName}`}
+        concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
+        mode="create"
         onSuccess={fetchPaymentData}
       />
     </div>

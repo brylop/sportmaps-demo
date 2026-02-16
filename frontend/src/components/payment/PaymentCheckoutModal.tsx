@@ -15,9 +15,11 @@ interface PaymentCheckoutModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   studentId: string;
-  paymentId: string; // ID of the existing pending payment
+  paymentId?: string;
+  programId?: string;
   amount: number;
   concept: string;
+  mode?: 'create' | 'update';
   onSuccess?: () => void;
 }
 
@@ -26,8 +28,10 @@ export function PaymentCheckoutModal({
   onOpenChange,
   studentId,
   paymentId,
+  programId,
   amount,
   concept,
+  mode = 'update',
   onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
@@ -80,32 +84,49 @@ export function PaymentCheckoutModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuario no autenticado');
 
-      // 1. Resolve School ID (Robustly)
-      // 1. Fetch the existing payment to get School ID and verify ownership
-      const { data: existingPayment, error: fetchError } = await supabase
-        .from('payments')
-        .select('school_id, status')
-        .eq('id', paymentId)
-        .single();
 
-      if (fetchError || !existingPayment) throw new Error('No se encontró el pago pendiente.');
-      if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
+      // 1. Resolve context based on mode
+      if (mode === 'update' && paymentId) {
+        // Fetch existing payment to verify ownership and status
+        const { data: existingPayment, error: fetchError } = await supabase
+          .from('payments')
+          .select('school_id, status')
+          .eq('id', paymentId)
+          .single();
 
-      const schoolId = existingPayment.school_id;
+        if (fetchError || !existingPayment) throw new Error('No se encontró el pago pendiente.');
+        if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
+      }
 
       if (selectedMethod === 'transfer') {
-        const { error: updateError } = await supabase
-          .from('payments')
-          .update({
+        if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
+
+        if (mode === 'update' && paymentId) {
+          const { error: updateError } = await supabase
+            .from('payments')
+            .update({
+              status: 'awaiting_approval',
+              payment_method: 'transfer',
+              payment_date: new Date().toISOString(),
+              receipt_url: proofUrl,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', paymentId);
+          if (updateError) throw updateError;
+        } else {
+          // Create mode - Insert new payment with awaiting_approval
+          const { error: insertError } = await supabase.from('payments').insert({
+            parent_id: user?.id,
+            amount: amount,
+            concept: concept,
             status: 'awaiting_approval',
             payment_method: 'transfer',
             payment_date: new Date().toISOString(),
+            due_date: new Date().toISOString(),
             receipt_url: proofUrl,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', paymentId);
-
-        if (updateError) throw updateError;
+          });
+          if (insertError) throw insertError;
+        }
 
         setPaymentStatus('awaiting_approval');
         toast({
@@ -122,18 +143,37 @@ export function PaymentCheckoutModal({
       // PSE / Card flow (Simulation)
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const { error: updatePaidError } = await supabase
-        .from('payments')
-        .update({
-          status: 'paid', // Auto-approved for demo/simulation
+
+      let error = null;
+
+      if (mode === 'update' && paymentId) {
+        const { error: updateError } = await supabase
+          .from('payments')
+          .update({
+            status: 'paid', // Auto-approved for demo/simulation
+            payment_method: selectedMethod,
+            payment_date: new Date().toISOString(),
+            receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', paymentId);
+        error = updateError;
+      } else {
+        // Create mode
+        const { error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          amount: amount,
+          concept: concept,
+          status: 'paid',
           payment_method: selectedMethod,
           payment_date: new Date().toISOString(),
+          due_date: new Date().toISOString(),
           receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', paymentId);
+        });
+        error = insertError;
+      }
 
-      if (updatePaidError) throw updatePaidError;
+      if (error) throw error;
 
       setPaymentStatus('success');
       toast({

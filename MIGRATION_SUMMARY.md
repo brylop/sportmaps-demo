@@ -22,8 +22,8 @@ This document summarizes the migration of the SportMaps backend from a MongoDB-d
 - **Enrollment Flow**: Now utilizes Supabase `enrollments` table with proper `user_id` (parent) and `child_id` (student) linkage.
 
 ### 4. Payments System Refactoring
-- **PaymentCheckoutModal.tsx**: Updated to handle existing pending payments correctly by UPDATING status instead of creating duplicates.
-- **PaymentsPage.tsx**: Updated to pass correct props (`paymentId`, `concept`).
+- **PaymentCheckoutModal.tsx**: Updated to handle existing pending payments correctly by UPDATING status (mode='update'). Also supports NEW payment creation (mode='create') for ad-hoc payment flows.
+- **MyPaymentsPage.tsx**: Updated to use `mode='create'` for new manual payments.
 - **Wompi Integration**: The backend endpoint checks webhook signatures and updates payment status in Supabase via REST API.
 
 ## Remaining Tasks / Gaps
