@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Mail, 
-  X, 
-  User, 
-  Users, 
-  School, 
-  Heart, 
+import {
+  Mail,
+  X,
+  User,
+  Users,
+  School,
+  Heart,
   ShoppingBag,
   Dumbbell,
   ArrowRight,
@@ -93,12 +93,12 @@ export function WelcomeModal({ open, onOpenChange }: WelcomeModalProps) {
         </button>
 
         {/* Header */}
-        <div className="p-8 pb-6 text-center bg-gradient-to-br from-primary/5 via-background to-orange/5">
+        <DialogHeader className="p-8 pb-6 text-center bg-gradient-to-br from-primary/5 via-background to-orange/5">
           <div className="flex justify-center mb-4">
             <div className="relative">
-              <img 
-                src={logoImage} 
-                alt="SportMaps" 
+              <img
+                src={logoImage}
+                alt="SportMaps"
                 className="w-20 h-20 rounded-2xl shadow-lg"
               />
               <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center">
@@ -106,13 +106,13 @@ export function WelcomeModal({ open, onOpenChange }: WelcomeModalProps) {
               </div>
             </div>
           </div>
-          <h2 className="text-2xl font-bold font-poppins text-foreground mb-2">
+          <DialogTitle className="text-2xl font-bold font-poppins text-foreground mb-2">
             Bienvenido a SportMaps
-          </h2>
-          <p className="text-muted-foreground font-poppins text-sm">
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground font-poppins text-sm">
             Revolucionando el sistema deportivo
-          </p>
-        </div>
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Login Options */}
         <div className="p-6 space-y-4">

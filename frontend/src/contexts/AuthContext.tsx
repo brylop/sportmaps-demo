@@ -78,10 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           phone: userData.phone || null,
           role: (userData.role || 'athlete') as any,
           avatar_url: userData.avatar_url || null,
-          bio: null,
-          date_of_birth: null,
-          sportmaps_points: 0,
-          subscription_tier: 'free'
+          bio: null
         })
         .select()
         .maybeSingle();

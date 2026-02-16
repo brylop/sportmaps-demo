@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -81,6 +81,9 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
       <DialogContent className="max-w-2xl max-h-[80vh] p-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b">
           <DialogTitle className="text-xl">Buscar escuelas y deportes</DialogTitle>
+          <DialogDescription className="sr-only">
+            Busca academias deportivas, programas y disciplinas por nombre, ciudad o deporte.
+          </DialogDescription>
           <div className="relative mt-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
