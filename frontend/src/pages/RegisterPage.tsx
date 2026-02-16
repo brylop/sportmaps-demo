@@ -17,6 +17,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().optional(),
+  dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
   code: z.string().optional(),
   role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'organizer', 'admin']),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -57,6 +58,7 @@ export default function RegisterPage() {
       await signUp(data.email, data.password, {
         full_name: data.fullName,
         phone: data.phone,
+        date_of_birth: data.dateOfBirth,
         role: data.role as any,
         invitation_code: data.code,
       });
@@ -113,6 +115,19 @@ export default function RegisterPage() {
                 placeholder="+57 300 123 4567"
                 {...register('phone')}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
+              <Input
+                id="dateOfBirth"
+                type="date"
+                {...register('dateOfBirth')}
+                className={errors.dateOfBirth ? 'border-destructive' : ''}
+              />
+              {errors.dateOfBirth && (
+                <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
+              )}
             </div>
 
             <div className="space-y-2">

@@ -13,6 +13,7 @@ interface UserProfile {
   date_of_birth: string | null;
   sportmaps_points: number;
   subscription_tier: 'free' | 'basic' | 'premium';
+  invitation_code?: string;
   created_at: string;
   updated_at: string;
 }
@@ -78,7 +79,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           phone: userData.phone || null,
           role: (userData.role || 'athlete') as any,
           avatar_url: userData.avatar_url || null,
-          bio: null
+          bio: null,
+          date_of_birth: userData.date_of_birth || null,
+          sportmaps_points: 0,
+          subscription_tier: 'free'
         })
         .select()
         .maybeSingle();

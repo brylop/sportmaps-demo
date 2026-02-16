@@ -1758,6 +1758,10 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
           sports_interests: string[] | null
           updated_at: string | null
+          date_of_birth: string | null
+          sportmaps_points: number | null
+          subscription_tier: string | null
+          invitation_code: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -1773,6 +1777,10 @@ export type Database = {
           role?: Database["public"]["Enums"]["user_role"]
           sports_interests?: string[] | null
           updated_at?: string | null
+          date_of_birth?: string | null
+          sportmaps_points?: number | null
+          subscription_tier?: string | null
+          invitation_code?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -1788,6 +1796,10 @@ export type Database = {
           role?: Database["public"]["Enums"]["user_role"]
           sports_interests?: string[] | null
           updated_at?: string | null
+          date_of_birth?: string | null
+          sportmaps_points?: number | null
+          subscription_tier?: string | null
+          invitation_code?: string | null
         }
         Relationships: []
       }
@@ -2906,6 +2918,10 @@ export type Database = {
           full_name: string | null
           id: string | null
           role: Database["public"]["Enums"]["user_role"] | null
+          date_of_birth: string | null
+          sportmaps_points: number | null
+          subscription_tier: string | null
+          invitation_code: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -2913,6 +2929,10 @@ export type Database = {
           full_name?: string | null
           id?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
+          date_of_birth?: string | null
+          sportmaps_points?: number | null
+          subscription_tier?: string | null
+          invitation_code?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -2920,6 +2940,10 @@ export type Database = {
           full_name?: string | null
           id?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
+          date_of_birth?: string | null
+          sportmaps_points?: number | null
+          subscription_tier?: string | null
+          invitation_code?: string | null
         }
         Relationships: []
       }

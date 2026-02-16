@@ -32,11 +32,12 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     full_name: profile?.full_name || '',
     phone: profile?.phone || '',
     avatar_url: profile?.avatar_url || '',
+    date_of_birth: profile?.date_of_birth || '',
   });
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function ProfilePage() {
         full_name: profile.full_name || '',
         phone: profile.phone || '',
         avatar_url: profile.avatar_url || '',
+        date_of_birth: profile.date_of_birth || '',
       });
     }
   }, [profile]);
@@ -74,6 +76,7 @@ export default function ProfilePage() {
       full_name: profile?.full_name || '',
       phone: profile?.phone || '',
       avatar_url: profile?.avatar_url || '',
+      date_of_birth: profile?.date_of_birth || '',
     });
     setIsEditing(false);
   };
@@ -229,6 +232,23 @@ export default function ProfilePage() {
                 className="bg-muted"
               />
             </div>
+
+            {/* Date of Birth */}
+            <div className="space-y-2">
+              <Label htmlFor="date_of_birth" className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Fecha de Nacimiento
+              </Label>
+              <Input
+                id="date_of_birth"
+                type="date"
+                value={formData.date_of_birth || ''}
+                onChange={(e) =>
+                  setFormData({ ...formData, date_of_birth: e.target.value })
+                }
+                disabled={!isEditing}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -242,15 +262,17 @@ export default function ProfilePage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Puntos SportMaps</p>
-              <p className="text-2xl font-bold">0</p>
+              <p className="text-2xl font-bold">{profile.sportmaps_points || 0}</p>
             </div>
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Nivel de Suscripción</p>
-              <p className="text-2xl font-bold">Gratis</p>
+              <p className="text-2xl font-bold uppercase">{profile.subscription_tier || 'Gratis'}</p>
             </div>
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Miembro desde</p>
-              <p className="text-2xl font-bold">2025</p>
+              <p className="text-2xl font-bold">
+                {profile.created_at ? new Date(profile.created_at).getFullYear() : '2025'}
+              </p>
             </div>
           </div>
         </CardContent>
