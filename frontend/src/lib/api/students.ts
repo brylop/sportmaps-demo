@@ -1,5 +1,6 @@
-// Students API service
-const API_URL = import.meta.env.VITE_BACKEND_URL || '';
+// Students API service — uses Supabase directly (table: children)
+// Per NAMING_DICTIONARY.md: tabla=children, UI=estudiantes
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Student {
   id: string;
@@ -10,11 +11,16 @@ export interface Student {
   gender?: 'male' | 'female' | 'other';
   grade?: string;
   school_id: string;
+  parent_id?: string;
   parent_name?: string;
   parent_email?: string;
   parent_phone?: string;
   emergency_contact?: string;
   medical_notes?: string;
+  medical_info?: string;
+  sport?: string;
+  team_name?: string;
+  avatar_url?: string;
   status: 'active' | 'inactive' | 'suspended';
   enrollment_date?: string;
   created_at: string;
@@ -23,34 +29,23 @@ export interface Student {
 
 export interface StudentCreate {
   full_name: string;
-  email?: string;
-  phone?: string;
-  date_of_birth?: string;
-  gender?: 'male' | 'female' | 'other';
-  grade?: string;
+  date_of_birth: string;
   school_id: string;
-  parent_name?: string;
-  parent_email?: string;
-  parent_phone?: string;
-  emergency_contact?: string;
-  medical_notes?: string;
-  status?: 'active' | 'inactive' | 'suspended';
-  enrollment_date?: string;
+  parent_id?: string;
+  medical_info?: string;
+  sport?: string;
+  team_name?: string;
+  avatar_url?: string;
 }
 
 export interface StudentUpdate {
   full_name?: string;
-  email?: string;
-  phone?: string;
   date_of_birth?: string;
-  gender?: 'male' | 'female' | 'other';
-  grade?: string;
-  parent_name?: string;
-  parent_email?: string;
-  parent_phone?: string;
-  emergency_contact?: string;
-  medical_notes?: string;
-  status?: 'active' | 'inactive' | 'suspended';
+  medical_info?: string;
+  sport?: string;
+  team_name?: string;
+  avatar_url?: string;
+  school_id?: string;
 }
 
 export interface BulkUploadResponse {
@@ -68,36 +63,36 @@ export interface StudentStats {
 }
 
 class StudentsAPI {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = `${API_URL}/api/students`;
-  }
-
+  /**
+   * Create a new student (child) in Supabase
+   */
   async createStudent(student: StudentCreate): Promise<Student> {
-    const response = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(student),
-    });
+    const { data, error } = await supabase
+      .from('children')
+      .insert({
+        full_name: student.full_name,
+        date_of_birth: student.date_of_birth,
+        school_id: student.school_id,
+        parent_id: student.parent_id,
+        medical_info: student.medical_info,
+        sport: student.sport,
+        team_name: student.team_name,
+        avatar_url: student.avatar_url,
+      })
+      .select()
+      .single();
 
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      const text = await response.text();
-      console.error('API Error (Non-JSON):', text);
-      throw new Error(`Error del servidor (${response.status})`);
+    if (error) {
+      console.error('Error creating student:', error);
+      throw new Error(error.message || 'Failed to create student');
     }
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to create student');
-    }
-
-    return response.json();
+    return this.mapChildToStudent(data);
   }
 
+  /**
+   * Get students filtered by school, search term, etc.
+   */
   async getStudents(params?: {
     school_id?: string;
     status?: string;
@@ -107,230 +102,195 @@ class StudentsAPI {
     limit?: number;
   }): Promise<Student[]> {
     try {
-      const queryParams = new URLSearchParams();
+      let query = supabase
+        .from('children')
+        .select('*, profiles:parent_id(full_name, phone, avatar_url)')
+        .order('created_at', { ascending: false });
 
-      if (params?.school_id) queryParams.append('school_id', params.school_id);
-      if (params?.status) queryParams.append('status', params.status);
-      if (params?.grade) queryParams.append('grade', params.grade);
-      if (params?.search) queryParams.append('search', params.search);
-      if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
-      if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-
-      const url = `${this.baseUrl}?${queryParams.toString()}`;
-      const response = await fetch(url);
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        console.warn('API returned non-JSON response, falling back to mock data');
-        return this.getMockStudents();
+      if (params?.school_id) {
+        query = query.eq('school_id', params.school_id);
+      }
+      if (params?.search) {
+        query = query.ilike('full_name', `%${params.search}%`);
       }
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to fetch students');
+      const offset = params?.skip ?? 0;
+      const limit = params?.limit ?? 100;
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.warn('Error fetching students from Supabase:', error.message);
+        return [];
       }
 
-      return response.json();
+      return (data || []).map((child: any) => this.mapChildToStudent(child));
     } catch (error) {
-      console.warn('Error fetching students, falling back to mock data:', error);
-      return this.getMockStudents();
+      console.warn('Error fetching students:', error);
+      return [];
     }
   }
 
-  private getMockStudents(): Student[] {
-    return [
-      {
-        id: '1',
-        full_name: 'Mateo Pérez',
-        email: 'mateo@example.com',
-        grade: '5A',
-        school_id: 'demo-school',
-        parent_name: 'María González',
-        parent_phone: '+57 300 123 4567',
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        full_name: 'Sofía Pérez',
-        email: 'sofia@example.com',
-        grade: '3B',
-        school_id: 'demo-school',
-        parent_name: 'María González',
-        parent_phone: '+57 300 123 4567',
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '3',
-        full_name: 'Juan Vargas',
-        grade: '6A',
-        school_id: 'demo-school',
-        parent_name: 'Carlos Vargas',
-        parent_phone: '+57 310 234 5678',
-        status: 'suspended',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '4',
-        full_name: 'Camila Torres',
-        email: 'camila@example.com',
-        grade: '7A',
-        school_id: 'demo-school',
-        parent_name: 'Elena Torres',
-        parent_phone: '+57 320 345 6789',
-        status: 'inactive',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-    ];
-  }
-
+  /**
+   * Get a single student by ID
+   */
   async getStudent(id: string): Promise<Student> {
-    try {
-      const response = await fetch(`${this.baseUrl}/${id}`);
+    const { data, error } = await supabase
+      .from('children')
+      .select('*, profiles:parent_id(full_name, phone, avatar_url)')
+      .eq('id', id)
+      .single();
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const mock = this.getMockStudents().find(s => s.id === id);
-        if (mock) return mock;
-        throw new Error("Student not found");
-      }
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to fetch student');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.warn('Error fetching student, falling back to mock data', error);
-      const mock = this.getMockStudents().find(s => s.id === id);
-      if (mock) return mock;
-      throw error;
+    if (error || !data) {
+      throw new Error(error?.message || 'Student not found');
     }
+
+    return this.mapChildToStudent(data);
   }
 
+  /**
+   * Update a student
+   */
   async updateStudent(id: string, updates: StudentUpdate): Promise<Student> {
-    try {
-      const response = await fetch(`${this.baseUrl}/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updates),
-      });
-
-      if (!response.ok) {
-        // Fallback for demo
-        console.warn('Update failed, simulating success');
-        return {
-          ...this.getMockStudents()[0],
-          ...updates,
-          id
-        } as Student;
-      }
-
-      return response.json();
-    } catch (error) {
-      console.warn('Update error, simulating success', error);
-      return {
-        ...this.getMockStudents()[0],
+    const { data, error } = await supabase
+      .from('children')
+      .update({
         ...updates,
-        id
-      } as Student;
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message || 'Failed to update student');
     }
+
+    return this.mapChildToStudent(data);
   }
 
+  /**
+   * Delete a student
+   */
   async deleteStudent(id: string): Promise<void> {
-    try {
-      const response = await fetch(`${this.baseUrl}/${id}`, {
-        method: 'DELETE',
-      });
+    const { error } = await supabase
+      .from('children')
+      .delete()
+      .eq('id', id);
 
-      if (!response.ok) {
-        console.warn('Delete failed, simulating success');
-      }
-    } catch (error) {
-      console.warn('Delete error, simulating success', error);
+    if (error) {
+      throw new Error(error.message || 'Failed to delete student');
     }
   }
 
+  /**
+   * Bulk upload students from CSV — parsed client-side, inserted via Supabase
+   */
   async bulkUpload(file: File, schoolId: string): Promise<BulkUploadResponse> {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    const text = await file.text();
+    const lines = text.split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
 
-      const url = `${this.baseUrl}/bulk?school_id=${schoolId}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
+    const success: Student[] = [];
+    const errors: Array<{ row: number; error: string }> = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const values = line.split(',').map(v => v.trim());
+      const row: Record<string, string> = {};
+      headers.forEach((h, idx) => {
+        row[h] = values[idx] || '';
       });
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Mock successful upload
-        return {
-          success: 5,
-          failed: 0,
-          errors: [],
-          students: this.getMockStudents()
-        };
+      const fullName = row['full_name'] || row['nombre'] || row['name'];
+      const dob = row['date_of_birth'] || row['fecha_nacimiento'] || row['dob'];
+
+      if (!fullName) {
+        errors.push({ row: i + 1, error: 'Missing full_name' });
+        continue;
       }
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to upload students');
-      }
+      try {
+        const { data, error } = await supabase
+          .from('children')
+          .insert({
+            full_name: fullName,
+            date_of_birth: dob || '2015-01-01',
+            school_id: schoolId,
+            medical_info: row['medical_info'] || row['notas_medicas'] || null,
+            sport: row['sport'] || row['deporte'] || null,
+            team_name: row['team_name'] || row['equipo'] || null,
+          })
+          .select()
+          .single();
 
-      return response.json();
-    } catch (error) {
-      console.warn('Bulk upload error, return mock success', error);
-      return {
-        success: 5,
-        failed: 0,
-        errors: [],
-        students: this.getMockStudents()
-      };
+        if (error) {
+          errors.push({ row: i + 1, error: error.message });
+        } else if (data) {
+          success.push(this.mapChildToStudent(data));
+        }
+      } catch (e: any) {
+        errors.push({ row: i + 1, error: e.message });
+      }
     }
+
+    return {
+      success: success.length,
+      failed: errors.length,
+      errors,
+      students: success,
+    };
   }
 
+  /**
+   * Get student statistics for a school
+   */
   async getStats(schoolId: string): Promise<StudentStats> {
     try {
-      const response = await fetch(`${this.baseUrl}/stats/${schoolId}`);
+      const { count: total } = await supabase
+        .from('children')
+        .select('*', { count: 'exact', head: true })
+        .eq('school_id', schoolId);
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        return {
-          total: 150,
-          active: 120,
-          inactive: 20,
-          by_grade: { '5A': 25, '6A': 30 }
-        };
-      }
-
-      if (!response.ok) {
-        // Mock stats
-        return {
-          total: 150,
-          active: 120,
-          inactive: 20,
-          by_grade: { '5A': 25, '6A': 30 }
-        };
-      }
-
-      return response.json();
-    } catch (error) {
+      // Children table doesn't have status column, so all are "active"
       return {
-        total: 150,
-        active: 120,
-        inactive: 20,
-        by_grade: { '5A': 25, '6A': 30 }
+        total: total || 0,
+        active: total || 0,
+        inactive: 0,
+        by_grade: {},
       };
+    } catch (error) {
+      console.warn('Error fetching student stats:', error);
+      return { total: 0, active: 0, inactive: 0, by_grade: {} };
     }
+  }
+
+  /**
+   * Map a Supabase 'children' row to the Student interface
+   */
+  private mapChildToStudent(child: any): Student {
+    const parentProfile = child.profiles;
+    return {
+      id: child.id,
+      full_name: child.full_name,
+      date_of_birth: child.date_of_birth,
+      school_id: child.school_id || '',
+      parent_id: child.parent_id,
+      parent_name: parentProfile?.full_name || undefined,
+      parent_phone: parentProfile?.phone || undefined,
+      medical_notes: child.medical_info,
+      medical_info: child.medical_info,
+      sport: child.sport,
+      team_name: child.team_name,
+      avatar_url: child.avatar_url || parentProfile?.avatar_url,
+      status: 'active', // children table doesn't have status
+      created_at: child.created_at,
+      updated_at: child.updated_at,
+      is_demo: child.is_demo,
+    } as Student;
   }
 }
 

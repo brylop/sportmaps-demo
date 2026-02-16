@@ -1,1 +1,2 @@
-# Payment routes module
+# Routes package - Wompi webhooks handled in server.py
+
