@@ -1,0 +1,23 @@
+Summary,Issue Type,Description,Epic Link,Component
+SportMaps: Fundamentos Auth & Roles,Epic,Cimiento del sistema gestión de accesos y perfiles de usuario.,,
+SportMaps: Gestión de Estudiantes,Epic,Repositorio central de los alumnos de la escuela.,,
+SportMaps: Gestión Académica,Epic,Planificación de actividades deportivas.,,
+SportMaps: Asistencias & Seguimiento,Epic,Operación diaria en el campo.,,
+SportMaps: Finanzas & Pagos,Epic,Automatización de cobranza y pasarela de pago.,,
+SportMaps: Comunicación & Chat,Epic,Canal directo entre escuela coaches y padres.,,
+SportMaps: Exploración SportMaps Discovery,Epic,Dashboard público para buscar escuelas.,,
+SportMaps: Reportes & Analítica,Epic,Inteligencia de negocio.,,
+US1.1: Autenticación Multi-rol,Story,Implementar pantallas de Login y Registro. Lógica de redirección por rol.,SportMaps: Fundamentos Auth & Roles,
+US1.2: Perfil de Usuario,Story,Pantalla de "Mi Perfil" para edición de datos personales y avatar.,SportMaps: Fundamentos Auth & Roles,
+US1.3: Modo Demo,Story,Implementar "Demo Welcome" y lógica de sesiones temporales.,SportMaps: Fundamentos Auth & Roles,
+US1.4: Configuración & Ajustes,Story,Navegación a Configuración cambio de idioma/tema.,SportMaps: Fundamentos Auth & Roles,
+US2.1: Directorio Estudiantes,Story,Lista de estudiantes con búsqueda y filtrado rápido.,SportMaps: Gestión de Estudiantes,
+US2.2: Ficha Estudiante,Story,Vista detallada del estudiante (datos padres historial).,SportMaps: Gestión de Estudiantes,
+US2.3: Carga Masiva (CSV),Story,Interfaz para subir archivos .csv/.xlsx y previsualizar errores.,SportMaps: Gestión de Estudiantes,
+US2.4: CRUD Estudiante,Story,Formularios de creación y edición manual de alumnos.,SportMaps: Gestión de Estudiantes,
+[Front] Implementar Auth Flow Flutter,Task,Implementar pantallas de Login y Registro. Lógica de redirección por rol.,US1.1: Autenticación Multi-rol,Flutter
+[Back] Configurar Supabase Auth,Task,Configurar Tablas de Perfiles. Crear Triggers para sincronización de Auth.,US1.1: Autenticación Multi-rol,Backend
+[Front] UI Perfil de Usuario,Task,Pantalla de "Mi Perfil" para edición de datos personales y avatar.,US1.2: Perfil de Usuario,Flutter
+[Back] API/RPC Perfil,Task,API/RPC para actualización de perfil. Configuración de Storage para fotos.,US1.2: Perfil de Usuario,Backend
+[Front] Pantalla Listado Estudiantes,Task,Lista de estudiantes con búsqueda y filtrado rápido.,US2.1: Directorio Estudiantes,Flutter
+[Back] DB Schema Students,Task,Tabla students con RLS (Row Level Security).,US2.1: Directorio Estudiantes,Backend
