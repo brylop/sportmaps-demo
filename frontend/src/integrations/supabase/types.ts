@@ -254,7 +254,7 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
+      },
       attendance: {
         Row: {
           child_id: string | null
@@ -302,7 +302,7 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
+      },
       attendance_records: {
         Row: {
           attendance_date: string
@@ -406,7 +406,7 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
+      },
       calendar_events: {
         Row: {
           all_day: boolean | null

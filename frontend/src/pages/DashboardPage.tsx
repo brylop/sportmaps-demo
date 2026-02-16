@@ -148,7 +148,27 @@ export default function DashboardPage() {
 
       // Add logic for Parent real stats here if useDashboardStatsReal supports it
       if (profile.role === 'parent') {
-        // Fallback to defaults or map if `realStats` has parent data
+        if (index === 0) {
+          return {
+            ...stat,
+            value: realStats.children || 0,
+            description: 'Hijos inscritos en academias'
+          };
+        }
+        if (index === 1) {
+          return {
+            ...stat,
+            value: realStats.children_attendance || '0%',
+            description: 'Asistencia promedio (30 días)'
+          };
+        }
+        if (index === 2) {
+          return {
+            ...stat,
+            value: realStats.upcoming_payments || 0,
+            description: 'Mensualidades pendientes'
+          };
+        }
       }
     }
 

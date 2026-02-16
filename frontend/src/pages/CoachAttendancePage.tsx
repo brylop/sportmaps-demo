@@ -78,11 +78,11 @@ export default function CoachAttendancePage() {
         .select(`
           enrollment_id,
           enrollments!inner (
-            student_id,
+            child_id,
             students!inner (
               id,
               full_name,
-              photo_url
+              avatar_url
             )
           )
         `)
@@ -97,7 +97,7 @@ export default function CoachAttendancePage() {
       return data.map((item: any) => ({
         id: item.enrollments.students.id,
         full_name: item.enrollments.students.full_name,
-        photo_url: item.enrollments.students.photo_url,
+        photo_url: item.enrollments.students.avatar_url,
       })) as StudentItem[];
     },
     enabled: !!selectedClassId,
@@ -106,34 +106,37 @@ export default function CoachAttendancePage() {
   // 3. Save Attendance Mutation
   const saveAttendanceMutation = useMutation({
     mutationFn: async () => {
-      if (!schoolId || !selectedClassId) return;
+      if (!schoolId || !selectedClassId || !user?.id) return;
 
       // Prepare inserts
       const records = Object.entries(attendanceState).map(([studentId, status]) => ({
         school_id: schoolId,
-        class_id: selectedClassId, // attendance_records should have class_id? 
-        // Current schema 20260717120000 has: school_id, program_id, student_id. 
-        // Wait, the schema I just wrote in 1067 didn't include class_id? 
-        // Let's check schema.
-        // Correct, 1067 schema: school_id, program_id, student_id. 
-        // It missed class_id! Attendance is usually per class session.
-        // I will assume for now we might need to add class_id or just infer program.
-        // BUT `class_enrollments` implies classes exist.
-        // Let's fetch program_id from the class first to be safe.
+        class_id: selectedClassId,
         student_id: studentId,
-        date: new Date().toISOString().split('T')[0],
+        attendance_date: new Date().toISOString().split('T')[0],
         status: status,
-        marked_by: user?.id
+        marked_by: user.id
       }));
 
       // We need program_id for the insert as per schema
       // Let's get it from the class
-      const { data: cls } = await supabase.from('classes').select('program_id').eq('id', selectedClassId).single();
-      if (!cls) throw new Error("Class not found");
+      const { data: cls } = await supabase
+        .from('classes')
+        .select('program_id')
+        .eq('id', selectedClassId)
+        .single();
 
-      const recordsWithProgram = records.map(r => ({ ...r, program_id: cls.program_id }));
+      if (!cls) throw new Error("Clase no encontrada");
 
-      const { error } = await supabase.from('attendance_records').insert(recordsWithProgram);
+      const recordsWithProgram = records.map(r => ({
+        ...r,
+        program_id: cls.program_id
+      }));
+
+      const { error } = await supabase
+        .from('attendance_records')
+        .insert(recordsWithProgram as any); // Cast as any if TS still complains about complex insert structure
+
       if (error) throw error;
     },
     onSuccess: () => {

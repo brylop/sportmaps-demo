@@ -93,11 +93,41 @@ export function useDashboardStatsReal() {
           pending_payments: pendingCount || 0,
         });
       } else if (profile.role === 'parent') {
-        // TODO: Load parent-specific stats
+        // Load parent-specific stats
+        const { data: childrenData, count: childrenCount } = await supabase
+          .from('children')
+          .select('id', { count: 'exact' })
+          .eq('parent_id', profile.id);
+
+        const childIds = childrenData?.map(c => c.id) || [];
+
+        // Fetch last 30 days attendance for all children
+        const lastMonth = new Date();
+        lastMonth.setDate(lastMonth.getDate() - 30);
+
+        const { data: attendanceData } = await supabase
+          .from('attendance_records')
+          .select('status')
+          .in('student_id', childIds)
+          .gte('attendance_date', lastMonth.toISOString().split('T')[0]);
+
+        const totalAttendance = attendanceData?.length || 0;
+        const presentCount = attendanceData?.filter(a => a.status === 'present').length || 0;
+        const attendancePercentage = totalAttendance > 0
+          ? Math.round((presentCount / totalAttendance) * 100)
+          : 0;
+
+        // Upcoming payments
+        const { count: upcomingPayments } = await supabase
+          .from('payments')
+          .select('*', { count: 'exact', head: true })
+          .eq('parent_id', profile.id)
+          .eq('status', 'pending');
+
         setStats({
-          children: 0,
-          children_attendance: '0%',
-          upcoming_payments: 0,
+          children: childrenCount || 0,
+          children_attendance: `${attendancePercentage}%`,
+          upcoming_payments: upcomingPayments || 0,
         });
       }
     } catch (error) {
