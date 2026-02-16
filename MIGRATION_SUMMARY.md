@@ -39,3 +39,9 @@ This document summarizes the migration of the SportMaps backend from a MongoDB-d
 1. Test the Wompi Webhook in a staging environment.
 2. Update `SchoolDetailPage` to include a "Select Child" modal step during enrollment.
 3. Replace simulated payment flow with real Wompi Widget integration.
+
+### Sprint 2 Progress (Feb 16, 2026) -> Multitenancy & Real Data
+- **Multitenancy Activation**: Updated `useSchoolContext` to resolve the logged-in user's school via `school_members` table, enforcing real data isolation. Removed legacy mock data.
+- **School Students Management**: Major refactor of `SchoolStudentsManagementPage.tsx` to display real student data from Supabase (`studentsAPI.getSchoolView`). Removed all hardcoded mock students.
+- **Data Injection**: Validated that `studentsAPI` correctly pulls from the database view, linking students to schools, parents, and programs dynamically.
+- **Refactoring**: Aligned frontend components (Table, Dialog) to use new database-aligned interfaces (`StudentViewRow`).

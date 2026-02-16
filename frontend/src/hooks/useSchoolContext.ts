@@ -42,24 +42,46 @@ export function useSchoolContext(): SchoolContext {
             try {
                 setLoading(true);
 
-                // 1. Find demo school
+                // 1. Try to resolve via Authenticated User Membership
+                const { data: { user } } = await supabase.auth.getUser();
                 let school: any = null;
-                const { data: demoSchool } = await supabase
-                    .from('schools')
-                    .select('id, name')
-                    .eq('email', DEMO_SCHOOL_EMAIL)
-                    .maybeSingle();
 
-                if (demoSchool) {
-                    school = demoSchool;
-                } else {
-                    // 2. Fallback to any school
-                    const { data: anySchool } = await supabase
-                        .from('schools')
-                        .select('id, name')
+                if (user) {
+                    // Check if user is a member of any school
+                    const { data: membership } = await supabase
+                        .from('school_members')
+                        .select('school_id, schools(id, name)')
+                        .eq('profile_id', user.id)
+                        .eq('status', 'active')
                         .limit(1)
                         .maybeSingle();
-                    school = anySchool;
+
+                    if (membership && membership.schools) {
+                        school = membership.schools;
+                    }
+                }
+
+                // 2. Fallback: If no user or no membership, look for Demo School (Legacy/Dev support)
+                // This preserves functionality for visitors or fresh dev environments
+                if (!school) {
+                    // Start with the hardcoded email as deprecated fallback
+                    const { data: demoSchool } = await supabase
+                        .from('schools')
+                        .select('id, name')
+                        .eq('email', DEMO_SCHOOL_EMAIL)
+                        .maybeSingle();
+
+                    if (demoSchool) {
+                        school = demoSchool;
+                    } else {
+                        // Ultimate fallback: Any first school found
+                        const { data: anySchool } = await supabase
+                            .from('schools')
+                            .select('id, name')
+                            .limit(1)
+                            .maybeSingle();
+                        school = anySchool;
+                    }
                 }
 
                 if (!school) {
@@ -68,12 +90,12 @@ export function useSchoolContext(): SchoolContext {
                 }
 
                 setSchoolId(school.id);
-                setSchoolName(school.name || 'Spirit All Stars');
+                setSchoolName(school.name || 'Escuela');
 
                 // 3. Load programs for this school
                 const { data: programsData } = await supabase
                     .from('programs')
-                    .select('id, name, price, sport_type')
+                    .select('id, name, price_monthly, sport')
                     .eq('school_id', school.id);
 
                 if (programsData && programsData.length > 0) {
@@ -81,18 +103,13 @@ export function useSchoolContext(): SchoolContext {
                         programsData.map((p: any) => ({
                             id: p.id,
                             name: p.name,
-                            monthly_fee: p.price || DEFAULT_MONTHLY_FEE,
-                            sport_type: p.sport_type,
+                            monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
+                            sport_type: p.sport,
                         }))
                     );
                 } else {
-                    // Demo fallback programs
-                    setPrograms([
-                        { id: 'demo-1', name: 'Firesquad (Senior L3)', monthly_fee: 180000 },
-                        { id: 'demo-2', name: 'Butterfly (Junior Prep)', monthly_fee: 150000 },
-                        { id: 'demo-3', name: 'Bombsquad (Coed L5)', monthly_fee: 200000 },
-                        { id: 'demo-4', name: 'Legends (Open L6)', monthly_fee: 220000 },
-                    ]);
+                    // Fallback programs if none exist in DB
+                    setPrograms([]);
                 }
             } catch (err: any) {
                 console.error('useSchoolContext error:', err);

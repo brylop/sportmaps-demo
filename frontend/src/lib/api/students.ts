@@ -59,6 +59,26 @@ export interface BulkUploadResponse {
   students: Student[];
 }
 
+export interface StudentViewRow {
+  id: string;
+  full_name: string;
+  date_of_birth: string;
+  avatar_url?: string;
+  sport?: string;
+  parent_id?: string;
+  school_id: string;
+  created_at: string;
+  parent_name?: string;
+  parent_phone?: string;
+  parent_avatar?: string;
+  enrollment_id?: string;
+  program_id?: string;
+  enrollment_status?: string;
+  program_name?: string;
+  program_sport?: string;
+  price_monthly?: number;
+}
+
 export interface StudentStats {
   total: number;
   active: number;
@@ -94,6 +114,25 @@ class StudentsAPI {
     }
 
     return this.mapChildToStudent(data);
+  }
+
+  /**
+   * Get enriched students data for School Management UI (uses 'students' VIEW)
+   */
+  async getSchoolView(schoolId: string): Promise<StudentViewRow[]> {
+    try {
+      const { data, error } = await supabase
+        .from('students') // Queries the Database View
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data as StudentViewRow[] || [];
+    } catch (error: any) {
+      console.error('Error fetching school students view:', error);
+      return [];
+    }
   }
 
   /**

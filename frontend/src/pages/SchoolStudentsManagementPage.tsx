@@ -20,6 +20,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 
 const studentSchema = z.object({
   full_name: z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -47,13 +48,12 @@ export default function SchoolStudentsManagementPage() {
   // Resolve school context (school_id, programs, fees)
   const { schoolId, schoolName, programs, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
-  // Local students state for demo + imported
-  const [localStudents, setLocalStudents] = useState([
-    { id: '1', full_name: 'Mateo Pérez', date_of_birth: '2013-05-15', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid', program: 'Firesquad (Senior L3)', monthly_fee: 180000 },
-    { id: '2', full_name: 'Sofía Pérez', date_of_birth: '2015-08-22', parent_name: 'María González', phone: '+57 300 123 4567', paymentStatus: 'paid', program: 'Butterfly (Junior Prep)', monthly_fee: 150000 },
-    { id: '3', full_name: 'Juan Vargas', date_of_birth: '2013-03-10', parent_name: 'Carlos Vargas', phone: '+57 310 234 5678', paymentStatus: 'overdue', program: 'Bombsquad (Coed L5)', monthly_fee: 200000 },
-    { id: '4', full_name: 'Camila Torres', date_of_birth: '2012-11-28', parent_name: 'Elena Torres', phone: '+57 320 345 6789', paymentStatus: 'pending', program: 'Legends (Open L6)', monthly_fee: 220000 },
-  ]);
+  // Real data from Supabase View
+  const { data: students = [], isLoading } = useQuery({
+    queryKey: ['school-students', schoolId],
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId) : Promise.resolve([]),
+    enabled: !!schoolId,
+  });
 
   const form = useForm<StudentFormData>({
     resolver: zodResolver(studentSchema),
@@ -67,20 +67,6 @@ export default function SchoolStudentsManagementPage() {
       medical_info: '',
       notes: '',
     },
-  });
-
-  // Fetch students from school (for future DB integration)
-  const { isLoading } = useQuery({
-    queryKey: ['school-students', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('children')
-        .select('*')
-        .limit(0);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!user?.id,
   });
 
   const createStudentMutation = useMutation({
@@ -111,18 +97,8 @@ export default function SchoolStudentsManagementPage() {
         }
       }
 
-      // Also add to local state for immediate UI
-      const newStudent = {
-        id: `new-${Date.now()}`,
-        full_name: data.full_name,
-        date_of_birth: data.date_of_birth,
-        parent_name: data.parent_email.split('@')[0],
-        phone: data.parent_phone,
-        paymentStatus: 'pending',
-        program: selectedProgram?.name || 'Sin programa',
-        monthly_fee: data.monthly_fee,
-      };
-      setLocalStudents(prev => [...prev, newStudent]);
+      // Local state update removed - relying on React Query invalidation
+      return data;
 
       return data;
     },
@@ -146,24 +122,11 @@ export default function SchoolStudentsManagementPage() {
     }
   };
 
-  const handleCSVImport = (importedStudents: { name: string; parent: string; phone: string; monthlyFee: string }[]) => {
-    const newStudents = importedStudents.map((s, index) => ({
-      id: `imported-${Date.now()}-${index}`,
-      full_name: s.name,
-      date_of_birth: '2012-01-01',
-      parent_name: s.parent,
-      phone: s.phone,
-      paymentStatus: 'pending' as const,
-      program: 'Importado',
-      monthly_fee: parseInt(s.monthlyFee) || defaultMonthlyFee,
-    }));
 
-    setLocalStudents(prev => [...prev, ...newStudents]);
-  };
 
-  const filteredStudents = localStudents.filter(student =>
+  const filteredStudents = students.filter(student =>
     student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.parent_name.toLowerCase().includes(searchQuery.toLowerCase())
+    (student.parent_name && student.parent_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const formatCurrency = (amount: number) =>
@@ -260,13 +223,13 @@ export default function SchoolStudentsManagementPage() {
                     <TableCell className="font-medium">{student.full_name}</TableCell>
                     <TableCell>{calculateAge(student.date_of_birth)} años</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">{student.program}</Badge>
+                      <Badge variant="outline" className="text-xs">{student.program_name || 'Sin programa'}</Badge>
                     </TableCell>
-                    <TableCell>{student.parent_name}</TableCell>
+                    <TableCell>{student.parent_name || '-'}</TableCell>
                     <TableCell className="font-semibold text-primary">
-                      {formatCurrency(student.monthly_fee)}
+                      {student.price_monthly ? formatCurrency(student.price_monthly) : '-'}
                     </TableCell>
-                    <TableCell>{getPaymentBadge(student.paymentStatus)}</TableCell>
+                    <TableCell>{getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}</TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
@@ -502,7 +465,7 @@ export default function SchoolStudentsManagementPage() {
                 <div>
                   <h3 className="font-bold text-lg">{viewingStudent.full_name}</h3>
                   <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)} años</p>
-                  {getPaymentBadge(viewingStudent.paymentStatus)}
+                  {getPaymentBadge(viewingStudent.enrollment_status === 'active' ? 'paid' : 'pending')}
                 </div>
               </div>
 
@@ -513,21 +476,21 @@ export default function SchoolStudentsManagementPage() {
                 </div>
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Programa:</span>
-                  <span className="text-sm">{viewingStudent.program || '-'}</span>
+                  <span className="text-sm">{viewingStudent.program_name || '-'}</span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Mensualidad:</span>
                   <span className="text-sm font-bold text-primary">
-                    {viewingStudent.monthly_fee ? formatCurrency(viewingStudent.monthly_fee) : '-'}
+                    {viewingStudent.price_monthly ? formatCurrency(viewingStudent.price_monthly) : '-'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Acudiente:</span>
-                  <span className="text-sm">{viewingStudent.parent_name}</span>
+                  <span className="text-sm">{viewingStudent.parent_name || '-'}</span>
                 </div>
                 <div className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
                   <span className="text-sm font-medium">Teléfono:</span>
-                  <span className="text-sm">{viewingStudent.phone}</span>
+                  <span className="text-sm">{viewingStudent.parent_phone || '-'}</span>
                 </div>
               </div>
 
