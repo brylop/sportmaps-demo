@@ -12,6 +12,7 @@ import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollment
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
+import { EmptyDashboardState } from '@/components/dashboard/EmptyDashboardState';
 import { UserRole } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -75,6 +76,12 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+
+  // COLD START CHECK:
+  // If school owner has no active branch (meaning they skipped onboarding or DB is empty), show Empty State.
+  if (profile.role === 'school' && !activeBranchId) {
+    return <EmptyDashboardState userName={profile.full_name?.split(' ')[0] || 'Director'} />;
+  }
 
   // Logic to determine stats to display
   const dynamicStats = config.stats.map((stat, index) => {

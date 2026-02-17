@@ -14,6 +14,7 @@ from fastapi import FastAPI, APIRouter, Request, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
+import sys
 import logging
 import hashlib
 import uuid
@@ -74,13 +75,21 @@ async def health_check():
 # Wompi Payment Integration (server-side only — needs secrets)
 # ============================================================================
 
-WOMPI_INTEGRITY_SECRET = os.environ.get('WOMPI_INTEGRITY_SECRET', '')
-WOMPI_EVENTS_KEY = os.environ.get('WOMPI_EVENTS_KEY', '')
-WOMPI_PRIVATE_KEY = os.environ.get('WOMPI_PRIVATE_KEY', '')
+WOMPI_INTEGRITY_SECRET = os.environ.get('WOMPI_INTEGRITY_SECRET')
+WOMPI_EVENTS_KEY = os.environ.get('WOMPI_EVENTS_KEY')
+WOMPI_PRIVATE_KEY = os.environ.get('WOMPI_PRIVATE_KEY')
+
+# Critical Security Check: Fail fast if secrets are missing in production context
+if not WOMPI_INTEGRITY_SECRET or not WOMPI_EVENTS_KEY:
+    # Allow bypass ONLY if explicitly in a non-production test mode if needed, 
+    # but for this audit we enforce strictness.
+    logger.critical("WOMPI_INTEGRITY_SECRET or WOMPI_EVENTS_KEY is missing! Server cannot start securely.")
+    # FAIL FAST: Stop deployment/container immediately to prevent insecure operation.
+    sys.exit(1)
 
 # Optional: Supabase service role key for server-side DB updates
-SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
-SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
 
 
 class WompiSignatureRequest(BaseModel):

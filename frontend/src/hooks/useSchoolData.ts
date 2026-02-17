@@ -222,17 +222,41 @@ export function useSchoolFacilities() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (data) => {
-      // Optimistically update the cache
+    onMutate: async (newFacility) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: ['school-facilities', schoolId] });
+
+      // Snapshot the previous value
+      const previousFacilities = queryClient.getQueryData(['school-facilities', schoolId]);
+
+      // Optimistically update to the new value
       queryClient.setQueryData(['school-facilities', schoolId], (old: Facility[] | undefined) => {
-        return [data, ...(old || [])];
+        const optimisticFacility = {
+          id: `temp-${Date.now()}`,
+          school_id: schoolId || '',
+          ...newFacility,
+          status: 'available',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Facility;
+        return [optimisticFacility, ...(old || [])];
       });
 
+      // Return a context object with the snapshotted value
+      return { previousFacilities };
+    },
+    onSuccess: (data) => {
+      // No need to setQueryData here, we will invalidate
       toast({ title: '✅ Instalación creada', description: 'La instalación se ha registrado correctamente' });
     },
-    onError: (error: any) => {
-      // This should rarely be hit now with the try/catch above
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    onError: (err, newFacility, context) => {
+      // Rollback to the previous value
+      queryClient.setQueryData(['school-facilities', schoolId], context?.previousFacilities);
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+    onSettled: () => {
+      // Always refetch after error or success:
+      queryClient.invalidateQueries({ queryKey: ['school-facilities', schoolId] });
     },
   });
 
