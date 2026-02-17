@@ -22,7 +22,6 @@ import NotFound from "./pages/NotFound";
 import CheckoutPage from "./pages/CheckoutPage";
 import ParentCheckoutPage from "./pages/ParentCheckoutPage";
 import PaymentResultPage from "./pages/PaymentResultPage";
-import DemoWelcomePage from "./pages/DemoWelcomePage";
 import PublicSchoolPage from "./pages/PublicSchoolPage";
 
 // Events (public)
@@ -128,7 +127,7 @@ const App = () => (
               <Routes>
                 {/* Public routes */}
                 <Route path="/" element={<Index />} />
-                <Route path="/demo-welcome" element={<DemoWelcomePage />} />
+
                 <Route path="/explore" element={<ExplorePage />} />
                 <Route path="/schools/:id" element={<SchoolDetailPage />} />
                 <Route path="/login" element={<LoginPage />} />

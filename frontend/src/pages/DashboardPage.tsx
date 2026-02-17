@@ -13,11 +13,10 @@ import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import { UserRole } from '@/types/dashboard';
-import { DemoTour } from '@/components/demo/DemoTour';
-import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
-import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
+import { UserRole } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { formatCurrency } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
@@ -33,13 +32,8 @@ export default function DashboardPage() {
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
   const { data: notifications } = useNotifications();
 
-  // Check if in demo mode
-  const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
-  const demoRole = sessionStorage.getItem('demo_role') || 'school';
-
-  // Get demo data objects
-  const demoSchoolData = getDemoSchoolData();
-  const demoParentData = getDemoParentData();
+  // No demo mode anymore, purely real data
+  const isDemoMode = false;
 
   // Redirect users to onboarding if they haven't completed setup (skip for demo users)
   useEffect(() => {
@@ -88,23 +82,6 @@ export default function DashboardPage() {
 
   // Logic to determine stats to display
   const dynamicStats = config.stats.map((stat, index) => {
-    // 1. DEMO MODE: ALWAYS SHOW FAKE ABUNDANT DATA
-    if (isDemoMode) {
-      if (profile.role === 'school') {
-        if (index === 0) return { ...stat, value: formatCurrency(demoSchoolData.monthly_revenue), description: 'Ingresos este mes (Demo)' };
-        if (index === 1) return { ...stat, value: demoSchoolData.students_count, description: `${demoSchoolData.students_count} estudiantes activos` };
-        if (index === 2) return { ...stat, value: demoSchoolData.programs.length, description: 'Programas activos' };
-        if (index === 3) return { ...stat, value: demoSchoolData.pending_payments, description: 'Pagos pendientes' };
-      }
-      if (profile.role === 'parent') {
-        if (index === 0) return { ...stat, value: demoParentData.children.length, description: 'Hijos registrados (Demo)' };
-        if (index === 1) return { ...stat, value: '95%', description: 'Asistencia promedio' };
-        if (index === 2) return { ...stat, value: demoParentData.upcoming_payments.length, description: 'Pagos próximos' };
-        if (index === 3) return { ...stat, value: 2, description: 'Notificaciones' };
-      }
-      return stat;
-    }
-
     // 2. REAL USER: SHOW REAL DATA
     if (realStats && !realStatsLoading) {
       if (profile.role === 'school') {
@@ -181,30 +158,19 @@ export default function DashboardPage() {
   // Transform notifications for display (Demo vs Real)
   let displayNotifications;
 
-  if (isDemoMode && profile.role === 'school') {
-    displayNotifications = demoSchoolData.notifications.map((n, idx) => ({
-      id: `demo-${idx}`,
-      title: n.type === 'success' ? '💰 Pago Recibido' : n.type === 'warning' ? '⚠️ Atención' : 'ℹ️ Información',
-      message: n.message,
-      type: n.type,
-      read: false,
-      timestamp: n.time
-    }));
-  } else {
-    displayNotifications = notifications?.slice(0, 5).map(n => ({
-      id: n.id,
-      title: n.title,
-      message: n.message,
-      type: n.type as 'info' | 'warning' | 'success',
-      read: n.read || false,
-      timestamp: new Date(n.created_at).toLocaleDateString('es', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }));
-  }
+  displayNotifications = notifications?.slice(0, 5).map(n => ({
+    id: n.id,
+    title: n.title,
+    message: n.message,
+    type: n.type as 'info' | 'warning' | 'success',
+    read: n.read || false,
+    timestamp: new Date(n.created_at).toLocaleDateString('es', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -265,49 +231,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Parent Dashboard: Children Section */}
-      {profile?.role === 'parent' && isDemoMode && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-semibold tracking-tight">Mis Hijos</h3>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {demoParentData.children.map((child, i) => (
-              <div key={i} className="bg-card text-card-foreground rounded-xl border shadow-sm p-6 space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                    {child.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h4 className="font-semibold">{child.name}</h4>
-                    <p className="text-sm text-muted-foreground">{child.program}</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Asistencia</span>
-                    <span className="font-medium">{child.attendance}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Próxima clase</span>
-                    <span className="font-medium text-right">{child.next_class}</span>
-                  </div>
-                  <div className="pt-2">
-                    <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-green-50 text-green-700 hover:bg-green-100">
-                      Activo
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {/* Add Child Button */}
-            <div className="bg-muted/30 border-dashed border-2 rounded-xl p-6 flex flex-col items-center justify-center gap-2 hover:bg-muted/50 transition-colors cursor-pointer text-muted-foreground hover:text-primary">
-              <div className="h-10 w-10 rounded-full bg-background flex items-center justify-center border shadow-sm">
-                <Plus className="h-5 w-5" />
-              </div>
-              <p className="font-medium">Registrar otro hijo</p>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
