@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { isDemoUser } from '@/lib/demo-check';
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +15,6 @@ import { useState } from 'react';
 
 export default function PaymentsPage() {
   const { user } = useAuth();
-  const isDemo = isDemoUser(user);
   const [selectedPayment, setSelectedPayment] = useState<any>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
@@ -23,43 +22,6 @@ export default function PaymentsPage() {
     setSelectedPayment(payment);
     setIsCheckoutOpen(true);
   };
-
-  // Demo payments data only for demo users
-  const demoPayments = isDemo ? [
-    {
-      id: 'pay-1',
-      parent_id: user?.id,
-      concept: 'Mensualidad Octubre 2024',
-      payment_date: '2024-10-03',
-      receipt_number: 'REC-20241003-001',
-      created_at: '2024-10-03',
-      updated_at: '2024-10-03',
-    },
-    {
-      id: 'pay-2',
-      parent_id: user?.id,
-      concept: 'Mensualidad Septiembre 2024',
-      amount: 300000,
-      status: 'paid',
-      due_date: '2024-09-05',
-      payment_date: '2024-09-04',
-      receipt_number: 'REC-20240904-001',
-      created_at: '2024-09-04',
-      updated_at: '2024-09-04',
-    },
-    {
-      id: 'pay-3',
-      parent_id: user?.id,
-      concept: 'Matrícula 2024',
-      amount: 500000,
-      status: 'paid',
-      due_date: '2024-08-15',
-      payment_date: '2024-08-12',
-      receipt_number: 'REC-20240812-001',
-      created_at: '2024-08-12',
-      updated_at: '2024-08-12',
-    },
-  ] : [];
 
   const { data: paymentsData, isLoading, error, refetch } = useQuery({
     queryKey: ['payments', user?.id],
@@ -75,7 +37,7 @@ export default function PaymentsPage() {
     enabled: !!user?.id,
   });
 
-  const payments = paymentsData && paymentsData.length > 0 ? paymentsData : demoPayments;
+  const payments = paymentsData || [];
 
   const pendingPayment = payments?.find((p) => p.status === 'pending');
   const paidPayments = payments?.filter((p) => p.status === 'paid') || [];

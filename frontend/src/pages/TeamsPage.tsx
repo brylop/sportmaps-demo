@@ -35,58 +35,7 @@ interface Team {
   };
 }
 
-const mockTeams: Team[] = [
-  {
-    id: '1',
-    name: 'Firesquad (Senior L3)',
-    sport: 'Cheerleading',
-    category: 'Senior',
-    players: 22,
-    coach: 'Carlos Rodríguez',
-    wins: 12,
-    losses: 3,
-    nextMatch: {
-      opponent: 'Rockets Bogotá',
-      date: '2025-10-05',
-      location: 'Coliseo Mayor'
-    }
-  },
-  {
-    id: '2',
-    name: 'Butterfly (Junior Prep)',
-    sport: 'Cheerleading',
-    category: 'Junior',
-    players: 15,
-    coach: 'Ana Martínez',
-    wins: 8,
-    losses: 5,
-    nextMatch: {
-      opponent: 'Thunder Cali',
-      date: '2025-10-06',
-      location: 'Centro de Eventos'
-    }
-  },
-  {
-    id: '3',
-    name: 'Bombsquad (Coed L5)',
-    sport: 'Cheerleading',
-    category: 'Coed',
-    players: 12,
-    coach: 'Laura Sánchez',
-    wins: 10,
-    losses: 2
-  },
-  {
-    id: '4',
-    name: 'Legends (Open L6)',
-    sport: 'Cheerleading',
-    category: 'Open',
-    players: 18,
-    coach: 'Miguel Torres',
-    wins: 15,
-    losses: 1
-  }
-];
+const mockTeams: Team[] = [];
 
 export default function TeamsPage() {
   const { can } = usePermissions();

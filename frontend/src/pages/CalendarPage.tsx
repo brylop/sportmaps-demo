@@ -5,9 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { PermissionGate } from '@/components/PermissionGate';
-import { 
-  Calendar as CalendarIcon, 
-  ChevronLeft, 
+import {
+  Calendar as CalendarIcon,
+  ChevronLeft,
   ChevronRight,
   Clock,
   MapPin,
@@ -25,44 +25,7 @@ interface Event {
   participants?: number;
 }
 
-const mockEvents: Event[] = [
-  {
-    id: '1',
-    title: 'Entrenamiento Táctico',
-    date: new Date(2025, 9, 1),
-    time: '16:00 - 18:00',
-    location: 'Cancha Principal',
-    type: 'training',
-    participants: 22
-  },
-  {
-    id: '2',
-    title: 'Partido vs. Academia Norte',
-    date: new Date(2025, 9, 3),
-    time: '10:00 - 12:00',
-    location: 'Estadio Municipal',
-    type: 'match',
-    participants: 30
-  },
-  {
-    id: '3',
-    title: 'Evaluación Física',
-    date: new Date(2025, 9, 5),
-    time: '09:00 - 11:00',
-    location: 'Centro Médico',
-    type: 'evaluation',
-    participants: 15
-  },
-  {
-    id: '4',
-    title: 'Reunión con Padres',
-    date: new Date(2025, 9, 7),
-    time: '18:00 - 19:30',
-    location: 'Sala de Conferencias',
-    type: 'meeting',
-    participants: 40
-  }
-];
+const mockEvents: Event[] = [];
 
 export default function CalendarPage() {
   const { profile } = useAuth();
@@ -108,18 +71,18 @@ export default function CalendarPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Mi Calendario</h1>
           <p className="text-muted-foreground">
-          Gestiona tus entrenamientos, partidos y eventos
-        </p>
+            Gestiona tus entrenamientos, partidos y eventos
+          </p>
+        </div>
+
+        {/* Only users with calendar:create permission can see this button */}
+        <PermissionGate permission="calendar:create">
+          <Button className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nuevo Evento
+          </Button>
+        </PermissionGate>
       </div>
-      
-      {/* Only users with calendar:create permission can see this button */}
-      <PermissionGate permission="calendar:create">
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nuevo Evento
-        </Button>
-      </PermissionGate>
-    </div>
 
       <div className="grid gap-6 md:grid-cols-3">
         {/* Calendar View */}
@@ -161,7 +124,7 @@ export default function CalendarPage() {
                 const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
                 const hasEvents = eventsForDate(date).length > 0;
                 const isToday = date.toDateString() === new Date().toDateString();
-                
+
                 return (
                   <button
                     key={i}
@@ -238,10 +201,10 @@ export default function CalendarPage() {
         <Card className="animate-in fade-in duration-300">
           <CardHeader>
             <CardTitle>
-              Eventos del {selectedDate.toLocaleDateString('es-ES', { 
-                day: 'numeric', 
-                month: 'long', 
-                year: 'numeric' 
+              Eventos del {selectedDate.toLocaleDateString('es-ES', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
               })}
             </CardTitle>
           </CardHeader>
@@ -278,14 +241,14 @@ export default function CalendarPage() {
                     <Button variant="outline" className="flex-1">
                       Ver Detalles
                     </Button>
-                    
+
                     {/* Show edit/delete buttons only if user has permissions */}
                     <PermissionGate permission="calendar:edit">
                       <Button variant="ghost" size="icon">
                         <Clock className="h-4 w-4" />
                       </Button>
                     </PermissionGate>
-                    
+
                     <PermissionGate permission="calendar:delete">
                       <Button variant="ghost" size="icon" className="text-destructive">
                         <Users className="h-4 w-4" />

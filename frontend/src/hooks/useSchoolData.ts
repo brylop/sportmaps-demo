@@ -192,54 +192,14 @@ export function useSchoolFacilities() {
   const { data: facilities, isLoading, error, refetch } = useQuery({
     queryKey: ['school-facilities', schoolId],
     queryFn: async () => {
-      try {
-        const { data, error } = await supabase
-          .from('facilities')
-          .select('*')
-          .eq('school_id', schoolId)
-          .order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('facilities')
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false });
 
-        if (error) throw error;
-        return data as Facility[];
-      } catch (error) {
-        // Mock data for demo/restricted mode
-        console.warn("Using mock facilities due to error:", error);
-        return [
-          {
-            id: 'mock-1',
-            school_id: schoolId || 'demo',
-            name: 'Gimnasio de Acrobatics - Sede Norte',
-            type: 'Gimnasio de Porras',
-            capacity: 30,
-            description: 'Spring floor profesional con paneles de seguridad',
-            status: 'available',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: 'mock-2',
-            school_id: schoolId || 'demo',
-            name: 'Sala de Tumbling - Fontibón',
-            type: 'Pista de Tumbling',
-            capacity: 15,
-            description: 'Pista de tumbling con camas elásticas y fosos de espuma',
-            status: 'available',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: 'mock-3',
-            school_id: schoolId || 'demo',
-            name: 'Área de Estiramientos - La Granja',
-            type: 'Sala de Preparación Física',
-            capacity: 20,
-            description: 'Espacio amplio para calentamiento y flexibilidad',
-            status: 'occupied',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ] as Facility[];
-      }
+      if (error) throw error;
+      return data as Facility[];
     },
     enabled: !!schoolId,
   });
@@ -247,39 +207,20 @@ export function useSchoolFacilities() {
   // Create facility
   const createMutation = useMutation({
     mutationFn: async (input: FacilityInput) => {
-      try {
-        // Try actual API call first
-        const { data, error } = await supabase
-          .from('facilities')
-          .insert({
-            school_id: schoolId,
-            name: input.name,
-            type: input.type,
-            capacity: input.capacity,
-            description: input.description || null,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-        return data;
-      } catch (error: any) {
-        // Fallback for demo/RLS errors
-        console.warn("Falling back to demo mode for facility creation", error);
-
-        // Return a mock facility
-        return {
-          id: `temp-${Date.now()}`,
-          school_id: schoolId || 'demo-school',
+      const { data, error } = await supabase
+        .from('facilities')
+        .insert({
+          school_id: schoolId,
           name: input.name,
           type: input.type,
           capacity: input.capacity,
           description: input.description || null,
-          status: 'available',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        } as Facility;
-      }
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
     },
     onSuccess: (data) => {
       // Optimistically update the cache
@@ -287,7 +228,7 @@ export function useSchoolFacilities() {
         return [data, ...(old || [])];
       });
 
-      toast({ title: '✅ Instalación creada', description: 'La instalación se ha registrado correctamente (Modo Demo)' });
+      toast({ title: '✅ Instalación creada', description: 'La instalación se ha registrado correctamente' });
     },
     onError: (error: any) => {
       // This should rarely be hit now with the try/catch above

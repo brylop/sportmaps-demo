@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { Target, Plus, Calendar, CheckCircle, XCircle, Trophy, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
+
 import { useState } from 'react';
 
 interface Goal {
@@ -18,34 +18,8 @@ interface Goal {
 
 export default function GoalsPage() {
   const { user } = useAuth();
-  const isDemo = isDemoUser(user);
-
-  const [goals] = useState<Goal[]>(isDemo ? [
-    {
-      id: '1',
-      title: 'Mejorar velocidad de sprint',
-      description: 'Reducir tiempo de 100m a menos de 12 segundos',
-      targetDate: '2024-12-31',
-      progress: 75,
-      status: 'active',
-    },
-    {
-      id: '2',
-      title: 'Aumentar resistencia cardiovascular',
-      description: 'Completar 5km en menos de 25 minutos',
-      targetDate: '2024-11-30',
-      progress: 100,
-      status: 'completed',
-    },
-    {
-      id: '3',
-      title: 'Dominar tiro libre',
-      description: 'Lograr 80% de efectividad en tiros libres',
-      targetDate: '2025-01-15',
-      progress: 45,
-      status: 'active',
-    },
-  ] : []);
+  // Clean MVP: No demo data
+  const [goals] = useState<Goal[]>([]);
 
   const getStatusBadge = (status: Goal['status']) => {
     switch (status) {

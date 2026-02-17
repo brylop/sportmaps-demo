@@ -7,26 +7,19 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ArrowLeft, Calendar, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function ChildAttendancePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isDemo = isDemoUser(user);
+
 
   // Fetch child info
   const { data: child, isLoading: loadingChild } = useQuery({
     queryKey: ['child', id],
     queryFn: async () => {
-      if (id?.startsWith('demo-')) {
-        return {
-          id,
-          full_name: id === 'demo-1' ? 'Mateo Pérez' : 'Sofía Pérez',
-          sport: 'Cheerleading',
-          team_name: id === 'demo-1' ? 'Firesquad (Senior L3)' : 'Butterfly (Junior Prep)',
-        };
-      }
+
       const { data, error } = await supabase
         .from('children')
         .select('*')
@@ -43,22 +36,7 @@ export default function ChildAttendancePage() {
   const { data: attendance, isLoading: loadingAttendance } = useQuery({
     queryKey: ['attendance', id],
     queryFn: async () => {
-      if (id?.startsWith('demo-') || isDemoUser) {
-        // Return demo attendance
-        const today = new Date();
-        return [
-          { id: '1', class_date: new Date(today.setDate(today.getDate() - 1)).toISOString().split('T')[0], status: 'present' },
-          { id: '2', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-          { id: '3', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'absent', justification_reason: 'Cita médica' },
-          { id: '4', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-          { id: '5', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'late' },
-          { id: '6', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-          { id: '7', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-          { id: '8', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'absent' },
-          { id: '9', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-          { id: '10', class_date: new Date(today.setDate(today.getDate() - 2)).toISOString().split('T')[0], status: 'present' },
-        ];
-      }
+
       const { data, error } = await supabase
         .from('attendance')
         .select('*')

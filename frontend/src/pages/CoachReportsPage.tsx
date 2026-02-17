@@ -8,27 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { BarChart3, Download, TrendingUp, Users } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function CoachReportsPage() {
   const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
-
-  const isDemo = isDemoUser(user);
-
-  // Demo teams data (only for demo users)
-  const demoTeams = isDemoUser ? [
-    {
-      id: 'demo-team-1',
-      coach_id: user?.id,
-      name: 'Firesquad (Senior L3)',
-      sport: 'Cheerleading',
-      age_group: 'Senior',
-      season: '2024',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
 
   const { data: teamsData } = useQuery({
     queryKey: ['coach-teams', user?.id],
@@ -43,16 +27,7 @@ export default function CoachReportsPage() {
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
-
-  // Demo roster data (only for demo users)
-  const demoRoster = isDemoUser ? [
-    { id: 'player-1', team_id: selectedTeamId, player_name: 'Mateo Pérez', player_number: 10 },
-    { id: 'player-2', team_id: selectedTeamId, player_name: 'Juan Vargas', player_number: 7 },
-    { id: 'player-3', team_id: selectedTeamId, player_name: 'Camila Torres', player_number: 5 },
-    { id: 'player-4', team_id: selectedTeamId, player_name: 'Santiago Rojas', player_number: 1 },
-    { id: 'player-5', team_id: selectedTeamId, player_name: 'Valeria Gómez', player_number: 11 },
-  ] : [];
+  const teams = teamsData || [];
 
   const { data: rosterData } = useQuery({
     queryKey: ['team-roster', selectedTeamId],
@@ -67,35 +42,7 @@ export default function CoachReportsPage() {
     enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
 
-  const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? rosterData
-    : (isDemoUser ? demoRoster : []);
-
-  // Demo results data (only for demo users)
-  const demoResults = isDemoUser ? [
-    {
-      id: 'result-1',
-      team_id: selectedTeamId,
-      match_date: '2024-10-28',
-      opponent: 'Rockets Bogotá',
-      home_score: 92,
-      away_score: 90,
-      is_home: true,
-      match_type: 'Regional',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'result-2',
-      team_id: selectedTeamId,
-      match_date: '2024-10-18',
-      opponent: 'Thunder Cali',
-      home_score: 88,
-      away_score: 85,
-      is_home: true,
-      match_type: 'Nacional',
-      created_at: new Date().toISOString(),
-    },
-  ] : [];
+  const roster = rosterData || [];
 
   const { data: resultsData, isLoading } = useQuery({
     queryKey: ['match-results', selectedTeamId],
@@ -110,25 +57,14 @@ export default function CoachReportsPage() {
     enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
 
-  const results = (resultsData && resultsData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? resultsData
-    : demoResults;
+  const results = resultsData || [];
 
   // Mock attendance data (en producción vendría de session_attendance)
-  const attendanceData = [
-    { name: 'Mateo Pérez', percentage: 100 },
-    { name: 'Juan Vargas', percentage: 95 },
-    { name: 'Santiago Rojas', percentage: 90 },
-    { name: 'Valeria Gómez', percentage: 85 },
-    { name: 'Camila Torres', percentage: 60 },
-  ];
+  // Mock attendance data (en producción vendría de session_attendance)
+  const attendanceData = [];
 
   // Mock scorer data
-  const scorerData = [
-    { name: 'Mateo Pérez', goals: 4 },
-    { name: 'Valeria Gómez', goals: 2 },
-    { name: 'Juan Vargas', goals: 1 },
-  ];
+  const scorerData = [];
 
   return (
     <div className="space-y-6">

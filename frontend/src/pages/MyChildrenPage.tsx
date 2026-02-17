@@ -10,13 +10,13 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { Plus, Calendar, User, School } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
 
-  const isDemo = isDemoUser(user);
+
 
   const { data: children, isLoading, error, refetch } = useQuery({
     queryKey: ['children', user?.id],
@@ -34,40 +34,7 @@ export default function MyChildrenPage() {
   });
 
   // Demo data only for demo users
-  const demoChildren = isDemoUser ? [
-    {
-      id: 'demo-1',
-      full_name: 'Mateo Pérez',
-      date_of_birth: '2013-05-15',
-      team_name: 'Firesquad (Senior L3)',
-      sport: 'Cheerleading',
-      school_name: 'Spirit All Stars',
-      monthly_fee: 180000,
-      school_id: 'demo-school',
-      parent_id: user?.id,
-      avatar_url: null,
-      medical_info: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    {
-      id: 'demo-2',
-      full_name: 'Sofía Pérez',
-      date_of_birth: '2015-08-22',
-      team_name: 'Butterfly (Junior Prep)',
-      sport: 'Cheerleading',
-      school_name: 'Spirit All Stars',
-      monthly_fee: 150000,
-      school_id: 'demo-school',
-      parent_id: user?.id,
-      avatar_url: null,
-      medical_info: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const displayChildren = children && children.length > 0 ? children : demoChildren;
+  const displayChildren = children || [];
 
   if (isLoading) {
     return <LoadingSpinner fullScreen text="Cargando tus hijos..." />;

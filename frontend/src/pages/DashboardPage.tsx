@@ -13,7 +13,6 @@ import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import { UserRole } from '@/types/dashboard';
-import { UserRole } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
@@ -32,12 +31,9 @@ export default function DashboardPage() {
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
   const { data: notifications } = useNotifications();
 
-  // No demo mode anymore, purely real data
-  const isDemoMode = false;
-
-  // Redirect users to onboarding if they haven't completed setup (skip for demo users)
+  // Redirect users to onboarding if they haven't completed setup
   useEffect(() => {
-    if (!profile || !user || isDemoMode) return;
+    if (!profile || !user) return;
 
     const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
 
@@ -64,7 +60,7 @@ export default function DashboardPage() {
           break;
       }
     }
-  }, [profile, user, navigate, isDemoMode]);
+  }, [profile, user, navigate]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -174,24 +170,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Demo Tour */}
-      {isDemoMode && (
-        <DemoTour
-          role={demoRole as any}
-          onComplete={() => {
-            console.log('Tour completed');
-          }}
-        />
-      )}
-
-      {/* Demo Conversion Modal */}
-      {isDemoMode && <DemoConversionModal role={demoRole} />}
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
 
-      {/* Profile Completion Banner - hide in demo mode */}
-      {!isDemoMode && showProfileBanner && (
+      {/* Profile Completion Banner */}
+      {showProfileBanner && (
         <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
       )}
 

@@ -74,15 +74,9 @@ async def health_check():
 # Wompi Payment Integration (server-side only — needs secrets)
 # ============================================================================
 
-WOMPI_INTEGRITY_SECRET = os.environ.get(
-    'WOMPI_INTEGRITY_SECRET', 'test_integrity_LrN9ny6kwmMjrrT6FHcBcLG7Xab1lOBe'
-)
-WOMPI_EVENTS_KEY = os.environ.get(
-    'WOMPI_EVENTS_KEY', 'test_events_pA7ByJn9g6TUGbaSJ5LcTdnlPGjZTHNF'
-)
-WOMPI_PRIVATE_KEY = os.environ.get(
-    'WOMPI_PRIVATE_KEY', 'prv_test_U0pKnKB8x70wfrZt9Wr421jGkFo35fg6'
-)
+WOMPI_INTEGRITY_SECRET = os.environ.get('WOMPI_INTEGRITY_SECRET', '')
+WOMPI_EVENTS_KEY = os.environ.get('WOMPI_EVENTS_KEY', '')
+WOMPI_PRIVATE_KEY = os.environ.get('WOMPI_PRIVATE_KEY', '')
 
 # Optional: Supabase service role key for server-side DB updates
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
