@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Search, Edit, Trash2, Package, Loader2, AlertCircle } from 'lucide-react';
 import { useStoreProducts } from '@/hooks/useStoreData';
-import { mockProducts } from '@/lib/mock-data';
+
 import { ProductFormDialog } from '@/components/store/ProductFormDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
@@ -16,12 +16,12 @@ export default function StoreProductsPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
-  
+
   const { products, isLoading, createProduct, updateProduct, deleteProduct } = useStoreProducts();
 
-  // Use real data if available, otherwise show mock data for demo
-  const displayProducts = products.length > 0 ? products : mockProducts;
-  const isUsingMockData = products.length === 0;
+  // Clean MVP: Only real data
+  const displayProducts = products;
+  const isUsingMockData = false;
 
   const filteredProducts = displayProducts.filter(product =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -145,17 +145,17 @@ export default function StoreProductsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="icon"
                         onClick={() => handleEdit(product)}
                         disabled={isUsingMockData}
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="text-destructive hover:text-destructive"
                         onClick={() => handleDelete(product)}
                         disabled={isUsingMockData}
@@ -201,13 +201,13 @@ export default function StoreProductsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar producto?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. El producto "{selectedProduct?.name}" 
+              Esta acción no se puede deshacer. El producto "{selectedProduct?.name}"
               será eliminado permanentemente de tu catálogo.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={handleConfirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

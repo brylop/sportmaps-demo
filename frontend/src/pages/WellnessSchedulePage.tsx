@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, User, Plus, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useWellnessAppointments, useWellnessStats } from '@/hooks/useWellnessData';
-import { mockAppointments } from '@/lib/mock-data';
 
 const statusConfig = {
   pending: { label: 'Pendiente', variant: 'secondary' as const, color: 'text-yellow-500' },
@@ -15,30 +14,22 @@ const statusConfig = {
 export default function WellnessSchedulePage() {
   const { appointments, isLoading } = useWellnessAppointments();
   const stats = useWellnessStats();
-  
-  // Use real data if available, otherwise show mock data for demo
-  const isUsingMockData = appointments.length === 0;
-  
+
+  // Clean MVP: Only real data
+  const isUsingMockData = false;
+
   const today = new Date().toISOString().split('T')[0];
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-  
-  // Normalize appointments for display
-  const normalizedAppointments = isUsingMockData 
-    ? mockAppointments.map(a => ({
-        ...a,
-        appointment_date: a.date,
-        appointment_time: a.time,
-        service_type: a.service,
-        athlete_name: a.client_name,
-      }))
-    : appointments;
-  
-  const todayAppointments = normalizedAppointments.filter(a => 
-    a.appointment_date === today || (isUsingMockData && a.appointment_date === '2025-12-26')
+
+  // Normalize appointments for display (Assuming API returns correct format, or handle empty)
+  const normalizedAppointments = appointments;
+
+  const todayAppointments = normalizedAppointments.filter(a =>
+    a.appointment_date === today
   );
-  
-  const tomorrowAppointments = normalizedAppointments.filter(a => 
-    a.appointment_date === tomorrow || (isUsingMockData && a.appointment_date === '2025-12-27')
+
+  const tomorrowAppointments = normalizedAppointments.filter(a =>
+    a.appointment_date === tomorrow
   );
 
   if (isLoading) {
@@ -140,7 +131,7 @@ export default function WellnessSchedulePage() {
                   const time = appointment.appointment_time;
                   const service = appointment.service_type;
                   const name = appointment.athlete_name || 'Paciente';
-                  
+
                   return (
                     <div key={appointment.id} className="flex items-center gap-4 p-3 rounded-lg border bg-card">
                       <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
@@ -183,7 +174,7 @@ export default function WellnessSchedulePage() {
                   const time = appointment.appointment_time;
                   const service = appointment.service_type;
                   const name = appointment.athlete_name || 'Paciente';
-                  
+
                   return (
                     <div key={appointment.id} className="flex items-center gap-4 p-3 rounded-lg border bg-card">
                       <div className="flex items-center justify-center w-12 h-12 rounded-full bg-muted">

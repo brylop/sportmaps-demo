@@ -1,12 +1,23 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Package, AlertTriangle, TrendingUp, BarChart3 } from 'lucide-react';
-import { mockProducts, getStoreStats } from '@/lib/mock-data';
+import { Package, AlertTriangle, TrendingUp, BarChart3, Loader2 } from 'lucide-react';
+import { useStoreProducts, useStoreStats } from '@/hooks/useStoreData';
 
 export default function StoreInventoryPage() {
-  const stats = getStoreStats();
-  const lowStockProducts = mockProducts.filter(p => p.stock < 20);
+  const { products, isLoading: productsLoading } = useStoreProducts();
+  const stats = useStoreStats();
+
+  const lowStockProducts = products.filter(p => p.stock < 20);
+  const isLoading = productsLoading || stats.isLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -103,11 +114,14 @@ export default function StoreInventoryPage() {
           <CardContent>
             <div className="space-y-4">
               {['Fútbol', 'Tenis', 'Running', 'Fitness', 'Boxeo', 'Ropa'].map((category) => {
-                const categoryProducts = mockProducts.filter(p => p.category === category);
+                const categoryProducts = products.filter(p => p.category === category);
                 const totalStock = categoryProducts.reduce((acc, p) => acc + p.stock, 0);
-                const maxStock = 200;
+                const maxStock = 200; // Arbitrary max for progress bar
                 const percentage = Math.min((totalStock / maxStock) * 100, 100);
-                
+
+                // Only show categories with products
+                if (categoryProducts.length === 0) return null;
+
                 return (
                   <div key={category} className="space-y-2">
                     <div className="flex justify-between text-sm">
@@ -118,6 +132,9 @@ export default function StoreInventoryPage() {
                   </div>
                 );
               })}
+              {products.length === 0 && (
+                <p className="text-muted-foreground text-center py-4">No hay datos de inventario.</p>
+              )}
             </div>
           </CardContent>
         </Card>

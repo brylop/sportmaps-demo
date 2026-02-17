@@ -5,20 +5,21 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Search, Plus, User, Activity, Calendar, FileText, Loader2, AlertCircle } from 'lucide-react';
-import { mockPatients } from '@/lib/mock-data';
+
 import { useHealthRecords, useWellnessEvaluations } from '@/hooks/useWellnessData';
 import { EvaluationFormDialog } from '@/components/wellness/EvaluationFormDialog';
 
 export default function WellnessPatientsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEvaluationOpen, setIsEvaluationOpen] = useState(false);
-  
+
   const { records, isLoading: recordsLoading } = useHealthRecords();
   const { evaluations, createEvaluation, isLoading: evalLoading } = useWellnessEvaluations();
 
   // Use real data if available, fallback to mock
-  const isUsingMockData = records.length === 0;
-  const displayPatients = isUsingMockData ? mockPatients : records.map(r => ({
+  // Clean MVP: Only real data
+  const isUsingMockData = false;
+  const displayPatients = records.map(r => ({
     id: r.id,
     name: r.athlete_id.substring(0, 8),
     age: 25,
@@ -123,7 +124,7 @@ export default function WellnessPatientsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Evaluaciones</p>
-                <p className="text-2xl font-bold">{evaluations.length || mockPatients.length}</p>
+                <p className="text-2xl font-bold">{evaluations.length}</p>
               </div>
               <FileText className="h-8 w-8 text-orange" />
             </div>
@@ -135,7 +136,7 @@ export default function WellnessPatientsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Seguimientos Pendientes</p>
                 <p className="text-2xl font-bold text-yellow-600">
-                  {evaluations.filter(e => e.status === 'pending').length || 2}
+                  {evaluations.filter(e => e.status === 'pending').length}
                 </p>
               </div>
               <Calendar className="h-8 w-8 text-yellow-500" />
