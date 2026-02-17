@@ -68,6 +68,8 @@ import FinancesPage from "./pages/FinancesPage";
 import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
 import ReportsPage from "./pages/ReportsPage";
 import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
+import SchoolBranchesManagementPage from "./pages/SchoolBranchesManagementPage";
+import SchoolSettingsPage from "./pages/SchoolSettingsPage";
 import PickupMonitorPage from "./pages/school/PickupMonitorPage";
 
 // Onboarding pages
@@ -237,6 +239,16 @@ const App = () => (
                   <Route path="facilities" element={
                     <ProtectedRoute allowedRoles={['school', 'admin']}>
                       <SchoolFacilitiesPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="branches" element={
+                    <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <SchoolBranchesManagementPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="school-config" element={
+                    <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <SchoolSettingsPage />
                     </ProtectedRoute>
                   } />
                   <Route path="pickup" element={

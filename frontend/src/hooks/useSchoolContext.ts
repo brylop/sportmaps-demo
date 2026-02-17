@@ -12,6 +12,7 @@ export interface SchoolRole {
     schoolId: string;
     schoolName: string;
     role: 'owner' | 'admin' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer';
+    branchId: string | null;
 }
 
 export interface SchoolContext {
@@ -20,7 +21,13 @@ export interface SchoolContext {
     currentUserRole: SchoolRole['role'] | null;
     programs: SchoolProgram[];
     availableSchools: SchoolRole[];
-    switchSchool: (schoolId: string) => void;
+    activeBranchId: string | null;
+    activeBranchName: string;
+    onboardingStatus: 'pending' | 'in_progress' | 'completed';
+    schoolSettings: any | null;
+    updateOnboardingStatus: (status: 'pending' | 'in_progress' | 'completed') => Promise<void>;
+    updateOnboardingStep: (step: number) => Promise<void>;
+    switchSchool: (schoolId: string, branchId?: string | null) => void;
     defaultMonthlyFee: number;
     loading: boolean;
     error: string | null;
@@ -41,6 +48,10 @@ export function useSchoolContext(): SchoolContext {
 
     const [availableSchools, setAvailableSchools] = useState<SchoolRole[]>([]);
     const [programs, setPrograms] = useState<SchoolProgram[]>([]);
+    const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+    const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
+    const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
+    const [schoolSettings, setSchoolSettings] = useState<any | null>(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -61,7 +72,7 @@ export function useSchoolContext(): SchoolContext {
                 // Fetch memberships
                 const { data: memberships, error: memberError } = await supabase
                     .from('school_members')
-                    .select('school_id, role, schools(id, name)')
+                    .select('school_id, role, branch_id, schools(id, name, onboarding_status)')
                     .eq('profile_id', user.id)
                     .eq('status', 'active');
 
@@ -72,6 +83,8 @@ export function useSchoolContext(): SchoolContext {
                         schoolId: m.school_id,
                         schoolName: m.schools?.name || 'Escuela sin nombre',
                         role: m.role as SchoolRole['role'],
+                        branchId: m.branch_id || null,
+                        onboardingStatus: (m.schools?.onboarding_status as any) || 'completed'
                     }));
 
                     setAvailableSchools(mappedSchools);
@@ -111,7 +124,7 @@ export function useSchoolContext(): SchoolContext {
                 setActiveSchoolId(demoSchool.id);
                 setActiveSchoolName(demoSchool.name);
                 setCurrentUserRole('viewer'); // Guest role
-                setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer' }]);
+                setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer', branchId: null }]);
             } else {
                 // Absolute fallback
                 const { data: anySchool } = await supabase.from('schools').select('id, name').limit(1).maybeSingle();
@@ -119,7 +132,7 @@ export function useSchoolContext(): SchoolContext {
                     setActiveSchoolId(anySchool.id);
                     setActiveSchoolName(anySchool.name);
                     setCurrentUserRole('viewer');
-                    setAvailableSchools([{ schoolId: anySchool.id, schoolName: anySchool.name, role: 'viewer' }]);
+                    setAvailableSchools([{ schoolId: anySchool.id, schoolName: anySchool.name, role: 'viewer', branchId: null }]);
                 } else {
                     setError('No se encontró ninguna escuela en el sistema.');
                 }
@@ -136,31 +149,56 @@ export function useSchoolContext(): SchoolContext {
     // 2. Effect: Fetch Programs when Active School Changes
     useEffect(() => {
         if (activeSchoolId) {
-            fetchPrograms(activeSchoolId);
+            fetchPrograms(activeSchoolId, activeBranchId);
+            fetchSettings(activeSchoolId);
         }
-    }, [activeSchoolId]);
+    }, [activeSchoolId, activeBranchId]);
 
-    const selectSchool = (school: SchoolRole) => {
+    const selectSchool = async (school: any) => {
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
+        setActiveBranchId(school.branchId);
+
+        if (school.branchId) {
+            const { data: branch } = await supabase
+                .from('school_branches')
+                .select('name')
+                .eq('id', school.branchId)
+                .maybeSingle();
+            setActiveBranchName(branch?.name || 'Sede');
+        } else {
+            setActiveBranchName('Todas las sedes');
+        }
+
+        setOnboardingStatus(school.onboardingStatus || 'completed');
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
     };
 
-    const switchSchool = (schoolId: string) => {
-        const target = availableSchools.find(s => s.schoolId === schoolId);
+    const switchSchool = (schoolId: string, branchId: string | null = null) => {
+        const target = availableSchools.find(s => s.schoolId === schoolId && s.branchId === branchId);
         if (target) {
             selectSchool(target);
+        } else {
+            // If branch not found, try to find any branch in that school or the school itself
+            const anyInSchool = availableSchools.find(s => s.schoolId === schoolId);
+            if (anyInSchool) selectSchool(anyInSchool);
         }
     };
 
-    const fetchPrograms = async (id: string) => {
+    const fetchPrograms = async (id: string, branchId: string | null = null) => {
         setLoading(true);
         try {
-            const { data: programsData } = await supabase
+            let query = supabase
                 .from('programs')
-                .select('id, name, price_monthly, sport')
+                .select('id, name, price_monthly, sport, branch_id')
                 .eq('school_id', id);
+
+            if (branchId) {
+                query = query.eq('branch_id', branchId);
+            }
+
+            const { data: programsData } = await query;
 
             if (programsData) {
                 setPrograms(
@@ -181,12 +219,54 @@ export function useSchoolContext(): SchoolContext {
         }
     };
 
+    const fetchSettings = async (id: string) => {
+        const { data } = await supabase
+            .from('school_settings')
+            .select('*')
+            .eq('school_id', id)
+            .maybeSingle();
+        setSchoolSettings(data);
+    };
+
+    const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed') => {
+        if (!activeSchoolId) return;
+        try {
+            const { error: updateError } = await supabase
+                .from('schools')
+                .update({ onboarding_status: status })
+                .eq('id', activeSchoolId);
+
+            if (updateError) throw updateError;
+            setOnboardingStatus(status);
+        } catch (err) {
+            console.error('Failed to update onboarding status:', err);
+        }
+    };
+
+    const updateOnboardingStep = async (step: number) => {
+        if (!activeSchoolId) return;
+        try {
+            await supabase
+                .from('schools')
+                .update({ onboarding_step: step })
+                .eq('id', activeSchoolId);
+        } catch (err) {
+            console.error('Failed to update onboarding step:', err);
+        }
+    };
+
     return {
         schoolId: activeSchoolId,
         schoolName: activeSchoolName,
         currentUserRole,
         programs,
         availableSchools,
+        activeBranchId,
+        activeBranchName,
+        onboardingStatus,
+        schoolSettings,
+        updateOnboardingStatus,
+        updateOnboardingStep,
         switchSchool,
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,

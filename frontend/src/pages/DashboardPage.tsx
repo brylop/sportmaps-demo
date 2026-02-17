@@ -1,6 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
@@ -15,10 +16,12 @@ import { UserRole } from '@/types/dashboard';
 import { DemoTour } from '@/components/demo/DemoTour';
 import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
 import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
-import { Plus } from 'lucide-react';
+import { Plus, MapPin } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export default function DashboardPage() {
   const { profile, user } = useAuth();
+  const { activeBranchId, activeBranchName } = useSchoolContext();
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
 
@@ -233,9 +236,19 @@ export default function DashboardPage() {
       />
 
       {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
-        <p className="text-muted-foreground font-poppins">{config.description}</p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
+            {activeBranchId && (
+              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 animate-in fade-in slide-in-from-left-2">
+                <MapPin className="h-3 w-3 mr-1" />
+                {activeBranchName}
+              </Badge>
+            )}
+          </div>
+          <p className="text-muted-foreground font-poppins">{config.description}</p>
+        </div>
       </div>
 
       {/* Stats Grid */}

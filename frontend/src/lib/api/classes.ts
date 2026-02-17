@@ -307,12 +307,18 @@ class ClassesAPI {
   /**
    * Get class/program statistics for a school
    */
-  async getStats(schoolId: string): Promise<ClassStats> {
+  async getStats(schoolId: string, branchId?: string | null): Promise<ClassStats> {
     try {
-      const { data: programs } = await supabase
+      let query = supabase
         .from('programs')
-        .select('id, sport, active, current_participants')
+        .select('id, sport, active, current_participants, branch_id')
         .eq('school_id', schoolId);
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+
+      const { data: programs } = await query;
 
       if (!programs) return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
 

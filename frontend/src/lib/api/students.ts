@@ -299,12 +299,18 @@ class StudentsAPI {
   /**
    * Get student statistics for a school
    */
-  async getStats(schoolId: string): Promise<StudentStats> {
+  async getStats(schoolId: string, branchId?: string | null): Promise<StudentStats> {
     try {
-      const { data: students, count: total } = await supabase
+      let query = supabase
         .from('children')
         .select('grade', { count: 'exact' })
         .eq('school_id', schoolId);
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+
+      const { data: students, count: total } = await query;
 
       // Calculations
       const by_grade: Record<string, number> = {};

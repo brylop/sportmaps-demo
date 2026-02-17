@@ -31,7 +31,7 @@ export interface DashboardStats {
 
 export function useDashboardStatsReal() {
   const { profile } = useAuth();
-  const { schoolId } = useSchoolContext();
+  const { schoolId, activeBranchId } = useSchoolContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -44,7 +44,7 @@ export function useDashboardStatsReal() {
     } else {
       setLoading(false);
     }
-  }, [profile, schoolId]);
+  }, [profile, schoolId, activeBranchId]);
 
   const loadStats = async () => {
     if (!profile || !schoolId || loadingRef.current) {
@@ -56,31 +56,42 @@ export function useDashboardStatsReal() {
       setLoading(true);
 
       if (profile.role === 'school' || profile.role === 'admin' || profile.role === 'coach') {
-        // Load real school stats
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        // Revenue query
-        const { data: revenueData } = await supabase
+        // Revenue query with branch filter
+        let revenueQuery = supabase
           .from('payments')
           .select('amount')
           .eq('school_id', schoolId)
           .eq('status', 'paid')
           .gte('payment_date', startOfMonth.toISOString());
 
+        if (activeBranchId) {
+          revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
+        }
+
+        const { data: revenueData } = await revenueQuery;
         const monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
-        // Pending payments query
-        const { count: pendingCount } = await supabase
+        // Pending payments query with branch filter
+        let pendingQuery = supabase
           .from('payments')
           .select('*', { count: 'exact', head: true })
           .eq('school_id', schoolId)
           .eq('status', 'pending');
 
+        if (activeBranchId) {
+          pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
+        }
+
+        const { count: pendingCount } = await pendingQuery;
+
+        // Note: studentsAPI and classesAPI might need branchId support too
         const [studentStats, classStats] = await Promise.all([
-          studentsAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
-          classesAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
+          studentsAPI.getStats(schoolId, activeBranchId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
+          classesAPI.getStats(schoolId, activeBranchId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
         ]);
 
         setStats({
