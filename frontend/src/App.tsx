@@ -66,6 +66,7 @@ import AttendanceSupervisionPage from "./pages/AttendanceSupervisionPage";
 import ResultsOverviewPage from "./pages/ResultsOverviewPage";
 import FinancesPage from "./pages/FinancesPage";
 import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
+import PaymentRemindersPage from "./pages/PaymentRemindersPage";
 import ReportsPage from "./pages/ReportsPage";
 import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
 import SchoolBranchesManagementPage from "./pages/SchoolBranchesManagementPage";
@@ -229,6 +230,11 @@ const App = () => (
                   <Route path="payments-automation" element={
                     <ProtectedRoute allowedRoles={['school', 'admin']}>
                       <PaymentsAutomationPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="payment-reminders" element={
+                    <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <PaymentRemindersPage />
                     </ProtectedRoute>
                   } />
                   <Route path="school-reports" element={

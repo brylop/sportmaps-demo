@@ -21,6 +21,7 @@ interface CSVImportModalProps {
   onClose: () => void;
   onSuccess: () => void;
   schoolId: string;
+  schoolName: string;
 }
 
 interface ParsedStudent {
@@ -36,7 +37,7 @@ interface ParsedStudent {
   monthly_fee: number;
 }
 
-export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImportModalProps) {
+export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName }: CSVImportModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -160,6 +161,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId }: CSVImport
             parentPhone: s.parent_phone || undefined,
             parentName: s.parent_name || undefined,
             schoolId,
+            schoolName,
             monthlyFee: s.monthly_fee,
             programName: s.grade || 'Importado CSV',
           });

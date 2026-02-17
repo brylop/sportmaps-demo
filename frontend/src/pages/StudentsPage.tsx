@@ -9,11 +9,13 @@ import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw, Share2 } from 'luci
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
+  const { schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
@@ -297,6 +299,7 @@ export default function StudentsPage() {
         onClose={() => setShowImportModal(false)}
         onSuccess={handleCSVImportSuccess}
         schoolId={profile?.id || 'demo-school'}
+        schoolName={schoolName || 'Tu Escuela'}
       />
 
       {/* Enroll Student Modal */}

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { emailClient } from '@/lib/email-client';
+import { EmailTemplates } from '@/lib/email-templates';
 
 export interface SchoolProgram {
     id: string;
@@ -285,6 +287,7 @@ export async function createStudentWithPendingPayment(params: {
     parentPhone?: string;
     parentName?: string;
     schoolId: string;
+    schoolName?: string;
     programId?: string;
     programName?: string;
     monthlyFee: number;
@@ -299,8 +302,8 @@ export async function createStudentWithPendingPayment(params: {
         .insert({
             full_name: params.fullName,
             date_of_birth: params.dateOfBirth || null,
-            // parent_email: params.parentEmail || null, // Check if these exist in schema. Safe to omit if unsure?
-            // parent_phone: params.parentPhone || null,
+            parent_email_temp: params.parentEmail || null,
+            parent_phone_temp: params.parentPhone || null,
             medical_info: params.medicalInfo || null,
             notes: params.notes || null,
             school_id: params.schoolId, // Ensure school_id is set
@@ -332,6 +335,25 @@ export async function createStudentWithPendingPayment(params: {
 
     if (paymentError) {
         console.warn('Payment insert failed (demo fallback):', paymentError.message);
+    }
+
+
+
+    // 3. Send Invitation Email if parent email provided
+    if (params.parentEmail && !childError) {
+        const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent`;
+
+        await emailClient.send({
+            to: params.parentEmail,
+            subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
+            html: EmailTemplates.invitation(
+                params.parentName || 'Padre de Familia',
+                params.fullName,
+                params.schoolName || 'nuestra escuela',
+                inviteLink
+            )
+        });
+        console.log(`✉️ Invitación enviada a ${params.parentEmail}`);
     }
 
     return {

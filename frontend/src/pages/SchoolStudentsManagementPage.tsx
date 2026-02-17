@@ -510,6 +510,7 @@ export default function SchoolStudentsManagementPage() {
           queryClient.invalidateQueries({ queryKey: ['school-students'] });
         }}
         schoolId={schoolId || 'demo-school'}
+        schoolName={schoolName}
       />
     </div>
   );
