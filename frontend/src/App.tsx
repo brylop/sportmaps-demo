@@ -77,7 +77,15 @@ import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
 import CoachOnboardingPage from "./pages/CoachOnboardingPage";
 import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
 import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
-import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
+// ... imports
+import ParentOnboardingPage from "./pages/ParentOnboardingPage";
+
+// ... inside Routes
+                  <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+                  <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
+                  <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
+                  <Route path="parent-onboarding" element={<ParentOnboardingPage />} />
+                  <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
 
 // Athlete pages
 import GoalsPage from "./pages/GoalsPage";
