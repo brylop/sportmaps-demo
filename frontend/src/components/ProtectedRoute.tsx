@@ -57,8 +57,10 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
         targetRoute = '/coach-onboarding';
         break;
       case 'athlete':
-      case 'parent':
         targetRoute = '/athlete-onboarding';
+        break;
+      case 'parent':
+        targetRoute = '/parent-onboarding';
         break;
       case 'wellness_professional':
         targetRoute = '/wellness-onboarding';
