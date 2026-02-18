@@ -1,9 +1,9 @@
 -- ==============================================================================
--- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED)
+-- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED V2)
 -- Fecha: 2026-02-17
 -- Autor: Antigravity AI Agent
--- Descripción: Script corregido. Corrige el error de columna 'admin_id' y elimina
---              índices redundantes. Comenta índices opcionales (riesgo).
+-- Descripción: Corrección V2. Elimina referencia a columna inexistente 'payer_id'.
+--              Usa 'owner_id' en schools. Comenta índices de riesgo.
 -- ==============================================================================
 
 BEGIN;
@@ -73,7 +73,8 @@ ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage payments" ON public.payments;
 CREATE POLICY "Admins manage payments" ON public.payments FOR ALL USING (check_is_school_admin(school_id));
 DROP POLICY IF EXISTS "Parents view own payments" ON public.payments;
-CREATE POLICY "Parents view own payments" ON public.payments FOR SELECT USING (parent_id = auth.uid() OR payer_id = auth.uid());
+-- Fixed: Removed payer_id reference (column does not exist)
+CREATE POLICY "Parents view own payments" ON public.payments FOR SELECT USING (parent_id = auth.uid());
 
 -- Re-Apply Policies (Enrollments)
 ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;

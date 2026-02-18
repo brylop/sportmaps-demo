@@ -100,7 +100,6 @@ CREATE POLICY "Parents view own payments"
   FOR SELECT
   USING (
     parent_id = auth.uid() -- Assuming parent_id column exists on payments or via link
-    OR payer_id = auth.uid() -- fallback
   );
 
 
