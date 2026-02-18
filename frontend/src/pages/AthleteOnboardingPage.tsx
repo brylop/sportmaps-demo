@@ -18,6 +18,18 @@ export default function AthleteOnboardingPage() {
   const { profile, user, updateProfile } = useAuth();
   const navigate = useNavigate();
   const [completeLoading, setCompleteLoading] = useState(false);
+  const handleActionClick = async (route: string) => {
+    if (!user) return;
+    setCompleteLoading(true);
+    try {
+      await updateProfile({ onboarding_completed: true });
+      navigate(route);
+    } catch (error) {
+      console.error('Error completing onboarding action:', error);
+      setCompleteLoading(false);
+    }
+  };
+
   const quickActions = [
     {
       id: 'programs',
@@ -92,7 +104,8 @@ export default function AthleteOnboardingPage() {
                 </p>
                 <Button
                   className="mt-3"
-                  onClick={() => navigate('/explore')}
+                  onClick={() => handleActionClick('/explore')}
+                  disabled={completeLoading}
                 >
                   <Dumbbell className="w-4 h-4 mr-2" />
                   Explorar Programas
@@ -134,8 +147,10 @@ export default function AthleteOnboardingPage() {
 
                     <Button
                       className="w-full group"
-                      onClick={() => navigate(action.route)}
+                      onClick={() => handleActionClick(action.route)}
+                      disabled={completeLoading}
                     >
+                      {completeLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       {action.buttonText}
                       <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Button>
