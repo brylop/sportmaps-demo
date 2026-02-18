@@ -36,9 +36,9 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
     !skipOnboardingCheck &&
     (profile?.role === 'school' || currentUserRole === 'owner') &&
     onboardingStatus !== 'completed' &&
-    location.pathname !== '/onboarding'
+    location.pathname !== '/school-onboarding'
   ) {
-    return <Navigate to="/onboarding" replace />;
+    return <Navigate to="/school-onboarding" replace />;
   }
 
   return <>{children}</>;
