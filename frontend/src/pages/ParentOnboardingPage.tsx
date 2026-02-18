@@ -19,6 +19,20 @@ export default function ParentOnboardingPage() {
   const navigate = useNavigate();
   const [completeLoading, setCompleteLoading] = useState(false);
 
+  const handleActionClick = async (route: string) => {
+    if (!user) return;
+    setCompleteLoading(true);
+    try {
+      // Mark onboarding as complete so the user can access the target route
+      await updateProfile({ onboarding_completed: true });
+      // Navigate immediately
+      navigate(route);
+    } catch (error) {
+      console.error('Error completing onboarding action:', error);
+      setCompleteLoading(false);
+    }
+  };
+
   const quickActions = [
     {
       id: 'children',
@@ -94,7 +108,8 @@ export default function ParentOnboardingPage() {
                 </p>
                 <Button
                   className="mt-3"
-                  onClick={() => navigate('/children')}
+                  onClick={() => handleActionClick('/children')}
+                  disabled={completeLoading}
                 >
                   <Users className="w-4 h-4 mr-2" />
                   Ir a Mis Hijos
@@ -137,8 +152,10 @@ export default function ParentOnboardingPage() {
                     <Button
                       className="w-full group"
                       variant="outline"
-                      onClick={() => navigate(action.route)}
+                      onClick={() => handleActionClick(action.route)}
+                      disabled={completeLoading}
                     >
+                      {completeLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       {action.buttonText}
                       <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                     </Button>
