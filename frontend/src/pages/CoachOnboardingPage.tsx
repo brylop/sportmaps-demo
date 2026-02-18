@@ -1,22 +1,23 @@
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Calendar, 
-  Users, 
+// ... imports
+import { useState } from 'react';
+import {
+  Calendar,
+  Users,
   ClipboardList,
   User,
   CheckCircle2,
   Sparkles,
-  Clock
+  Clock,
+  Loader2,
+  ArrowRight
 } from 'lucide-react';
 
 export default function CoachOnboardingPage() {
-  const { profile } = useAuth();
+  const { profile, user, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const [completeLoading, setCompleteLoading] = useState(false);
 
+  // ... (modules array remain same)
   const modules = [
     {
       id: 'programs',
@@ -43,6 +44,19 @@ export default function CoachOnboardingPage() {
       route: '/coach-reports',
     },
   ];
+
+  const handleCompleteOnboarding = async () => {
+    if (!user) return;
+    setCompleteLoading(true);
+    try {
+      await updateProfile({ onboarding_completed: true });
+      setTimeout(() => navigate('/dashboard'), 500);
+    } catch (error) {
+      console.error('Error completing onboarding:', error);
+    } finally {
+      setCompleteLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background p-6">
@@ -74,8 +88,8 @@ export default function CoachOnboardingPage() {
                   Cuando te asignen tu primer programa, aparecerá aquí y en tu calendario.
                 </p>
                 <div className="flex gap-2 pt-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => navigate('/profile')}
                   >
@@ -96,13 +110,13 @@ export default function CoachOnboardingPage() {
               const Icon = module.icon;
 
               return (
-                <Card 
+                <Card
                   key={module.id}
                   className="relative overflow-hidden hover:shadow-lg transition-all duration-300"
                 >
                   {/* Gradient top bar */}
                   <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${module.gradient}`} />
-                  
+
                   <CardHeader>
                     <div className="flex items-start gap-4">
                       <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${module.gradient} flex items-center justify-center flex-shrink-0`}>
@@ -111,13 +125,13 @@ export default function CoachOnboardingPage() {
                       <CardTitle className="text-lg">{module.title}</CardTitle>
                     </div>
                   </CardHeader>
-                  
+
                   <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground">
                       {module.description}
                     </p>
-                    
-                    <Button 
+
+                    <Button
                       variant="outline"
                       className="w-full"
                       onClick={() => navigate(module.route)}
@@ -131,15 +145,35 @@ export default function CoachOnboardingPage() {
           </div>
         </div>
 
-        {/* Info Card */}
+        {/* Info Card with Completion Button */}
         <Card className="bg-muted/50 border-dashed">
           <CardContent className="pt-6">
-            <div className="text-center space-y-2">
-              <h3 className="font-semibold">¿Qué sigue?</h3>
-              <p className="text-sm text-muted-foreground">
-                Una vez que el administrador te asigne clases y programas, recibirás una notificación
-                y podrás comenzar a gestionar tus estudiantes y tomar asistencia.
-              </p>
+            <div className="text-center space-y-4">
+              <div>
+                <h3 className="font-semibold">¿Listo para comenzar?</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Confirma que has revisado la información inicial para acceder a tu panel principal.
+                </p>
+              </div>
+
+              <Button
+                size="lg"
+                onClick={handleCompleteOnboarding}
+                disabled={completeLoading}
+                className="w-full sm:w-auto min-w-[200px]"
+              >
+                {completeLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Actualizando...
+                  </>
+                ) : (
+                  <>
+                    Ir a mi Dashboard
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </>
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
