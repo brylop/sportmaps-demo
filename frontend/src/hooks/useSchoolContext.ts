@@ -100,9 +100,11 @@ export function useSchoolContext(): SchoolContext {
                     } else {
                         selectSchool(mappedSchools[0]);
                     }
+                } else {
                     // Authenticated but no memberships (New School Owner)
                     // Do NOT fallback to random school. Leave empty to trigger Onboarding.
                     console.log('User has no school memberships. Triggering Onboarding state.');
+                    setAvailableSchools([]);
                     setActiveSchoolId(null);
                     setActiveSchoolName('Mi Escuela');
                     setCurrentUserRole('owner'); // Default to owner so they can create
@@ -111,6 +113,9 @@ export function useSchoolContext(): SchoolContext {
             } catch (err: any) {
                 console.error('useSchoolContext resolution error:', err);
                 setError(err.message);
+                // On error, also stop loading
+            } finally {
+                setLoading(false);
             }
         };
 
