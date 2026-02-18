@@ -196,7 +196,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       if (data.user) {
-        await createProfile(data.user.id, userData);
+        // Profile creation is handled by DB Triggers for security
+        // await createProfile(data.user.id, userData);
         toast({
           title: "¡Registro exitoso!",
           description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
