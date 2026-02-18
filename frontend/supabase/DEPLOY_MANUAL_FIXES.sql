@@ -1,9 +1,12 @@
 -- ==============================================================================
--- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED V2)
+-- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED V3)
 -- Fecha: 2026-02-17
 -- Autor: Antigravity AI Agent
--- Descripción: Corrección V2. Elimina referencia a columna inexistente 'payer_id'.
---              Usa 'owner_id' en schools. Comenta índices de riesgo.
+-- Descripción: Corrección V3.
+--              1. Usa 'owner_id' en schools (Index).
+--              2. Elimina 'payer_id' (Payments RLS).
+--              3. Usa 'child_id' en vez de 'student_id' (Enrollments RLS).
+--              4. Simplifica joins.
 -- ==============================================================================
 
 BEGIN;
@@ -79,9 +82,11 @@ CREATE POLICY "Parents view own payments" ON public.payments FOR SELECT USING (p
 -- Re-Apply Policies (Enrollments)
 ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage enrollments" ON public.enrollments;
-CREATE POLICY "Admins manage enrollments" ON public.enrollments FOR ALL USING (EXISTS (SELECT 1 FROM public.programs p WHERE p.id = enrollments.program_id AND check_is_school_admin(p.school_id)));
+-- Optimized: Use enrollments.school_id directly instead of join
+CREATE POLICY "Admins manage enrollments" ON public.enrollments FOR ALL USING (check_is_school_admin(school_id));
 DROP POLICY IF EXISTS "Parents view own enrollments" ON public.enrollments;
-CREATE POLICY "Parents view own enrollments" ON public.enrollments FOR SELECT USING (EXISTS (SELECT 1 FROM public.children c WHERE c.id = enrollments.student_id AND c.parent_id = auth.uid()));
+-- Fixed: student_id -> child_id
+CREATE POLICY "Parents view own enrollments" ON public.enrollments FOR SELECT USING (EXISTS (SELECT 1 FROM public.children c WHERE c.id = enrollments.child_id AND c.parent_id = auth.uid()));
 
 -- Re-Apply Policies (School Members)
 ALTER TABLE public.school_members ENABLE ROW LEVEL SECURITY;
