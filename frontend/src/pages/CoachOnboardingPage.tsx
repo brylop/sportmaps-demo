@@ -49,6 +49,18 @@ export default function CoachOnboardingPage() {
     },
   ];
 
+  const handleActionClick = async (route: string) => {
+    if (!user) return;
+    setCompleteLoading(true);
+    try {
+      await updateProfile({ onboarding_completed: true });
+      navigate(route);
+    } catch (error) {
+      console.error('Error completing onboarding action:', error);
+      setCompleteLoading(false);
+    }
+  };
+
   const handleCompleteOnboarding = async () => {
     if (!user) return;
     setCompleteLoading(true);
@@ -138,8 +150,10 @@ export default function CoachOnboardingPage() {
                     <Button
                       variant="outline"
                       className="w-full"
-                      onClick={() => navigate(module.route)}
+                      onClick={() => handleActionClick(module.route)}
+                      disabled={completeLoading}
                     >
+                      {completeLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                       Ver Módulo
                     </Button>
                   </CardContent>
