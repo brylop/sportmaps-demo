@@ -77,7 +77,7 @@ import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
 import CoachOnboardingPage from "./pages/CoachOnboardingPage";
 import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
 import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
-// ... imports
+import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
 import ParentOnboardingPage from "./pages/ParentOnboardingPage";
 
 // ... inside Routes
