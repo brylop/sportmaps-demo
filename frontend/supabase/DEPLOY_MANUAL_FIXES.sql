@@ -1,12 +1,10 @@
 -- ==============================================================================
--- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED V3)
+-- MASTER DEPLOYMENT SCRIPT: PRODUCTION READINESS & SECURITY HARDENING (FIXED V4)
 -- Fecha: 2026-02-17
 -- Autor: Antigravity AI Agent
--- Descripción: Corrección V3.
---              1. Usa 'owner_id' en schools (Index).
---              2. Elimina 'payer_id' (Payments RLS).
---              3. Usa 'child_id' en vez de 'student_id' (Enrollments RLS).
---              4. Simplifica joins.
+-- Descripción: Corrección V4 (Schema Verified).
+--              - Confirma 'child_id', 'owner_id'.
+--              - Corrige nombres de columna en índices opcionales ('read', 'date').
 -- ==============================================================================
 
 BEGIN;
@@ -16,13 +14,15 @@ BEGIN;
 -- ------------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_school_members_composite_lookup ON public.school_members(school_id, profile_id, status);
 CREATE INDEX IF NOT EXISTS idx_school_members_branch ON public.school_members(branch_id);
--- Fixed: admin_id -> owner_id
+-- Verified: owner_id exists
 CREATE INDEX IF NOT EXISTS idx_schools_owner_id ON public.schools(owner_id);
 CREATE INDEX IF NOT EXISTS idx_payments_date_range ON public.payments(school_id, created_at DESC);
 
--- Opcionales (Comentados por seguridad en script manual):
--- CREATE INDEX IF NOT EXISTS idx_notifications_unread ON public.notifications(user_id, is_read) WHERE is_read = false;
--- CREATE INDEX IF NOT EXISTS idx_attendance_composite_report ON public.attendance_records(school_id, attendance_date);
+-- Opcionales (Corregidos nombres de columna según esquema public):
+-- notifications usa 'read', no 'is_read'
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON public.notifications(user_id, read) WHERE read = false;
+-- attendance_records usa 'date', no 'attendance_date'
+CREATE INDEX IF NOT EXISTS idx_attendance_composite_report ON public.attendance_records(school_id, date);
 
 -- ------------------------------------------------------------------------------
 -- 2. ROLES DE USUARIO FALTANTES (Missing User Roles)
@@ -76,16 +76,15 @@ ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage payments" ON public.payments;
 CREATE POLICY "Admins manage payments" ON public.payments FOR ALL USING (check_is_school_admin(school_id));
 DROP POLICY IF EXISTS "Parents view own payments" ON public.payments;
--- Fixed: Removed payer_id reference (column does not exist)
+-- Verified: payer_id does NOT exist, removed.
 CREATE POLICY "Parents view own payments" ON public.payments FOR SELECT USING (parent_id = auth.uid());
 
 -- Re-Apply Policies (Enrollments)
 ALTER TABLE public.enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage enrollments" ON public.enrollments;
--- Optimized: Use enrollments.school_id directly instead of join
 CREATE POLICY "Admins manage enrollments" ON public.enrollments FOR ALL USING (check_is_school_admin(school_id));
 DROP POLICY IF EXISTS "Parents view own enrollments" ON public.enrollments;
--- Fixed: student_id -> child_id
+-- Verified: child_id exists, student_id does NOT.
 CREATE POLICY "Parents view own enrollments" ON public.enrollments FOR SELECT USING (EXISTS (SELECT 1 FROM public.children c WHERE c.id = enrollments.child_id AND c.parent_id = auth.uid()));
 
 -- Re-Apply Policies (School Members)
