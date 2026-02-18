@@ -96,6 +96,7 @@ class WompiSignatureRequest(BaseModel):
     reference: str
     amount_in_cents: int
     currency: str = "COP"
+    school_id: Optional[str] = None
 
 
 @api_router.post("/payments/wompi/create-signature")
@@ -103,11 +104,41 @@ async def create_wompi_signature(req: WompiSignatureRequest):
     """
     Generate SHA-256 integrity signature for Wompi Widget Checkout.
     Concatenation order: reference + amountInCents + currency + INTEGRITY_SECRET
+    
+    Includes Security Check: Verifies if the school allows online payments.
     """
     try:
+        # Security: Feature Flag Check
+        if req.school_id and SUPABASE_URL and SUPABASE_SERVICE_KEY:
+            try:
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{SUPABASE_URL}/rest/v1/schools",
+                        params={"id": f"eq.{req.school_id}", "select": "payment_settings"},
+                        headers={
+                            "apikey": SUPABASE_SERVICE_KEY,
+                            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                        }
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data:
+                            settings = data[0].get('payment_settings', {})
+                            # Default to False if not explicitly allowed
+                            if not settings.get('allow_online', False):
+                                logger.warning(f"Blocked Wompi signature request for school {req.school_id} (Online payments disabled)")
+                                raise HTTPException(status_code=403, detail="Online payments are currently disabled for this school.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error checking school settings: {e}")
+                # Fail open or closed? Fail closed for security.
+                raise HTTPException(status_code=500, detail="Error validating payment configuration.")
+
         raw_signature = f"{req.reference}{req.amount_in_cents}{req.currency}{WOMPI_INTEGRITY_SECRET}"
         signature_hash = hashlib.sha256(raw_signature.encode()).hexdigest()
-        logger.info(f"Wompi signature generated for ref={req.reference}, amount={req.amount_in_cents}")
+        logger.info(f"Wompi signature generated for ref={req.reference}, amount={req.amount_in_cents}, school={req.school_id}")
         return {
             "signature": signature_hash,
             "reference": req.reference,
@@ -116,6 +147,9 @@ async def create_wompi_signature(req: WompiSignatureRequest):
         }
     except Exception as e:
         logger.error(f"Error generating Wompi signature: {e}")
+        # Re-raise HTTPExceptions as is
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 

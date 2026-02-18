@@ -48,7 +48,8 @@ export function generatePaymentReference(): string {
 async function generateIntegritySignature(
     reference: string,
     amountInCents: number,
-    currency: string = 'COP'
+    currency: string = 'COP',
+    schoolId?: string
 ): Promise<string> {
     // Try backend first
     if (BACKEND_URL) {
@@ -56,7 +57,12 @@ async function generateIntegritySignature(
             const response = await fetch(`${BACKEND_URL}/api/payments/wompi/create-signature`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reference, amount_in_cents: amountInCents, currency }),
+                body: JSON.stringify({
+                    reference,
+                    amount_in_cents: amountInCents,
+                    currency,
+                    school_id: schoolId
+                }),
             });
             if (response.ok) {
                 const data = await response.json();

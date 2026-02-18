@@ -5,7 +5,7 @@
 
 import { UserRole } from '@/types/dashboard';
 
-export type Permission = 
+export type Permission =
   | 'dashboard:view'
   | 'calendar:view' | 'calendar:create' | 'calendar:edit' | 'calendar:delete'
   | 'teams:view' | 'teams:create' | 'teams:edit' | 'teams:delete'
@@ -17,7 +17,7 @@ export type Permission =
   | 'settings:view' | 'settings:edit'
   | 'admin:users' | 'admin:system' | 'admin:all';
 
-export type Resource = 
+export type Resource =
   | 'dashboard'
   | 'calendar'
   | 'teams'
@@ -46,7 +46,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   parent: [
     'dashboard:view',
     'calendar:view',
@@ -58,7 +58,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   coach: [
     'dashboard:view',
     'calendar:view',
@@ -79,7 +79,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   school: [
     'dashboard:view',
     'calendar:view',
@@ -105,7 +105,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   wellness_professional: [
     'dashboard:view',
     'calendar:view',
@@ -119,7 +119,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   store_owner: [
     'dashboard:view',
     'calendar:view',
@@ -133,7 +133,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   organizer: [
     'dashboard:view',
     'calendar:view',
@@ -148,7 +148,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   admin: [
     'dashboard:view',
     'calendar:view',
@@ -178,6 +178,11 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'admin:all'
   ]
 };
+
+// ALIASING FOR DB COMPATIBILITY
+// Database uses 'school_admin' and 'super_admin', Frontend uses 'school' and 'admin'
+(rolePermissions as any)['school_admin'] = rolePermissions.school;
+(rolePermissions as any)['super_admin'] = rolePermissions.admin;
 
 /**
  * Check if a user has a specific permission

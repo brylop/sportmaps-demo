@@ -1,0 +1,54 @@
+#!/bin/sh
+# Husky v9 hook
+
+echo "🛡️  Zero-Tolerance Gatekeeper: Checking Code Quality..."
+
+# 1. Frontend Checks (Next.js)
+if [ -d "frontend" ]; then
+    echo "📦 Checking Frontend (Next.js)..."
+    cd frontend
+    
+     # Ensure dependencies are installed for type checking
+    if [ ! -d "node_modules" ]; then
+        echo "⚠️ Installing frontend dependencies..."
+        npm install --silent
+    fi
+
+    # Check TypeScript Types
+    echo "   - Running TypeScript Check..."
+    npx tsc --noEmit
+    if [ $? -ne 0 ]; then
+        echo "❌ Frontend: TypeScript Errors Found!"
+        exit 1
+    fi
+    
+    # Check Linter (Strict)
+    echo "   - Running ESLint..."
+    npx eslint . --ext .ts,.tsx
+    if [ $? -ne 0 ]; then
+        echo "❌ Frontend: ESLint Violations Found!"
+        exit 1
+    fi
+    cd ..
+fi
+
+# 2. Backend Checks (Python)
+if [ -d "backend" ]; then
+    echo "🐍 Checking Backend (Python)..."
+    cd backend
+    
+    # Check with Ruff (Ensure ruff is installed in path or venv)
+    if command -v ruff >/dev/null 2>&1; then
+        echo "   - Running Ruff..."
+        ruff check .
+        if [ $? -ne 0 ]; then
+            echo "❌ Backend: Ruff Style/Logic Violations Found!"
+            exit 1
+        fi
+    else
+        echo "⚠️ Ruff not found in PATH. Skipping Python checks. (Install with 'pip install ruff')"
+    end
+    cd ..
+fi
+
+echo "✅ All Checks Passed. Proceeding with Commit."

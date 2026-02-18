@@ -11,7 +11,7 @@ export function useEvents() {
 
   // Generate slug from title
   const generateSlug = (title: string): string => {
-    let slug = title
+    const slug = title
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
