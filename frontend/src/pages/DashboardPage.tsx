@@ -89,15 +89,7 @@ export default function DashboardPage() {
     if (realStats && !realStatsLoading) {
       if (profile.role === 'school') {
         if (index === 0) {
-          // Revenue
-          return {
-            ...stat,
-            value: formatCurrency(realStats.monthly_revenue || 0),
-            description: 'Ingresos confirmados este mes'
-          };
-        }
-        if (index === 1) {
-          // Students
+          // Students (Config Index 0)
           const count = realStats.students_count || 0;
           return {
             ...stat,
@@ -107,24 +99,31 @@ export default function DashboardPage() {
               : 'Agrega tu primer estudiante'
           };
         }
-        if (index === 2) {
-          // Classes/Programs
+        if (index === 1) {
+          // Programs (Config Index 1)
           const count = realStats.classes_count || 0;
-          // Note: classes_count maps to 'programs' or 'classes' depending on naming, 
-          // assumes classesAPI.getStats returns total programs/classes.
           return {
             ...stat,
             value: count,
             description: 'Clases/Programas creados'
           };
         }
-        if (index === 3) {
-          // Pending Payments or Enrolled
-          const pending = realStats.pending_payments || 0;
+        if (index === 2) {
+          // Coaches (Config Index 2)
+          // Currently mapping activeTeams as proxy for coaches or just placeholder 0
+          const count = realStats.activeTeams || 0;
           return {
             ...stat,
-            value: pending,
-            description: 'Pagos pendientes de cobro'
+            value: count,
+            description: 'Entrenadores activos'
+          };
+        }
+        if (index === 3) {
+          // Revenue (Config Index 3)
+          return {
+            ...stat,
+            value: formatCurrency(realStats.monthly_revenue || 0),
+            description: 'Ingresos confirmados este mes'
           };
         }
       }
