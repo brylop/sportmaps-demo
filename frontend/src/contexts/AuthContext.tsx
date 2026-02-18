@@ -14,6 +14,7 @@ interface UserProfile {
   sportmaps_points: number;
   subscription_tier: 'free' | 'basic' | 'premium';
   invitation_code?: string;
+  onboarding_completed?: boolean;
   created_at: string;
   updated_at: string;
 }
