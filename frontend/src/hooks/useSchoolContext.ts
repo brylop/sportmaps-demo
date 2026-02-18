@@ -100,22 +100,22 @@ export function useSchoolContext(): SchoolContext {
                     } else {
                         selectSchool(mappedSchools[0]);
                     }
-                } else {
-                    // Authenticated but no memberships (New user? Or just visitor?)
-                    // Fallback to Demo School View (Guest mode)
-                    await resolveFallbackSchool();
+                    // Authenticated but no memberships (New School Owner)
+                    // Do NOT fallback to random school. Leave empty to trigger Onboarding.
+                    console.log('User has no school memberships. Triggering Onboarding state.');
+                    setActiveSchoolId(null);
+                    setActiveSchoolName('Mi Escuela');
+                    setCurrentUserRole('owner'); // Default to owner so they can create
+                    setOnboardingStatus('pending');
                 }
-
             } catch (err: any) {
                 console.error('useSchoolContext resolution error:', err);
                 setError(err.message);
-                // Fallback on error
-                await resolveFallbackSchool();
             }
         };
 
         const resolveFallbackSchool = async () => {
-            // Logic to fetch the default/demo school for guests
+            // Only for unauthenticated guests, try to find the official Demo School
             const { data: demoSchool } = await supabase
                 .from('schools')
                 .select('id, name')
@@ -125,19 +125,11 @@ export function useSchoolContext(): SchoolContext {
             if (demoSchool) {
                 setActiveSchoolId(demoSchool.id);
                 setActiveSchoolName(demoSchool.name);
-                setCurrentUserRole('viewer'); // Guest role
+                setCurrentUserRole('viewer');
                 setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer', branchId: null }]);
             } else {
-                // Absolute fallback
-                const { data: anySchool } = await supabase.from('schools').select('id, name').limit(1).maybeSingle();
-                if (anySchool) {
-                    setActiveSchoolId(anySchool.id);
-                    setActiveSchoolName(anySchool.name);
-                    setCurrentUserRole('viewer');
-                    setAvailableSchools([{ schoolId: anySchool.id, schoolName: anySchool.name, role: 'viewer', branchId: null }]);
-                } else {
-                    setError('No se encontró ninguna escuela en el sistema.');
-                }
+                // No demo school found. Do nothing (leave empty).
+                console.log('No demo school found for guest.');
             }
             // Start fetch programs immediately for fallback
             if (activeSchoolId) fetchPrograms(activeSchoolId);
