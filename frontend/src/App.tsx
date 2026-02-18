@@ -164,6 +164,7 @@ const App = () => (
                   <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
                   <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
                   <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
+                  <Route path="parent-onboarding" element={<ParentOnboardingPage />} />
                   <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
                   <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
                   <Route path="profile" element={<ProfilePage />} />
