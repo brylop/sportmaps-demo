@@ -1,66 +1,89 @@
 -- =============================================================================
--- FIX: Infinite recursion in school_members RLS
+-- FIX 5.0 (FINAL): Break Infinite Recursion with SECURITY DEFINER Functions
 -- =============================================================================
 
--- 1. Drop existing problematic policies
+-- Problem: 
+-- 'school_members' policies query 'school_members'.
+-- 'schools' policies query 'school_members'.
+-- This creates a loop: users -> schools -> school_members -> schools... -> Stack Overflow (500).
+
+-- Solution:
+-- Use SECURITY DEFINER functions. These run as the DB owner (bypassing RLS),
+-- allowing us to checks permissions cleanly without triggering recursive policy checks.
+
+BEGIN;
+
+-- 1. Helper: Get IDs of schools where I am Owner or Admin
+CREATE OR REPLACE FUNCTION public.get_my_administered_school_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+SECURITY DEFINER -- Critical: Bypasses RLS to avoid recursion
+SET search_path = public
+AS $$
+  SELECT school_id
+  FROM school_members
+  WHERE profile_id = auth.uid()
+  AND role IN ('owner', 'admin')
+  AND status = 'active';
+$$;
+
+-- 2. Helper: Check if I own a specific school (for creation flow)
+CREATE OR REPLACE FUNCTION public.is_school_owner(lookup_school_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM schools 
+    WHERE id = lookup_school_id 
+    AND owner_id = auth.uid()
+  );
+$$;
+
+-- 3. Drop ALL existing policies on school_members to start fresh
 DROP POLICY IF EXISTS "sm_select_own_schools" ON school_members;
 DROP POLICY IF EXISTS "sm_insert_owner_only" ON school_members;
 DROP POLICY IF EXISTS "sm_update_owner_only" ON school_members;
+DROP POLICY IF EXISTS "sm_insert_policy" ON school_members;
+DROP POLICY IF EXISTS "sm_update_policy" ON school_members;
+DROP POLICY IF EXISTS "sm_select_policy" ON school_members;
+DROP POLICY IF EXISTS "sm_delete_policy" ON school_members;
 
--- 2. Re-create SELECT policy (Simplified)
--- Users can see their own memberships OR memberships of schools they own/admin
-CREATE POLICY "sm_select_own_schools"
+-- 4. Create Non-Recursive Policies
+
+-- SELECT: See my own row OR rows in schools I manage
+CREATE POLICY "sm_select_policy"
 ON school_members FOR SELECT
 USING (
-  profile_id = auth.uid() OR
-  school_id IN (
-    SELECT school_id 
-    FROM school_members 
-    WHERE profile_id = auth.uid() 
-    AND role IN ('owner', 'admin')
-  )
+  profile_id = auth.uid() 
+  OR 
+  school_id IN (SELECT public.get_my_administered_school_ids())
 );
 
--- 3. Re-create INSERT policy (Fix recursion)
--- Allow insert if:
--- a) You are creating a school (school doesn't exist yet? No, school exists but no members)
---    Actually, when creating a school, the FIRST member is the owner.
---    The policy needs to allow the user to insert THEMSELVES as 'owner' if they are the school owner.
--- b) You are an admin/owner adding someone else.
-
+-- INSERT: 
+-- Case A: Joining a school I own (e.g. creating it)
+-- Case B: Admin adding someone else
 CREATE POLICY "sm_insert_policy"
 ON school_members FOR INSERT
 WITH CHECK (
-  -- Option A: Self-insert as owner for a school you own
-  (
-    profile_id = auth.uid() AND
-    role = 'owner' AND
-    EXISTS (
-      SELECT 1 FROM schools 
-      WHERE id = school_members.school_id 
-      AND owner_id = auth.uid()
-    )
-  )
+  (profile_id = auth.uid() AND public.is_school_owner(school_id))
   OR
-  -- Option B: Admin/Owner adding other members (Recursion safe because we filter by role)
-  (
-    EXISTS (
-      SELECT 1 FROM school_members
-      WHERE school_id = school_members.school_id
-      AND profile_id = auth.uid()
-      AND role IN ('owner', 'admin')
-    )
-  )
+  school_id IN (SELECT public.get_my_administered_school_ids())
 );
 
--- 4. Re-create UPDATE policy
+-- UPDATE: Only Admins/Owners can update members
 CREATE POLICY "sm_update_policy"
 ON school_members FOR UPDATE
 USING (
-  EXISTS (
-    SELECT 1 FROM school_members
-    WHERE school_id = school_members.school_id
-    AND profile_id = auth.uid()
-    AND role IN ('owner', 'admin')
-  )
+  school_id IN (SELECT public.get_my_administered_school_ids())
 );
+
+-- DELETE: Only Admins/Owners can remove members
+CREATE POLICY "sm_delete_policy"
+ON school_members FOR DELETE
+USING (
+  school_id IN (SELECT public.get_my_administered_school_ids())
+);
+
+COMMIT;

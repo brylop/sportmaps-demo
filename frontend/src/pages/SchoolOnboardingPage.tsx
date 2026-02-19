@@ -20,14 +20,28 @@ import {
   Sparkles,
   Loader2
 } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 
 export default function SchoolOnboardingPage() {
   const { profile } = useAuth();
   // navigate removed as unused
   const { toast } = useToast();
-  const { updateOnboardingStatus, schoolId, loading } = useSchoolContext();
+  const { updateOnboardingStatus, schoolId, loading, onboardingStatus } = useSchoolContext();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [isCompleting, setIsCompleting] = useState(false);
+
+  // CRITICAL FIX: Prevent loop if already completed
+  if (!loading && onboardingStatus === 'completed') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const onboardingSteps = [
     {

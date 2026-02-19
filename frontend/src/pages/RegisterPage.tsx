@@ -83,7 +83,8 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
     try {
-      await signUp(data.email, data.password, {
+      // 1. Attempt Registration
+      const { error } = await signUp(data.email, data.password, {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
@@ -91,8 +92,27 @@ export default function RegisterPage() {
         role: data.role as any,
         invitation_code: data.code,
       });
+
+      if (error) throw error;
+
+      // 2. Auto-Login Strategy (Since we auto-confirm emails now)
+      // We try to sign in immediately.
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (signInError) {
+        console.warn("Auto-login failed:", signInError);
+        // Fallback: User will need to login manually (or verify email if auto-confirm failed)
+        // logic handled by AuthContext state change or manual redirect if needed
+      }
+
+      // If successful, the AuthContext provider will detect the session change 
+      // and redirect to /dashboard automatically via ProtectedRoute or useEffect.
+
     } catch {
-      // Error is handled in the context
+      // Error is handled in the context usually, but we ensure loading stops
     } finally {
       setIsLoading(false);
     }
