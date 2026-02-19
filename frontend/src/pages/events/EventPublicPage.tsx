@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEvents, useEventRegistrations } from '@/hooks/useEvents';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,6 @@ import {
   MapPin,
   Clock,
   Users,
-  DollarSign,
   Phone,
   Mail,
   ArrowLeft,
@@ -72,6 +71,7 @@ export default function EventPublicPage() {
   useEffect(() => {
     if (slug) loadEvent();
     fetchRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   const fetchRoles = async () => {
@@ -86,8 +86,8 @@ export default function EventPublicPage() {
       if (data) {
         setRoles(data);
       }
-    } catch (error) {
-      console.error("Error fetching roles:", error);
+    } catch {
+      console.error("Error fetching roles");
     }
   };
 

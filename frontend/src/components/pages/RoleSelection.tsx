@@ -86,7 +86,7 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
           ]);
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Error fetching roles:", err);
         // Fallback silencioso para no bloquear al usuario
         setRoles([
@@ -94,7 +94,8 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
           { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
           { id: "school", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" }
         ]);
-        if (err.code !== '42P01') { // Ignore "relation does not exist" if migration not run
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((err as any).code !== '42P01') { // Ignore "relation does not exist" if migration not run
           toast({ title: "Aviso", description: "Usando configuración local de roles.", variant: "default" });
         }
       } finally {

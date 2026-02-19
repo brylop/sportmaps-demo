@@ -1,0 +1,21 @@
+﻿
+C:\Users\Usuario\Documents\demo\sportmaps-demo\frontend\src\components\pages\RoleSelection.tsx
+   65:44  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+   86:21  error    Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  111:11  warning  'meta' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Usuario\Documents\demo\sportmaps-demo\frontend\src\pages\RegisterPage.tsx
+  50:5   warning  'watch' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  62:23  warning  'error' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  94:14  warning  'error' is defined but never used           @typescript-eslint/no-unused-vars
+
+C:\Users\Usuario\Documents\demo\sportmaps-demo\frontend\src\pages\events\EventPublicPage.tsx
+   5:29  warning  'CardDescription' is defined but never used                                                                   @typescript-eslint/no-unused-vars
+   5:46  warning  'CardHeader' is defined but never used                                                                        @typescript-eslint/no-unused-vars
+   5:58  warning  'CardTitle' is defined but never used                                                                         @typescript-eslint/no-unused-vars
+  32:3   warning  'DollarSign' is defined but never used                                                                        @typescript-eslint/no-unused-vars
+  75:6   warning  React Hook useEffect has a missing dependency: 'loadEvent'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  79:21  warning  'error' is assigned a value but never used                                                                    @typescript-eslint/no-unused-vars
+
+Ô£û 12 problems (2 errors, 10 warnings)
+

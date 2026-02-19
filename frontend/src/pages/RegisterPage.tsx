@@ -47,7 +47,6 @@ export default function RegisterPage() {
     register,
     handleSubmit,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -69,8 +68,8 @@ export default function RegisterPage() {
         if (data) {
           setRoles(data);
         }
-      } catch (error) {
-        console.error("Error fetching roles:", error);
+      } catch {
+        console.error("Error fetching roles");
       }
     };
     fetchRoles();
@@ -92,7 +91,7 @@ export default function RegisterPage() {
         role: data.role as any,
         invitation_code: data.code,
       });
-    } catch (error) {
+    } catch {
       // Error is handled in the context
     } finally {
       setIsLoading(false);
