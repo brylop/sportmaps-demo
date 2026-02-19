@@ -15,6 +15,7 @@ export interface SchoolRole {
     schoolName: string;
     role: 'owner' | 'admin' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer';
     branchId: string | null;
+    onboardingStatus?: 'pending' | 'in_progress' | 'completed';
 }
 
 export interface SchoolContext {
@@ -26,8 +27,8 @@ export interface SchoolContext {
     activeBranchId: string | null;
     activeBranchName: string;
     onboardingStatus: 'pending' | 'in_progress' | 'completed';
-    schoolSettings: any | null;
-    updateOnboardingStatus: (status: 'pending' | 'in_progress' | 'completed') => Promise<void>;
+    schoolSettings: any | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    updateOnboardingStatus: (status: 'pending' | 'in_progress' | 'completed') => Promise<boolean>;
     updateOnboardingStep: (step: number) => Promise<void>;
     switchSchool: (schoolId: string, branchId?: string | null) => void;
     defaultMonthlyFee: number;
@@ -54,13 +55,40 @@ export function useSchoolContext(): SchoolContext {
     const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
     const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
     const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
-    const [schoolSettings, setSchoolSettings] = useState<any | null>(null);
+    const [schoolSettings, setSchoolSettings] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
+        const resolveFallbackSchool = async () => {
+            // Safety Check: Only run fallback if configured explicitly
+            if (!DEMO_SCHOOL_EMAIL) {
+                console.log('Guest mode: No VITE_DEMO_SCHOOL_EMAIL configured. Fallback disabled.');
+                setLoading(false);
+                return;
+            }
+
+            // Only for unauthenticated guests, try to find the official Demo School
+            const { data: demoSchool } = await supabase
+                .from('schools')
+                .select('id, name')
+                .eq('email', DEMO_SCHOOL_EMAIL)
+                .maybeSingle();
+
+            if (demoSchool) {
+                setActiveSchoolId(demoSchool.id);
+                setActiveSchoolName(demoSchool.name);
+                setCurrentUserRole('viewer');
+                setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer', branchId: null, onboardingStatus: 'completed' }]);
+            } else {
+                console.log('No demo school found for guest.');
+            }
+            // Start fetch programs immediately for fallback
+            if (activeSchoolId) fetchPrograms(activeSchoolId);
+        };
+
         const resolveUserContext = async () => {
             try {
                 setLoading(true);
@@ -82,12 +110,12 @@ export function useSchoolContext(): SchoolContext {
                 if (memberError) throw memberError;
 
                 if (memberships && memberships.length > 0) {
-                    const mappedSchools: SchoolRole[] = memberships.map((m: any) => ({
+                    const mappedSchools: SchoolRole[] = memberships.map((m: { school_id: string; schools: { name: string; onboarding_status: string } | null; role: string; branch_id: string | null }) => ({
                         schoolId: m.school_id,
                         schoolName: m.schools?.name || 'Escuela sin nombre',
                         role: m.role as SchoolRole['role'],
                         branchId: m.branch_id || null,
-                        onboardingStatus: (m.schools?.onboarding_status as any) || 'completed'
+                        onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
                     }));
 
                     setAvailableSchools(mappedSchools);
@@ -102,64 +130,42 @@ export function useSchoolContext(): SchoolContext {
                         selectSchool(mappedSchools[0]);
                     }
                 } else {
-                    // Authenticated but no memberships (New School Owner)
-                    // Do NOT fallback to random school. Leave empty to trigger Onboarding.
-                    // FIX: Check actual profile role before assuming owner to prevent redirect loops
                     // Authenticated but no memberships
-                    console.log('User has no school memberships. Triggering Onboarding state.');
-                    setAvailableSchools([]);
-                    setActiveSchoolId(null);
-                    setActiveSchoolName('Mi Escuela');
-
+                    // Check if user is explicitly a SCHOOL role
                     const { data: userProfile } = await supabase
                         .from('profiles')
                         .select('role')
                         .eq('id', user.id)
                         .maybeSingle();
 
-                    const effectiveRole = userProfile?.role === 'school' ? 'owner' : (userProfile?.role as any) || 'owner';
-                    setCurrentUserRole(effectiveRole);
-
-                    setOnboardingStatus('pending');
+                    if (userProfile?.role === 'school') {
+                        // New School Owner -> Trigger Onboarding
+                        console.log('User is SCHOOL role with no memberships. Triggering Onboarding state.');
+                        setAvailableSchools([]);
+                        setActiveSchoolId(null);
+                        setActiveSchoolName('Mi Escuela');
+                        setCurrentUserRole('owner');
+                        setOnboardingStatus('pending');
+                    } else {
+                        // Parent/Athlete/Coach without school membership yet
+                        console.log(`User is ${userProfile?.role || 'unknown'} role. Skipping School Context logic.`);
+                        setAvailableSchools([]);
+                        setActiveSchoolId(null);
+                        setActiveSchoolName('');
+                        setCurrentUserRole(null);
+                        setOnboardingStatus('completed'); // Bypass School Gate
+                    }
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error('useSchoolContext resolution error:', err);
-                setError(err.message);
-                // On error, also stop loading
+                setError(err instanceof Error ? err.message : 'Unknown error');
             } finally {
                 setLoading(false);
             }
         };
 
-        const resolveFallbackSchool = async () => {
-            // Safety Check: Only run fallback if configured explicitly
-            if (!DEMO_SCHOOL_EMAIL) {
-                console.log('Guest mode: No VITE_DEMO_SCHOOL_EMAIL configured. Fallback disabled.');
-                setLoading(false);
-                return;
-            }
-
-            // Only for unauthenticated guests, try to find the official Demo School
-            const { data: demoSchool } = await supabase
-                .from('schools')
-                .select('id, name')
-                .eq('email', DEMO_SCHOOL_EMAIL)
-                .maybeSingle();
-
-            if (demoSchool) {
-                setActiveSchoolId(demoSchool.id);
-                setActiveSchoolName(demoSchool.name);
-                setCurrentUserRole('viewer');
-                setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer', branchId: null }]);
-            } else {
-                console.log('No demo school found for guest.');
-            }
-            // Start fetch programs immediately for fallback
-            if (activeSchoolId) fetchPrograms(activeSchoolId);
-        };
-
-
         resolveUserContext();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // 2. Effect: Fetch Programs when Active School Changes
@@ -170,7 +176,7 @@ export function useSchoolContext(): SchoolContext {
         }
     }, [activeSchoolId, activeBranchId]);
 
-    const selectSchool = async (school: any) => {
+    const selectSchool = async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
@@ -218,7 +224,7 @@ export function useSchoolContext(): SchoolContext {
 
             if (programsData) {
                 setPrograms(
-                    programsData.map((p: any) => ({
+                    programsData.map((p: { id: string; name: string; price_monthly: number; sport: string }) => ({
                         id: p.id,
                         name: p.name,
                         monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
@@ -244,10 +250,10 @@ export function useSchoolContext(): SchoolContext {
         setSchoolSettings(data);
     };
 
-    const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed') => {
+    const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed'): Promise<boolean> => {
         if (!activeSchoolId) {
             console.error('❌ updateOnboardingStatus: No activeSchoolId found.');
-            return;
+            return false;
         }
 
         console.log(`🔄 Updating onboarding status for school ${activeSchoolId} to: ${status}`);
@@ -261,34 +267,30 @@ export function useSchoolContext(): SchoolContext {
 
             if (updateError) {
                 console.error('❌ Supabase Update Error:', updateError);
-                throw updateError;
+                return false;
             }
 
             if (count === 0) {
                 console.warn(`⚠️ UPDATE returned 0 rows affected. RLS may be blocking update for school ${activeSchoolId}.`);
-                // Check if user is actually a member
-                const { data: memberCheck } = await supabase
-                    .from('school_members')
-                    .select('id, role')
-                    .eq('school_id', activeSchoolId)
-                    .eq('profile_id', (await supabase.auth.getUser()).data.user?.id)
-                    .single();
-                console.log('🔍 Membership Check:', memberCheck);
-            } else {
-                console.log(`✅ Successfully updated onboarding status. Rows affected: ${count}`);
+                return false;
             }
 
-            // 1. Update local simple state
+            console.log(`✅ Successfully updated onboarding status. Rows affected: ${count}`);
+
+            // Only update local state if DB update succeeded
             setOnboardingStatus(status);
 
-            // 2. Update the complex availableSchools array in memory
+            // Update the complex availableSchools array in memory
             setAvailableSchools(prev => prev.map(s =>
                 s.schoolId === activeSchoolId
                     ? { ...s, onboardingStatus: status }
                     : s
             ));
+
+            return true;
         } catch (err) {
             console.error('Failed to update onboarding status (catch):', err);
+            return false;
         }
     };
 
@@ -354,7 +356,7 @@ export async function createStudentWithPendingPayment(params: {
             medical_info: params.medicalInfo || null,
             notes: params.notes || null,
             school_id: params.schoolId, // Ensure school_id is set
-        } as any)
+        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .select()
         .single();
 
@@ -378,7 +380,7 @@ export async function createStudentWithPendingPayment(params: {
             status: 'pending',
             school_id: schoolId,
             payment_type: 'monthly',
-        } as any);
+        } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     if (paymentError) {
         console.warn('Payment insert failed (demo fallback):', paymentError.message);

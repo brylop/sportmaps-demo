@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,7 +10,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
+// Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
@@ -19,7 +21,7 @@ const registerSchema = z.object({
   phone: z.string().optional(),
   dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
   code: z.string().optional(),
-  role: z.enum(['athlete', 'parent', 'coach', 'school', 'wellness_professional', 'store_owner', 'organizer', 'admin']),
+  role: z.string().min(1, 'Selecciona un rol'),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
@@ -27,12 +29,19 @@ const registerSchema = z.object({
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
+interface RoleOption {
+  id: string;
+  name: string;
+  display_name: string;
+}
+
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { user, signUp } = useAuth();
   const [searchParams] = useSearchParams();
+  const [roles, setRoles] = useState<RoleOption[]>([]);
 
   const {
     register,
@@ -47,6 +56,26 @@ export default function RegisterPage() {
     }
   });
 
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase as any)
+          .from('roles')
+          .select('id, name, display_name')
+          .eq('is_visible', true)
+          .order('display_name');
+
+        if (data) {
+          setRoles(data);
+        }
+      } catch (error) {
+        console.error("Error fetching roles:", error);
+      }
+    };
+    fetchRoles();
+  }, []);
+
   // Redirect if already logged in
   if (user) {
     return <Navigate to="/dashboard" replace />;
@@ -59,6 +88,7 @@ export default function RegisterPage() {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         role: data.role as any,
         invitation_code: data.code,
       });
@@ -132,18 +162,26 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
-              <Select onValueChange={(value) => setValue('role', value as any)}>
+              <Select onValueChange={(value) => setValue('role', value)}>
                 <SelectTrigger className={errors.role ? 'border-destructive' : ''}>
                   <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
-                  <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
-                  <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
-                  <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
-                  <SelectItem value="organizer">🎯 Organizador de Eventos</SelectItem>
-                  <SelectItem value="wellness_professional">💚 Profesional de Bienestar</SelectItem>
-                  <SelectItem value="store_owner">🏪 Tienda/Vendedor</SelectItem>
+                  {roles.length > 0 ? (
+                    roles.map((role) => (
+                      <SelectItem key={role.id} value={role.name}>
+                        {role.display_name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    // Fallback static options if fetch fails or loading
+                    <>
+                      <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
+                      <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
+                      <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
+                      <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
               {errors.role && (

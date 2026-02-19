@@ -74,13 +74,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
       receiptNumber,
       date: new Date().toLocaleDateString(),
       customerName: profile?.full_name || 'Cliente',
-      items: [
-        {
-          description: item.name,
-          amount: item.amount,
-        },
-      ],
-      total: item.amount,
+      concept: `Pago: ${item.name}`,
+      description: item.description || `Pago por ${item.name}`,
       schoolName: item.schoolName || 'SportMaps',
     });
   };

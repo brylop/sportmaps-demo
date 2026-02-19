@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,8 +23,9 @@ import {
 
 export default function SchoolOnboardingPage() {
   const { profile } = useAuth();
-  const navigate = useNavigate();
-  const { updateOnboardingStatus, activeSchoolId, loading } = useSchoolContext();
+  // navigate removed as unused
+  const { toast } = useToast();
+  const { updateOnboardingStatus, schoolId, loading } = useSchoolContext();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [isCompleting, setIsCompleting] = useState(false);
 
@@ -78,11 +79,20 @@ export default function SchoolOnboardingPage() {
   const [isCreatingSchool, setIsCreatingSchool] = useState(false);
 
   // Si no hay escuela activa y no está cargando, mostrar form de creación
-  const needsSchoolCreation = !activeSchoolId && !loading;
+  const needsSchoolCreation = !schoolId && !loading;
 
   const handleCreateSchool = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSchoolName.trim() || !profile?.id) return;
+    if (!profile?.id) return;
+
+    if (newSchoolName.trim().length < 3) {
+      toast({
+        title: "Nombre muy corto",
+        description: "El nombre de la academia debe tener al menos 3 caracteres.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     setIsCreatingSchool(true);
     try {
@@ -113,9 +123,10 @@ export default function SchoolOnboardingPage() {
 
       // 3. Recargar para que el contexto detecte la nueva escuela
       window.location.reload();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error creating school:', err);
-      alert('Error al crear la escuela: ' + err.message);
+      const message = err instanceof Error ? err.message : 'Error desconocido';
+      alert('Error al crear la escuela: ' + message);
     } finally {
       setIsCreatingSchool(false);
     }
@@ -156,14 +167,29 @@ export default function SchoolOnboardingPage() {
     setIsCompleting(true);
     try {
       // updateOnboardingStatus actualiza schools.onboarding_status en Supabase DB.
-      // ProtectedRoute lee de ahí via useSchoolContext → el gate se abre.
-      await updateOnboardingStatus('completed');
+      const success = await updateOnboardingStatus('completed');
 
-      // Force reload to ensure all contexts re-fetch fresh data from DB
-      // and update Auth/School state correctly without stale cache.
-      window.location.href = '/dashboard';
+      if (success) {
+        toast({
+          title: "¡Configuración completada!",
+          description: "Bienvenido a tu panel de control.",
+        });
+        // Force reload to ensure all contexts re-fetch fresh data from DB
+        window.location.href = '/dashboard';
+      } else {
+        toast({
+          title: "Error al guardar",
+          description: "No se pudo actualizar el estado. Verifica tu conexión o intenta nuevamente.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       console.error('Error al completar onboarding:', error);
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un problema al finalizar el proceso.",
+        variant: "destructive",
+      });
     } finally {
       setIsCompleting(false);
     }
@@ -173,10 +199,17 @@ export default function SchoolOnboardingPage() {
   const handleSkipOnboarding = async () => {
     setIsCompleting(true);
     try {
-      await updateOnboardingStatus('completed');
+      const success = await updateOnboardingStatus('completed');
 
-      // Force reload to ensure all contexts re-fetch fresh data from DB.
-      window.location.href = '/dashboard';
+      if (success) {
+        window.location.href = '/dashboard';
+      } else {
+        toast({
+          title: "Error al saltar",
+          description: "No se pudo actualizar el estado.",
+          variant: "destructive"
+        });
+      }
     } catch (error) {
       console.error('Error al saltar onboarding:', error);
     } finally {
