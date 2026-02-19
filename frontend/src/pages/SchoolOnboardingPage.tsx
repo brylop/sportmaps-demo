@@ -1,25 +1,29 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { 
-  Building2, 
-  Users, 
-  Dumbbell, 
+import {
+  Building2,
+  Users,
+  Dumbbell,
   Calendar,
   UserPlus,
   CheckCircle2,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 
 export default function SchoolOnboardingPage() {
-  const { profile, user } = useAuth();
+  const { profile } = useAuth();
   const navigate = useNavigate();
+  const { updateOnboardingStatus } = useSchoolContext();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [isCompleting, setIsCompleting] = useState(false);
 
   const onboardingSteps = [
     {
@@ -58,10 +62,39 @@ export default function SchoolOnboardingPage() {
 
   const progress = (completedSteps.length / onboardingSteps.length) * 100;
 
-  const handleCompleteOnboarding = () => {
-    if (user) {
-      localStorage.setItem(`onboarding_completed_${user.id}`, 'true');
+  // ─── Marcar paso como completado (SOLO actualiza estado local, sin navegar)
+  // Si navegamos a las subrutas mientras onboarding no está 'completed',
+  // ProtectedRoute redirige de vuelta aquí → loop. El usuario puede visitar
+  // esas páginas desde la barra lateral una vez que complete el onboarding.
+  const handleMarkStep = (stepId: string) => {
+    setCompletedSteps(prev => [...new Set([...prev, stepId])]);
+  };
+
+  // ─── Completar onboarding: escribe 'completed' en Supabase (fuente de verdad)
+  const handleCompleteOnboarding = async () => {
+    setIsCompleting(true);
+    try {
+      // updateOnboardingStatus actualiza schools.onboarding_status en Supabase DB.
+      // ProtectedRoute lee de ahí via useSchoolContext → el gate se abre.
+      await updateOnboardingStatus('completed');
       navigate('/dashboard');
+    } catch (error) {
+      console.error('Error al completar onboarding:', error);
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
+  // Permitir saltar el onboarding (también persiste en DB)
+  const handleSkipOnboarding = async () => {
+    setIsCompleting(true);
+    try {
+      await updateOnboardingStatus('completed');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error al saltar onboarding:', error);
+    } finally {
+      setIsCompleting(false);
     }
   };
 
@@ -77,7 +110,7 @@ export default function SchoolOnboardingPage() {
             ¡Bienvenido, {profile?.full_name}!
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Empecemos a configurar tu academia. Sigue estos pasos para empezar:
+            Empecemos a configurar tu academia. Marca cada paso cuando estés listo:
           </p>
         </div>
 
@@ -109,13 +142,13 @@ export default function SchoolOnboardingPage() {
             const isCompleted = completedSteps.includes(step.id);
 
             return (
-              <Card 
+              <Card
                 key={step.id}
                 className="relative overflow-hidden hover:shadow-lg transition-all duration-300 border-2"
               >
                 {/* Gradient background */}
                 <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${step.gradient}`} />
-                
+
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4">
@@ -130,7 +163,7 @@ export default function SchoolOnboardingPage() {
                           {isCompleted && (
                             <Badge variant="default" className="text-xs">
                               <CheckCircle2 className="w-3 h-3 mr-1" />
-                              Completado
+                              Listo
                             </Badge>
                           )}
                         </div>
@@ -139,19 +172,30 @@ export default function SchoolOnboardingPage() {
                     </div>
                   </div>
                 </CardHeader>
-                
+
                 <CardContent className="space-y-4">
                   <p className="text-muted-foreground">
                     {step.description}
                   </p>
-                  
-                  <Button 
+
+                  {/* Marcar como listo (sin navegar para evitar el loop de redirect) */}
+                  <Button
                     className="w-full group"
                     variant={isCompleted ? "outline" : "default"}
-                    onClick={() => navigate(step.route)}
+                    onClick={() => handleMarkStep(step.id)}
+                    disabled={isCompleted}
                   >
-                    {isCompleted ? 'Ver Detalles' : 'Comenzar'}
-                    <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                    {isCompleted ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Marcado como listo
+                      </>
+                    ) : (
+                      <>
+                        Marcar como listo
+                        <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                      </>
+                    )}
                   </Button>
                 </CardContent>
               </Card>
@@ -164,32 +208,34 @@ export default function SchoolOnboardingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-primary" />
-              Acciones Rápidas
+              Finalizar Configuración
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
+          <CardContent className="flex flex-col sm:flex-row gap-3">
+            {/* Botón principal: escribe en Supabase y desbloquea la app */}
             <Button
-              variant="outline"
-              className="justify-start"
-              onClick={() => navigate('/calendar')}
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              Ver Calendario
-            </Button>
-            <Button
-              variant="outline"
-              className="justify-start"
-              onClick={() => navigate('/settings')}
-            >
-              <Building2 className="w-4 h-4 mr-2" />
-              Configurar Perfil
-            </Button>
-            <Button
-              className="justify-start"
+              className="flex-1"
               onClick={handleCompleteOnboarding}
+              disabled={isCompleting}
             >
-              <CheckCircle2 className="w-4 h-4 mr-2" />
-              Completar & Ir al Dashboard
+              {isCompleting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+              )}
+              {progress === 100
+                ? 'Completar & Ir al Dashboard'
+                : 'Continuar al Dashboard (completar después)'}
+            </Button>
+
+            {/* Skip: igual persiste en DB para no volver a mostrar el gate */}
+            <Button
+              variant="ghost"
+              className="sm:w-auto"
+              onClick={handleSkipOnboarding}
+              disabled={isCompleting}
+            >
+              Saltar por ahora
             </Button>
           </CardContent>
         </Card>
@@ -198,18 +244,10 @@ export default function SchoolOnboardingPage() {
         <Card className="bg-muted/50 border-dashed">
           <CardContent className="pt-6">
             <div className="text-center space-y-2">
-              <h3 className="font-semibold">¿Necesitas ayuda?</h3>
+              <h3 className="font-semibold">Puedes completar estos pasos más tarde</h3>
               <p className="text-sm text-muted-foreground">
-                Consulta nuestra guía de inicio rápido o contacta a soporte para asistencia personalizada.
+                Accede a Instalaciones, Staff, Programas y Estudiantes desde el menú lateral una vez dentro del dashboard.
               </p>
-              <div className="flex gap-2 justify-center mt-4">
-                <Button variant="outline" size="sm">
-                  Ver Guía
-                </Button>
-                <Button variant="outline" size="sm">
-                  Contactar Soporte
-                </Button>
-              </div>
             </div>
           </CardContent>
         </Card>
