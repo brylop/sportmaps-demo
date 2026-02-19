@@ -101,6 +101,7 @@
     "husky": "^9.1.7",
     "jsdom": "^27.4.0",
     "lovable-tagger": "^1.1.10",
+    "supabase": "^2.76.10",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vitest": "^4.0.17"
