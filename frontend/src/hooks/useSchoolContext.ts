@@ -234,14 +234,38 @@ export function useSchoolContext(): SchoolContext {
     };
 
     const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed') => {
-        if (!activeSchoolId) return;
+        if (!activeSchoolId) {
+            console.error('❌ updateOnboardingStatus: No activeSchoolId found.');
+            return;
+        }
+
+        console.log(`🔄 Updating onboarding status for school ${activeSchoolId} to: ${status}`);
+
         try {
-            const { error: updateError } = await supabase
+            const { error: updateError, count } = await supabase
                 .from('schools')
                 .update({ onboarding_status: status })
-                .eq('id', activeSchoolId);
+                .eq('id', activeSchoolId)
+                .select('id', { count: 'exact' }); // Get count of updated rows
 
-            if (updateError) throw updateError;
+            if (updateError) {
+                console.error('❌ Supabase Update Error:', updateError);
+                throw updateError;
+            }
+
+            if (count === 0) {
+                console.warn(`⚠️ UPDATE returned 0 rows affected. RLS may be blocking update for school ${activeSchoolId}.`);
+                // Check if user is actually a member
+                const { data: memberCheck } = await supabase
+                    .from('school_members')
+                    .select('id, role')
+                    .eq('school_id', activeSchoolId)
+                    .eq('profile_id', (await supabase.auth.getUser()).data.user?.id)
+                    .single();
+                console.log('🔍 Membership Check:', memberCheck);
+            } else {
+                console.log(`✅ Successfully updated onboarding status. Rows affected: ${count}`);
+            }
 
             // 1. Update local simple state
             setOnboardingStatus(status);
@@ -253,7 +277,7 @@ export function useSchoolContext(): SchoolContext {
                     : s
             ));
         } catch (err) {
-            console.error('Failed to update onboarding status:', err);
+            console.error('Failed to update onboarding status (catch):', err);
         }
     };
 

@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Building2,
   Users,
@@ -21,7 +24,7 @@ import {
 export default function SchoolOnboardingPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const { updateOnboardingStatus } = useSchoolContext();
+  const { updateOnboardingStatus, activeSchoolId, loading } = useSchoolContext();
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [isCompleting, setIsCompleting] = useState(false);
 
@@ -69,6 +72,84 @@ export default function SchoolOnboardingPage() {
   const handleMarkStep = (stepId: string) => {
     setCompletedSteps(prev => [...new Set([...prev, stepId])]);
   };
+
+  // Estado para crear escuela si no existe (caso usuario huérfano)
+  const [newSchoolName, setNewSchoolName] = useState('');
+  const [isCreatingSchool, setIsCreatingSchool] = useState(false);
+
+  // Si no hay escuela activa y no está cargando, mostrar form de creación
+  const needsSchoolCreation = !activeSchoolId && !loading;
+
+  const handleCreateSchool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSchoolName.trim() || !profile?.id) return;
+
+    setIsCreatingSchool(true);
+    try {
+      // 1. Crear escuela
+      const { data: school, error: schoolError } = await supabase
+        .from('schools')
+        .insert({
+          name: newSchoolName,
+          onboarding_status: 'in_progress', // Empezamos en in_progress
+          owner_id: profile.id
+        })
+        .select()
+        .single();
+
+      if (schoolError) throw schoolError;
+
+      // 2. Crear membresía de owner
+      const { error: memberError } = await supabase
+        .from('school_members')
+        .insert({
+          school_id: school.id,
+          profile_id: profile.id,
+          role: 'owner',
+          status: 'active'
+        });
+
+      if (memberError) throw memberError;
+
+      // 3. Recargar para que el contexto detecte la nueva escuela
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Error creating school:', err);
+      alert('Error al crear la escuela: ' + err.message);
+    } finally {
+      setIsCreatingSchool(false);
+    }
+  };
+
+  if (needsSchoolCreation) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-center">Crea tu Academia</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreateSchool} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="schoolName">Nombre de tu Academia</Label>
+                <Input
+                  id="schoolName"
+                  placeholder="Ej: Spirit All Stars"
+                  value={newSchoolName}
+                  onChange={(e) => setNewSchoolName(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={isCreatingSchool}>
+                {isCreatingSchool ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Comenzar Configuración
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // ─── Completar onboarding: escribe 'completed' en Supabase (fuente de verdad)
   const handleCompleteOnboarding = async () => {

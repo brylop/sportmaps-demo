@@ -112,6 +112,10 @@ DROP POLICY IF EXISTS "schools_delete_owner"    ON schools;
 CREATE POLICY "schools_select_public"
 ON schools FOR SELECT USING (true);   -- Las escuelas son públicas (explorar)
 
+CREATE POLICY "schools_insert_authenticated"
+ON schools FOR INSERT
+WITH CHECK (auth.role() = 'authenticated');
+
 CREATE POLICY "schools_update_owner"
 ON schools FOR UPDATE
 USING (owner_id = auth.uid());
