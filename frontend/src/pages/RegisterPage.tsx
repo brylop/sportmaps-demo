@@ -84,7 +84,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       // 1. Attempt Registration
-      const { error } = await signUp(data.email, data.password, {
+      await signUp(data.email, data.password, {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
@@ -92,8 +92,6 @@ export default function RegisterPage() {
         role: data.role as any,
         invitation_code: data.code,
       });
-
-      if (error) throw error;
 
       // 2. Auto-Login Strategy (Since we auto-confirm emails now)
       // We try to sign in immediately.
@@ -133,6 +131,7 @@ export default function RegisterPage() {
               <Label htmlFor="fullName">Nombre Completo</Label>
               <Input
                 id="fullName"
+                autoComplete="name"
                 placeholder="Tu nombre completo"
                 {...register('fullName')}
                 className={errors.fullName ? 'border-destructive' : ''}
@@ -147,6 +146,7 @@ export default function RegisterPage() {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 placeholder="tu@email.com"
                 {...register('email')}
                 className={errors.email ? 'border-destructive' : ''}
@@ -161,6 +161,7 @@ export default function RegisterPage() {
               <Input
                 id="phone"
                 type="tel"
+                autoComplete="tel"
                 placeholder="+57 300 123 4567"
                 {...register('phone')}
               />
@@ -171,6 +172,7 @@ export default function RegisterPage() {
               <Input
                 id="dateOfBirth"
                 type="date"
+                autoComplete="bday"
                 {...register('dateOfBirth')}
                 className={errors.dateOfBirth ? 'border-destructive' : ''}
               />
@@ -182,7 +184,7 @@ export default function RegisterPage() {
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
               <Select onValueChange={(value) => setValue('role', value)}>
-                <SelectTrigger className={errors.role ? 'border-destructive' : ''}>
+                <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
                   <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>
                 <SelectContent>
@@ -214,6 +216,7 @@ export default function RegisterPage() {
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   {...register('password')}
                   className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
@@ -239,6 +242,7 @@ export default function RegisterPage() {
                 <Input
                   id="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   {...register('confirmPassword')}
                   className={errors.confirmPassword ? 'border-destructive pr-10' : 'pr-10'}

@@ -88,7 +88,8 @@ export default function ReportsPage() {
         // (The loop above only counts programs that have at least 1 student)
         let progsQuery = supabase.from('programs').select('name, capacity').eq('school_id', schoolId);
         if (activeBranchId) progsQuery = progsQuery.eq('branch_id', activeBranchId);
-        const { data: allPrograms } = await progsQuery;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: allPrograms } = await progsQuery as any;
 
         let realTotalCapacity = 0;
         const finalOccupancyData: any[] = [];
