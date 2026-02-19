@@ -35,7 +35,8 @@ export interface SchoolContext {
     error: string | null;
 }
 
-const DEMO_SCHOOL_EMAIL = 'spoortmaps+school@gmail.com';
+// Email de la escuela demo para usuarios invitados (solo si se configura en .env)
+const DEMO_SCHOOL_EMAIL = import.meta.env.VITE_DEMO_SCHOOL_EMAIL || '';
 const DEFAULT_MONTHLY_FEE = 150000; // COP
 const STORAGE_KEY_ACTIVE_SCHOOL = 'sportmaps_active_school_id';
 
@@ -120,6 +121,13 @@ export function useSchoolContext(): SchoolContext {
         };
 
         const resolveFallbackSchool = async () => {
+            // Safety Check: Only run fallback if configured explicitly
+            if (!DEMO_SCHOOL_EMAIL) {
+                console.log('Guest mode: No VITE_DEMO_SCHOOL_EMAIL configured. Fallback disabled.');
+                setLoading(false);
+                return;
+            }
+
             // Only for unauthenticated guests, try to find the official Demo School
             const { data: demoSchool } = await supabase
                 .from('schools')
@@ -133,14 +141,12 @@ export function useSchoolContext(): SchoolContext {
                 setCurrentUserRole('viewer');
                 setAvailableSchools([{ schoolId: demoSchool.id, schoolName: demoSchool.name, role: 'viewer', branchId: null }]);
             } else {
-                // No demo school found. Do nothing (leave empty).
                 console.log('No demo school found for guest.');
             }
             // Start fetch programs immediately for fallback
             if (activeSchoolId) fetchPrograms(activeSchoolId);
-            // Note: activeSchoolId state might not be updated yet in this closure, 
-            // but we call fetchPrograms in a separate effect dependent on activeSchoolId
         };
+
 
         resolveUserContext();
     }, []);

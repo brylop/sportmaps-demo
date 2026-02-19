@@ -9,6 +9,12 @@
 --   NUNCA ejecutar con service_role directamente en prod sin backup previo.
 -- =============================================================================
 
+-- ─── PASO 0: Columnas faltantes en el schema real ────────────────────────────
+-- La columna onboarding_completed no existía en profiles (real schema verificado 2026-02-18)
+-- El frontend la usa en AuthContext y ProtectedRoute para controlar el gate de onboarding.
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS onboarding_completed boolean DEFAULT false;
+
 -- ─── PASO 1: Activar RLS en todas las tablas core ────────────────────────────
 ALTER TABLE IF EXISTS children              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS payments              ENABLE ROW LEVEL SECURITY;
