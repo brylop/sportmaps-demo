@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 interface UserProfile {
   id: string;
   full_name: string | null;
+  email: string;
   phone: string | null;
   role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
   avatar_url: string | null;
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .insert({
           id: userId,
           full_name: userData.full_name || 'Usuario',
+          email: userData.email || '', // FIX: Added missing required field
           phone: userData.phone || null,
           role: (userData.role || 'athlete') as any,
           avatar_url: userData.avatar_url || null,
@@ -153,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } else {
                   const created = await createProfile(session.user!.id, {
                     full_name: session.user!.user_metadata?.full_name || 'Usuario',
-                    // FIX: Use the role from metadata (set during signup) instead of hardcoding 'athlete'
+                    email: session.user!.email || '', // FIX: Pass email
                     role: session.user!.user_metadata?.role || 'athlete',
                   });
                   setProfile(created as UserProfile);
