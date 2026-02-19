@@ -77,6 +77,9 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
       concept: `Pago: ${item.name}`,
       description: item.description || `Pago por ${item.name}`,
       schoolName: item.schoolName || 'SportMaps',
+      amount: item.amount,
+      paymentMethod,
+      paymentType,
     });
   };
 
