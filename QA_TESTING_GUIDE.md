@@ -243,6 +243,21 @@ Un `parent` intenta acceder a rutas de `owner`:
 | `/school/settings` | Redirect a su dashboard o error 403 |
 | `/school/staff` | Redirect a su dashboard o error 403 |
 
+### TC-18: Validación de Guest Mode (Demo School)
+
+Prueba para asegurar que el fallback de escuela demo no se activa en producción.
+
+1. **Prueba Local (con .env):**
+   - Asegurar `VITE_DEMO_SCHOOL_EMAIL` configurado en `.env.local`
+   - Abrir en incógnito (sin login)
+   - **Resultado:** Carga la escuela demo automáticamente.
+
+2. **Prueba Producción (simulada):**
+   - Comentar `VITE_DEMO_SCHOOL_EMAIL` en `.env.local`
+   - Reiniciar server
+   - Abrir en incógnito
+   - **Resultado:** NO carga escuela demo. Muestra log en consola: *"Guest mode: No VITE_DEMO_SCHOOL_EMAIL configured"*.
+
 ---
 
 ## 🟢 NORMAL — Bloque 7: Regresión general
