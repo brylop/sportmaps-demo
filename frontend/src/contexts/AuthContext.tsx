@@ -153,7 +153,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } else {
                   const created = await createProfile(session.user!.id, {
                     full_name: session.user!.user_metadata?.full_name || 'Usuario',
-                    role: 'athlete',
+                    // FIX: Use the role from metadata (set during signup) instead of hardcoding 'athlete'
+                    role: session.user!.user_metadata?.role || 'athlete',
                   });
                   setProfile(created as UserProfile);
                 }

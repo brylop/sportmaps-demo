@@ -67,7 +67,7 @@ export function useSchoolContext(): SchoolContext {
                 const { data: { user } } = await supabase.auth.getUser();
 
                 if (!user) {
-                    // Fallback: Try to find Default Demo School if no user
+                    // Fallback: Try to find Default Demo School if no user (Guest Mode)
                     await resolveFallbackSchool();
                     return;
                 }
@@ -104,11 +104,22 @@ export function useSchoolContext(): SchoolContext {
                 } else {
                     // Authenticated but no memberships (New School Owner)
                     // Do NOT fallback to random school. Leave empty to trigger Onboarding.
+                    // FIX: Check actual profile role before assuming owner to prevent redirect loops
+                    // Authenticated but no memberships
                     console.log('User has no school memberships. Triggering Onboarding state.');
                     setAvailableSchools([]);
                     setActiveSchoolId(null);
                     setActiveSchoolName('Mi Escuela');
-                    setCurrentUserRole('owner'); // Default to owner so they can create
+
+                    const { data: userProfile } = await supabase
+                        .from('profiles')
+                        .select('role')
+                        .eq('id', user.id)
+                        .maybeSingle();
+
+                    const effectiveRole = userProfile?.role === 'school' ? 'owner' : (userProfile?.role as any) || 'owner';
+                    setCurrentUserRole(effectiveRole);
+
                     setOnboardingStatus('pending');
                 }
             } catch (err: any) {
