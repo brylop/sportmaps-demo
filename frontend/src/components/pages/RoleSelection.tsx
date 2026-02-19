@@ -80,7 +80,8 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
           // Fallback si la tabla está vacía o no existe aún
           console.warn("No roles found in DB, using default roles");
           setRoles([
-            { id: "athlete", title: "Deportista / Padre", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
+            { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
+            { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
             { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
             { id: "school", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" }
           ]);
@@ -90,7 +91,8 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
         console.error("Error fetching roles:", err);
         // Fallback silencioso para no bloquear al usuario
         setRoles([
-          { id: "athlete", title: "Deportista / Padre", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
+          { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
+          { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
           { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
           { id: "school", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" }
         ]);
