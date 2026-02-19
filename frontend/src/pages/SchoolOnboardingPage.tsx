@@ -77,7 +77,10 @@ export default function SchoolOnboardingPage() {
       // updateOnboardingStatus actualiza schools.onboarding_status en Supabase DB.
       // ProtectedRoute lee de ahí via useSchoolContext → el gate se abre.
       await updateOnboardingStatus('completed');
-      navigate('/dashboard');
+
+      // Force reload to ensure all contexts re-fetch fresh data from DB
+      // and update Auth/School state correctly without stale cache.
+      window.location.href = '/dashboard';
     } catch (error) {
       console.error('Error al completar onboarding:', error);
     } finally {
@@ -90,7 +93,9 @@ export default function SchoolOnboardingPage() {
     setIsCompleting(true);
     try {
       await updateOnboardingStatus('completed');
-      navigate('/dashboard');
+
+      // Force reload to ensure all contexts re-fetch fresh data from DB.
+      window.location.href = '/dashboard';
     } catch (error) {
       console.error('Error al saltar onboarding:', error);
     } finally {

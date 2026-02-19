@@ -242,7 +242,16 @@ export function useSchoolContext(): SchoolContext {
                 .eq('id', activeSchoolId);
 
             if (updateError) throw updateError;
+
+            // 1. Update local simple state
             setOnboardingStatus(status);
+
+            // 2. Update the complex availableSchools array in memory
+            setAvailableSchools(prev => prev.map(s =>
+                s.schoolId === activeSchoolId
+                    ? { ...s, onboardingStatus: status }
+                    : s
+            ));
         } catch (err) {
             console.error('Failed to update onboarding status:', err);
         }
