@@ -10,110 +10,120 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { Suspense, lazy } from "react";
 
-// Public pages
-import Index from "./pages/Index";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import ExplorePage from "./pages/ExplorePage";
-import SchoolDetailPage from "./pages/SchoolDetailPage";
-import UnauthorizedPage from "./pages/UnauthorizedPage";
-import NotFound from "./pages/NotFound";
-import CheckoutPage from "./pages/CheckoutPage";
-import ParentCheckoutPage from "./pages/ParentCheckoutPage";
-import PaymentResultPage from "./pages/PaymentResultPage";
-import PublicSchoolPage from "./pages/PublicSchoolPage";
+// ─── Skeleton de carga global ─────────────────────────────────────────────────
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="flex flex-col items-center gap-4">
+      <div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+      <p className="text-sm text-muted-foreground animate-pulse">Cargando...</p>
+    </div>
+  </div>
+);
 
-// Events (public)
-import EventsMapPage from "./pages/events/EventsMapPage";
-import EventPublicPage from "./pages/events/EventPublicPage";
+// ─── Public pages (lazy) ──────────────────────────────────────────────────────
+const Index = lazy(() => import("./pages/Index"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
+const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
+const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
+const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
+const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 
-// Dashboard pages
-import DashboardPage from "./pages/DashboardPage";
-import CalendarPage from "./pages/CalendarPage";
-import NotificationsPage from "./pages/NotificationsPage";
-import SettingsPage from "./pages/SettingsPage";
-import TeamsPage from "./pages/TeamsPage";
-import StatsPage from "./pages/StatsPage";
-import MessagesPage from "./pages/MessagesPage";
-import ProfilePage from "./pages/ProfilePage";
-import MyEnrollmentsPage from "./pages/MyEnrollmentsPage";
-import ShopPage from "./pages/ShopPage";
+// ─── Events (public, lazy) ────────────────────────────────────────────────────
+const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
+const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
 
-// Parent pages
-import MyChildrenPage from "./pages/MyChildrenPage";
-import ChildProgressPage from "./pages/ChildProgressPage";
-import ChildAttendancePage from "./pages/ChildAttendancePage";
-import AcademicProgressPage from "./pages/AcademicProgressPage";
-import AttendancePage from "./pages/AttendancePage";
-import PaymentsPage from "./pages/PaymentsPage";
-import MyPaymentsPage from "./pages/MyPaymentsPage";
+// ─── Dashboard pages (lazy) ───────────────────────────────────────────────────
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const StatsPage = lazy(() => import("./pages/StatsPage"));
+const MessagesPage = lazy(() => import("./pages/MessagesPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const MyEnrollmentsPage = lazy(() => import("./pages/MyEnrollmentsPage"));
+const ShopPage = lazy(() => import("./pages/ShopPage"));
 
-// Coach pages
-import CoachAttendancePage from "./pages/CoachAttendancePage";
-import ResultsPage from "./pages/ResultsPage";
-import TrainingPlansPage from "./pages/TrainingPlansPage";
-import CoachReportsPage from "./pages/CoachReportsPage";
-import CoachEvaluationsPage from "./pages/CoachEvaluationsPage";
-import AnnouncementsPage from "./pages/AnnouncementsPage";
+// ─── Parent pages (lazy) ──────────────────────────────────────────────────────
+const MyChildrenPage = lazy(() => import("./pages/MyChildrenPage"));
+const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
+const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
+const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
+const AttendancePage = lazy(() => import("./pages/AttendancePage"));
+const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
+const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 
-// School pages
-import SchoolStudentsManagementPage from "./pages/SchoolStudentsManagementPage";
-import SchoolCoachesManagementPage from "./pages/SchoolCoachesManagementPage";
-import ProgramsManagementPage from "./pages/ProgramsManagementPage";
-import AttendanceSupervisionPage from "./pages/AttendanceSupervisionPage";
-import ResultsOverviewPage from "./pages/ResultsOverviewPage";
-import FinancesPage from "./pages/FinancesPage";
-import PaymentsAutomationPage from "./pages/PaymentsAutomationPage";
-import PaymentRemindersPage from "./pages/PaymentRemindersPage";
-import ReportsPage from "./pages/ReportsPage";
-import SchoolFacilitiesPage from "./pages/SchoolFacilitiesPage";
-import SchoolBranchesManagementPage from "./pages/SchoolBranchesManagementPage";
-import SchoolSettingsPage from "./pages/SchoolSettingsPage";
-import PickupMonitorPage from "./pages/school/PickupMonitorPage";
+// ─── Coach pages (lazy) ───────────────────────────────────────────────────────
+const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
+const ResultsPage = lazy(() => import("./pages/ResultsPage"));
+const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
+const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
+const CoachEvaluationsPage = lazy(() => import("./pages/CoachEvaluationsPage"));
+const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
-// Onboarding pages
-import SchoolOnboardingPage from "./pages/SchoolOnboardingPage";
-import CoachOnboardingPage from "./pages/CoachOnboardingPage";
-import AthleteOnboardingPage from "./pages/AthleteOnboardingPage";
-import WellnessOnboardingPage from "./pages/WellnessOnboardingPage";
-import StoreOwnerOnboardingPage from "./pages/StoreOwnerOnboardingPage";
-import ParentOnboardingPage from "./pages/ParentOnboardingPage";
+// ─── School pages (lazy) ──────────────────────────────────────────────────────
+const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
+const SchoolCoachesManagementPage = lazy(() => import("./pages/SchoolCoachesManagementPage"));
+const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
+const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
+const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
+const FinancesPage = lazy(() => import("./pages/FinancesPage"));
+const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
+const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
+const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesManagementPage"));
+const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
+const PickupMonitorPage = lazy(() => import("./pages/school/PickupMonitorPage"));
 
+// ─── Onboarding pages (lazy) ──────────────────────────────────────────────────
+const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
+const CoachOnboardingPage = lazy(() => import("./pages/CoachOnboardingPage"));
+const AthleteOnboardingPage = lazy(() => import("./pages/AthleteOnboardingPage"));
+const WellnessOnboardingPage = lazy(() => import("./pages/WellnessOnboardingPage"));
+const StoreOwnerOnboardingPage = lazy(() => import("./pages/StoreOwnerOnboardingPage"));
+const ParentOnboardingPage = lazy(() => import("./pages/ParentOnboardingPage"));
 
+// ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
+const GoalsPage = lazy(() => import("./pages/GoalsPage"));
+const TrainingPage = lazy(() => import("./pages/TrainingPage"));
+const AthleteWellnessPage = lazy(() => import("./pages/AthleteWellnessPage"));
 
-// Athlete pages
-import GoalsPage from "./pages/GoalsPage";
-import TrainingPage from "./pages/TrainingPage";
-import AthleteWellnessPage from "./pages/AthleteWellnessPage";
+// ─── Store pages (lazy) ───────────────────────────────────────────────────────
+const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
+const StoreOrdersPage = lazy(() => import("./pages/StoreOrdersPage"));
+const StoreInventoryPage = lazy(() => import("./pages/StoreInventoryPage"));
 
-// Store pages
-import StoreProductsPage from "./pages/StoreProductsPage";
-import StoreOrdersPage from "./pages/StoreOrdersPage";
-import StoreInventoryPage from "./pages/StoreInventoryPage";
+// ─── Wellness pages (lazy) ────────────────────────────────────────────────────
+const WellnessSchedulePage = lazy(() => import("./pages/WellnessSchedulePage"));
+const WellnessPatientsPage = lazy(() => import("./pages/WellnessPatientsPage"));
+const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
+const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 
-// Wellness pages
-import WellnessSchedulePage from "./pages/WellnessSchedulePage";
-import WellnessPatientsPage from "./pages/WellnessPatientsPage";
-import MedicalHistoryPage from "./pages/MedicalHistoryPage";
-import NutritionPage from "./pages/NutritionPage";
+// ─── Admin pages (lazy) ───────────────────────────────────────────────────────
+const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 
-// Admin pages
-import AdminAnalyticsPage from "./pages/AdminAnalyticsPage";
-
-// Organizer pages
-import OrganizerDashboardPage from "./pages/organizer/OrganizerDashboardPage";
-import OrganizerOnboardingPage from "./pages/organizer/OrganizerOnboardingPage";
-import CreateEventPage from "./pages/organizer/CreateEventPage";
-import EventManagementPage from "./pages/organizer/EventManagementPage";
+// ─── Organizer pages (lazy) ───────────────────────────────────────────────────
+const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
+const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
+const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
+const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,
-      gcTime: 10 * 60 * 1000,
+      staleTime: 5 * 60 * 1000,        // 5 min de cache
+      gcTime: 10 * 60 * 1000,           // 10 min en memoria
       retry: 1,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: false,      // Evita refetch innecesario al volver al tab
+      refetchOnReconnect: 'always',     // Siempre refetch al reconectar (crítico mobile)
     },
   },
 });
@@ -127,238 +137,240 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <Routes>
-                {/* Public routes */}
-                <Route path="/" element={<Index />} />
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  {/* Public routes */}
+                  <Route path="/" element={<Index />} />
 
-                <Route path="/explore" element={<ExplorePage />} />
-                <Route path="/schools/:id" element={<SchoolDetailPage />} />
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/register" element={<RegisterPage />} />
-                <Route path="/checkout" element={
-                  <ProtectedRoute>
-                    <CheckoutPage />
-                  </ProtectedRoute>
-                } />
-                <Route path="/parent-checkout" element={
-                  <ProtectedRoute>
-                    <ParentCheckoutPage />
-                  </ProtectedRoute>
-                } />
-                <Route path="/payment-result" element={<PaymentResultPage />} />
-                <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                  <Route path="/explore" element={<ExplorePage />} />
+                  <Route path="/schools/:id" element={<SchoolDetailPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/checkout" element={
+                    <ProtectedRoute>
+                      <CheckoutPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/parent-checkout" element={
+                    <ProtectedRoute>
+                      <ParentCheckoutPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/payment-result" element={<PaymentResultPage />} />
+                  <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
-                {/* Public Events routes */}
-                <Route path="/events" element={<EventsMapPage />} />
-                <Route path="/event/:slug" element={<EventPublicPage />} />
-                <Route path="/s/:slug" element={<PublicSchoolPage />} />
+                  {/* Public Events routes */}
+                  <Route path="/events" element={<EventsMapPage />} />
+                  <Route path="/event/:slug" element={<EventPublicPage />} />
+                  <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
-                {/* Protected routes with layout */}
-                <Route path="/" element={
-                  <ProtectedRoute>
-                    <AuthLayout />
-                  </ProtectedRoute>
-                }>
-                  {/* Main routes */}
-                  <Route path="dashboard" element={<DashboardPage />} />
-                  <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
-                  <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
-                  <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
-                  <Route path="parent-onboarding" element={<ParentOnboardingPage />} />
-                  <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
-                  <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
-                  <Route path="profile" element={<ProfilePage />} />
-                  <Route path="calendar" element={<CalendarPage />} />
-                  <Route path="notifications" element={<NotificationsPage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                  <Route path="messages" element={<MessagesPage />} />
+                  {/* Protected routes with layout */}
+                  <Route path="/" element={
+                    <ProtectedRoute>
+                      <AuthLayout />
+                    </ProtectedRoute>
+                  }>
+                    {/* Main routes */}
+                    <Route path="dashboard" element={<DashboardPage />} />
+                    <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+                    <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
+                    <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
+                    <Route path="parent-onboarding" element={<ParentOnboardingPage />} />
+                    <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
+                    <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
+                    <Route path="profile" element={<ProfilePage />} />
+                    <Route path="calendar" element={<CalendarPage />} />
+                    <Route path="notifications" element={<NotificationsPage />} />
+                    <Route path="settings" element={<SettingsPage />} />
+                    <Route path="messages" element={<MessagesPage />} />
 
-                  {/* Athlete routes */}
-                  <Route path="teams" element={<TeamsPage />} />
-                  <Route path="stats" element={<StatsPage />} />
-                  <Route path="goals" element={<GoalsPage />} />
-                  <Route path="training" element={<TrainingPage />} />
-                  <Route path="enrollments" element={<MyEnrollmentsPage />} />
-                  <Route path="shop" element={<ShopPage />} />
-                  <Route path="wellness" element={<AthleteWellnessPage />} />
+                    {/* Athlete routes */}
+                    <Route path="teams" element={<TeamsPage />} />
+                    <Route path="stats" element={<StatsPage />} />
+                    <Route path="goals" element={<GoalsPage />} />
+                    <Route path="training" element={<TrainingPage />} />
+                    <Route path="enrollments" element={<MyEnrollmentsPage />} />
+                    <Route path="shop" element={<ShopPage />} />
+                    <Route path="wellness" element={<AthleteWellnessPage />} />
 
-                  {/* Parent routes */}
-                  <Route path="children" element={<MyChildrenPage />} />
-                  <Route path="my-payments" element={<MyPaymentsPage />} />
-                  <Route path="children/:id/progress" element={<ChildProgressPage />} />
-                  <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
-                  <Route path="academic-progress" element={<AcademicProgressPage />} />
-                  <Route path="parent-attendance" element={<AttendancePage />} />
-                  <Route path="payments" element={<PaymentsPage />} />
+                    {/* Parent routes */}
+                    <Route path="children" element={<MyChildrenPage />} />
+                    <Route path="my-payments" element={<MyPaymentsPage />} />
+                    <Route path="children/:id/progress" element={<ChildProgressPage />} />
+                    <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
+                    <Route path="academic-progress" element={<AcademicProgressPage />} />
+                    <Route path="parent-attendance" element={<AttendancePage />} />
+                    <Route path="payments" element={<PaymentsPage />} />
 
-                  {/* Coach routes */}
-                  <Route path="coach-attendance" element={<CoachAttendancePage />} />
-                  <Route path="results" element={<ResultsPage />} />
-                  <Route path="training-plans" element={<TrainingPlansPage />} />
-                  <Route path="coach-reports" element={<CoachReportsPage />} />
-                  <Route path="evaluations" element={<CoachEvaluationsPage />} />
-                  <Route path="announcements" element={<AnnouncementsPage />} />
+                    {/* Coach routes */}
+                    <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                    <Route path="results" element={<ResultsPage />} />
+                    <Route path="training-plans" element={<TrainingPlansPage />} />
+                    <Route path="coach-reports" element={<CoachReportsPage />} />
+                    <Route path="evaluations" element={<CoachEvaluationsPage />} />
+                    <Route path="announcements" element={<AnnouncementsPage />} />
 
-                  {/* School routes (role-guarded) */}
-                  <Route path="students" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin', 'coach']}>
-                      <SchoolStudentsManagementPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="staff" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <SchoolCoachesManagementPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="programs-management" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <ProgramsManagementPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="attendance-supervision" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <AttendanceSupervisionPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="results-overview" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <ResultsOverviewPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="finances" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <FinancesPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="payments-automation" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <PaymentsAutomationPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="payment-reminders" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <PaymentRemindersPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="school-reports" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <ReportsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="facilities" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <SchoolFacilitiesPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="branches" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <SchoolBranchesManagementPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="school-config" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <SchoolSettingsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="pickup" element={
-                    <ProtectedRoute allowedRoles={['school', 'admin']}>
-                      <PickupMonitorPage />
-                    </ProtectedRoute>
-                  } />
+                    {/* School routes (role-guarded) */}
+                    <Route path="students" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'coach']}>
+                        <SchoolStudentsManagementPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="staff" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <SchoolCoachesManagementPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="programs-management" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ProgramsManagementPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="attendance-supervision" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <AttendanceSupervisionPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="results-overview" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ResultsOverviewPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="finances" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <FinancesPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="payments-automation" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <PaymentsAutomationPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="payment-reminders" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <PaymentRemindersPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="school-reports" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ReportsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="facilities" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <SchoolFacilitiesPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="branches" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <SchoolBranchesManagementPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="school-config" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <SchoolSettingsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="pickup" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <PickupMonitorPage />
+                      </ProtectedRoute>
+                    } />
 
-                  {/* Wellness routes */}
-                  <Route path="athletes" element={<WellnessPatientsPage />} />
-                  <Route path="schedule" element={<WellnessSchedulePage />} />
-                  <Route path="evaluations/new" element={<WellnessSchedulePage />} />
-                  <Route path="medical-history" element={<MedicalHistoryPage />} />
-                  <Route path="follow-ups" element={<WellnessPatientsPage />} />
-                  <Route path="nutrition" element={<NutritionPage />} />
-                  <Route path="wellness-reports" element={<ReportsPage />} />
+                    {/* Wellness routes */}
+                    <Route path="athletes" element={<WellnessPatientsPage />} />
+                    <Route path="schedule" element={<WellnessSchedulePage />} />
+                    <Route path="evaluations/new" element={<WellnessSchedulePage />} />
+                    <Route path="medical-history" element={<MedicalHistoryPage />} />
+                    <Route path="follow-ups" element={<WellnessPatientsPage />} />
+                    <Route path="nutrition" element={<NutritionPage />} />
+                    <Route path="wellness-reports" element={<ReportsPage />} />
 
-                  {/* Store routes (role-guarded) */}
-                  <Route path="products" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreProductsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="orders" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreOrdersPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="inventory" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreInventoryPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="suppliers" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreInventoryPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="categories" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreProductsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="customers" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreOrdersPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="promotions" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <StoreProductsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="store-reports" element={
-                    <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                      <ReportsPage />
-                    </ProtectedRoute>
-                  } />
+                    {/* Store routes (role-guarded) */}
+                    <Route path="products" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreProductsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="orders" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreOrdersPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="inventory" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreInventoryPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="suppliers" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreInventoryPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="categories" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreProductsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="customers" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreOrdersPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="promotions" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <StoreProductsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="store-reports" element={
+                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <ReportsPage />
+                      </ProtectedRoute>
+                    } />
 
-                  {/* Organizer routes */}
-                  <Route path="organizer-onboarding" element={<OrganizerOnboardingPage />} />
-                  <Route path="organizer/home" element={<OrganizerDashboardPage />} />
-                  <Route path="organizer/create-event" element={<CreateEventPage />} />
-                  <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                    {/* Organizer routes */}
+                    <Route path="organizer-onboarding" element={<OrganizerOnboardingPage />} />
+                    <Route path="organizer/home" element={<OrganizerDashboardPage />} />
+                    <Route path="organizer/create-event" element={<CreateEventPage />} />
+                    <Route path="organizer/event/:id" element={<EventManagementPage />} />
 
-                  {/* Admin routes */}
-                  <Route path="admin/users" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <SettingsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="admin/clubs" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <ExplorePage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="admin/reports" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <ReportsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="admin/analytics" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <AdminAnalyticsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="admin/config" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <SettingsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="admin/logs" element={
-                    <ProtectedRoute allowedRoles={['admin']}>
-                      <NotificationsPage />
-                    </ProtectedRoute>
-                  } />
-                </Route>
+                    {/* Admin routes */}
+                    <Route path="admin/users" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <SettingsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="admin/clubs" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <ExplorePage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="admin/reports" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <ReportsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="admin/analytics" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <AdminAnalyticsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="admin/config" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <SettingsPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="admin/logs" element={
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <NotificationsPage />
+                      </ProtectedRoute>
+                    } />
+                  </Route>
 
-                {/* Catch-all route */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+                  {/* Catch-all route */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
 
               {/* Mobile Bottom Navigation */}
               <MobileBottomNav />

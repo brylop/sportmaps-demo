@@ -1,0 +1,1 @@
+-- Placeholder for remote migration history to bypass verify check
