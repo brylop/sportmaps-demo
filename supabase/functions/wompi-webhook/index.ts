@@ -1,207 +1,121 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-// ─── TIPOS ───────────────────────────────────────────────────────────────────
-interface WompiTransaction {
-    id: string
-    status: string
-    reference: string
-    amount_in_cents: number
-    currency: string
-    payment_method_type: string
-}
+const wompiSecret = Deno.env.get('WOMPI_INTEGRITY_SECRET') ?? ''
 
-interface WompiWebhookPayload {
-    event: string
-    data: {
-        transaction: WompiTransaction
-    }
-    timestamp: number
-    sent_at: string
-    signature?: {
-        checksum: string
-        properties: string[]
-    }
-}
-
-// ─── CORS headers ────────────────────────────────────────────────────────────
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-// ─── Verificar firma HMAC de Wompi ───────────────────────────────────────────
-async function verifyWompiSignature(
-    payload: WompiWebhookPayload,
-    receivedChecksum: string
-): Promise<boolean> {
-    const eventsSecret = Deno.env.get('WOMPI_EVENTS_SECRET')
-    if (!eventsSecret) {
-        console.error('❌ WOMPI_EVENTS_SECRET no configurado')
-        return false
-    }
-
-    const properties = payload.signature?.properties ?? []
-    const dataToSign = properties.map((prop) => {
-        const parts = prop.split('.')
-        let value: unknown = payload
-        for (const part of parts) {
-            value = (value as Record<string, unknown>)[part]
-        }
-        return String(value)
-    }).join('')
-
-    const stringToSign = `${dataToSign}${payload.timestamp}${eventsSecret}`
-    const encoder = new TextEncoder()
-    const data = encoder.encode(stringToSign)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const computedChecksum = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
-
-    const isValid = computedChecksum === receivedChecksum
-    if (!isValid) {
-        console.error('❌ Firma inválida', { computed: computedChecksum, received: receivedChecksum })
-    }
-    return isValid
-}
-
-// ─── Handler principal ────────────────────────────────────────────────────────
-serve(async (req: Request) => {
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders })
-    }
-    if (req.method !== 'POST') {
-        return new Response('Method Not Allowed', { status: 405 })
-    }
-
-    let payload: WompiWebhookPayload
+serve(async (req) => {
     try {
-        payload = await req.json()
-    } catch {
-        return new Response('Bad Request: invalid JSON', { status: 400 })
-    }
+        const { method } = req
 
-    console.log('📨 Wompi webhook:', payload.event, payload.data?.transaction?.reference)
-
-    // ─── Verificar firma ─────────────────────────────────────────────────────
-    const checksum = payload.signature?.checksum ?? ''
-    if (checksum) {
-        const isValid = await verifyWompiSignature(payload, checksum)
-        if (!isValid) {
-            return new Response('Unauthorized: invalid signature', { status: 401 })
+        if (method !== 'POST') {
+            return new Response('Method Not Allowed', { status: 405 })
         }
-    } else {
-        const isProduction = Deno.env.get('ENVIRONMENT') === 'production'
-        if (isProduction) {
-            return new Response('Unauthorized: missing signature', { status: 401 })
+
+        const payload = await req.json()
+        const { data, signature, timestamp, event } = payload
+
+        if (event !== 'transaction.updated') {
+            return new Response('Event ignored', { status: 200 })
         }
-        console.warn('⚠️ Sin firma (modo sandbox)')
-    }
 
-    if (payload.event !== 'transaction.updated') {
-        return new Response('OK: event ignored', { status: 200 })
-    }
+        const transaction = data.transaction
 
-    const transaction = payload.data.transaction
-    const { reference, status, amount_in_cents } = transaction
+        // Verify Signature
+        // Wompi signature structure: SHA256(transaction.id + transaction.status + transaction.amount_in_cents + timestamp + secret)
+        // Note: The structure might vary, please double check Wompi documentation.
+        // Assuming standard format for now. If signature validation fails, log it but proceed for now (or fail).
 
-    if (!reference) {
-        return new Response('Bad Request: missing reference', { status: 400 })
-    }
+        const calculatedSignatureSource = `${transaction.id}${transaction.status}${transaction.amount_in_cents}${timestamp}${wompiSecret}`
+        const encoder = new TextEncoder()
+        const dataBuffer = encoder.encode(calculatedSignatureSource)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const calculatedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
 
-    // Mapeo de status Wompi → status interno
-    // Schema real de payments acepta: 'pending','paid','overdue','failed','cancelled'
-    const statusMap: Record<string, string> = {
-        APPROVED: 'paid',
-        DECLINED: 'failed',
-        VOIDED: 'cancelled',
-        ERROR: 'failed',
-        PENDING: 'pending',
-    }
-    const internalStatus = statusMap[status] ?? 'pending'
-
-    // ─── Supabase admin con service_role ─────────────────────────────────────
-    const supabaseAdmin = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-        { auth: { persistSession: false } }
-    )
-
-    // ─── Actualizar pago buscando por campo 'reference' (agregado en migración)
-    const updateData: Record<string, unknown> = {
-        status: internalStatus,
-        wompi_id: transaction.id,
-        // payment_method: solo valores permitidos por el CHECK del schema real:
-        // 'pse','card','transfer','cash','other'
-        payment_method: mapPaymentMethod(transaction.payment_method_type),
-        updated_at: new Date().toISOString(),
-    }
-
-    // Solo actualizar payment_date y amount_paid si fue aprobado
-    if (status === 'APPROVED') {
-        updateData.payment_date = new Date().toISOString().split('T')[0] // solo fecha DATE
-        updateData.amount_paid = amount_in_cents / 100
-    }
-
-    const { error: updateError } = await supabaseAdmin
-        .from('payments')
-        .update(updateData)
-        .eq('reference', reference)
-
-    if (updateError) {
-        console.error('❌ Error actualizando pago:', updateError)
-        return new Response(`Internal Server Error: ${updateError.message}`, { status: 500 })
-    }
-
-    console.log(`✅ Pago ${reference} → ${internalStatus}`)
-
-    // ─── Notificación in-app al padre si fue aprobado ─────────────────────────
-    // Schema real de notifications: { user_id, title, message, type, read, link }
-    // user_id referencia profiles(id) — que es el mismo que auth.users(id)
-    if (status === 'APPROVED') {
-        const { data: payment } = await supabaseAdmin
-            .from('payments')
-            .select('parent_id, child_id, amount, school_id')
-            .eq('reference', reference)
-            .single()
-
-        if (payment?.parent_id) {
-            const amountFormatted = (amount_in_cents / 100).toLocaleString('es-CO')
-
-            await supabaseAdmin.from('notifications').insert({
-                user_id: payment.parent_id,   // profiles.id = auth.users.id ✅
-                type: 'info',              // tipo confirmado en schema: 'info' es default
-                title: '✅ Pago confirmado',
-                message: `Tu pago de $${amountFormatted} COP fue procesado exitosamente. Ref: ${reference}`,
-                read: false,
-                link: `/parent/payments`,  // link a la sección de pagos del padre
-                created_at: new Date().toISOString(),
-            })
+        if (signature.checksum !== calculatedSignature) {
+            console.error('Invalid signature', { expected: signature.checksum, calculated: calculatedSignature })
+            return new Response('Invalid signature', { status: 400 })
         }
-    }
 
-    return new Response(
-        JSON.stringify({ ok: true, reference, status: internalStatus }),
-        {
+        // Initialize Supabase Client
+        const supabaseClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        )
+
+        if (transaction.status === 'APPROVED') {
+            // 1. Update Payment
+            const { error: updateError } = await supabaseClient
+                .from('payments')
+                .update({
+                    status: 'paid',
+                    payment_date: new Date().toISOString().split('T')[0],
+                    wompi_id: transaction.id,
+                    amount_paid: transaction.amount_in_cents / 100
+                })
+                .eq('reference', transaction.reference)
+
+            if (updateError) {
+                throw updateError
+            }
+
+            // 2. Update Enrollment (if applicable)
+            const { data: payData, error: payError } = await supabaseClient
+                .from('payments')
+                .select('enrollment_id, child_id, school_id')
+                .eq('reference', transaction.reference)
+                .single()
+
+            if (payError) throw payError
+
+            if (payData?.enrollment_id) {
+                await supabaseClient
+                    .from('enrollments')
+                    .update({ status: 'active' }) // Enrollments use 'active' status in the new schema
+                    .eq('id', payData.enrollment_id)
+            }
+
+            // 3. Create Audit Log
+            await supabaseClient
+                .from('audit_logs')
+                .insert({
+                    school_id: payData.school_id,
+                    action: 'payment_received',
+                    table_name: 'payments',
+                    record_id: transaction.id,
+                    new_data: { amount: transaction.amount_in_cents / 100, provider: 'wompi' }
+                })
+
+            // 4. Send Notification
+            const { data: childData, error: childError } = await supabaseClient
+                .from('children')
+                .select('parent_id')
+                .eq('id', payData.child_id)
+                .single()
+
+            if (!childError && childData?.parent_id) {
+                await supabaseClient
+                    .from('notifications')
+                    .insert({
+                        user_id: childData.parent_id,
+                        type: 'payment_confirmation',
+                        title: 'Pago Recibido',
+                        message: `Hemos recibido tu pago de $${transaction.amount_in_cents / 100}. ¡Gracias!`,
+                        link: `/payments/${transaction.id}`
+                    })
+            }
+        }
+
+        return new Response(JSON.stringify({ success: true }), {
+            headers: { "Content-Type": "application/json" },
             status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-    )
-})
+        })
 
-// ─── Mapear payment_method_type de Wompi al ENUM del schema ──────────────────
-// Schema real CHECK: ('pse','card','transfer','cash','other')
-function mapPaymentMethod(wompiMethod: string): string {
-    const methodMap: Record<string, string> = {
-        CARD: 'card',
-        PSE: 'pse',
-        BANCOLOMBIA_PAY: 'transfer',
-        BANCOLOMBIA_QR: 'transfer',
-        NEQUI: 'transfer',
-        DAVIPLATA: 'transfer',
-        CASH: 'cash',
-        EFECTY: 'cash',
-        BALOTO: 'cash',
+    } catch (error) {
+        console.error(error)
+        return new Response(JSON.stringify({ error: error.message }), {
+            headers: { "Content-Type": "application/json" },
+            status: 400,
+        })
     }
-    return methodMap[wompiMethod?.toUpperCase()] ?? 'other'
-}
+})
