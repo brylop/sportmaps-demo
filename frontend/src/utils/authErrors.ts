@@ -1,7 +1,7 @@
 /**
  * Utility to map Supabase/PostgreSQL error messages to user-friendly Spanish.
  */
-export const getErrorMessage = (error: any): string => {
+export const getErrorMessage = (error: any): string => { // eslint-disable-line @typescript-eslint/no-explicit-any
     if (!error) return 'Ha ocurrido un error inesperado';
 
     const message = error.message || '';
