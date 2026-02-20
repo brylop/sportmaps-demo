@@ -1086,6 +1086,7 @@ CREATE OR REPLACE VIEW public.team_capacity AS
   LEFT JOIN public.children c ON c.team_id = t.id
   GROUP BY t.id, t.max_students;
 
+DROP VIEW IF EXISTS public.children_full;
 CREATE OR REPLACE VIEW public.children_full AS
   SELECT ch.*,
          t.name       AS team_name,
@@ -1214,6 +1215,10 @@ END $$;
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = id);
 
+-- ROLES (Public Read)
+DROP POLICY IF EXISTS "Public roles are viewable" ON public.roles;
+CREATE POLICY "Public roles are viewable" ON public.roles FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
@@ -1303,15 +1308,31 @@ $$;
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_role public.user_role := 'athlete';
+  v_meta_role text;
 BEGIN
-  INSERT INTO public.profiles (id, email, full_name, avatar_url)
+  -- Extract role from metadata
+  v_meta_role := NEW.raw_user_meta_data ->> 'role';
+
+  -- Validate role against enum
+  IF v_meta_role IS NOT NULL AND v_meta_role IN ('admin', 'school', 'coach', 'parent', 'athlete', 'wellness_professional', 'store_owner') THEN
+    v_role := v_meta_role::public.user_role;
+  END IF;
+
+  INSERT INTO public.profiles (id, email, full_name, avatar_url, role)
   VALUES (
     NEW.id,
     NEW.email,
     NEW.raw_user_meta_data ->> 'full_name',
-    NEW.raw_user_meta_data ->> 'avatar_url'
+    NEW.raw_user_meta_data ->> 'avatar_url',
+    v_role
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    role = EXCLUDED.role,
+    full_name = EXCLUDED.full_name,
+    avatar_url = EXCLUDED.avatar_url;
+    
   RETURN NEW;
 END;
 $$;

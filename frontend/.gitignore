@@ -47,3 +47,5 @@ playwright/.cache/
 
 # Vercel
 .vercel/
+.vercel
+.env*.local
