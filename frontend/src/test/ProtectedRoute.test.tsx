@@ -2,15 +2,25 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { useAuth } from '../contexts/AuthContext';
+import { useSchoolContext } from '../hooks/useSchoolContext';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 vi.mock('../contexts/AuthContext', () => ({
     useAuth: vi.fn(),
 }));
 
+vi.mock('../hooks/useSchoolContext', () => ({
+    useSchoolContext: vi.fn(),
+}));
+
 // Helper to render in router
 const renderWithRouter = (ui: React.ReactNode, { route = '/' } = {}) => {
     window.history.pushState({}, 'Test page', route);
+    (useSchoolContext as any).mockReturnValue({
+        loading: false,
+        onboardingStatus: 'completed',
+        currentUserRole: null
+    });
     return render(
         <MemoryRouter initialEntries={[route]}>
             <Routes>
