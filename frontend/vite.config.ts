@@ -114,7 +114,7 @@ export default defineConfig(({ mode }) => ({
     })
   ].filter(Boolean),
   optimizeDeps: {
-    include: ["react", "react-dom", "@tanstack/react-query"],
+    include: ["react", "react-dom", "@tanstack/react-query", "@radix-ui/react-slider"],
   },
   resolve: {
     alias: {

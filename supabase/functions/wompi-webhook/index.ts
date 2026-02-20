@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const wompiSecret = Deno.env.get('WOMPI_INTEGRITY_SECRET') ?? ''
 
-serve(async (req) => {
+serve(async (req: Request) => {
     try {
         const { method } = req
 
@@ -21,10 +21,6 @@ serve(async (req) => {
         const transaction = data.transaction
 
         // Verify Signature
-        // Wompi signature structure: SHA256(transaction.id + transaction.status + transaction.amount_in_cents + timestamp + secret)
-        // Note: The structure might vary, please double check Wompi documentation.
-        // Assuming standard format for now. If signature validation fails, log it but proceed for now (or fail).
-
         const calculatedSignatureSource = `${transaction.id}${transaction.status}${transaction.amount_in_cents}${timestamp}${wompiSecret}`
         const encoder = new TextEncoder()
         const dataBuffer = encoder.encode(calculatedSignatureSource)
@@ -71,7 +67,7 @@ serve(async (req) => {
             if (payData?.enrollment_id) {
                 await supabaseClient
                     .from('enrollments')
-                    .update({ status: 'active' }) // Enrollments use 'active' status in the new schema
+                    .update({ status: 'active' })
                     .eq('id', payData.enrollment_id)
             }
 
@@ -113,7 +109,8 @@ serve(async (req) => {
 
     } catch (error) {
         console.error(error)
-        return new Response(JSON.stringify({ error: error.message }), {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        return new Response(JSON.stringify({ error: errorMessage }), {
             headers: { "Content-Type": "application/json" },
             status: 400,
         })
