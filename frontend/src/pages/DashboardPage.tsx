@@ -42,6 +42,7 @@ export default function DashboardPage() {
       // Redirect each role to their respective onboarding
       switch (profile.role) {
         case 'school':
+        case 'school_admin':
           navigate('/school-onboarding');
           break;
         case 'coach':
@@ -79,7 +80,7 @@ export default function DashboardPage() {
 
   // COLD START CHECK:
   // If school owner has no active branch (meaning they skipped onboarding or DB is empty), show Empty State.
-  if (profile.role === 'school' && !activeBranchId) {
+  if ((profile.role === 'school' || profile.role === 'school_admin') && !activeBranchId) {
     return <EmptyDashboardState userName={profile.full_name?.split(' ')[0] || 'Director'} />;
   }
 
@@ -87,7 +88,7 @@ export default function DashboardPage() {
   const dynamicStats = config.stats.map((stat, index) => {
     // 2. REAL USER: SHOW REAL DATA
     if (realStats && !realStatsLoading) {
-      if (profile.role === 'school') {
+      if (profile.role === 'school' || profile.role === 'school_admin') {
         if (index === 0) {
           // Students (Config Index 0)
           const count = realStats.students_count || 0;

@@ -13,7 +13,7 @@ export interface SchoolProgram {
 export interface SchoolRole {
     schoolId: string;
     schoolName: string;
-    role: 'owner' | 'admin' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer';
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer';
     branchId: string | null;
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
 }
@@ -138,7 +138,8 @@ export function useSchoolContext(): SchoolContext {
                         .eq('id', user.id)
                         .maybeSingle();
 
-                    if (userProfile?.role === 'school') {
+                    const userRole = userProfile?.role as string;
+                    if (userRole === 'school' || userRole === 'school_admin') {
                         // New School Owner -> Trigger Onboarding
                         console.log('User is SCHOOL role with no memberships. Triggering Onboarding state.');
                         setAvailableSchools([]);
@@ -259,11 +260,13 @@ export function useSchoolContext(): SchoolContext {
         console.log(`🔄 Updating onboarding status for school ${activeSchoolId} to: ${status}`);
 
         try {
-            const { error: updateError, count } = await supabase
+            const { data, error: updateError } = await supabase
                 .from('schools')
                 .update({ onboarding_status: status })
                 .eq('id', activeSchoolId)
-                .select('id', { count: 'exact' }); // Get count of updated rows
+                .select();
+
+            const count = data?.length || 0;
 
             if (updateError) {
                 console.error('❌ Supabase Update Error:', updateError);

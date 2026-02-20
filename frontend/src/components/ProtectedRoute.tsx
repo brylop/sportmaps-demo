@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: ('athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer')[];
+  allowedRoles?: ('athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer')[];
   skipOnboardingCheck?: boolean;
 }
 
@@ -36,7 +36,7 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
   // Keeps existing school context logic which is robust for multi-step school setup
   if (
     !skipOnboardingCheck &&
-    (profile?.role === 'school' || currentUserRole === 'owner') &&
+    (profile?.role === 'school' || profile?.role === 'school_admin' || currentUserRole === 'owner') &&
     onboardingStatus !== 'completed' &&
     location.pathname !== '/school-onboarding'
   ) {
@@ -47,7 +47,8 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
   if (
     !skipOnboardingCheck &&
     profile &&
-    profile.role !== 'school' && // School is handled above
+    profile.role !== 'school' &&
+    profile.role !== 'school_admin' && // School is handled above
     profile.onboarding_completed === false
   ) {
     let targetRoute = '';

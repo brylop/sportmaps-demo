@@ -16,8 +16,18 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ============================================================
 
 DO $$ BEGIN
-    CREATE TYPE public.user_role AS ENUM ('admin', 'school', 'coach', 'parent', 'athlete', 'wellness_professional', 'store_owner');
+    CREATE TYPE public.user_role AS ENUM (
+        'admin', 'super_admin', 'school', 'school_admin', 'coach', 'parent', 'athlete', 
+        'wellness_professional', 'store_owner', 'organizer'
+    );
 EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Garantizar que nuevos valores existan si el tipo ya estaba creado
+DO $$ BEGIN ALTER TYPE public.user_role ADD VALUE 'super_admin'; EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN ALTER TYPE public.user_role ADD VALUE 'school_admin'; EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN ALTER TYPE public.user_role ADD VALUE 'organizer'; EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN ALTER TYPE public.user_role ADD VALUE 'wellness_professional'; EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN ALTER TYPE public.user_role ADD VALUE 'store_owner'; EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 DO $$ BEGIN
     CREATE TYPE public.sub_tier AS ENUM ('free', 'basic', 'premium');
@@ -997,31 +1007,46 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 
 -- FUNCIÓN DE AUDITORÍA UNIVERSAL
 CREATE OR REPLACE FUNCTION public.audit_trigger_func()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER AS $$
+RETURNS trigger AS $$
+DECLARE
+  v_school_id uuid;
 BEGIN
-    INSERT INTO public.audit_logs (
-        school_id,
-        profile_id,
-        table_name,
-        record_id,
-        action,
-        old_data,
-        new_data
-    )
-    VALUES (
-        (CASE WHEN TG_OP = 'DELETE' THEN OLD.school_id ELSE NEW.school_id END),
-        auth.uid(),
-        TG_TABLE_NAME,
-        (CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END)::text,
-        TG_OP,
-        (CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END),
-        (CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END)
-    );
-    RETURN NULL;
+  -- Intentar obtener school_id solo si la columna existe en la tabla que dispara
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      v_school_id := OLD.school_id;
+    ELSE
+      v_school_id := NEW.school_id;
+    END IF;
+  EXCEPTION WHEN undefined_column THEN
+    v_school_id := NULL; -- Si la tabla no tiene school_id (como profiles), usamos NULL
+  END;
+
+  INSERT INTO public.audit_logs (
+    school_id,
+    profile_id,
+    table_name,
+    record_id,
+    action,
+    old_data,
+    new_data
+  ) VALUES (
+    v_school_id,
+    auth.uid(),
+    TG_TABLE_NAME,
+    (CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END)::text,
+    TG_OP,
+    (CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END),
+    (CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END)
+  );
+  
+  IF (TG_OP = 'DELETE') THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 CREATE TABLE IF NOT EXISTS public.system_errors (
@@ -1303,22 +1328,104 @@ $$;
 -- 30. TRIGGERS — AUTOMATIZACIÓN DE APLICACIÓN
 -- ============================================================
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, full_name, avatar_url)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    NEW.raw_user_meta_data ->> 'full_name',
-    NEW.raw_user_meta_data ->> 'avatar_url'
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$;
+-- =============================================================================
+-- REPARACIÓN TOTAL: DISPARADOR DE REGISTRO V4 (ULTRA-STABLE)
+-- =============================================================================
 
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+DECLARE
+  v_role_id uuid;
+  v_role_name text;
+  v_legacy_role text;
+  v_full_name text;
+  v_phone text;
+  v_avatar_url text;
+BEGIN
+  -- 1. Extraer metadatos con limpieza
+  v_full_name := COALESCE(new.raw_user_meta_data->>'full_name', 'Nuevo Usuario');
+  v_phone := new.raw_user_meta_data->>'phone';
+  v_avatar_url := new.raw_user_meta_data->>'avatar_url';
+  v_role_name := LOWER(TRIM(COALESCE(new.raw_user_meta_data->>'role', 'athlete')));
+
+  -- 2. Mapeo inteligente de roles (Frontend -> DB Enum y DB Roles table)
+  IF v_role_name IN ('school', 'school_admin', 'academia', 'institucion') THEN
+    v_role_name := 'school_admin';
+    v_legacy_role := 'school'; 
+  ELSIF v_role_name IN ('admin', 'super_admin', 'platform_admin') THEN
+    v_role_name := 'super_admin';
+    v_legacy_role := 'admin';
+  ELSIF v_role_name IN ('wellness', 'wellness_pro', 'wellness_professional') THEN
+    v_role_name := 'wellness_professional';
+    v_legacy_role := 'wellness_professional';
+  ELSIF v_role_name IN ('store', 'store_owner', 'shop') THEN
+    v_role_name := 'store_owner';
+    v_legacy_role := 'store_owner';
+  ELSE
+    v_legacy_role := v_role_name;
+  END IF;
+
+  -- 3. Buscar el UUID del rol en la tabla public.roles
+  SELECT id INTO v_role_id FROM public.roles WHERE LOWER(name) = v_role_name LIMIT 1;
+  
+  -- Si no encuentra con el largo, intentar con el corto (por si acaso)
+  IF v_role_id IS NULL THEN
+    SELECT id INTO v_role_id FROM public.roles WHERE LOWER(name) = v_legacy_role LIMIT 1;
+  END IF;
+
+  -- Fallback final a athlete para nunca romper el registro
+  IF v_role_id IS NULL THEN
+    SELECT id INTO v_role_id FROM public.roles WHERE name = 'athlete' LIMIT 1;
+    v_role_name := 'athlete';
+    v_legacy_role := 'athlete';
+  END IF;
+
+  -- 4. INSERT O UPDATE resiliente
+  BEGIN
+    INSERT INTO public.profiles (
+      id, 
+      email, 
+      full_name, 
+      role, 
+      role_id, 
+      phone, 
+      avatar_url,
+      onboarding_completed,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      new.id,
+      new.email,
+      v_full_name,
+      v_legacy_role::user_role,
+      v_role_id,
+      v_phone,
+      v_avatar_url,
+      false,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      email = EXCLUDED.email,
+      full_name = EXCLUDED.full_name,
+      phone = EXCLUDED.phone,
+      avatar_url = COALESCE(profiles.avatar_url, EXCLUDED.avatar_url),
+      role = EXCLUDED.role,
+      role_id = EXCLUDED.role_id,
+      updated_at = NOW();
+  EXCEPTION WHEN OTHERS THEN
+    -- Fallback de emergencia si el enum falla o hay restricciones
+    INSERT INTO public.profiles (id, email, full_name, role, onboarding_completed)
+    VALUES (new.id, new.email, v_full_name, 'athlete', false)
+    ON CONFLICT (id) DO NOTHING;
+  END;
+
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Re-vincular el trigger
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
@@ -1352,4 +1459,18 @@ DROP TRIGGER IF EXISTS trg_audit_payments ON public.payments;
 CREATE TRIGGER trg_audit_payments
   AFTER INSERT OR UPDATE OR DELETE ON public.payments
   FOR EACH ROW EXECUTE FUNCTION public.audit_trigger_func();
+
+-- ============================================================
+-- 31. SCRIPTS DE REPARACIÓN (USO MANUAL)
+-- ============================================================
+
+/*
+-- Ejecutar esto si alguna escuela quedó mal registrada como 'athlete'
+UPDATE public.profiles 
+SET 
+  role = 'school',
+  role_id = (SELECT id FROM public.roles WHERE name = 'school_admin' LIMIT 1)
+WHERE id IN (SELECT owner_id FROM public.schools)
+AND role = 'athlete';
+*/
 

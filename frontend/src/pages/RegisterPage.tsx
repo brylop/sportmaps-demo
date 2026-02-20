@@ -47,13 +47,22 @@ export default function RegisterPage() {
     register,
     handleSubmit,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
       code: searchParams.get('code') || '',
+      role: searchParams.get('role') || '',
     }
   });
+
+  useEffect(() => {
+    const roleParam = searchParams.get('role');
+    if (roleParam) {
+      setValue('role', roleParam);
+    }
+  }, [searchParams, setValue]);
 
   useEffect(() => {
     const fetchRoles = async () => {
@@ -183,7 +192,10 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
-              <Select onValueChange={(value) => setValue('role', value)}>
+              <Select
+                value={watch('role')}
+                onValueChange={(value) => setValue('role', value)}
+              >
                 <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
                   <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>

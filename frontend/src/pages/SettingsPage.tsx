@@ -156,9 +156,12 @@ export default function ProfilePage() {
       parent: 'Padre',
       coach: 'Entrenador',
       school: 'Escuela',
+      school_admin: 'Director de Escuela',
       wellness_professional: 'Bienestar',
       store_owner: 'Tienda',
-      admin: 'Admin'
+      admin: 'Admin',
+      super_admin: 'Súper Admin',
+      organizer: 'Organizador'
     };
     return roleLabels[profile?.role || ''] || profile?.role;
   };
@@ -188,7 +191,7 @@ export default function ProfilePage() {
             <Bell className="h-4 w-4" />
             Notificaciones
           </TabsTrigger>
-          {profile?.role === 'school' && (
+          {(profile?.role === 'school' || profile?.role === 'school_admin') && (
             <TabsTrigger value="services" className="gap-2">
               <Globe className="h-4 w-4" />
               Servicios

@@ -27,6 +27,7 @@ export interface DashboardStats {
   // Common
   notifications?: number;
   messages?: number;
+  activeTeams?: number;
 }
 
 export function useDashboardStatsReal() {
@@ -55,7 +56,7 @@ export function useDashboardStatsReal() {
       loadingRef.current = true;
       setLoading(true);
 
-      if (profile.role === 'school' || profile.role === 'admin' || profile.role === 'coach') {
+      if (profile.role === 'school' || profile.role === 'school_admin' || profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coach') {
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);

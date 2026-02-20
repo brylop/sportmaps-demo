@@ -2,13 +2,14 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { getErrorMessage } from '@/utils/authErrors';
 
 interface UserProfile {
   id: string;
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -213,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Error signing up:', error);
       toast({
         title: "Error en el registro",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive",
       });
       throw error;
@@ -237,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Error signing in:', error);
       toast({
         title: "Error en el inicio de sesión",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive",
       });
       throw error;

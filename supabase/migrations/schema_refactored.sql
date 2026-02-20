@@ -982,31 +982,46 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 
 -- FUNCIÓN DE AUDITORÍA UNIVERSAL
 CREATE OR REPLACE FUNCTION public.audit_trigger_func()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER AS $$
+RETURNS trigger AS $$
+DECLARE
+  v_school_id uuid;
 BEGIN
-    INSERT INTO public.audit_logs (
-        school_id,
-        profile_id,
-        table_name,
-        record_id,
-        action,
-        old_data,
-        new_data
-    )
-    VALUES (
-        (CASE WHEN TG_OP = 'DELETE' THEN OLD.school_id ELSE NEW.school_id END),
-        auth.uid(),
-        TG_TABLE_NAME,
-        (CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END)::text,
-        TG_OP,
-        (CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END),
-        (CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END)
-    );
-    RETURN NULL;
+  -- Intentar obtener school_id solo si la columna existe en la tabla que dispara
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      v_school_id := OLD.school_id;
+    ELSE
+      v_school_id := NEW.school_id;
+    END IF;
+  EXCEPTION WHEN undefined_column THEN
+    v_school_id := NULL; -- Si la tabla no tiene school_id (como profiles), usamos NULL
+  END;
+
+  INSERT INTO public.audit_logs (
+    school_id,
+    profile_id,
+    table_name,
+    record_id,
+    action,
+    old_data,
+    new_data
+  ) VALUES (
+    v_school_id,
+    auth.uid(),
+    TG_TABLE_NAME,
+    (CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END)::text,
+    TG_OP,
+    (CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END),
+    (CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END)
+  );
+  
+  IF (TG_OP = 'DELETE') THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 CREATE TABLE IF NOT EXISTS public.system_errors (
