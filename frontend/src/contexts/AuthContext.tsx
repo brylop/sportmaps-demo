@@ -155,9 +155,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   setProfile(userProfile);
                 } else {
                   const created = await createProfile(session.user!.id, {
-                    full_name: session.user!.user_metadata?.full_name || 'Usuario',
-                    email: session.user!.email || '', // FIX: Pass email
+                    full_name: session.user!.user_metadata?.full_name || session.user!.user_metadata?.fullName || 'Usuario',
+                    email: session.user!.email || '',
                     role: session.user!.user_metadata?.role || 'athlete',
+                    phone: session.user!.user_metadata?.phone || null,
+                    date_of_birth: session.user!.user_metadata?.date_of_birth || null,
                   });
                   setProfile(created as UserProfile);
                 }
