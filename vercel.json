@@ -3,13 +3,28 @@
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install",
   "framework": "vite",
+  "headers": [
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!assets|manifest\\.webmanifest|favicon\\.png|sportmaps-logo\\.png|sw\\.js|workbox-.*).*)",
       "destination": "/index.html"
     }
   ]
