@@ -75,7 +75,9 @@ export default function LoginPage() {
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   placeholder="tu@email.com"
                   {...register('email')}
                   className={errors.email ? 'border-destructive' : ''}
@@ -90,7 +92,9 @@ export default function LoginPage() {
                 <div className="relative">
                   <Input
                     id="password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
                     placeholder="••••••••"
                     {...register('password')}
                     className={errors.password ? 'border-destructive pr-10' : 'pr-10'}

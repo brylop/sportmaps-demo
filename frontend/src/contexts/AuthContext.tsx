@@ -192,6 +192,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             full_name: userData.full_name,
             role: userData.role,
+            phone: userData.phone,
+            date_of_birth: userData.date_of_birth,
             invitation_code: userData.invitation_code,
           }
         }

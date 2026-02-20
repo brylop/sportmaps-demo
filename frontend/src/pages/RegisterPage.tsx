@@ -200,7 +200,7 @@ export default function RegisterPage() {
                       <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
                       <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
                       <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
-                      <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
+                      <SelectItem value="school_admin">🏫 Escuela/Centro Deportivo</SelectItem>
                     </>
                   )}
                 </SelectContent>
