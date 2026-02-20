@@ -83,7 +83,10 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
             { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
             { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
             { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
-            { id: "school", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" }
+            { id: "school_admin", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" },
+            { id: "wellness_professional", title: "Profesional de Bienestar", description: "Salud y nutrición", icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500" },
+            { id: "store_owner", title: "Dueño de Tienda", description: "Venta de productos", icon: ShoppingBag, bgColor: "bg-purple-50", iconColor: "text-purple-500" },
+            { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
           ]);
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,7 +97,10 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
           { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
           { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
           { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
-          { id: "school", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" }
+          { id: "school_admin", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" },
+          { id: "wellness_professional", title: "Profesional de Bienestar", description: "Salud y nutrición", icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500" },
+          { id: "store_owner", title: "Dueño de Tienda", description: "Venta de productos", icon: ShoppingBag, bgColor: "bg-purple-50", iconColor: "text-purple-500" },
+          { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
         ]);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((err as any).code !== '42P01') { // Ignore "relation does not exist" if migration not run

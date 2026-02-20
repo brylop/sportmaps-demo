@@ -9,7 +9,7 @@ interface UserProfile {
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'organizer' | 'admin' | 'super_admin';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -50,19 +50,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) {
+        // If it's a "Not Found" error (PGRST116), it's fine, we return null
+        if (error.code === 'PGRST116') return null;
+
         console.error('Error fetching profile:', error);
         throw error;
       }
 
-      if (!data) {
-        console.warn('No profile found for user:', userId);
-        return null;
-      }
-
       return data as UserProfile;
     } catch (error) {
-      console.error('Error fetching profile:', error);
-      return null;
+      console.error('Error in fetchProfile:', error);
+      // Re-throw so the caller knows it was an error, not just a missing profile
+      throw error;
     }
   }, []);
 
@@ -111,26 +110,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         try {
-          const userProfile = await fetchProfile(session.user.id);
-          if (mounted) {
-            if (userProfile) {
-              setProfile(userProfile);
-            } else {
-              const created = await createProfile(session.user.id, {
-                full_name: session.user.user_metadata?.full_name || 'Usuario',
-                role: 'athlete',
-              });
-              setProfile(created as UserProfile);
-            }
+          // Intentamos obtener el perfil que el Trigger V4 ya debería haber creado
+          let userProfile = await fetchProfile(session.user.id);
+
+          // Si no existe de inmediato, reintentamos una vez tras un pequeño delay
+          if (!userProfile) {
+            console.log("Esperando al motor de base de datos...");
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            userProfile = await fetchProfile(session.user.id);
+          }
+
+          if (mounted && userProfile) {
+            setProfile(userProfile);
+          } else if (mounted) {
+            console.error("El perfil no se sincronizó a tiempo.");
           }
         } catch (error) {
-          console.error('Failed to load/create profile:', error);
+          console.error('Error al cargar perfil:', error);
         }
       }
 
-      if (mounted) {
-        setLoading(false);
-      }
+      if (mounted) setLoading(false);
     }).catch((error) => {
       console.error('Session error:', error);
       if (mounted) setLoading(false);
@@ -149,23 +149,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setTimeout(async () => {
             try {
-              const userProfile = await fetchProfile(session.user!.id);
-              if (mounted) {
-                if (userProfile) {
-                  setProfile(userProfile);
-                } else {
-                  const created = await createProfile(session.user!.id, {
-                    full_name: session.user!.user_metadata?.full_name || session.user!.user_metadata?.fullName || 'Usuario',
-                    email: session.user!.email || '',
-                    role: session.user!.user_metadata?.role || 'athlete',
-                    phone: session.user!.user_metadata?.phone || null,
-                    date_of_birth: session.user!.user_metadata?.date_of_birth || null,
-                  });
-                  setProfile(created as UserProfile);
-                }
+              let userProfile = await fetchProfile(session.user!.id);
+
+              if (!userProfile && mounted) {
+                console.log("Reintentando carga de perfil tras evento auth...");
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                userProfile = await fetchProfile(session.user!.id);
+              }
+
+              if (mounted && userProfile) {
+                setProfile(userProfile);
               }
             } catch (error) {
-              console.error('Deferred profile load/create failed:', error);
+              console.error('Deferred profile load failed:', error);
             } finally {
               if (mounted) setLoading(false);
             }
