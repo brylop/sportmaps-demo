@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useStorage } from '@/hooks/useStorage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +39,32 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState(profile?.phone || '');
   const [bio, setBio] = useState(profile?.bio || '');
   const [saving, setSaving] = useState(false);
+
+  // Sync state when profile loads asynchronously
+  // Also fetch directly from DB to ensure phone is loaded (may not be in context cache)
+  useEffect(() => {
+    if (profile) {
+      setFullName(profile.full_name || '');
+      setPhone(profile.phone || '');
+      setBio(profile.bio || '');
+    }
+
+    // Direct DB fetch to always get the latest phone
+    if (user?.id) {
+      supabase
+        .from('profiles')
+        .select('full_name, phone, bio')
+        .eq('id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setFullName(data.full_name || '');
+            setPhone(data.phone || '');
+            setBio(data.bio || '');
+          }
+        });
+    }
+  }, [profile, user?.id]);
 
   // Notification settings
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -300,19 +326,21 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Descripción / Biografía</Label>
-                  <textarea
-                    id="bio"
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Cuéntanos sobre tu escuela..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Esta descripción aparecerá en tu perfil público.
-                  </p>
-                </div>
+                {profile?.role !== 'parent' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="bio">Descripción / Biografía</Label>
+                    <textarea
+                      id="bio"
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder={profile?.role === 'school' || profile?.role === 'school_admin' ? "Cuéntanos sobre tu escuela..." : "Cuéntanos un poco sobre ti..."}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Esta descripción aparecerá en tu perfil público.
+                    </p>
+                  </div>
+                )}
 
                 {(profile?.role === 'school' || profile?.role === 'school_admin') && (
                   <Card className="bg-muted/50 border-dashed">
