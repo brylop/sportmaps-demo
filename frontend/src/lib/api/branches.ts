@@ -32,7 +32,7 @@ export interface BranchCreate {
 class BranchesAPI {
     async getBranches(schoolId: string): Promise<SchoolBranch[]> {
         const { data, error } = await supabase
-            .from('school_branches')
+            .from('branches')
             .select('*')
             .eq('school_id', schoolId)
             .order('is_main', { ascending: false })
@@ -44,7 +44,7 @@ class BranchesAPI {
 
     async createBranch(branch: BranchCreate): Promise<SchoolBranch> {
         const { data, error } = await supabase
-            .from('school_branches')
+            .from('branches')
             .insert(branch)
             .select()
             .single();
@@ -55,7 +55,7 @@ class BranchesAPI {
 
     async updateBranch(id: string, updates: Partial<BranchCreate>): Promise<SchoolBranch> {
         const { data, error } = await supabase
-            .from('school_branches')
+            .from('branches')
             .update({ ...updates, updated_at: new Date().toISOString() })
             .eq('id', id)
             .select()
@@ -67,7 +67,7 @@ class BranchesAPI {
 
     async deleteBranch(id: string): Promise<void> {
         const { error } = await supabase
-            .from('school_branches')
+            .from('branches')
             .delete()
             .eq('id', id);
 

@@ -34,7 +34,7 @@ export function EmptyDashboardState({ userName }: EmptyDashboardStateProps) {
                 <CardContent className="flex justify-center pb-8">
                     <Button
                         size="lg"
-                        onClick={() => navigate('/school-onboarding')}
+                        onClick={() => navigate('/school-config')}
                         className="gap-2"
                     >
                         <PlusCircle className="h-5 w-5" />

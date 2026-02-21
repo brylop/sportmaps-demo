@@ -314,40 +314,42 @@ export default function ProfilePage() {
                   </p>
                 </div>
 
-                <Card className="bg-muted/50 border-dashed">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-primary" />
-                      Tu Micrositio Público
-                    </CardTitle>
-                    <CardDescription>
-                      Comparte este enlace para que padres y alumnos vean tus programas e instalaciones sin registrarse.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={`${window.location.origin}/s/academia-demo`}
-                      className="font-mono text-sm bg-white"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/s/academia-demo`);
-                        toast({ title: "Enlace copiado", description: "El link de tu sitio público está en el portapapeles." });
-                      }}
-                    >
-                      <ClipboardCopy className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="default"
-                      onClick={() => window.open('/s/academia-demo', '_blank')}
-                    >
-                      Ver Sitio
-                    </Button>
-                  </CardContent>
-                </Card>
+                {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+                  <Card className="bg-muted/50 border-dashed">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-primary" />
+                        Tu Micrositio Público
+                      </CardTitle>
+                      <CardDescription>
+                        Comparte este enlace para que padres y alumnos vean tus programas e instalaciones sin registrarse.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex items-center gap-2">
+                      <Input
+                        readOnly
+                        value={`${window.location.origin}/s/academia-demo`}
+                        className="font-mono text-sm bg-white"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/s/academia-demo`);
+                          toast({ title: "Enlace copiado", description: "El link de tu sitio público está en el portapapeles." });
+                        }}
+                      >
+                        <ClipboardCopy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="default"
+                        onClick={() => window.open('/s/academia-demo', '_blank')}
+                      >
+                        Ver Sitio
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               <div className="flex justify-end">

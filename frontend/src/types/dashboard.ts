@@ -1,5 +1,5 @@
 // Dashboard Types - Centralized type definitions
-export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
+export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'super_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
 
 export interface StatCardProps {
   title: string;
@@ -38,6 +38,15 @@ export interface NotificationItem {
   read?: boolean;
 }
 
+export interface OnboardingStep {
+  id: string;
+  title: string;
+  description: string;
+  icon: any; // or React.ComponentType<{ className?: string }>
+  href: string;
+  completed: boolean;
+}
+
 export interface DashboardConfig {
   role: UserRole;
   title: string;
@@ -46,4 +55,5 @@ export interface DashboardConfig {
   activities?: ActivityItem[];
   quickActions?: QuickAction[];
   notifications?: NotificationItem[];
+  onboardingSteps?: OnboardingStep[];
 }

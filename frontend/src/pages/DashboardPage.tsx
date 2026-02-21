@@ -14,10 +14,14 @@ import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import { EmptyDashboardState } from '@/components/dashboard/EmptyDashboardState';
 import WelcomeSplash from '@/components/WelcomeSplash';
-import { UserRole } from '@/types/dashboard';
+import { UserRole, OnboardingStep } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
+import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
+import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
+import { supabase } from '@/integrations/supabase/client';
+import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
 export default function DashboardPage() {
   const { profile, user, updateProfile } = useAuth();
@@ -25,6 +29,9 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
+  const [invitation, setInvitation] = useState<any | null>(null);
+  const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(true);
 
   // Show welcome splash if it's the first time
   useEffect(() => {
@@ -50,37 +57,67 @@ export default function DashboardPage() {
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
   const { data: notifications } = useNotifications();
 
-  // Redirect users to onboarding if they haven't completed setup
-  useEffect(() => {
+  const refreshOnboardingData = async () => {
     if (!profile || !user) return;
 
-    const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
-
-    if (!hasCompletedOnboarding) {
-      // Redirect each role to their respective onboarding
-      switch (profile.role) {
-        case 'school':
-        case 'school_admin':
-          navigate('/school-onboarding');
-          break;
-        case 'coach':
-          navigate('/coach-onboarding');
-          break;
-        case 'athlete':
-          navigate('/athlete-onboarding');
-          break;
-        case 'wellness_professional':
-          navigate('/wellness-onboarding');
-          break;
-        case 'store_owner':
-          navigate('/store-onboarding');
-          break;
-        // parent doesn't need onboarding, they go directly to dashboard
-        default:
-          break;
+    try {
+      // 0. Auto-accept invitation if invite ID is in URL
+      const inviteUrlId = new URLSearchParams(window.location.search).get('invite');
+      if (inviteUrlId && inviteUrlId.length > 30) { // Basic UUID check
+        const { error: acceptError } = await supabase.rpc('accept_invitation', {
+          p_invite_id: inviteUrlId
+        });
+        if (!acceptError) {
+          toast({
+            title: '¡Invitación aceptada!',
+            description: 'Te hemos vinculado correctamente con la academia y tus hijos.',
+          });
+          // Remove param from URL without refreshing
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, '', newUrl);
+        }
       }
+
+      // 1. Obtener estados del checklist (La función SQL maestra)
+      const { data: status, error: statusError } = await supabase.rpc('get_onboarding_status');
+      if (statusError) throw statusError;
+
+      // 2. Buscar invitaciones pendientes
+      const { data: invites } = await supabase
+        .from('invitations')
+        .select('id, role_to_assign, schools(name)')
+        .eq('email', user.email)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (invites) {
+        setInvitation({
+          id: invites.id,
+          school_name: (invites.schools as any)?.name || 'Tu Academia',
+          role_to_assign: invites.role_to_assign
+        });
+      } else {
+        setInvitation(null);
+      }
+
+      // 3. Obtener pasos dinámicos usando la lógica centralizada
+      const steps = getStepsForRole(status.role || profile.role, status);
+      setOnboardingSteps(steps);
+
+      // Update local onboarding status if provided by DB
+      if (status.school_id && status.has_school) {
+        // Here we could sync status.has_school etc to state if needed
+      }
+    } catch (error) {
+      console.error('Error refreshing onboarding data:', error);
+    } finally {
+      setLoadingStatus(false);
     }
-  }, [profile, user, navigate]);
+  };
+
+  useEffect(() => {
+    refreshOnboardingData();
+  }, [profile, user, config.onboardingSteps]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -96,11 +133,7 @@ export default function DashboardPage() {
     </div>
   );
 
-  // COLD START CHECK:
-  // If school owner has no active branch (meaning they skipped onboarding or DB is empty), show Empty State.
-  if ((profile.role === 'school' || profile.role === 'school_admin') && !activeBranchId) {
-    return <EmptyDashboardState userName={profile.full_name?.split(' ')[0] || 'Director'} />;
-  }
+  // Dashboard handles empty states via the Quick Start Checklist
 
   // Logic to determine stats to display
   const dynamicStats = config.stats.map((stat, index) => {
@@ -195,21 +228,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-
-      {/* Pending Enrollment Modal */}
-      <PendingEnrollmentModal />
-
-      {/* Profile Completion Banner */}
-      {showProfileBanner && (
-        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
-      )}
-
-      {/* Welcome Message */}
-      <WelcomeMessage
-        role={profile.role as UserRole}
-        userName={profile.full_name?.split(' ')[0]}
-      />
-
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
@@ -226,6 +244,35 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Welcome Message */}
+      <WelcomeMessage
+        role={profile.role as UserRole}
+        userName={profile.full_name?.split(' ')[0]}
+      />
+
+      {/* Pending Enrollment Modal */}
+      <PendingEnrollmentModal />
+
+      {/* Profile Completion Banner */}
+      {showProfileBanner && (
+        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
+      )}
+
+      {/* Invitations and Onboarding Checklist */}
+      {invitation && (
+        <InvitationBanner
+          invitation={invitation}
+          onAction={refreshOnboardingData}
+        />
+      )}
+
+      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
+        <DashboardChecklist
+          steps={onboardingSteps}
+          onStepClick={(step) => navigate(step.href)}
+        />
+      )}
+
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {dynamicStats.map((stat, index) => (
@@ -239,8 +286,6 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
-
-
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">

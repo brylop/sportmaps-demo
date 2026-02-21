@@ -184,8 +184,8 @@ export function useSchoolContext(): SchoolContext {
         setActiveBranchId(school.branchId);
 
         if (school.branchId) {
-            const { data: branch } = await supabase
-                .from('school_branches')
+            const { data: branch } = await (supabase as any)
+                .from('branches')
                 .select('name')
                 .eq('id', school.branchId)
                 .maybeSingle();
@@ -391,21 +391,37 @@ export async function createStudentWithPendingPayment(params: {
 
 
 
-    // 3. Send Invitation Email if parent email provided
+    // 3. Send Invitation and Record in DB if parent email provided
     if (params.parentEmail && !childError) {
-        const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent`;
+        try {
+            // Record invitation in DB via RPC
+            const { data: inviteId, error: inviteError } = await supabase.rpc('invite_parent_to_school', {
+                p_parent_email: params.parentEmail,
+                p_child_name: params.fullName,
+                p_program_id: params.programId || null,
+                p_monthly_fee: params.monthlyFee
+            });
 
-        await emailClient.send({
-            to: params.parentEmail,
-            subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
-            html: EmailTemplates.invitation(
-                params.parentName || 'Padre de Familia',
-                params.fullName,
-                params.schoolName || 'nuestra escuela',
-                inviteLink
-            )
-        });
-        console.log(`✉️ Invitación enviada a ${params.parentEmail}`);
+            if (inviteError) {
+                console.error('Error recording invitation in DB:', inviteError.message);
+            }
+
+            const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId || ''}`;
+
+            await emailClient.send({
+                to: params.parentEmail,
+                subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
+                html: EmailTemplates.invitation(
+                    params.parentName || 'Padre de Familia',
+                    params.fullName,
+                    params.schoolName || 'nuestra escuela',
+                    inviteLink
+                )
+            });
+            console.log(`✉️ Invitación enviada y registrada para ${params.parentEmail}`);
+        } catch (inviteErr: any) {
+            console.warn('Invitation process error:', inviteErr.message);
+        }
     }
 
     return {
