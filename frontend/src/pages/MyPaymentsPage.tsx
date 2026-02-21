@@ -41,14 +41,23 @@ export default function MyPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showChildPicker, setShowChildPicker] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<{ childName: string; programName: string; amount: number }>({
+  const [selectedPayment, setSelectedPayment] = useState<{
+    childId: string;
+    childName: string;
+    programId: string;
+    programName: string;
+    amount: number;
+    schoolId: string;
+  }>({
+    childId: '',
     childName: '',
-    programName: 'Firesquad (Senior L3)',
-    amount: 180000,
+    programId: '',
+    programName: 'Programa de Formación',
+    amount: 0,
+    schoolId: '',
   });
 
-  // Placeholder for real children logic (to be implemented with useChildren hook)
-  const demoChildren: any[] = [];
+  const [children, setChildren] = useState<any[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -79,6 +88,25 @@ export default function MyPaymentsPage() {
           authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
         }));
         setTransactions(txns);
+      }
+
+      // Fetch children with their programs
+      const { data: childrenData, error: childrenError } = await supabase
+        .from('children')
+        .select(`
+          id,
+          full_name,
+          monthly_fee,
+          program_id,
+          school_id,
+          programs (
+            name
+          )
+        `)
+        .eq('parent_id', user?.id || '');
+
+      if (!childrenError && childrenData) {
+        setChildren(childrenData);
       }
 
       // No mock subscriptions anymore
@@ -349,35 +377,47 @@ export default function MyPaymentsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            {demoChildren.map((child) => (
-              <button
-                key={child.id}
-                className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
-                onClick={() => {
-                  setSelectedPayment({
-                    childName: child.name,
-                    programName: child.program,
-                    amount: child.amount,
-                  });
-                  setShowChildPicker(false);
-                  setShowCheckout(true);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                    {child.name.charAt(0)}
+            {children.length > 0 ? (
+              children.map((child) => (
+                <button
+                  key={child.id}
+                  className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
+                  onClick={() => {
+                    setSelectedPayment({
+                      childId: child.id,
+                      childName: child.full_name,
+                      programId: child.program_id,
+                      programName: child.programs?.name || 'Programa de Formación',
+                      amount: child.monthly_fee || 0,
+                      schoolId: child.school_id,
+                    });
+                    setShowChildPicker(false);
+                    setShowCheckout(true);
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
+                      {child.full_name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{child.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{child.programs?.name || 'Sin programa asignado'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold">{child.name}</p>
-                    <p className="text-xs text-muted-foreground">{child.program}</p>
+                  <div className="text-right">
+                    <p className="font-bold text-primary">{formatCurrency(child.monthly_fee || 0)}</p>
+                    <p className="text-xs text-muted-foreground">/mes</p>
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-primary">{formatCurrency(child.amount)}</p>
-                  <p className="text-xs text-muted-foreground">/mes</p>
-                </div>
-              </button>
-            ))}
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No tienes hijos registrados.</p>
+                <Button variant="link" asChild className="mt-2 text-primary p-0">
+                  <a href="/children">Ir a Mis Hijos para registrarlos</a>
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -386,8 +426,9 @@ export default function MyPaymentsPage() {
       <PaymentCheckoutModal
         open={showCheckout}
         onOpenChange={setShowCheckout}
-        studentId={user?.id || 'demo_student'}
-        programId="prog_1"
+        studentId={selectedPayment.childId}
+        programId={selectedPayment.programId}
+        schoolId={selectedPayment.schoolId}
         amount={selectedPayment.amount}
         concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
         mode="create"

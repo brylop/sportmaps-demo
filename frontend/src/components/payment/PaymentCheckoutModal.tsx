@@ -23,6 +23,7 @@ interface PaymentCheckoutModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   studentId: string;
+  schoolId: string;
   paymentId?: string;
   programId?: string;
   amount: number;
@@ -35,6 +36,7 @@ export function PaymentCheckoutModal({
   open,
   onOpenChange,
   studentId,
+  schoolId,
   paymentId,
   programId,
   amount,
@@ -125,12 +127,15 @@ export function PaymentCheckoutModal({
           // Create mode - Insert new payment with awaiting_approval
           const { error: insertError } = await supabase.from('payments').insert({
             parent_id: user?.id,
+            child_id: studentId,
+            program_id: programId,
+            school_id: schoolId,
             amount: amount,
             concept: concept,
             status: 'awaiting_approval',
             payment_method: 'transfer',
             payment_date: new Date().toISOString(),
-            due_date: new Date().toISOString(),
+            due_date: new Date().toISOString(), // In real app, this should be set correctly
             receipt_url: proofUrl,
           });
           if (insertError) throw insertError;
@@ -170,6 +175,9 @@ export function PaymentCheckoutModal({
         // Create mode
         const { error: insertError } = await supabase.from('payments').insert({
           parent_id: user?.id,
+          child_id: studentId,
+          program_id: programId,
+          school_id: schoolId,
           amount: amount,
           concept: concept,
           status: 'paid',
