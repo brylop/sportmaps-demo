@@ -221,7 +221,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
           ? `Tu pago de ${formatCurrency(item.amount)} por ${item.name} ha sido procesado.`
           : `Hemos recibido tu comprobante por ${formatCurrency(item.amount)}. Te notificaremos cuando la escuela lo apruebe.`,
         type: 'success',
-        link: item.type === 'enrollment' ? '/calendar' : '/payments',
+        link: item.type === 'enrollment' ? '/calendar' : '/my-payments',
       });
 
       // 5. Success UI

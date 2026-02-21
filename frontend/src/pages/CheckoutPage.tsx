@@ -109,7 +109,7 @@ export default function CheckoutPage() {
       title: 'Compra Exitosa',
       message: `Pedido #${reference} confirmado: ${itemSummary}`,
       type: 'payment',
-      link: '/payments',
+      link: '/my-payments',
     });
   };
 

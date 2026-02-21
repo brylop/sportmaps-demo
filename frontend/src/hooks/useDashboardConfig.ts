@@ -64,7 +64,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
         { id: 'medical_info', title: 'Ficha Médica', description: 'Completa datos de salud y EPS.', icon: Activity, href: '/children', completed: false },
         { id: 'accept_invite', title: 'Aceptar Invitación', description: 'Vincula a tu hijo a una academia.', icon: Bell, href: '/notifications', completed: false },
         { id: 'validate_data', title: 'Validar Datos', description: 'Confirma documentos y contactos.', icon: Shield, href: '/profile', completed: false },
-        { id: 'subscriptions', title: 'Suscripciones', description: 'Revisa pagos y mensualidades.', icon: TrendingUp, href: '/payments', completed: false }
+        { id: 'subscriptions', title: 'Suscripciones', description: 'Revisa pagos y mensualidades.', icon: TrendingUp, href: '/my-payments', completed: false }
       ],
       coach: [
         { id: 'complete_profile', title: 'Perfil Profesional', description: 'Sube tu experiencia y certificaciones.', icon: UserCircle, href: '/profile', completed: false },
@@ -163,7 +163,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           quickActions: [
             { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' },
-            { label: 'Mis Pagos', icon: TrendingUp, href: '/payments', variant: 'outline' }
+            { label: 'Mis Pagos', icon: TrendingUp, href: '/my-payments', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.parent
         };

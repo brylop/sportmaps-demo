@@ -57,7 +57,6 @@ const ChildProgressPage = lazy(() => import("./pages/ChildProgressPage"));
 const ChildAttendancePage = lazy(() => import("./pages/ChildAttendancePage"));
 const AcademicProgressPage = lazy(() => import("./pages/AcademicProgressPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
-const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
@@ -186,7 +185,6 @@ const App = () => (
                     <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
                     <Route path="academic-progress" element={<AcademicProgressPage />} />
                     <Route path="parent-attendance" element={<AttendancePage />} />
-                    <Route path="payments" element={<PaymentsPage />} />
 
                     {/* Coach routes */}
                     <Route path="coach-attendance" element={<CoachAttendancePage />} />
