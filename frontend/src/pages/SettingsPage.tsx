@@ -29,7 +29,7 @@ import {
 import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
 
 export default function ProfilePage() {
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const { toast } = useToast();
   const { uploadFile, uploading } = useStorage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,22 +132,16 @@ export default function ProfilePage() {
       const cleanPhone = sanitizePhone(phone);
       const cleanBio = sanitizeBio(bio);
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: cleanName,
-          phone: cleanPhone,
-          bio: cleanBio,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
+      await updateProfile({
+        full_name: cleanName,
+        phone: cleanPhone,
+        bio: cleanBio,
+      });
 
       // Update local state with cleaned values
       setFullName(cleanName);
       setPhone(cleanPhone);
       setBio(cleanBio);
-
-      if (error) throw error;
 
       toast({
         title: "Perfil actualizado",

@@ -31,7 +31,8 @@ export default function InvitationsManagementPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { schoolId, schoolName, programs, defaultMonthlyFee, isAdmin } = useSchoolContext();
+  const { schoolId, schoolName, programs, defaultMonthlyFee, currentUserRole } = useSchoolContext();
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'owner';
 
   const [formData, setFormData] = useState({
     parentEmail: '',
@@ -45,8 +46,8 @@ export default function InvitationsManagementPage() {
     queryKey: ['invitations', schoolId],
     queryFn: async () => {
       if (!schoolId) return [];
-      const { data, error } = await supabase
-        .from('invitations')
+      const { data, error } = await (supabase
+        .from('invitations' as any) as any)
         .select('*')
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
@@ -54,7 +55,7 @@ export default function InvitationsManagementPage() {
       if (error) throw error;
 
       // Map DB fields to Invitation interface
-      return (data || []).map(inv => ({
+      return (data || []).map((inv: any) => ({
         id: inv.id,
         invited_email: inv.email,
         child_name: inv.child_name || '—',
@@ -96,7 +97,7 @@ export default function InvitationsManagementPage() {
       const fee = data.monthlyFee || selectedProgram?.monthly_fee || defaultMonthlyFee;
 
       // 1. Create in DB via RPC
-      const { data: inviteId, error } = await supabase.rpc('invite_parent_to_school', {
+      const { data: inviteId, error } = await (supabase.rpc as any)('invite_parent_to_school', {
         p_parent_email: data.parentEmail,
         p_child_name: data.childName,
         p_program_id: data.programId || null,

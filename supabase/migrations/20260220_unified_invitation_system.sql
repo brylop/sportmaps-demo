@@ -93,6 +93,12 @@ BEGIN
     AND school_id = v_invite.school_id
     AND parent_id IS NULL; -- Only link if not already linked
 
+    -- 3.1 LINK PAYMENTS (Synchronize pending payments created during pre-registration)
+    UPDATE public.payments
+    SET parent_id = auth.uid()
+    WHERE child_id IN (SELECT id FROM public.children WHERE parent_id = auth.uid())
+    AND parent_id IS NULL;
+
     -- 4. Mark invitation as accepted
     UPDATE public.invitations SET status = 'accepted' WHERE id = p_invite_id;
 

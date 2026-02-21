@@ -16,18 +16,25 @@ export const getStepsForRole = (role: string, status: any) => {
 
             // Operational flow (Branch Admin or Owner)
             return [
-                { id: 'create_branch', title: 'Configurar Sedes', description: 'Gestiona tu sede principal y sucursales.', completed: status.has_branches && status.branches_count > 1, href: '/branches', icon: Building },
+                { id: 'create_branch', title: 'Configurar Sedes', description: 'Gestiona tu sede principal y sucursales.', completed: status.has_branches && status.branches_count > 0, href: '/branches', icon: Building },
                 { id: 'create_program', title: 'Programas Deportivos', description: 'Crea clases de fútbol, karate, etc.', completed: status.has_programs, href: '/programs-management', icon: Award },
                 { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
                 { id: 'invite_parents', title: 'Vincular Familias', description: 'Invita a los padres por correo.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
             ];
 
         case USER_ROLES.PARENT:
-            return [
-                { id: 'accept_invite', title: 'Aceptar Invitación', description: 'Vinculate a la escuela de tu hijo.', completed: status.has_accepted_invite, href: '/notifications', icon: Bell },
+            const parentSteps = [];
+
+            // Only show accept_invite if there's a pending invitation or it was already accepted
+            if (status.has_pending_invitation || status.has_accepted_invite) {
+                parentSteps.push({ id: 'accept_invite', title: 'Aceptar Invitación', description: 'Vinculate a la escuela de tu hijo.', completed: status.has_accepted_invite, href: '/notifications', icon: Bell });
+            }
+
+            parentSteps.push(
                 { id: 'add_child', title: 'Perfil del Deportista', description: 'Crea la ficha de tu hijo.', completed: status.has_children, href: '/children', icon: Users },
                 { id: 'medical_info', title: 'Ficha Médica', description: 'Sube EPS y datos de salud.', completed: status.has_medical_records, href: '/children', icon: Heart }
-            ];
+            );
+            return parentSteps;
 
         case USER_ROLES.COACH:
             return [

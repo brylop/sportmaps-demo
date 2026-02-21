@@ -56,7 +56,7 @@ export function useDashboardStatsReal() {
       loadingRef.current = true;
       setLoading(true);
 
-      if (profile.role === 'school' || profile.role === 'school_admin' || profile.role === 'admin' || profile.role === 'super_admin' || profile.role === 'coach') {
+      if (profile.role === 'school' || (profile.role as any) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
@@ -73,7 +73,7 @@ export function useDashboardStatsReal() {
           revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
         }
 
-        const { data: revenueData } = await revenueQuery;
+        const { data: revenueData } = await (revenueQuery as any);
         const monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
         // Pending payments query with branch filter
@@ -87,7 +87,7 @@ export function useDashboardStatsReal() {
           pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
         }
 
-        const { count: pendingCount } = await pendingQuery;
+        const { count: pendingCount } = await (pendingQuery as any);
 
         // Note: studentsAPI and classesAPI might need branchId support too
         const [studentStats, classStats] = await Promise.all([
@@ -106,8 +106,8 @@ export function useDashboardStatsReal() {
         });
       } else if (profile.role === 'parent') {
         // Load parent-specific stats
-        const { data: childrenData, count: childrenCount } = await supabase
-          .from('children')
+        const { data: childrenData, count: childrenCount } = await (supabase
+          .from('children') as any)
           .select('id', { count: 'exact' })
           .eq('parent_id', profile.id);
 
@@ -117,10 +117,10 @@ export function useDashboardStatsReal() {
         const lastMonth = new Date();
         lastMonth.setDate(lastMonth.getDate() - 30);
 
-        const { data: attendanceData } = await supabase
-          .from('attendance_records')
+        const { data: attendanceData } = await (supabase
+          .from('attendance_records') as any)
           .select('status')
-          .in('student_id', childIds)
+          .in('child_id', childIds)
           .gte('attendance_date', lastMonth.toISOString().split('T')[0]);
 
         const totalAttendance = attendanceData?.length || 0;
@@ -130,8 +130,8 @@ export function useDashboardStatsReal() {
           : 0;
 
         // Upcoming payments
-        const { count: upcomingPayments } = await supabase
-          .from('payments')
+        const { count: upcomingPayments } = await (supabase
+          .from('payments') as any)
           .select('*', { count: 'exact', head: true })
           .eq('parent_id', profile.id)
           .eq('status', 'pending');

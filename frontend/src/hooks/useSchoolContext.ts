@@ -8,6 +8,7 @@ export interface SchoolProgram {
     name: string;
     monthly_fee: number;
     sport_type?: string;
+    branch_id?: string;
 }
 
 export interface SchoolRole {
@@ -340,6 +341,7 @@ export async function createStudentWithPendingPayment(params: {
     parentName?: string;
     schoolId: string;
     schoolName?: string;
+    branchId?: string;
     programId?: string;
     programName?: string;
     monthlyFee: number;
@@ -358,8 +360,10 @@ export async function createStudentWithPendingPayment(params: {
             parent_phone_temp: params.parentPhone || null,
             medical_info: params.medicalInfo || null,
             notes: params.notes || null,
-            school_id: params.schoolId, // Ensure school_id is set
-        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            school_id: params.schoolId,
+            branch_id: params.branchId || null,
+            program_id: params.programId || null,
+        } as any)
         .select()
         .single();
 
@@ -376,14 +380,16 @@ export async function createStudentWithPendingPayment(params: {
     const { error: paymentError } = await supabase
         .from('payments')
         .insert({
-            parent_id: null, // Will be linked when parent accepts invitation
+            parent_id: null,
+            child_id: childId,
+            school_id: schoolId,
+            branch_id: params.branchId || null,
             amount: monthlyFee,
             concept: `Mensualidad ${params.programName || 'Programa'} - ${params.fullName}`,
             due_date: dueDate.toISOString().split('T')[0],
             status: 'pending',
-            school_id: schoolId,
             payment_type: 'monthly',
-        } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+        } as any);
 
     if (paymentError) {
         console.warn('Payment insert failed (demo fallback):', paymentError.message);
@@ -395,7 +401,7 @@ export async function createStudentWithPendingPayment(params: {
     if (params.parentEmail && !childError) {
         try {
             // Record invitation in DB via RPC
-            const { data: inviteId, error: inviteError } = await supabase.rpc('invite_parent_to_school', {
+            const { data: inviteId, error: inviteError } = await (supabase.rpc as any)('invite_parent_to_school', {
                 p_parent_email: params.parentEmail,
                 p_child_name: params.fullName,
                 p_program_id: params.programId || null,

@@ -2,6 +2,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
@@ -25,6 +26,7 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
 export default function DashboardPage() {
   const { profile, user, updateProfile } = useAuth();
+  const { toast } = useToast();
   const { activeBranchId, activeBranchName } = useSchoolContext();
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
@@ -64,7 +66,7 @@ export default function DashboardPage() {
       // 0. Auto-accept invitation if invite ID is in URL
       const inviteUrlId = new URLSearchParams(window.location.search).get('invite');
       if (inviteUrlId && inviteUrlId.length > 30) { // Basic UUID check
-        const { error: acceptError } = await supabase.rpc('accept_invitation', {
+        const { error: acceptError } = await (supabase.rpc as any)('accept_invitation', {
           p_invite_id: inviteUrlId
         });
         if (!acceptError) {
@@ -79,13 +81,13 @@ export default function DashboardPage() {
       }
 
       // 1. Obtener estados del checklist (La función SQL maestra)
-      const { data: status, error: statusError } = await supabase.rpc('get_onboarding_status');
+      const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
       if (statusError) throw statusError;
 
       // 2. Buscar invitaciones pendientes
-      const { data: invites } = await supabase
-        .from('invitations')
-        .select('id, role_to_assign, schools(name)')
+      const { data: invites } = await (supabase
+        .from('invitations' as any)
+        .select('id, role_to_assign, schools(name)') as any)
         .eq('email', user.email)
         .eq('status', 'pending')
         .maybeSingle();
@@ -101,11 +103,14 @@ export default function DashboardPage() {
       }
 
       // 3. Obtener pasos dinámicos usando la lógica centralizada
-      const steps = getStepsForRole(status.role || profile.role, status);
+      const steps = getStepsForRole((status as any).role || profile.role, {
+        ...status,
+        has_pending_invitation: !!invites
+      });
       setOnboardingSteps(steps);
 
       // Update local onboarding status if provided by DB
-      if (status.school_id && status.has_school) {
+      if ((status as any).school_id && (status as any).has_school) {
         // Here we could sync status.has_school etc to state if needed
       }
     } catch (error) {
@@ -139,7 +144,7 @@ export default function DashboardPage() {
   const dynamicStats = config.stats.map((stat, index) => {
     // 2. REAL USER: SHOW REAL DATA
     if (realStats && !realStatsLoading) {
-      if (profile.role === 'school' || profile.role === 'school_admin') {
+      if (profile.role === 'school' || (profile.role as string) === 'school_admin') {
         if (index === 0) {
           // Students (Config Index 0)
           const count = realStats.students_count || 0;

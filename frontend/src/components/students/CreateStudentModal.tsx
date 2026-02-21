@@ -23,7 +23,7 @@ interface CreateStudentModalProps {
 }
 
 export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: CreateStudentModalProps) {
-    const { schoolName, programs, defaultMonthlyFee } = useSchoolContext();
+    const { schoolName, programs, activeBranchId, defaultMonthlyFee } = useSchoolContext();
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
 
@@ -60,6 +60,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                 parentPhone: formData.parentPhone || undefined,
                 schoolId,
                 schoolName: schoolName || 'Tu Escuela',
+                branchId: selectedProgram?.branch_id || activeBranchId || undefined,
                 programId: formData.programId || undefined,
                 programName: selectedProgram?.name || 'Programa General',
                 monthlyFee: formData.monthlyFee,

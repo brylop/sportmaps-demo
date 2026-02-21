@@ -67,6 +67,7 @@ BEGIN
     -- School/Owner Validations
     'has_school', (SELECT EXISTS(SELECT 1 FROM public.schools WHERE owner_id = v_user_id)),
     'has_branches', (SELECT EXISTS(SELECT 1 FROM public.school_branches WHERE school_id = v_school_id)),
+    'branches_count', (SELECT COUNT(*) FROM public.school_branches WHERE school_id = v_school_id),
     'has_programs', (SELECT EXISTS(SELECT 1 FROM public.programs WHERE school_id = v_school_id)),
     'has_staff', (SELECT EXISTS(SELECT 1 FROM public.school_members WHERE school_id = v_school_id AND role IN ('coach', 'staff', 'admin'))),
     

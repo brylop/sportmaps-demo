@@ -46,7 +46,7 @@ export default function SchoolStudentsManagementPage() {
   const [viewingStudent, setViewingStudent] = useState<any | null>(null);
 
   // Resolve school context (school_id, programs, fees)
-  const { schoolId, schoolName, programs, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, programs, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
   // Real data from Supabase View
   const { data: students = [], isLoading } = useQuery({
@@ -82,6 +82,7 @@ export default function SchoolStudentsManagementPage() {
           parentPhone: data.parent_phone,
           parentName: data.parent_email.split('@')[0],
           schoolId,
+          branchId: selectedProgram?.branch_id || activeBranchId || undefined,
           programId: data.program_id,
           programName: selectedProgram?.name || 'Programa',
           monthlyFee: data.monthly_fee,
@@ -511,6 +512,7 @@ export default function SchoolStudentsManagementPage() {
         }}
         schoolId={schoolId || 'demo-school'}
         schoolName={schoolName}
+        branchId={activeBranchId}
       />
     </div>
   );
