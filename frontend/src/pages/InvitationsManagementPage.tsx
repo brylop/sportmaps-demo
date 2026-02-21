@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,12 +27,11 @@ interface Invitation {
 }
 
 export default function InvitationsManagementPage() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { schoolId, schoolName, programs, defaultMonthlyFee } = useSchoolContext();
+  const { schoolId, schoolName, programs, defaultMonthlyFee, isAdmin } = useSchoolContext();
 
   const [formData, setFormData] = useState({
     parentEmail: '',
@@ -42,45 +40,32 @@ export default function InvitationsManagementPage() {
     monthlyFee: defaultMonthlyFee,
   });
 
-  // Demo invitations with monthly_fee
-  const [invitations, setInvitations] = useState<Invitation[]>([
-    {
-      id: '1',
-      invited_email: 'maria.gonzalez@email.com',
-      child_name: 'Mateo Pérez',
-      program_name: 'Firesquad (Senior L3)',
-      monthly_fee: 180000,
-      status: 'accepted',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
+  // Fetch real invitations
+  const { data: invitations = [], isLoading: loadingInvites } = useQuery({
+    queryKey: ['invitations', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Map DB fields to Invitation interface
+      return (data || []).map(inv => ({
+        id: inv.id,
+        invited_email: inv.email,
+        child_name: inv.child_name || '—',
+        program_name: programs.find(p => p.id === inv.program_id)?.name || 'Programa General',
+        monthly_fee: inv.monthly_fee || 0,
+        status: inv.status,
+        created_at: inv.created_at,
+      })) as Invitation[];
     },
-    {
-      id: '2',
-      invited_email: 'carlos.rodriguez@email.com',
-      child_name: 'Laura Rodríguez',
-      program_name: 'Butterfly (Junior Prep)',
-      monthly_fee: 150000,
-      status: 'pending',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-    },
-    {
-      id: '3',
-      invited_email: 'ana.martinez@email.com',
-      child_name: 'Santiago Martínez',
-      program_name: 'Bombsquad (Coed L5)',
-      monthly_fee: 200000,
-      status: 'pending',
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-    },
-    {
-      id: '4',
-      invited_email: 'spoortmaps@gmail.com',
-      child_name: 'Demo Hijo',
-      program_name: 'Legends (Open L6)',
-      monthly_fee: 220000,
-      status: 'accepted',
-      created_at: new Date(Date.now() - 345600000).toISOString(),
-    }
-  ]);
+    enabled: !!schoolId,
+  });
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
@@ -88,9 +73,9 @@ export default function InvitationsManagementPage() {
   const generateRegistrationLink = (invitation: Partial<Invitation>) => {
     const params = new URLSearchParams({
       school: schoolId || 'demo',
-      program: invitation.program_name || '',
-      fee: String(invitation.monthly_fee || defaultMonthlyFee),
+      email: invitation.invited_email || '',
       child: invitation.child_name || '',
+      invite: invitation.id || '',
     });
     return `${window.location.origin}/register?${params.toString()}`;
   };
@@ -110,64 +95,56 @@ export default function InvitationsManagementPage() {
       const programName = selectedProgram?.name || 'Programa';
       const fee = data.monthlyFee || selectedProgram?.monthly_fee || defaultMonthlyFee;
 
-      // Create new invitation in local state
-      const newInvitation: Invitation = {
-        id: `inv-${Date.now()}`,
-        invited_email: data.parentEmail,
-        child_name: data.childName,
-        program_name: programName,
-        monthly_fee: fee,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        registration_link: generateRegistrationLink({
-          program_name: programName,
-          monthly_fee: fee,
-          child_name: data.childName,
-        }),
-      };
+      // 1. Create in DB via RPC
+      const { data: inviteId, error } = await supabase.rpc('invite_parent_to_school', {
+        p_parent_email: data.parentEmail,
+        p_child_name: data.childName,
+        p_program_id: data.programId || null,
+        p_monthly_fee: fee
+      });
 
-      setInvitations(prev => [newInvitation, ...prev]);
+      if (error) throw error;
 
-      // Try to send email via edge function (non-blocking)
-      try {
-        await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
-            },
-            body: JSON.stringify({
-              to: data.parentEmail,
-              parentName: data.parentEmail.split('@')[0],
-              childName: data.childName,
-              schoolName,
-              programName,
-              monthlyFee: fee,
-              invitationLink: newInvitation.registration_link,
-            })
-          }
-        );
-      } catch (e) {
-        console.warn('Email send failed (demo mode):', e);
-      }
+      // 2. Try to send email via edge function (non-blocking)
+      const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(data.parentEmail)}&role=parent&invite=${inviteId}`;
 
-      return newInvitation;
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+          },
+          body: JSON.stringify({
+            to: data.parentEmail,
+            parentName: data.parentEmail.split('@')[0],
+            childName: data.childName,
+            schoolName,
+            programName,
+            monthlyFee: fee,
+            invitationLink: registration_link,
+          })
+        }
+      ).catch(error => {
+        console.warn('Email send failed (RPC succeeded):', error);
+      });
+
+      return { id: inviteId, registration_link };
     },
-    onSuccess: (invitation) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       setDialogOpen(false);
       setFormData({ parentEmail: '', childName: '', programId: '', monthlyFee: defaultMonthlyFee });
 
       toast({
         title: '✅ Invitación creada',
-        description: `Invitación para ${invitation.child_name} creada. Mensualidad: ${formatCurrency(invitation.monthly_fee)}`,
+        description: `Invitación registrada en el sistema.`,
       });
 
       // Auto-copy registration link
-      if (invitation.registration_link) {
-        navigator.clipboard.writeText(invitation.registration_link);
+      if (result.registration_link) {
+        navigator.clipboard.writeText(result.registration_link);
         toast({
           title: '📋 Link copiado automáticamente',
           description: 'Compártelo por WhatsApp o email para que el padre se registre.',

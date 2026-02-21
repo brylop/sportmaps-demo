@@ -83,14 +83,6 @@ const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesMa
 const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
 const PickupMonitorPage = lazy(() => import("./pages/school/PickupMonitorPage"));
 
-// ─── Onboarding pages (lazy) ──────────────────────────────────────────────────
-const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
-const CoachOnboardingPage = lazy(() => import("./pages/CoachOnboardingPage"));
-const AthleteOnboardingPage = lazy(() => import("./pages/AthleteOnboardingPage"));
-const WellnessOnboardingPage = lazy(() => import("./pages/WellnessOnboardingPage"));
-const StoreOwnerOnboardingPage = lazy(() => import("./pages/StoreOwnerOnboardingPage"));
-const ParentOnboardingPage = lazy(() => import("./pages/ParentOnboardingPage"));
-
 // ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
 const TrainingPage = lazy(() => import("./pages/TrainingPage"));
@@ -112,7 +104,6 @@ const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 
 // ─── Organizer pages (lazy) ───────────────────────────────────────────────────
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
-const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 
@@ -164,20 +155,15 @@ const App = () => (
                   <Route path="/event/:slug" element={<EventPublicPage />} />
                   <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
-                  {/* Protected routes with layout */}
+                  {/* Main authenticated routes */}
                   <Route path="/" element={
                     <ProtectedRoute>
                       <AuthLayout />
                     </ProtectedRoute>
                   }>
-                    {/* Main routes */}
+                    {/* Index of authenticated layout is dashboard */}
+                    <Route index element={<DashboardPage />} />
                     <Route path="dashboard" element={<DashboardPage />} />
-                    <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
-                    <Route path="coach-onboarding" element={<CoachOnboardingPage />} />
-                    <Route path="athlete-onboarding" element={<AthleteOnboardingPage />} />
-                    <Route path="parent-onboarding" element={<ParentOnboardingPage />} />
-                    <Route path="wellness-onboarding" element={<WellnessOnboardingPage />} />
-                    <Route path="store-onboarding" element={<StoreOwnerOnboardingPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="calendar" element={<CalendarPage />} />
                     <Route path="notifications" element={<NotificationsPage />} />
@@ -212,57 +198,57 @@ const App = () => (
 
                     {/* School routes (role-guarded) */}
                     <Route path="students" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'coach']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                         <SchoolStudentsManagementPage />
                       </ProtectedRoute>
                     } />
                     <Route path="staff" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <SchoolCoachesManagementPage />
                       </ProtectedRoute>
                     } />
                     <Route path="programs-management" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <ProgramsManagementPage />
                       </ProtectedRoute>
                     } />
                     <Route path="attendance-supervision" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <AttendanceSupervisionPage />
                       </ProtectedRoute>
                     } />
                     <Route path="results-overview" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <ResultsOverviewPage />
                       </ProtectedRoute>
                     } />
                     <Route path="finances" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <FinancesPage />
                       </ProtectedRoute>
                     } />
                     <Route path="payments-automation" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <PaymentsAutomationPage />
                       </ProtectedRoute>
                     } />
                     <Route path="payment-reminders" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <PaymentRemindersPage />
                       </ProtectedRoute>
                     } />
                     <Route path="school-reports" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <ReportsPage />
                       </ProtectedRoute>
                     } />
                     <Route path="facilities" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <SchoolFacilitiesPage />
                       </ProtectedRoute>
                     } />
                     <Route path="branches" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                         <SchoolBranchesManagementPage />
                       </ProtectedRoute>
                     } />
@@ -329,7 +315,6 @@ const App = () => (
                     } />
 
                     {/* Organizer routes */}
-                    <Route path="organizer-onboarding" element={<OrganizerOnboardingPage />} />
                     <Route path="organizer/home" element={<OrganizerDashboardPage />} />
                     <Route path="organizer/create-event" element={<CreateEventPage />} />
                     <Route path="organizer/event/:id" element={<EventManagementPage />} />

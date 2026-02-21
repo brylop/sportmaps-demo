@@ -13,7 +13,14 @@ import {
   ShoppingBag,
   Heart,
   Building,
-  Activity
+  Activity,
+  Plus,
+  Shield,
+  UserCircle,
+  Award,
+  Circle,
+  CheckCircle2,
+  ArrowRight
 } from 'lucide-react';
 
 /**
@@ -43,6 +50,41 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
       completedActivities: 0,
       attendanceRate: 0,
       activeTeams: 0
+    };
+
+    const onboardingConfigs: Record<string, any[]> = {
+      school: [
+        { id: 'create_school', title: 'Crea tu Academia', description: 'Registra los datos básicos de tu escuela.', icon: Building, href: '/school-config', completed: false },
+        { id: 'add_staff', title: 'Equipo de Trabajo', description: 'Registra entrenadores o administrativos.', icon: Users, href: '/staff', completed: false },
+        { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/programs-management', completed: false },
+        { id: 'invite_students', title: 'Invita Estudiantes', description: 'Registra y envía invitaciones.', icon: Users, href: '/students', completed: false }
+      ],
+      parent: [
+        { id: 'add_child', title: 'Vincular Hijo', description: 'Registra el perfil de tus deportistas.', icon: Users, href: '/children', completed: false },
+        { id: 'medical_info', title: 'Ficha Médica', description: 'Completa datos de salud y EPS.', icon: Activity, href: '/children', completed: false },
+        { id: 'accept_invite', title: 'Aceptar Invitación', description: 'Vincula a tu hijo a una academia.', icon: Bell, href: '/notifications', completed: false },
+        { id: 'validate_data', title: 'Validar Datos', description: 'Confirma documentos y contactos.', icon: Shield, href: '/profile', completed: false },
+        { id: 'subscriptions', title: 'Suscripciones', description: 'Revisa pagos y mensualidades.', icon: TrendingUp, href: '/payments', completed: false }
+      ],
+      coach: [
+        { id: 'complete_profile', title: 'Perfil Profesional', description: 'Sube tu experiencia y certificaciones.', icon: UserCircle, href: '/profile', completed: false },
+        { id: 'join_school', title: 'Vincular Escuela', description: 'Acepta la invitación de tu academia.', icon: Building, href: '/notifications', completed: false }
+      ],
+      athlete: [
+        { id: 'complete_profile', title: 'Completar Perfil', description: 'Asegúrate de que tus datos estén al día.', icon: UserCircle, href: '/profile', completed: false },
+        { id: 'enroll_program', title: 'Inscribirse en Programa', description: 'Busca una academia y únete.', icon: Trophy, href: '/explore', completed: false }
+      ],
+      wellness_professional: [
+        { id: 'complete_profile', title: 'Perfil Profesional', description: 'Completa tu especialidad y datos.', icon: Heart, href: '/profile', completed: false }
+      ],
+      store_owner: [
+        { id: 'create_store', title: 'Configurar Tienda', description: 'Nombre y detalles de tu comercio.', icon: ShoppingBag, href: '/settings', completed: false },
+        { id: 'add_product', title: 'Primer Producto', description: 'Sube artículos al catálogo.', icon: Plus, href: '/products', completed: false }
+      ],
+      organizer: [
+        { id: 'complete_profile', title: 'Perfil de Organizador', description: 'Datos fiscales y de contacto.', icon: UserCircle, href: '/profile', completed: false },
+        { id: 'create_event', title: 'Primer Evento', description: 'Organiza tu primera competencia.', icon: Calendar, href: '/organizer/create-event', completed: false }
+      ]
     };
 
     switch (role) {
@@ -82,7 +124,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
             { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments', variant: 'outline' },
             { label: 'Explorar Programas', icon: Users, href: '/explore', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.athlete
         };
 
       case 'parent':
@@ -121,7 +164,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' },
             { label: 'Mis Pagos', icon: TrendingUp, href: '/payments', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.parent
         };
 
       case 'coach':
@@ -161,7 +205,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Marcar Asistencia', icon: Users, href: '/coach-attendance', variant: 'outline' },
             { label: 'Registrar Resultado', icon: Trophy, href: '/results', variant: 'outline' }
           ],
-          notifications: []
+          notifications: [],
+          onboardingSteps: onboardingConfigs.coach
         };
 
       case 'school':
@@ -200,7 +245,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
             { label: 'Agregar Entrenador', icon: Users, href: '/school-coaches', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.school
         };
 
       case 'wellness_professional':
@@ -239,7 +285,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Ver Agenda', icon: Calendar, href: '/schedule', variant: 'default' },
             { label: 'Mis Atletas', icon: Users, href: '/athletes', variant: 'outline' },
             { label: 'Historial Médico', icon: Heart, href: '/medical-history', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.wellness_professional
         };
 
       case 'store_owner':
@@ -278,7 +325,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Ver Productos', icon: ShoppingBag, href: '/products', variant: 'default' },
             { label: 'Ver Pedidos', icon: Clock, href: '/orders', variant: 'outline' },
             { label: 'Inventario', icon: BarChart3, href: '/inventory', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.store_owner
         };
 
       case 'admin':
@@ -317,7 +365,47 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Gestionar Usuarios', icon: Users, href: '/admin/users', variant: 'default' },
             { label: 'Gestionar Clubs', icon: Building, href: '/admin/clubs', variant: 'outline' },
             { label: 'Reportes del Sistema', icon: BarChart3, href: '/admin/system', variant: 'outline' }
-          ]
+          ],
+          onboardingSteps: onboardingConfigs.admin
+        };
+
+      case 'organizer':
+        return {
+          role: 'organizer',
+          title: 'Panel de Organizador',
+          description: 'Gestiona tus eventos deportivos',
+          stats: [
+            {
+              title: 'Eventos Activos',
+              value: 0,
+              description: 'En curso',
+              icon: Trophy
+            },
+            {
+              title: 'Participantes',
+              value: 0,
+              description: 'Inscritos totales',
+              icon: Users
+            },
+            {
+              title: 'Recaudación',
+              value: '$0',
+              description: 'Este mes',
+              icon: TrendingUp
+            },
+            {
+              title: 'Notificaciones',
+              value: stats.unreadNotifications,
+              description: 'Sin leer',
+              icon: Bell
+            }
+          ],
+          activities: [],
+          quickActions: [
+            { label: 'Crear Evento', icon: Plus, href: '/organizer/create-event', variant: 'default' },
+            { label: 'Mis Eventos', icon: Trophy, href: '/organizer/home', variant: 'outline' }
+          ],
+          onboardingSteps: onboardingConfigs.organizer
         };
 
       default:
@@ -325,7 +413,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           role: 'athlete',
           title: 'Dashboard',
           description: 'Bienvenido a SportMaps',
-          stats: []
+          stats: [],
+          onboardingSteps: []
         };
     }
   }, [role, statsData]);

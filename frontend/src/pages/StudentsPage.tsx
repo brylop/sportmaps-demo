@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw, Share2 } from 'lucide-react';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { CreateStudentModal } from '@/components/students/CreateStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -18,6 +19,7 @@ export default function StudentsPage() {
   const { schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,6 +132,7 @@ export default function StudentsPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setShowCreateModal(true)}
             className="flex-1 md:flex-initial"
           >
             <UserPlus className="h-4 w-4 mr-2" />
@@ -292,6 +295,14 @@ export default function StudentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Create Student Modal */}
+      <CreateStudentModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={loadStudents}
+        schoolId={profile?.id || 'demo-school'}
+      />
 
       {/* CSV Import Modal */}
       <CSVImportModal

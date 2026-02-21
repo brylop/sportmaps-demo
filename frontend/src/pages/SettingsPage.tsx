@@ -334,7 +334,7 @@ export default function ProfilePage() {
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
                       className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      placeholder="Cuéntanos sobre tu escuela..."
+                      placeholder={profile?.role === 'school' || profile?.role === 'school_admin' ? "Cuéntanos sobre tu escuela..." : "Cuéntanos un poco sobre ti..."}
                     />
                     <p className="text-xs text-muted-foreground">
                       Esta descripción aparecerá en tu perfil público.
@@ -342,7 +342,7 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                {profile?.role !== 'parent' && (
+                {(profile?.role === 'school' || profile?.role === 'school_admin') && (
                   <Card className="bg-muted/50 border-dashed">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base flex items-center gap-2">

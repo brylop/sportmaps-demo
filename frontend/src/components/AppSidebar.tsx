@@ -41,7 +41,11 @@ export function AppSidebar() {
     switch (currentUserRole) {
       case 'owner':
       case 'admin':
+      case 'school_admin':
         navigationRole = 'school';
+        break;
+      case 'super_admin':
+        navigationRole = 'admin';
         break;
       case 'coach':
       case 'staff':
@@ -83,6 +87,7 @@ export function AppSidebar() {
       parent: 'Padre',
       coach: 'Entrenador',
       school: 'Escuela',
+      school_admin: 'Admin Sede',
       owner: 'Dueño',
       admin: 'Admin', // School Admin
       staff: 'Staff',
@@ -91,7 +96,7 @@ export function AppSidebar() {
       super_admin: 'Super Admin',
       viewer: 'Visitante'
     };
-    return roleLabels[roleToShow] || roleToShow;
+    return roleLabels[roleToShow as string] || roleToShow;
   };
 
   return (

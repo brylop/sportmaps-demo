@@ -7,11 +7,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { 
-  User, 
-  Target, 
-  Calendar, 
-  Users, 
+import {
+  User,
+  Target,
+  Calendar,
+  Users,
   X,
   CheckCircle2,
   AlertCircle,
@@ -28,12 +28,12 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  
+
   // Form states for athlete
   const [sportLevel, setSportLevel] = useState('');
   const [position, setPosition] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  
+  const [dateOfBirth, setDateOfBirth] = useState(profile.date_of_birth || '');
+
   // Form states for parent
   const [childName, setChildName] = useState('');
   const [childAge, setChildAge] = useState('');
@@ -45,17 +45,17 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
   const getCompletionPercentage = () => {
     let completed = 0;
     const total = 4;
-    
+
     if (profile.full_name && profile.full_name !== 'Usuario') completed++;
     if (profile.date_of_birth) completed++;
     if (profile.phone) completed++;
-    if (profile.bio) completed++;
-    
-    return Math.round((completed / total) * 100);
+    if (profile.bio || profile.role !== 'athlete') completed++; // Athlete needs bio (level/pos), others just presence
+
+    return Math.min(Math.round((completed / total) * 100), 100);
   };
 
   const completionPercentage = getCompletionPercentage();
-  
+
   // Si el perfil está completo, no mostrar el banner
   if (completionPercentage === 100) return null;
 
@@ -66,12 +66,12 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
         date_of_birth: dateOfBirth || undefined,
         bio: `Nivel: ${sportLevel}${position ? `, Posición: ${position}` : ''}`,
       });
-      
+
       toast({
         title: '¡Perfil actualizado!',
         description: 'Tu información deportiva ha sido guardada',
       });
-      
+
       setShowForm(false);
       onDismiss?.();
     } catch (error) {
@@ -91,12 +91,12 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
       await updateProfile({
         bio: `Padre de: ${childName} (${childAge} años) - ${childSport}`,
       });
-      
+
       toast({
         title: '¡Perfil actualizado!',
         description: 'La información de tu hijo ha sido guardada. Puedes agregar más hijos desde "Mis Hijos".',
       });
-      
+
       setShowForm(false);
       onDismiss?.();
     } catch (error) {
@@ -113,16 +113,18 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
   const renderAthleteForm = () => (
     <div className="space-y-4 pt-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="dateOfBirth">Fecha de nacimiento</Label>
-          <Input
-            id="dateOfBirth"
-            type="date"
-            value={dateOfBirth}
-            onChange={(e) => setDateOfBirth(e.target.value)}
-          />
-        </div>
-        
+        {!profile.date_of_birth && (
+          <div className="space-y-2">
+            <Label htmlFor="dateOfBirth">Fecha de nacimiento</Label>
+            <Input
+              id="dateOfBirth"
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
+            />
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="sportLevel">Nivel deportivo</Label>
           <Select value={sportLevel} onValueChange={setSportLevel}>
@@ -138,7 +140,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
             </SelectContent>
           </Select>
         </div>
-        
+
         <div className="space-y-2">
           <Label htmlFor="position">Posición/Especialidad</Label>
           <Input
@@ -149,13 +151,13 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
           />
         </div>
       </div>
-      
+
       <div className="flex gap-2 justify-end">
         <Button variant="outline" onClick={() => setShowForm(false)}>
           Cancelar
         </Button>
-        <Button 
-          onClick={handleAthleteSubmit} 
+        <Button
+          onClick={handleAthleteSubmit}
           disabled={loading}
           style={{ backgroundColor: '#FB9F1E' }}
         >
@@ -171,7 +173,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
       <p className="text-sm text-muted-foreground">
         Agrega la información de tu hijo para comenzar a explorar programas deportivos
       </p>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="space-y-2">
           <Label htmlFor="childName">Nombre del hijo/a</Label>
@@ -182,7 +184,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
             onChange={(e) => setChildName(e.target.value)}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label htmlFor="childAge">Edad</Label>
           <Input
@@ -195,7 +197,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
             onChange={(e) => setChildAge(e.target.value)}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label htmlFor="childSport">Deporte de interés</Label>
           <Select value={childSport} onValueChange={setChildSport}>
@@ -216,13 +218,13 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
           </Select>
         </div>
       </div>
-      
+
       <div className="flex gap-2 justify-end">
         <Button variant="outline" onClick={() => setShowForm(false)}>
           Cancelar
         </Button>
-        <Button 
-          onClick={handleParentSubmit} 
+        <Button
+          onClick={handleParentSubmit}
           disabled={loading || !childName || !childAge || !childSport}
           style={{ backgroundColor: '#248223' }}
         >
@@ -246,16 +248,16 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
                 Completa tu Perfil para Empezar
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {profile.role === 'athlete' 
+                {profile.role === 'athlete'
                   ? 'Agrega tu información deportiva para personalizar tu experiencia'
                   : profile.role === 'parent'
-                  ? 'Vincula o crea el perfil de tu hijo/a para comenzar'
-                  : 'Completa tu información para acceder a todas las funciones'
+                    ? 'Vincula o crea el perfil de tu hijo/a para comenzar'
+                    : 'Completa tu información para acceder a todas las funciones'
                 }
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <div className="text-right">
               <Badge variant="outline" className="mb-1">
@@ -263,7 +265,7 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
               </Badge>
               <Progress value={completionPercentage} className="w-24 h-2" />
             </div>
-            
+
             {onDismiss && (
               <Button variant="ghost" size="icon" onClick={onDismiss}>
                 <X className="w-4 h-4" />
@@ -272,14 +274,14 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent>
         {!showForm ? (
           <div className="flex flex-wrap gap-2 pt-2">
             {profile.role === 'athlete' && (
               <>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   className="gap-2"
                   onClick={() => setShowForm(true)}
@@ -287,8 +289,8 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
                   <Target className="w-4 h-4" />
                   Agregar nivel deportivo
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   className="gap-2"
                   onClick={() => setShowForm(true)}
@@ -298,10 +300,10 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
                 </Button>
               </>
             )}
-            
+
             {profile.role === 'parent' && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 className="gap-2 border-[#248223] text-[#248223] hover:bg-[#248223]/10"
                 onClick={() => setShowForm(true)}
@@ -310,10 +312,10 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
                 Vincular hijo/a
               </Button>
             )}
-            
+
             {!['athlete', 'parent'].includes(profile.role) && (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 className="gap-2"
                 onClick={() => setShowForm(true)}
@@ -324,9 +326,9 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
             )}
           </div>
         ) : (
-          profile.role === 'athlete' ? renderAthleteForm() : 
-          profile.role === 'parent' ? renderParentForm() : 
-          renderAthleteForm()
+          profile.role === 'athlete' ? renderAthleteForm() :
+            profile.role === 'parent' ? renderParentForm() :
+              renderAthleteForm()
         )}
       </CardContent>
     </Card>
