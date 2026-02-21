@@ -10,8 +10,14 @@ export interface Child {
     gender?: string;
     parent_id: string;
     school_id?: string;
-    sport?: string;
-    team_name?: string;
+
+    medical_info?: string;
+    doc_type?: string;
+    doc_number?: string;
+    grade?: string;
+    emergency_contact?: string;
+    avatar_url?: string;
+    id_document_url?: string;
     created_at?: string;
 }
 
@@ -21,8 +27,14 @@ export interface CreateChildDTO {
     gender?: string;
     parent_id: string;
     school_id?: string;
-    sport?: string;
-    team_name?: string;
+
+    medical_info?: string;
+    doc_type?: string;
+    doc_number?: string;
+    grade?: string;
+    emergency_contact?: string;
+    avatar_url?: string;
+    id_document_url?: string;
 }
 
 class ParentsAPI {

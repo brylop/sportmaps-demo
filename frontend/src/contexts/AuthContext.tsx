@@ -191,6 +191,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           emailRedirectTo: redirectUrl,
           data: {
             full_name: userData.full_name,
+            phone: userData.phone,
+            date_of_birth: userData.date_of_birth,
             role: userData.role,
             invitation_code: userData.invitation_code,
           }
