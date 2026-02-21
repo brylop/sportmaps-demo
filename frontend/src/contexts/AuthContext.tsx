@@ -8,7 +8,7 @@ interface UserProfile {
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -75,18 +75,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase
         .from('profiles')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .insert({
           id: userId,
           full_name: userData.full_name || 'Usuario',
-          email: userData.email || '', // FIX: Added missing required field
+          email: userData.email || '',
           phone: userData.phone || null,
-          role: (userData.role || 'athlete') as UserProfile['role'],
+          role: (userData.role || 'athlete'),
           avatar_url: userData.avatar_url || null,
           bio: null,
           date_of_birth: userData.date_of_birth || null,
           sportmaps_points: 0,
           subscription_tier: 'free'
-        })
+        } as any)
         .select()
         .maybeSingle();
 
@@ -305,7 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...updates, updated_at: new Date().toISOString() } as Record<string, unknown>)
         .eq('id', user.id);
 
       if (error) throw error;

@@ -51,7 +51,7 @@ const childSchema = z.object({
   // Step 2: Información Médica y Contacto
   emergency_contact_name: z.string().min(2, 'El nombre del contacto es requerido'),
   emergency_contact_phone: z.string().min(7, 'El teléfono del contacto es requerido'),
-  has_allergies: z.boolean().default(false),
+  has_allergies: z.boolean().optional(),
   allergy_type: z.string().optional(),
   allergy_severity: z.string().optional(),
   allergy_treatment: z.string().optional(),
