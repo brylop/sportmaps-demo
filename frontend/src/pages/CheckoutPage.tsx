@@ -72,17 +72,35 @@ export default function CheckoutPage() {
       }
 
       if (item.type === 'product' && item.metadata.productId) {
-        await supabase.from('orders').insert({
+        // 1. Create the parent order
+        const { data: orderData, error: orderError } = await supabase.from('orders').insert({
           user_id: user!.id,
-          items: [{ product_id: item.metadata.productId, name: item.name, quantity: item.quantity, price: item.price }],
-          total: item.price * item.quantity,
+          total_amount: item.price * item.quantity,
           status: 'pending',
           shipping_address: { pending: true },
-        });
+          contact_email: user!.email,
+          payment_method: paymentMethodUsed || paymentFlow,
+        }).select().single();
+
+        if (orderError) throw orderError;
+
+        // 2. Create the order items
+        if (orderData) {
+          await supabase.from('order_items').insert({
+            order_id: orderData.id,
+            product_id: item.metadata.productId,
+            quantity: item.quantity,
+            unit_price: item.price,
+          });
+        }
+
         if (item.metadata.vendorId) {
           await supabase.from('notifications').insert({
-            user_id: item.metadata.vendorId, title: 'Nueva Venta',
-            message: `Vendiste ${item.quantity}x ${item.name}`, type: 'sale', link: '/store/orders',
+            user_id: item.metadata.vendorId,
+            title: 'Nueva Venta',
+            message: `Vendiste ${item.quantity}x ${item.name}`,
+            type: 'sale',
+            link: '/orders',
           });
         }
       }
