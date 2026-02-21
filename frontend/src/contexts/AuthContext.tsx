@@ -2,14 +2,13 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { getErrorMessage } from '@/utils/authErrors';
 
 interface UserProfile {
   id: string;
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'organizer' | 'admin' | 'super_admin';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -50,18 +49,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) {
-        // If it's a "Not Found" error (PGRST116), it's fine, we return null
-        if (error.code === 'PGRST116') return null;
-
         console.error('Error fetching profile:', error);
         throw error;
       }
 
+      if (!data) {
+        console.warn('No profile found for user:', userId);
+        return null;
+      }
+
       return data as UserProfile;
     } catch (error) {
-      console.error('Error in fetchProfile:', error);
-      // Re-throw so the caller knows it was an error, not just a missing profile
-      throw error;
+      console.error('Error fetching profile:', error);
+      return null;
     }
   }, []);
 
@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: userData.full_name || 'Usuario',
           email: userData.email || '', // FIX: Added missing required field
           phone: userData.phone || null,
-          role: (userData.role || 'athlete') as any,
+          role: (userData.role || 'athlete') as UserProfile['role'],
           avatar_url: userData.avatar_url || null,
           bio: null,
           date_of_birth: userData.date_of_birth || null,
@@ -110,27 +110,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         try {
-          // Intentamos obtener el perfil que el Trigger V4 ya debería haber creado
-          let userProfile = await fetchProfile(session.user.id);
-
-          // Si no existe de inmediato, reintentamos una vez tras un pequeño delay
-          if (!userProfile) {
-            console.log("Esperando al motor de base de datos...");
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            userProfile = await fetchProfile(session.user.id);
-          }
-
-          if (mounted && userProfile) {
-            setProfile(userProfile);
-          } else if (mounted) {
-            console.error("El perfil no se sincronizó a tiempo.");
+          const userProfile = await fetchProfile(session.user.id);
+          if (mounted) {
+            if (userProfile) {
+              setProfile(userProfile);
+            } else {
+              const created = await createProfile(session.user.id, {
+                full_name: session.user.user_metadata?.full_name || 'Usuario',
+                role: 'athlete',
+              });
+              setProfile(created as UserProfile);
+            }
           }
         } catch (error) {
-          console.error('Error al cargar perfil:', error);
+          console.error('Failed to load/create profile:', error);
         }
       }
 
-      if (mounted) setLoading(false);
+      if (mounted) {
+        setLoading(false);
+      }
     }).catch((error) => {
       console.error('Session error:', error);
       if (mounted) setLoading(false);
@@ -149,19 +148,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setTimeout(async () => {
             try {
-              let userProfile = await fetchProfile(session.user!.id);
-
-              if (!userProfile && mounted) {
-                console.log("Reintentando carga de perfil tras evento auth...");
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                userProfile = await fetchProfile(session.user!.id);
-              }
-
-              if (mounted && userProfile) {
-                setProfile(userProfile);
+              const userProfile = await fetchProfile(session.user!.id);
+              if (mounted) {
+                if (userProfile) {
+                  setProfile(userProfile);
+                } else {
+                  const created = await createProfile(session.user!.id, {
+                    full_name: session.user!.user_metadata?.full_name || 'Usuario',
+                    email: session.user!.email || '', // FIX: Pass email
+                    role: session.user!.user_metadata?.role || 'athlete',
+                  });
+                  setProfile(created as UserProfile);
+                }
               }
             } catch (error) {
-              console.error('Deferred profile load failed:', error);
+              console.error('Deferred profile load/create failed:', error);
             } finally {
               if (mounted) setLoading(false);
             }
@@ -177,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [fetchProfile, createProfile]);
 
   const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string }) => {
     try {
@@ -191,8 +192,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             full_name: userData.full_name,
             role: userData.role,
-            phone: userData.phone,
-            date_of_birth: userData.date_of_birth,
             invitation_code: userData.invitation_code,
           }
         }
@@ -208,11 +207,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       console.error('Error signing up:', error);
       toast({
         title: "Error en el registro",
-        description: getErrorMessage(error),
+        description: err.message,
         variant: "destructive",
       });
       throw error;
@@ -232,11 +232,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         title: "Inicio de sesión exitoso",
         description: "Bienvenido a SportMaps",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       console.error('Error signing in:', error);
       toast({
         title: "Error en el inicio de sesión",
-        description: getErrorMessage(error),
+        description: err.message,
         variant: "destructive",
       });
       throw error;
@@ -271,7 +272,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         title: "Sesión cerrada",
         description: "Has cerrado sesión exitosamente",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       console.error('Error signing out:', error);
       // Still clear local state even if signOut fails
       setUser(null);
@@ -279,10 +281,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
 
       // Only show error if it's not a session missing error
-      if (!error.message?.includes('session')) {
+      if (!err.message?.includes('session')) {
         toast({
           title: "Error",
-          description: error.message,
+          description: err.message,
           variant: "destructive",
         });
       } else {
@@ -301,7 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() } as any)
+        .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', user.id);
 
       if (error) throw error;
@@ -313,11 +315,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         title: "Perfil actualizado",
         description: "Tus datos han sido actualizados exitosamente",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       console.error('Error updating profile:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: err.message,
         variant: "destructive",
       });
       throw error;

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Eye, EyeOff, MailCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 // Relaxed schema to allow dynamic roles
@@ -38,10 +38,13 @@ interface RoleOption {
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [emailForDisplay, setEmailForDisplay] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { user, signUp } = useAuth();
-  const [searchParams] = useSearchParams();
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [searchParams] = useSearchParams();
+
+  const { signUp, user } = useAuth();
 
   const {
     register,
@@ -84,13 +87,14 @@ export default function RegisterPage() {
     fetchRoles();
   }, []);
 
-  // Redirect if already logged in
-  if (user) {
+  // Redirect if already logged in and not just submitted
+  if (user && !isSubmitted) {
     return <Navigate to="/dashboard" replace />;
   }
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
+    setEmailForDisplay(data.email);
     try {
       // 1. Attempt Registration
       await signUp(data.email, data.password, {
@@ -102,34 +106,58 @@ export default function RegisterPage() {
         invitation_code: data.code,
       });
 
-      // 2. Auto-Login Strategy (Since we auto-confirm emails now)
-      // We try to sign in immediately.
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
+      // 2. Set submitted state to show success message
+      setIsSubmitted(true);
 
-      if (signInError) {
-        console.warn("Auto-login failed:", signInError);
-        // Fallback: User will need to login manually (or verify email if auto-confirm failed)
-        // logic handled by AuthContext state change or manual redirect if needed
-      }
-
-      // If successful, the AuthContext provider will detect the session change 
-      // and redirect to /dashboard automatically via ProtectedRoute or useEffect.
-
-    } catch {
-      // Error is handled in the context usually, but we ensure loading stops
+    } catch (error) {
+      console.error("Registration error:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // VISTA DE ÉXITO (POST-REGISTRO)
+  if (isSubmitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
+        <Card className="w-full max-w-md shadow-2xl border-t-8 border-[#248223] animate-in fade-in zoom-in duration-300">
+          <CardContent className="pt-10 flex flex-col items-center text-center">
+            <div className="bg-[#248223]/10 p-4 rounded-full mb-6">
+              <MailCheck className="w-12 h-12 text-[#248223]" />
+            </div>
+
+            <img
+              src="https://luebjarufsiadojhvxgi.supabase.co/storage/v1/object/public/avatars/LOGO.jpg"
+              alt="SportMaps"
+              className="w-32 mb-6 rounded-lg"
+            />
+
+            <h2 className="text-2xl font-bold font-poppins text-[#248223] mb-4">¡Casi listo!</h2>
+
+            <p className="text-muted-foreground font-poppins mb-6">
+              Hemos enviado un enlace de verificación a:<br />
+              <span className="text-foreground font-semibold">{emailForDisplay}</span>
+            </p>
+
+            <div className="bg-[#FB9F1E]/10 border border-[#FB9F1E]/20 p-4 rounded-xl mb-8 text-sm text-[#8a5710]">
+              <p className="font-medium">¿No ves el correo?</p>
+              <p>Revisa tu carpeta de <strong>Spam</strong> o Promociones. El enlace es necesario para activar tu perfil de {watch('role')}.</p>
+            </div>
+
+            <Button asChild variant="outline" className="w-full border-[#248223] text-[#248223] hover:bg-[#248223] hover:text-white transition-colors">
+              <Link to="/login">Volver al Inicio de Sesión</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/5 via-background to-[#FB9F1E]/5 p-4 font-poppins">
+      <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Crear Cuenta</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center text-[#248223]">Crear Cuenta</CardTitle>
           <CardDescription className="text-center">
             Únete a la comunidad SportMaps
           </CardDescription>
@@ -192,10 +220,7 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
-              <Select
-                value={watch('role')}
-                onValueChange={(value) => setValue('role', value)}
-              >
+              <Select onValueChange={(value) => setValue('role', value)}>
                 <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
                   <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>
@@ -212,10 +237,7 @@ export default function RegisterPage() {
                       <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
                       <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
                       <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
-                      <SelectItem value="school_admin">🏫 Escuela/Centro Deportivo</SelectItem>
-                      <SelectItem value="wellness_professional">🥗 Profesional de Bienestar</SelectItem>
-                      <SelectItem value="store_owner">🛍️ Dueño de Tienda</SelectItem>
-                      <SelectItem value="organizer">📅 Organizador de Eventos</SelectItem>
+                      <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
                     </>
                   )}
                 </SelectContent>
@@ -236,15 +258,13 @@ export default function RegisterPage() {
                   {...register('password')}
                   className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
                 />
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password.message}</p>
@@ -262,22 +282,20 @@ export default function RegisterPage() {
                   {...register('confirmPassword')}
                   className={errors.confirmPassword ? 'border-destructive pr-10' : 'pr-10'}
                 />
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 >
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+                </button>
               </div>
               {errors.confirmPassword && (
                 <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full bg-[#248223] hover:bg-[#1a5d19] transition-all" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Crear Cuenta
             </Button>
@@ -285,7 +303,7 @@ export default function RegisterPage() {
 
           <div className="mt-4 text-center text-sm">
             ¿Ya tienes cuenta?{' '}
-            <Link to="/login" className="text-primary hover:underline">
+            <Link to="/login" className="text-[#248223] font-semibold hover:underline">
               Inicia sesión aquí
             </Link>
           </div>

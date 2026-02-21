@@ -24,7 +24,6 @@ export default function LoginPage() {
   const { user, signIn, signUp } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   const from = location.state?.from?.pathname || '/dashboard';
 

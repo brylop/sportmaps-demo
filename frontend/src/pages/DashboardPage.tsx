@@ -13,16 +13,34 @@ import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import { EmptyDashboardState } from '@/components/dashboard/EmptyDashboardState';
+import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 
 export default function DashboardPage() {
-  const { profile, user } = useAuth();
+  const { profile, user, updateProfile } = useAuth();
   const { activeBranchId, activeBranchName } = useSchoolContext();
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
+  const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
+
+  // Show welcome splash if it's the first time
+  useEffect(() => {
+    if (profile && profile.onboarding_started === false) {
+      setShowWelcomeSplash(true);
+    }
+  }, [profile]);
+
+  const handleCloseWelcome = async () => {
+    setShowWelcomeSplash(false);
+    try {
+      await updateProfile({ onboarding_started: true });
+    } catch (error) {
+      console.error("Error updating onboarding_started:", error);
+    }
+  };
 
   // Get real stats from NEW hook (Multitenant aware)
   const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
@@ -248,6 +266,14 @@ export default function DashboardPage() {
           <NotificationList notifications={displayNotifications} />
         )}
       </div>
+
+      {showWelcomeSplash && (
+        <WelcomeSplash
+          userRole={profile.role}
+          userName={profile.full_name?.split(' ')[0] || 'Usuario'}
+          onComplete={handleCloseWelcome}
+        />
+      )}
     </div>
   );
 }
