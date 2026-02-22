@@ -24,9 +24,14 @@ import {
   Plus,
   Trash2,
   ClipboardCopy,
-  Loader2
+  Loader2,
+  FileText,
+  Award,
+  Trophy
 } from 'lucide-react';
 import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
+import { coachesAPI, CoachProfile, CoachCertification } from '@/lib/api/coaches';
+import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 
 export default function ProfilePage() {
   const { user, profile, updateProfile } = useAuth();
@@ -40,8 +45,24 @@ export default function ProfilePage() {
   const [bio, setBio] = useState(profile?.bio || '');
   const [saving, setSaving] = useState(false);
 
+  // Coach-specific state
+  const [coachProfile, setCoachProfile] = useState<CoachProfile | null>(null);
+  const [coachCerts, setCoachCerts] = useState<CoachCertification[]>([]);
+  const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const [coachWizardStep, setCoachWizardStep] = useState(1);
+
   // Sync state when profile loads asynchronously
   // Also fetch directly from DB to ensure phone is loaded (may not be in context cache)
+  const loadCoachData = async () => {
+    if (!user?.id || profile?.role !== 'coach') return;
+    const [cp, certs] = await Promise.all([
+      coachesAPI.getCoachProfile(user.id),
+      coachesAPI.getCertifications(user.id)
+    ]);
+    setCoachProfile(cp);
+    setCoachCerts(certs);
+  };
+
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '');
@@ -64,6 +85,9 @@ export default function ProfilePage() {
           }
         });
     }
+
+    // Load coach-specific data
+    loadCoachData();
   }, [profile, user?.id]);
 
   // Notification settings
@@ -283,6 +307,17 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Coach: Primary Sport */}
+              {profile?.role === 'coach' && coachProfile?.primary_sport && (
+                <div>
+                  <Label>Deporte Principal</Label>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Trophy className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium">{coachProfile.primary_sport}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Form Fields */}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -334,6 +369,72 @@ export default function ProfilePage() {
                       Esta descripción aparecerá en tu perfil público.
                     </p>
                   </div>
+                )}
+
+                {/* Coach: Certificados y Licencias */}
+                {profile?.role === 'coach' && (
+                  <Card className="bg-muted/30 border">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Award className="w-4 h-4 text-primary" />
+                          Certificados y Licencias
+                        </CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => { setCoachWizardStep(2); setShowCoachWizard(true); }}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Agregar
+                        </Button>
+                      </div>
+                      <CardDescription>
+                        Gestiona tus certificaciones profesionales
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {coachCerts.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground">
+                          <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">No tienes certificados registrados</p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="mt-1"
+                            onClick={() => { setCoachWizardStep(2); setShowCoachWizard(true); }}
+                          >
+                            Agregar tu primer certificado
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {coachCerts.map((cert) => (
+                            <div key={cert.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                              <FileText className="w-5 h-5 text-primary shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{cert.name}</p>
+                                {cert.file_name && (
+                                  <p className="text-xs text-muted-foreground truncate">{cert.file_name}</p>
+                                )}
+                              </div>
+                              {cert.file_url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="shrink-0"
+                                  onClick={() => window.open(cert.file_url!, '_blank')}
+                                >
+                                  Ver
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
 
                 {(profile?.role === 'school' || profile?.role === 'school_admin') && (
@@ -622,6 +723,16 @@ export default function ProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Coach Profile Wizard */}
+      {profile?.role === 'coach' && (
+        <CoachProfileWizard
+          open={showCoachWizard}
+          onOpenChange={setShowCoachWizard}
+          onSuccess={loadCoachData}
+          initialStep={coachWizardStep}
+        />
+      )}
     </div>
   );
 }
