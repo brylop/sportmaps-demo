@@ -94,11 +94,15 @@ class ClassesAPI {
         description: classData.description,
         sport: classData.sport,
         school_id: classData.school_id,
+        coach_id: classData.coach_id,
         price_monthly: classData.price || 0,
         max_participants: classData.capacity || 20,
         active: classData.status !== 'inactive',
       })
-      .select()
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
       .single();
 
     if (error) {
@@ -125,7 +129,10 @@ class ClassesAPI {
     try {
       let query = supabase
         .from('programs')
-        .select('*')
+        .select(`
+          *,
+          coach:coach_id(full_name)
+        `)
         .order('created_at', { ascending: false });
 
       if (params?.school_id) {
@@ -167,7 +174,10 @@ class ClassesAPI {
   async getClass(id: string): Promise<Class> {
     const { data, error } = await supabase
       .from('programs')
-      .select('*')
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
       .eq('id', id)
       .single();
 
@@ -189,13 +199,17 @@ class ClassesAPI {
     if (updates.price !== undefined) updateData.price_monthly = updates.price;
     if (updates.capacity !== undefined) updateData.max_participants = updates.capacity;
     if (updates.status !== undefined) updateData.active = updates.status !== 'inactive';
+    if (updates.coach_id !== undefined) updateData.coach_id = updates.coach_id;
     updateData.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
       .from('programs')
       .update(updateData)
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
       .single();
 
     if (error || !data) {
@@ -354,6 +368,7 @@ class ClassesAPI {
       level: program.level || 'beginner',
       school_id: program.school_id || '',
       coach_id: program.coach_id,
+      coach_name: program.coach?.full_name,
       capacity: program.max_participants || 20,
       enrolled_count: program.current_participants || 0,
       current_participants: program.current_participants || 0,

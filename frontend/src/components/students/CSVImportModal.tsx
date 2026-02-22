@@ -57,18 +57,25 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    // Detect delimiter (comma or semicolon)
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes(';') ? ';' : ',';
+
+    const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
     const students: ParsedStudent[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
       const row: any = {};
       headers.forEach((h, idx) => {
-        row[h] = values[idx] || '';
+        if (h) row[h] = values[idx] || '';
       });
 
+      const fullName = row.full_name || row.nombre || row.name;
+      if (!fullName) continue;
+
       students.push({
-        full_name: row.full_name || row.nombre || '',
+        full_name: fullName,
         email: row.email || '',
         phone: row.phone || row.telefono || '',
         date_of_birth: row.date_of_birth || row.fecha_nacimiento || '',
@@ -81,7 +88,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
       });
     }
 
-    return students.filter(s => s.full_name);
+    return students;
   };
 
   const handleFile = useCallback((selectedFile: File) => {

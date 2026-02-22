@@ -19,7 +19,8 @@ import {
   Plus,
   Map,
   Ticket,
-  Car
+  Car,
+  Send
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -140,6 +141,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
           { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
@@ -237,6 +239,60 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/admin/reports', icon: FileText },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
           { title: 'Logs', href: '/admin/logs', icon: Bell }
+        ]
+      }
+    ],
+
+    super_admin: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Clubs', href: '/admin/clubs', icon: Building }
+        ]
+      },
+      {
+        title: 'Sistema',
+        items: [
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
+          { title: 'Reportes', href: '/admin/reports', icon: FileText },
+          { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Logs', href: '/admin/logs', icon: Bell }
+        ]
+      }
+    ],
+
+    school_admin: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users }
+        ]
+      },
+      {
+        title: 'Gestión Académica',
+        items: [
+          { title: 'Programas', href: '/programs-management', icon: Activity },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+        ]
+      },
+      {
+        title: 'Administración',
+        items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Sedes', href: '/branches', icon: MapPin },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/school-config', icon: Settings }
         ]
       }
     ],

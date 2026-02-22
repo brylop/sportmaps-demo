@@ -16,7 +16,7 @@ import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
-  const { schoolName } = useSchoolContext();
+  const { schoolId, schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -26,27 +26,24 @@ export default function StudentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
-  // Load students on mount
+  // Load students on mount and when school changes
   useEffect(() => {
-    loadStudents();
-  }, [profile]);
+    if (schoolId) {
+      loadStudents();
+    }
+  }, [schoolId, profile]);
 
   const loadStudents = async () => {
     try {
       setLoading(true);
-      const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
-      const schoolId = isDemoMode ? 'demo-school' : profile?.id;
-
       if (!schoolId) {
         setLoading(false);
         return;
       }
 
-      const data = await studentsAPI.getStudents({
-        school_id: schoolId,
-        limit: 500
-      });
-      setStudents(data);
+      const data = await studentsAPI.getSchoolView(schoolId);
+      // Map to Student type if needed or adjust state type
+      setStudents(data as any as Student[]);
     } catch (error: any) {
       console.error('Error loading students:', error);
       toast({
@@ -301,7 +298,7 @@ export default function StudentsPage() {
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={loadStudents}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
       />
 
       {/* CSV Import Modal */}
@@ -309,7 +306,7 @@ export default function StudentsPage() {
         open={showImportModal}
         onClose={() => setShowImportModal(false)}
         onSuccess={handleCSVImportSuccess}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
         schoolName={schoolName || 'Tu Escuela'}
       />
 
@@ -318,7 +315,7 @@ export default function StudentsPage() {
         open={showEnrollModal}
         onClose={() => setShowEnrollModal(false)}
         onSuccess={loadStudents}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
       />
     </div>
   );

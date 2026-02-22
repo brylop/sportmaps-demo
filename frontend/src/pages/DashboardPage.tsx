@@ -320,7 +320,11 @@ export default function DashboardPage() {
       {showWelcomeSplash && (
         <WelcomeSplash
           userRole={profile.role}
-          userName={profile.full_name?.split(' ')[0] || 'Usuario'}
+          userName={
+            (profile.role === 'school' || profile.role === 'school_admin')
+              ? (activeBranchName || 'Tu Academia')
+              : (profile.full_name?.split(' ')[0] || 'Usuario')
+          }
           onComplete={handleCloseWelcome}
         />
       )}

@@ -9,9 +9,11 @@ import { useToast } from '@/hooks/use-toast';
 import { classesAPI, Class } from '@/lib/api/classes';
 import { CreateClassModal } from '@/components/classes/CreateClassModal';
 import { EnrollStudentModal } from '@/components/classes/EnrollStudentModal';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 export default function ProgramsManagementPage() {
   const { profile } = useAuth();
+  const { schoolId, schoolName } = useSchoolContext();
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,14 +24,16 @@ export default function ProgramsManagementPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    loadClasses();
-  }, [profile]);
+    if (schoolId) {
+      loadClasses();
+    }
+  }, [schoolId, profile]);
 
   const loadClasses = async () => {
     try {
       setLoading(true);
       const data = await classesAPI.getClasses({
-        school_id: profile?.id || 'demo-school',
+        school_id: schoolId || 'demo-school',
         limit: 500
       });
       setClasses(data);
@@ -335,7 +339,7 @@ export default function ProgramsManagementPage() {
           setShowCreateModal(false);
           loadClasses();
         }}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
       />
 
       {/* Enroll Modal */}

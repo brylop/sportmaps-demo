@@ -11,6 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Eye, EyeOff, MailCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { USER_ROLES } from '@/constants/roles';
+import { Controller } from 'react-hook-form';
+import { useToast } from '@/hooks/use-toast';
+import { AlertCircle } from 'lucide-react';
 
 // Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
@@ -22,9 +26,19 @@ const registerSchema = z.object({
   dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
+  schoolName: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
+}).refine((data) => {
+  // Soporta tanto 'school' como 'school_admin' para mayor robustez
+  if ((data.role === 'school' || data.role === 'school_admin') && (!data.schoolName || data.schoolName.trim() === '')) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El nombre de la academia es requerido para este perfil',
+  path: ['schoolName'],
 });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
@@ -42,6 +56,7 @@ export default function RegisterPage() {
   const [emailForDisplay, setEmailForDisplay] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const { toast } = useToast();
   const [searchParams] = useSearchParams();
 
   const { signUp, user } = useAuth();
@@ -51,6 +66,7 @@ export default function RegisterPage() {
     handleSubmit,
     setValue,
     watch,
+    control,
     formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -104,13 +120,31 @@ export default function RegisterPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         role: data.role as any,
         invitation_code: data.code,
+        school_name: data.schoolName,
       });
 
       // 2. Set submitted state to show success message
       setIsSubmitted(true);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Registration error:", error);
+
+      let errorMessage = "Ha ocurrido un error inesperado. Inténtalo de nuevo.";
+
+      // Mapeo de errores de Supabase Auth
+      if (error?.status === 429 || error?.message?.includes('rate limit exceeded')) {
+        errorMessage = "Has realizado demasiados intentos. Por favor, espera unos minutos o intenta con otro correo.";
+      } else if (error?.message?.includes('User already registered')) {
+        errorMessage = "Este correo electrónico ya está registrado.";
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        variant: "destructive",
+        title: "Error de registro",
+        description: errorMessage,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -220,32 +254,55 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
-              <Select onValueChange={(value) => setValue('role', value)}>
-                <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
-                  <SelectValue placeholder="Selecciona tu rol" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.length > 0 ? (
-                    roles.map((role) => (
-                      <SelectItem key={role.id} value={role.name}>
-                        {role.display_name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    // Fallback static options if fetch fails or loading
-                    <>
-                      <SelectItem value="athlete">🏃 Deportista/Atleta</SelectItem>
-                      <SelectItem value="parent">👨‍👩‍👧 Padre/Madre</SelectItem>
-                      <SelectItem value="coach">🎓 Entrenador/Coach</SelectItem>
-                      <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
+              <Controller
+                name="role"
+                control={control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
+                      <SelectValue placeholder="Selecciona tu rol" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.length > 0 ? (
+                        roles.map((role) => (
+                          <SelectItem key={role.id} value={role.name}>
+                            {role.display_name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <>
+                          <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
+                          <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
+                          <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
+                          <SelectItem value={USER_ROLES.SCHOOL_ADMIN}>🏫 Escuela/Centro Deportivo</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
               {errors.role && (
                 <p className="text-sm text-destructive">{errors.role.message}</p>
               )}
             </div>
+
+            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === USER_ROLES.SCHOOL_ADMIN || watch('role') === 'school') && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                <Label htmlFor="schoolName">Nombre de la Academia</Label>
+                <Input
+                  id="schoolName"
+                  placeholder="Ej: Academia de Tenis Tigres"
+                  {...register('schoolName')}
+                  className={errors.schoolName ? 'border-destructive' : ''}
+                />
+                {errors.schoolName && (
+                  <p className="text-sm text-destructive">{errors.schoolName.message}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Crearemos automáticamente tu espacio de trabajo con este nombre.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>

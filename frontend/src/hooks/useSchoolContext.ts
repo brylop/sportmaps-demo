@@ -367,11 +367,13 @@ export async function createStudentWithPendingPayment(params: {
         .select()
         .single();
 
-    // For demo: if DB insert fails, we continue with a mock ID
-    const childId = child?.id || `local-${Date.now()}`;
+    // For production: throw error if insert fails
     if (childError) {
-        console.warn('Child insert failed (demo fallback):', childError.message);
+        console.error('Child insert failed:', childError.message);
+        throw new Error(childError.message || 'Error al crear el estudiante');
     }
+
+    const childId = child.id;
 
     // 2. Create pending payment for this student
     const dueDate = new Date();
@@ -392,17 +394,18 @@ export async function createStudentWithPendingPayment(params: {
         } as any);
 
     if (paymentError) {
-        console.warn('Payment insert failed (demo fallback):', paymentError.message);
+        console.error('Payment insert failed:', paymentError.message);
+        // We might want to allow this if the student was created, but for consistency let's throw
+        // throw new Error(paymentError.message || 'Error al crear el pago del estudiante');
     }
 
-
-
     // 3. Send Invitation and Record in DB if parent email provided
-    if (params.parentEmail && !childError) {
+    if (params.parentEmail) {
         try {
             // Record invitation in DB via RPC
+            // The RPC automatically uses auth.uid() for 'invited_by'
             const { data: inviteId, error: inviteError } = await (supabase.rpc as any)('invite_parent_to_school', {
-                p_parent_email: params.parentEmail,
+                p_parent_email: params.parentEmail.toLowerCase().trim(),
                 p_child_name: params.fullName,
                 p_program_id: params.programId || null,
                 p_monthly_fee: params.monthlyFee
@@ -433,7 +436,7 @@ export async function createStudentWithPendingPayment(params: {
     return {
         childId,
         success: true,
-        childInserted: !childError,
+        childInserted: true,
         paymentInserted: !paymentError,
     };
 }

@@ -15,6 +15,7 @@ interface UserProfile {
   sportmaps_points: number;
   subscription_tier: 'free' | 'basic' | 'premium';
   invitation_code?: string;
+  school_name?: string;
   onboarding_completed?: boolean;
   onboarding_started?: boolean;
   created_at: string;
@@ -182,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchProfile, createProfile]);
 
-  const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string }) => {
+  const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string, school_name?: string }) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
 
@@ -197,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             date_of_birth: userData.date_of_birth,
             role: userData.role,
             invitation_code: userData.invitation_code,
+            school_name: userData.school_name,
           }
         }
       });
