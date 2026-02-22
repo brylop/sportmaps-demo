@@ -69,7 +69,7 @@ const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 // ─── School pages (lazy) ──────────────────────────────────────────────────────
 const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
-const SchoolCoachesManagementPage = lazy(() => import("./pages/SchoolCoachesManagementPage"));
+const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
@@ -81,6 +81,7 @@ const SchoolFacilitiesPage = lazy(() => import("./pages/SchoolFacilitiesPage"));
 const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesManagementPage"));
 const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
 const PickupMonitorPage = lazy(() => import("./pages/school/PickupMonitorPage"));
+const InvitationsManagementPage = lazy(() => import("./pages/InvitationsManagementPage"));
 
 // ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
@@ -97,6 +98,7 @@ const WellnessSchedulePage = lazy(() => import("./pages/WellnessSchedulePage"));
 const WellnessPatientsPage = lazy(() => import("./pages/WellnessPatientsPage"));
 const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
+const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
@@ -126,7 +128,7 @@ const App = () => (
           <CartProvider>
             <Toaster />
             <Sonner />
-            <BrowserRouter>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   {/* Public routes */}
@@ -139,6 +141,11 @@ const App = () => (
                   <Route path="/checkout" element={
                     <ProtectedRoute>
                       <CheckoutPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/setup/school" element={
+                    <ProtectedRoute>
+                      <SchoolSetupPage />
                     </ProtectedRoute>
                   } />
                   <Route path="/parent-checkout" element={
@@ -200,9 +207,14 @@ const App = () => (
                         <SchoolStudentsManagementPage />
                       </ProtectedRoute>
                     } />
+                    <Route path="invitations" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <InvitationsManagementPage />
+                      </ProtectedRoute>
+                    } />
                     <Route path="staff" element={
                       <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <SchoolCoachesManagementPage />
+                        <StaffPage />
                       </ProtectedRoute>
                     } />
                     <Route path="programs-management" element={

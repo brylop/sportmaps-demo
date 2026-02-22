@@ -9,6 +9,10 @@ interface WelcomeSplashProps {
 }
 
 const WelcomeSplash: React.FC<WelcomeSplashProps> = ({ userRole, userName, onComplete }) => {
+    // Si el usuario es de una escuela, el "userName" pasado desde DashboardPage será el nombre de la escuela
+    const isSchool = userRole === 'school' || userRole === 'school_admin';
+    const welcomeTitle = isSchool ? `¡Bienvenido, ${userName}!` : `¡Hola, ${userName}!`;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <Card className="max-w-md w-full shadow-2xl transform transition-all border-b-8 border-[#FB9F1E] overflow-hidden">
@@ -24,14 +28,14 @@ const WelcomeSplash: React.FC<WelcomeSplashProps> = ({ userRole, userName, onCom
                     </div>
 
                     <h1 className="text-3xl font-poppins font-bold text-center text-foreground mb-2">
-                        ¡Hola, {userName}!
+                        {welcomeTitle}
                     </h1>
                     <p className="text-center text-[#248223] font-semibold mb-6">
-                        Bienvenido a SportMaps como <span className="uppercase text-[#FB9F1E]">{userRole}</span>
+                        Bienvenido a SportMaps
                     </p>
 
                     <div className="bg-muted rounded-lg p-4 mb-8 italic text-muted-foreground text-center">
-                        {userRole === 'school' || userRole === 'school_admin'
+                        {isSchool
                             ? "Comencemos configurando tus instalaciones para recibir atletas."
                             : "Busca tu academia ideal y empieza a entrenar hoy mismo."}
                     </div>

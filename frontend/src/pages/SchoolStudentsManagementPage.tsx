@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -21,6 +21,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
+import { useNavigate } from 'react-router-dom';
 
 const studentSchema = z.object({
   full_name: z.string().min(2, 'Nombre completo es requerido').max(100),
@@ -38,6 +39,7 @@ type StudentFormData = z.infer<typeof studentSchema>;
 export default function SchoolStudentsManagementPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -230,13 +232,32 @@ export default function SchoolStudentsManagementPage() {
                     </TableCell>
                     <TableCell>{getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setViewingStudent(student)}
-                      >
-                        Ver Perfil
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setViewingStudent(student)}
+                        >
+                          Ver Perfil
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-primary border-primary/20 hover:bg-primary/5"
+                          onClick={() => {
+                            const params = new URLSearchParams({
+                              email: student.parent_email || '',
+                              child: student.full_name || '',
+                              program: student.program_id || '',
+                              phone: student.parent_phone || ''
+                            });
+                            navigate(`/invitations?${params.toString()}`);
+                          }}
+                        >
+                          <Send className="w-3 h-3 mr-1" />
+                          Invitar
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Mail, UserPlus, Check, Clock, X as XIcon, Send, Copy, DollarSign, Link as LinkIcon } from 'lucide-react';
+import { Mail, UserPlus, Check, Clock, X as XIcon, Send, Copy, DollarSign, Link as LinkIcon, MessageCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -23,12 +24,14 @@ interface Invitation {
   monthly_fee: number;
   status: string;
   created_at: string;
+  parent_phone?: string;
   registration_link?: string;
 }
 
 export default function InvitationsManagementPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const { schoolId, schoolName, programs, defaultMonthlyFee, currentUserRole } = useSchoolContext();
@@ -36,10 +39,30 @@ export default function InvitationsManagementPage() {
 
   const [formData, setFormData] = useState({
     parentEmail: '',
+    parentPhone: '',
     childName: '',
     programId: '',
     monthlyFee: defaultMonthlyFee,
   });
+
+  // Handle URL params
+  useEffect(() => {
+    const email = searchParams.get('email');
+    const child = searchParams.get('child');
+    const program = searchParams.get('program');
+    const phone = searchParams.get('phone');
+
+    if (email || child || program || phone) {
+      setFormData(prev => ({
+        ...prev,
+        parentEmail: email || prev.parentEmail,
+        childName: child || prev.childName,
+        programId: program || prev.programId,
+        parentPhone: phone || prev.parentPhone,
+      }));
+      setDialogOpen(true);
+    }
+  }, [searchParams]);
 
   // Fetch real invitations
   const { data: invitations = [], isLoading: loadingInvites } = useQuery({
@@ -58,6 +81,7 @@ export default function InvitationsManagementPage() {
       return (data || []).map((inv: any) => ({
         id: inv.id,
         invited_email: inv.email,
+        parent_phone: inv.parent_phone || '',
         child_name: inv.child_name || '—',
         program_name: programs.find(p => p.id === inv.program_id)?.name || 'Programa General',
         monthly_fee: inv.monthly_fee || 0,
@@ -81,6 +105,14 @@ export default function InvitationsManagementPage() {
     return `${window.location.origin}/register?${params.toString()}`;
   };
 
+  const sendWhatsApp = (invitation: Partial<Invitation>) => {
+    const link = generateRegistrationLink(invitation);
+    const message = `¡Hola! Te invitamos a inscribir a ${invitation.child_name} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const phone = invitation.parent_phone || formData.parentPhone;
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
   const copyLinkToClipboard = (invitation: Invitation) => {
     const link = generateRegistrationLink(invitation);
     navigator.clipboard.writeText(link);
@@ -101,7 +133,8 @@ export default function InvitationsManagementPage() {
         p_parent_email: data.parentEmail,
         p_child_name: data.childName,
         p_program_id: data.programId || null,
-        p_monthly_fee: fee
+        p_monthly_fee: fee,
+        p_parent_phone: data.parentPhone || null
       });
 
       if (error) throw error;
@@ -136,11 +169,12 @@ export default function InvitationsManagementPage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       setDialogOpen(false);
-      setFormData({ parentEmail: '', childName: '', programId: '', monthlyFee: defaultMonthlyFee });
+      const email = formData.parentEmail;
+      setFormData({ parentEmail: '', parentPhone: '', childName: '', programId: '', monthlyFee: defaultMonthlyFee });
 
       toast({
         title: '✅ Invitación creada',
-        description: `Invitación registrada en el sistema.`,
+        description: `Invitación registrada para ${email}.`,
       });
 
       // Auto-copy registration link
@@ -281,7 +315,7 @@ export default function InvitationsManagementPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Email del Padre</TableHead>
+                <TableHead>Email / WhatsApp</TableHead>
                 <TableHead>Nombre del Hijo</TableHead>
                 <TableHead>Programa</TableHead>
                 <TableHead>Mensualidad</TableHead>
@@ -294,9 +328,17 @@ export default function InvitationsManagementPage() {
               {invitations.map((invitation) => (
                 <TableRow key={invitation.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      {invitation.invited_email}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-sm">{invitation.invited_email}</span>
+                      </div>
+                      {invitation.parent_phone && (
+                        <div className="flex items-center gap-2">
+                          <MessageCircle className="w-3 h-3 text-green-500" />
+                          <span className="text-xs text-muted-foreground">{invitation.parent_phone}</span>
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="font-medium">
@@ -320,9 +362,18 @@ export default function InvitationsManagementPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => copyLinkToClipboard(invitation)}
-                        title="Copiar link de registro"
+                        title="Copiar link"
                       >
                         <Copy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        onClick={() => sendWhatsApp(invitation)}
+                        title="Enviar por WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
                       </Button>
                       {invitation.status === 'pending' && (
                         <Button
@@ -367,6 +418,16 @@ export default function InvitationsManagementPage() {
                 value={formData.parentEmail}
                 onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
                 required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="parentPhone">WhatsApp / Teléfono</Label>
+              <Input
+                id="parentPhone"
+                placeholder="Ej: 3001234567"
+                value={formData.parentPhone}
+                onChange={(e) => setFormData({ ...formData, parentPhone: e.target.value })}
               />
             </div>
 
@@ -446,6 +507,16 @@ export default function InvitationsManagementPage() {
                 disabled={sendInvitationMutation.isPending}
               >
                 {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                onClick={() => sendWhatsApp({})}
+                disabled={!formData.parentPhone || !formData.childName}
+              >
+                <MessageCircle className="w-4 h-4 mr-2" />
+                WhatsApp
               </Button>
             </div>
           </form>

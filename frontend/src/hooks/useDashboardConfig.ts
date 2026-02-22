@@ -244,7 +244,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
-            { label: 'Agregar Entrenador', icon: Users, href: '/school-coaches', variant: 'outline' }
+            { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.school
         };

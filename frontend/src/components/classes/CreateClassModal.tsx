@@ -21,6 +21,8 @@ import {
 import { Loader2, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { classesAPI, ClassCreate } from '@/lib/api/classes';
+import { supabase } from '@/integrations/supabase/client';
+import { useEffect } from 'react';
 
 interface CreateClassModalProps {
   open: boolean;
@@ -43,7 +45,33 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
     school_id: schoolId,
     status: 'active',
   });
+  const [staff, setStaff] = useState<any[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (open && schoolId) {
+      fetchStaff();
+    }
+  }, [open, schoolId]);
+
+  const fetchStaff = async () => {
+    try {
+      setLoadingStaff(true);
+      const { data, error } = await supabase
+        .from('school_staff')
+        .select('id, full_name')
+        .eq('school_id', schoolId)
+        .eq('status', 'active');
+
+      if (error) throw error;
+      setStaff(data || []);
+    } catch (error) {
+      console.error('Error fetching staff:', error);
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,13 +201,23 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
           {/* Coach & Location */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="coach_name">Entrenador</Label>
-              <Input
-                id="coach_name"
-                placeholder="Nombre del entrenador"
-                value={formData.coach_name}
-                onChange={(e) => setFormData({ ...formData, coach_name: e.target.value })}
-              />
+              <Label htmlFor="coach_id">Entrenador</Label>
+              <Select
+                value={formData.coach_id || ''}
+                onValueChange={(value) => setFormData({ ...formData, coach_id: value })}
+              >
+                <SelectTrigger id="coach_id">
+                  <SelectValue placeholder={loadingStaff ? "Cargando..." : "Seleccionar entrenador"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin entrenador</SelectItem>
+                  {staff.map((coach) => (
+                    <SelectItem key={coach.id} value={coach.id}>
+                      {coach.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="location">Ubicación</Label>

@@ -138,17 +138,20 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                         <UserPlus className="h-5 w-5 text-primary" />
                         Inscribir Estudiantes
                     </DialogTitle>
-                    <DialogDescription>
-                        {classItem && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                <Badge variant="secondary">{classItem.name}</Badge>
-                                <Badge variant="outline">{classItem.sport}</Badge>
-                                <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
-                                    <Users className="h-3 w-3 mr-1" />
-                                    {classItem.enrolled_count}/{classItem.capacity}
-                                </Badge>
-                            </div>
-                        )}
+                    <DialogDescription asChild>
+                        <div className="flex flex-col gap-2">
+                            <span>Inscribe o remueve estudiantes para este programa específico.</span>
+                            {classItem && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                    <Badge variant="secondary">{classItem.name}</Badge>
+                                    <Badge variant="outline">{classItem.sport}</Badge>
+                                    <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
+                                        <Users className="h-3 w-3 mr-1" />
+                                        {classItem.enrolled_count}/{classItem.capacity}
+                                    </Badge>
+                                </div>
+                            )}
+                        </div>
                     </DialogDescription>
                 </DialogHeader>
 
