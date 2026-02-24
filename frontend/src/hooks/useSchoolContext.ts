@@ -214,7 +214,7 @@ export function useSchoolContext(): SchoolContext {
         setLoading(true);
         try {
             let query = supabase
-                .from('programs')
+                .from('teams')
                 .select('id, name, price_monthly, sport, branch_id')
                 .eq('school_id', id);
 
@@ -226,11 +226,12 @@ export function useSchoolContext(): SchoolContext {
 
             if (programsData) {
                 setPrograms(
-                    programsData.map((p: { id: string; name: string; price_monthly: number; sport: string }) => ({
+                    programsData.map((p: any) => ({
                         id: p.id,
                         name: p.name,
                         monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
                         sport_type: p.sport,
+                        branch_id: p.branch_id
                     }))
                 );
             } else {
@@ -350,10 +351,10 @@ export async function createStudentWithPendingPayment(params: {
 }) {
     let { schoolId, monthlyFee, programId } = params;
 
-    // 0. Fetch program price if not provided
+    // 0. Fetch program (now team) price if not provided
     if (!monthlyFee && programId) {
         const { data: program } = await supabase
-            .from('programs')
+            .from('teams')
             .select('price_monthly, name')
             .eq('id', programId)
             .maybeSingle();

@@ -21,14 +21,18 @@ import {
   RefreshCcw,
   LayoutGrid,
   List as ListIcon,
-  Pencil
+  Pencil,
+  UserPlus
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
+import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
 import { useToast } from '@/hooks/use-toast';
+import { studentsAPI } from '@/lib/api/students';
+import { Mail, Phone, User } from 'lucide-react';
 
 interface TeamWithRelations {
   id: string;
@@ -61,7 +65,9 @@ export default function TeamsPage() {
   const [sortBy, setSortBy] = useState('name');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<TeamWithRelations | null>(null);
+  const [selectedTeamForEnroll, setSelectedTeamForEnroll] = useState<TeamWithRelations | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
 
   // Fetch teams with relations
@@ -89,60 +95,19 @@ export default function TeamsPage() {
         }
       }
 
-      // 1. Fetch all teams for the school
+      // Fetch all unified teams for the school
       const { data: teamsData, error: teamsError } = await supabase
         .from('teams')
         .select(`
           *,
-          programs(name, price_monthly, level, coach_id),
-          school_branches(name),
-          coach:school_staff(full_name)
+          school_branches(name, id),
+          coach:school_staff(full_name, id)
         `)
         .eq('school_id', schoolId)
         .order('name');
 
-      if (teamsError) {
-        console.error('Error fetching teams:', teamsError);
-        throw teamsError;
-      }
-
-      // 2. Fetch all programs for the school to catch those without teams
-      const { data: programsData, error: programsError } = await supabase
-        .from('programs')
-        .select('*')
-        .eq('school_id', schoolId)
-        .eq('active', true);
-
-      if (programsError) {
-        console.error('Error fetching programs:', programsError);
-        // We don't throw here to at least show teams
-      }
-
+      if (teamsError) throw teamsError;
       let allTeams = (teamsData || []) as unknown as TeamWithRelations[];
-
-      // 3. Identify programs that don't have a team record yet
-      if (programsData && programsData.length > 0) {
-        const teamProgramIds = new Set(allTeams.map(t => t.program_id).filter(Boolean));
-
-        const programsWithoutTeams = programsData
-          .filter(p => !teamProgramIds.has(p.id))
-          .map(p => ({
-            id: `prog-${p.id}`,
-            name: p.name,
-            sport: p.sport || 'General',
-            level: p.level || 'beginner',
-            max_students: p.max_participants || 20,
-            current_students: 0,
-            status: p.active ? 'active' : 'inactive',
-            school_id: schoolId,
-            program_id: p.id,
-            programs: p,
-            is_virtual: true,
-            coach_name: 'Ver programa' // Indicate it comes from program
-          }));
-
-        allTeams = [...allTeams, ...(programsWithoutTeams as any)];
-      }
 
       const isAdminRole = (currentUserRole as string) === 'owner' ||
         (currentUserRole as string) === 'school' ||
@@ -174,6 +139,13 @@ export default function TeamsPage() {
     enabled: !!schoolId
   });
 
+  // Fetch school students for the detailed list view
+  const { data: schoolStudents = [], isLoading: studentsLoading } = useQuery({
+    queryKey: ['school-students', schoolId, activeBranchId],
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId) : Promise.resolve([]),
+    enabled: statusFilter === 'with_students' && !!schoolId,
+  });
+
   // Calculate Stats
   const stats = {
     total: teams.length,
@@ -189,14 +161,25 @@ export default function TeamsPage() {
 
   // Filtered teams
   const filteredTeams = teams.filter((team) => {
+    // 1. Search Filter
     const matchesSearch =
       team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (team.sport || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (team.programs?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    if (statusFilter === 'active' && team.status !== 'active') return false;
+    if (!matchesSearch) return false;
 
-    return matchesSearch;
+    // 2. Status Filter (Integrated with Stats Cards)
+    if (statusFilter === 'active' && team.status !== 'active') return false;
+    if (statusFilter === 'with_students' && (team.current_students || 0) <= 0) return false;
+    if (statusFilter === 'with_wins' && (team.wins || 0) <= 0) return false;
+    if (statusFilter === 'top_rate') {
+      const total = (team.wins || 0) + (team.losses || 0);
+      const rate = total > 0 ? (team.wins || 0) / total : 0;
+      if (rate < 0.5 && team.wins === 0) return false;
+    }
+
+    return true;
   });
 
   const handleRefresh = () => {
@@ -219,6 +202,20 @@ export default function TeamsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {(searchTerm || statusFilter !== 'all') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearchTerm('');
+                setStatusFilter('all');
+              }}
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              <XIcon className="h-4 w-4 mr-2" />
+              Limpiar Filtros
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={handleRefresh}>
             <RefreshCcw className="h-4 w-4 mr-2" />
             Actualizar
@@ -234,7 +231,10 @@ export default function TeamsPage() {
 
       {/* Stats Cards - Replicating screenshot */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card className="bg-card hover:shadow-md transition-all border-l-4 border-l-primary">
+        <Card
+          className={`bg-card transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
+        >
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -248,7 +248,10 @@ export default function TeamsPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card hover:shadow-md transition-all border-l-4 border-l-orange-500">
+        <Card
+          className={`bg-card transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
+        >
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -262,7 +265,10 @@ export default function TeamsPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card hover:shadow-md transition-all border-l-4 border-l-green-500">
+        <Card
+          className={`bg-card transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
+        >
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -276,7 +282,10 @@ export default function TeamsPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card hover:shadow-md transition-all border-l-4 border-l-blue-500">
+        <Card
+          className={`bg-card transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
+        >
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -359,11 +368,20 @@ export default function TeamsPage() {
         <Card className="border-dashed border-2">
           <CardContent className="py-16 text-center">
             <Users className="h-16 w-16 mx-auto text-muted-foreground/30 mb-6" />
-            <h3 className="text-xl font-semibold mb-2">No se encontraron equipos</h3>
+            <h3 className="text-xl font-semibold mb-2">
+              {statusFilter === 'with_students' ? 'Sin deportistas registrados' :
+                statusFilter === 'with_wins' ? 'Sin victorias registradas' :
+                  statusFilter === 'top_rate' ? 'Sin estadísticas de rendimiento' :
+                    'No se encontraron equipos'}
+            </h3>
             <p className="text-muted-foreground mb-8 max-w-md mx-auto">
               {searchTerm
                 ? 'No hay equipos que coincidan con tu búsqueda. Prueba con otros términos.'
-                : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
+                : statusFilter === 'with_students'
+                  ? 'Aún no hay alumnos inscritos en ningún equipo de esta sede.'
+                  : statusFilter === 'with_wins' || statusFilter === 'top_rate'
+                    ? 'Aún no se ha registrado información de partidos o victorias para estos equipos.'
+                    : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
             </p>
             <PermissionGate permission="teams:create">
               <Button className="gap-2 scale-110" onClick={() => setIsModalOpen(true)}>
@@ -371,6 +389,99 @@ export default function TeamsPage() {
                 Crear Primer Equipo
               </Button>
             </PermissionGate>
+          </CardContent>
+        </Card>
+      ) : statusFilter === 'with_students' ? (
+        <Card className="border-t-4 border-t-orange-500 shadow-lg">
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle className="text-xl font-bold flex items-center gap-2">
+                  <Star className="h-5 w-5 text-orange-500" />
+                  Listado de Deportistas Inscritos
+                </CardTitle>
+                <CardDescription>
+                  Alumnos actualmente activos en la sede {activeBranchId ? '(Filtrado por sede)' : 'principal'}
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 px-3 py-1">
+                {schoolStudents.length} Estudiantes
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {studentsLoading ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <RefreshCcw className="h-8 w-8 animate-spin text-orange-500 mb-2" />
+                <p className="text-muted-foreground">Cargando lista de deportistas...</p>
+              </div>
+            ) : schoolStudents.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed rounded-xl">
+                <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-20" />
+                <p className="text-muted-foreground font-medium">No se encontraron estudiantes registrados</p>
+                <p className="text-xs text-muted-foreground">Vincula alumnos a la escuela desde el módulo de Estudiantes.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead className="font-bold">Nombre</TableHead>
+                      <TableHead className="font-bold">Programa / Equipo</TableHead>
+                      <TableHead className="font-bold">Acudiente</TableHead>
+                      <TableHead className="font-bold">Contacto</TableHead>
+                      <TableHead className="font-bold">Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {schoolStudents.map((student: any) => (
+                      <TableRow key={student.id} className="hover:bg-muted/30 transition-colors">
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xs">
+                              {student.full_name?.substring(0, 2).toUpperCase()}
+                            </div>
+                            <span className="font-medium">{student.full_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-background text-[10px]">
+                            {student.program_name || 'Sin programa'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <User className="h-3 w-3" />
+                            {student.parent_name || 'No registrado'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {student.parent_phone && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <Phone className="h-3 w-3 text-primary" />
+                                <span>{student.parent_phone}</span>
+                              </div>
+                            )}
+                            {student.parent_email && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <Mail className="h-3 w-3" />
+                                <span className="truncate max-w-[120px]">{student.parent_email}</span>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-green-500 hover:bg-green-600 text-[10px] capitalize">
+                            Activo
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : viewMode === 'table' ? (
@@ -383,6 +494,7 @@ export default function TeamsPage() {
                   <TableHead>Programa / Nivel</TableHead>
                   <TableHead>Sede</TableHead>
                   <TableHead>Entrenador</TableHead>
+                  <TableHead>Estadísticas</TableHead>
                   <TableHead>Capacidad</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
@@ -429,6 +541,21 @@ export default function TeamsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
+                      {((team.wins || 0) + (team.losses || 0)) > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-green-600 font-bold">W: {team.wins || 0}</span>
+                            <span className="text-red-500 font-bold">L: {team.losses || 0}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">
+                            Efectividad: {Math.round(((team.wins || 0) / ((team.wins || 0) + (team.losses || 0) || 1)) * 100)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground italic">Aún no registra información</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="w-24 space-y-1">
                         <div className="flex justify-between text-[10px] text-muted-foreground">
                           <span>{team.current_students || 0}/{team.max_students || 20}</span>
@@ -446,26 +573,35 @@ export default function TeamsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Calendario">
-                          <Calendar className="h-4 w-4" />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                          onClick={() => {
+                            setSelectedTeamForEnroll(team);
+                            setIsEnrollModalOpen(true);
+                          }}
+                          title="Gestionar Estudiantes"
+                        >
+                          <UserPlus className="h-4 w-4" />
                         </Button>
                         <PermissionGate permission="teams:edit">
                           <Button
                             variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            title="Editar Equipo"
+                            size="icon"
+                            className="h-8 w-8"
                             onClick={() => {
                               setEditingTeam(team);
                               setIsModalOpen(true);
                             }}
+                            title="Editar Equipo"
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </PermissionGate>
                         <PermissionGate permission="teams:edit">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Estadísticas">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Estadísticas">
                             <TrendingUp className="h-4 w-4" />
                           </Button>
                         </PermissionGate>
@@ -493,22 +629,58 @@ export default function TeamsPage() {
                       <CardDescription className="text-xs">{team.sport}</CardDescription>
                     </div>
                   </div>
-                  <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10">
-                    {team.programs?.name || 'Independiente'}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-2">
+                    <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10">
+                      {team.programs?.name || 'Independiente'}
+                    </Badge>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
+                        onClick={() => {
+                          setSelectedTeamForEnroll(team);
+                          setIsEnrollModalOpen(true);
+                        }}
+                        title="Gestionar Estudiantes"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                      </Button>
+                      <PermissionGate permission="teams:edit">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setEditingTeam(team);
+                            setIsModalOpen(true);
+                          }}
+                          title="Editar Equipo"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </PermissionGate>
+                    </div>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 bg-muted/40 rounded-lg flex flex-col gap-0.5">
-                    <span className="text-muted-foreground">Victorias</span>
-                    <span className="font-bold text-lg text-green-600">{team.wins || 0}</span>
+                {((team.wins || 0) + (team.losses || 0)) > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 bg-muted/40 rounded-lg flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">Victorias</span>
+                      <span className="font-bold text-lg text-green-600">{team.wins || 0}</span>
+                    </div>
+                    <div className="p-2 bg-muted/40 rounded-lg flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">Derrotas</span>
+                      <span className="font-bold text-lg text-red-600">{team.losses || 0}</span>
+                    </div>
                   </div>
-                  <div className="p-2 bg-muted/40 rounded-lg flex flex-col gap-0.5">
-                    <span className="text-muted-foreground">Derrotas</span>
-                    <span className="font-bold text-lg text-red-600">{team.losses || 0}</span>
+                ) : (
+                  <div className="p-3 bg-muted/20 rounded-lg text-center">
+                    <span className="text-[10px] text-muted-foreground italic">Aún no se registra información de victorias/derrotas</span>
                   </div>
-                </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
@@ -562,6 +734,17 @@ export default function TeamsPage() {
         }}
         schoolId={schoolId || ''}
         team={editingTeam}
+      />
+      <EnrollTeamStudentModal
+        open={isEnrollModalOpen}
+        onClose={() => {
+          setIsEnrollModalOpen(false);
+          setSelectedTeamForEnroll(null);
+        }}
+        onSuccess={() => {
+          refetch();
+        }}
+        team={selectedTeamForEnroll}
       />
     </div>
   );

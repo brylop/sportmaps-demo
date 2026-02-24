@@ -45,12 +45,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
         location: '',
         price_monthly: 0,
         coach_id: '',
-        program_id: '',
         status: 'active',
     });
 
     const [staff, setStaff] = useState<any[]>([]);
-    const [programs, setPrograms] = useState<any[]>([]);
     const [loadingInitialData, setLoadingInitialData] = useState(false);
 
     // Populate form if editing
@@ -65,7 +63,6 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: team.location || '',
                 price_monthly: team.price_monthly || 0,
                 coach_id: team.coach_id || 'none',
-                program_id: team.program_id || 'none',
                 status: team.status || 'active',
             });
         } else if (open && !team) {
@@ -79,7 +76,6 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
-                program_id: '',
                 status: 'active',
             });
         }
@@ -102,15 +98,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 .eq('school_id', schoolId)
                 .eq('status', 'active');
 
-            // Fetch programs
-            const { data: programsData } = await supabase
-                .from('programs')
-                .select('id, name')
-                .eq('school_id', schoolId)
-                .eq('active', true);
-
             setStaff(staffData || []);
-            setPrograms(programsData || []);
         } catch (error) {
             console.error('Error fetching initial data:', error);
         } finally {
@@ -142,14 +130,11 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: formData.location,
                 price_monthly: formData.price_monthly,
                 coach_id: formData.coach_id === 'none' ? null : (formData.coach_id || null),
-                program_id: formData.program_id === 'none' ? null : (formData.program_id || null),
                 school_id: schoolId,
                 status: formData.status,
             };
 
-            const isVirtual = team?.id?.startsWith('prog-');
-
-            if (team?.id && !isVirtual) {
+            if (team?.id) {
                 // Update existing team
                 const { error } = await supabase
                     .from('teams')
@@ -163,7 +148,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     description: 'Los cambios se guardaron correctamente',
                 });
             } else {
-                // Create new team (either from scratch or from a "virtual" program)
+                // Create new team
                 const { error } = await supabase
                     .from('teams')
                     .insert({
@@ -174,10 +159,8 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 if (error) throw error;
 
                 toast({
-                    title: isVirtual ? '¡Equipo vinculado!' : '¡Equipo creado!',
-                    description: isVirtual
-                        ? 'Se ha creado el registro de equipo para este programa.'
-                        : 'El equipo se creó correctamente',
+                    title: '¡Equipo creado!',
+                    description: 'El equipo se creó correctamente',
                 });
             }
 
@@ -207,7 +190,6 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
-                program_id: '',
                 status: 'active',
             });
             onClose();
@@ -294,25 +276,6 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                                     {staff.map((coach) => (
                                         <SelectItem key={coach.id} value={coach.id}>
                                             {coach.full_name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="program_id">Programa Asociado (Opcional)</Label>
-                            <Select
-                                value={formData.program_id || 'none'}
-                                onValueChange={(value) => setFormData({ ...formData, program_id: value })}
-                            >
-                                <SelectTrigger id="program_id">
-                                    <SelectValue placeholder="Seleccionar programa" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="none">Ninguno (Independiente)</SelectItem>
-                                    {programs.map((prog) => (
-                                        <SelectItem key={prog.id} value={prog.id}>
-                                            {prog.name}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
