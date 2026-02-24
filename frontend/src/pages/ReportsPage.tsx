@@ -31,7 +31,7 @@ export default function ReportsPage() {
       setLoading(true);
       try {
         // 1. Fetch Students/Enrollments for Occupancy & Growth
-        let enrollmentsQuery = supabase
+        const enrollmentsQuery = supabase
           .from('enrollments')
           .select('status, created_at, programs(name, capacity)');
 
@@ -44,20 +44,20 @@ export default function ReportsPage() {
           .select(`
             status, 
             created_at, 
-            programs!inner (
+            teams!inner (
               name, 
-              capacity, 
+              max_students, 
               school_id,
               branch_id
             )
           `)
-          .eq('programs.school_id', schoolId) as any; // Cast to any to bypass outdated types
+          .eq('teams.school_id', schoolId) as any;
 
         if (enrollError) throw enrollError;
 
         // Filter by branch if active
         const filteredEnrollments = activeBranchId
-          ? enrollments.filter((e: any) => e.programs.branch_id === activeBranchId)
+          ? enrollments.filter((e: any) => e.teams.branch_id === activeBranchId)
           : enrollments || [];
 
         // --- Process Occupancy ---
@@ -67,8 +67,8 @@ export default function ReportsPage() {
 
         filteredEnrollments.forEach((e: any) => {
           if (e.status === 'active') {
-            const pName = e.programs?.name || 'Varios';
-            const pCap = e.programs?.capacity || 20; // Default capacity if missing
+            const pName = e.teams?.name || 'Varios';
+            const pCap = e.teams?.max_students || 20; // Default capacity if missing
 
             if (!programMap.has(pName)) {
               programMap.set(pName, { occupied: 0, capacity: pCap });
@@ -84,9 +84,9 @@ export default function ReportsPage() {
           }
         });
 
-        // Correction for Total Capacity: fetch all programs to get true capacity sum
-        // (The loop above only counts programs that have at least 1 student)
-        let progsQuery = supabase.from('programs').select('name, capacity').eq('school_id', schoolId);
+        // Correction for Total Capacity: fetch all teams to get true capacity sum
+        // (The loop above only counts teams that have at least 1 student)
+        let progsQuery = supabase.from('teams').select('name, max_students').eq('school_id', schoolId);
         if (activeBranchId) progsQuery = progsQuery.eq('branch_id', activeBranchId);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: allPrograms } = await progsQuery as any;
@@ -96,13 +96,13 @@ export default function ReportsPage() {
 
         if (allPrograms) {
           allPrograms.forEach(p => {
-            realTotalCapacity += (p.capacity || 0);
+            realTotalCapacity += (p.max_students || 0);
             // Verify if we counted detailed students
             const foundObserved = programMap.get(p.name);
             finalOccupancyData.push({
               name: p.name,
               occupied: foundObserved ? foundObserved.occupied : 0,
-              vacant: (p.capacity || 0) - (foundObserved ? foundObserved.occupied : 0)
+              vacant: (p.max_students || 0) - (foundObserved ? foundObserved.occupied : 0)
             });
           });
         }

@@ -125,9 +125,9 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-      // Fetch programs
+      // Fetch programs from teams table
       const { data: programsData, error: programsError } = await supabase
-        .from('programs')
+        .from('teams')
         .select('*')
         .eq('school_id', id)
         .eq('active', true)

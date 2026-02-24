@@ -25,27 +25,35 @@ import Logo from './Logo';
 
 export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
-  const { currentUserRole } = useSchoolContext(); // Get the role relative to current school
-  const { state } = useSidebar();
+  const { currentUserRole, isGlobalAdmin, totalBranches } = useSchoolContext();
+  const sidebar = useSidebar();
+  const { state } = sidebar;
 
-  if (!profile) return null;
+  if (!profile || !user) return null;
 
   const isCollapsed = state === 'collapsed';
 
   // Determine which role to use for navigation generation
   // Priority: 1. Context Role (if inside a school) 2. Global Profile Role
-  let navigationRole: UserRole = profile.role as UserRole;
+  let navigationRole: UserRole = (profile.role as UserRole) || 'athlete';
 
   if (currentUserRole) {
     // Map school-specific roles to dashboard generic roles
     switch (currentUserRole) {
       case 'owner':
-      case 'admin':
-      case 'school_admin':
-        navigationRole = 'school';
-        break;
       case 'super_admin':
+        // Single-branch owner: uses full school management nav
+        // Multi-branch owner: uses global admin nav with Users/Clubs
+        navigationRole = totalBranches > 1 ? 'admin' : 'school';
+        break;
+      case 'admin':
         navigationRole = 'admin';
+        break;
+      case 'school_admin':
+        navigationRole = 'school_admin';
+        break;
+      case 'reporter':
+        navigationRole = 'reporter';
         break;
       case 'coach':
       case 'staff':
@@ -58,7 +66,6 @@ export function AppSidebar() {
         navigationRole = 'athlete';
         break;
       default:
-        // Keep profile role or default to athlete
         break;
     }
   }
@@ -82,14 +89,18 @@ export function AppSidebar() {
     // Show the context role if available, otherwise global
     const roleToShow = currentUserRole || profile.role;
 
+    if (roleToShow === 'owner') return 'Propietario';
+    if (roleToShow === 'reporter') return 'Auditoría';
+
+    if (roleToShow === 'school_admin' || roleToShow === 'admin') {
+      return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
+    }
+
     const roleLabels: Record<string, string> = {
       athlete: 'Deportista',
       parent: 'Padre',
       coach: 'Entrenador',
       school: 'Escuela',
-      school_admin: 'Admin Sede',
-      owner: 'Dueño',
-      admin: 'Admin', // School Admin
       staff: 'Staff',
       wellness_professional: 'Bienestar',
       store_owner: 'Tienda',
@@ -100,108 +111,102 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar collapsible="icon" className={isCollapsed ? 'w-14' : 'w-64 transition-all duration-300'}>
-      {/* Header with Logo */}
-      <SidebarHeader className="border-b px-4 py-3 bg-muted/20">
-        <div className="flex items-center gap-2 mb-3">
-          <Logo size="sm" />
-          {!isCollapsed && (
-            <span className="font-bold text-lg bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-              SportMaps
-            </span>
-          )}
-        </div>
-
-        {/* School Switcher Context */}
-        {!isCollapsed && (
-          <div className="w-full">
-            <SchoolSwitcher />
+    <Sidebar collapsible="icon" className="border-r border-border/40 bg-card/50 backdrop-blur-sm">
+      <SidebarHeader className="h-16 flex items-center px-4 overflow-hidden">
+        {!isCollapsed ? (
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Logo size="sm" />
+            <span className="font-bold text-lg tracking-tight truncate">SportMaps</span>
+          </div>
+        ) : (
+          <div className="flex justify-center w-full">
+            <Logo size="sm" />
           </div>
         )}
       </SidebarHeader>
 
-      <SidebarContent>
-        {/* User Profile Section */}
-        {!isCollapsed && (
-          <div className="px-4 py-4 border-b bg-muted/10">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10 border-2 border-primary/20">
-                <AvatarImage src={profile.avatar_url || undefined} />
-                <AvatarFallback className="bg-primary/10 text-primary font-bold">
+      <SidebarContent className="px-2">
+        <div className="mb-4">
+          {!isCollapsed && (
+            <div className="flex flex-col items-center px-2 mb-4 animate-in fade-in slide-in-from-top-4 duration-500">
+              <Avatar className="h-16 w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
+                <AvatarImage src={profile.avatar_url || ''} />
+                <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
                   {getUserInitials()}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate text-foreground">
-                  {profile.full_name || user?.email}
-                </p>
-                <Badge variant={currentUserRole ? "default" : "secondary"} className="text-[10px] px-2 py-0 h-5 mt-1">
-                  {getRoleBadge()}
-                </Badge>
+              <div className="text-center w-full overflow-hidden">
+                <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
+                <div className="flex justify-center mt-1">
+                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 bg-opacity-10 backdrop-blur-md">
+                    {getRoleBadge()}
+                  </Badge>
+                </div>
               </div>
             </div>
+          )}
+        </div>
+
+        {/* School Switcher Context - Hide if only 1 branch and is global admin */}
+        {!isCollapsed && (totalBranches > 1 || !isGlobalAdmin) && (
+          <div className="w-full mb-4">
+            <SchoolSwitcher />
           </div>
         )}
 
-        {/* Navigation Groups */}
-        <div className="py-2">
-          {navigationGroups.map((group, groupIndex) => (
-            <SidebarGroup key={groupIndex} className="px-2">
-              {!isCollapsed && (
-                <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 px-2">
-                  {group.title}
-                </SidebarGroupLabel>
-              )}
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <SidebarMenuItem key={item.href} className="mb-1">
-                        <SidebarMenuButton asChild tooltip={item.title} className="h-9 hover:bg-muted/50 transition-colors">
-                          <NavLink
-                            to={item.href}
-                            end
-                            className={({ isActive }) =>
-                              `flex items-center gap-3 w-full h-full px-2 rounded-md ${isActive
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'text-muted-foreground hover:text-foreground'
-                              }`
-                            }
-                          >
-                            <Icon className="h-4 w-4 shrink-0" />
-                            {!isCollapsed && (
-                              <>
-                                <span className="flex-1 truncate">{item.title}</span>
-                                {item.badge && (
-                                  <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-auto">
-                                    {item.badge}
-                                  </Badge>
-                                )}
-                              </>
+        {navigationGroups.map((group, groupIdx) => (
+          <SidebarGroup key={groupIdx}>
+            <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
+              {!isCollapsed ? group.title : ''}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item, itemIdx) => (
+                  <SidebarMenuItem key={itemIdx}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.title}
+                      className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
+                    >
+                      <NavLink
+                        to={item.href}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                          }`
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            <item.icon className={`h-4 w-4 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
+                            <span className="truncate">{item.title}</span>
+                            {item.badge && !isCollapsed && (
+                              <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
+                                {item.badge}
+                              </Badge>
                             )}
-                          </NavLink>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
-        </div>
+                            {isActive && !isCollapsed && (
+                              <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                            )}
+                          </>
+                        )}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
-      {/* Footer with Sign Out */}
-      <SidebarFooter className="border-t p-2 bg-muted/20">
+      <SidebarFooter className="p-4 border-t border-border/40">
         <Button
           variant="ghost"
-          size="sm"
+          className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-300"
           onClick={() => signOut()}
-          className={`w-full ${isCollapsed ? 'justify-center' : 'justify-start'} text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors`}
         >
-          <LogOut className="h-4 w-4" />
-          {!isCollapsed && <span className="ml-2">Cerrar Sesión</span>}
+          <LogOut className="h-4 w-4 mr-3 group-hover:rotate-12 transition-transform" />
+          {!isCollapsed && <span>Cerrar Sesión</span>}
         </Button>
       </SidebarFooter>
     </Sidebar>

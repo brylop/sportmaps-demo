@@ -144,7 +144,7 @@ export function ProgramFormDialog({
       if (program?.id) {
         // Update existing program
         const { error } = await supabase
-          .from('programs')
+          .from('teams')
           .update({
             name: data.name,
             sport: data.sport,
@@ -163,7 +163,7 @@ export function ProgramFormDialog({
         if (error) throw error;
       } else {
         // Create new program
-        const { error } = await supabase.from('programs').insert({
+        const { error } = await supabase.from('teams').insert({
           school_id: schoolId,
           name: data.name,
           sport: data.sport,

@@ -8,9 +8,29 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Eye, Loader2 } from 'lucide-react';
+
+interface Child {
+  id: string;
+  full_name: string;
+  monthly_fee: number;
+  program_id: string;
+  school_id: string;
+  programs: {
+    name: string;
+    price_monthly: number;
+  } | null;
+}
+
+interface ViewingProof {
+  open: boolean;
+  url: string;
+  concept: string;
+  amount: number;
+}
 
 interface Transaction {
   id: string;
@@ -20,6 +40,7 @@ interface Transaction {
   reference: string;
   transaction_date: string;
   authorization_code?: string;
+  receipt_url?: string;
 }
 
 interface Subscription {
@@ -57,7 +78,13 @@ export default function MyPaymentsPage() {
     schoolId: '',
   });
 
-  const [children, setChildren] = useState<any[]>([]);
+  const [children, setChildren] = useState<Child[]>([]);
+  const [viewingProof, setViewingProof] = useState<ViewingProof>({
+    open: false,
+    url: '',
+    concept: '',
+    amount: 0
+  });
 
   useEffect(() => {
     if (user) {
@@ -78,14 +105,16 @@ export default function MyPaymentsPage() {
 
       if (!error && payments && payments.length > 0) {
         // Map Supabase payments to Transaction format
-        const txns: Transaction[] = payments.map(p => ({
+        const txns: Transaction[] = payments.map((p) => ({
           id: p.id,
           amount: p.amount,
+          concept: p.concept,
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
           reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
           transaction_date: p.payment_date || p.created_at,
           authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
+          receipt_url: p.receipt_url,
         }));
         setTransactions(txns);
       }
@@ -116,6 +145,33 @@ export default function MyPaymentsPage() {
       console.error('Error fetching payment data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
+    if (!receiptUrl) return;
+
+    try {
+      const cleanPath = getStoragePath(receiptUrl);
+      const { data, error } = await supabase.storage
+        .from('payment-receipts')
+        .createSignedUrl(cleanPath, 300);
+
+      if (error) throw error;
+
+      setViewingProof({
+        open: true,
+        url: data.signedUrl,
+        concept,
+        amount
+      });
+    } catch (err: unknown) {
+      console.error("Error generating signed URL:", err);
+      toast({
+        title: "Error de acceso",
+        description: "No se pudo generar el acceso seguro al comprobante.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -280,6 +336,17 @@ export default function MyPaymentsPage() {
                                 Ver Recibo
                               </Button>
                             )}
+                            {txn.receipt_url && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => handleShowProof(txn.receipt_url!, txn.reference, txn.amount)}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                Comprobante
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -435,6 +502,44 @@ export default function MyPaymentsPage() {
         mode="create"
         onSuccess={fetchPaymentData}
       />
+
+      {/* Proof Viewer Dialog for Parents */}
+      <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mi Comprobante</DialogTitle>
+            <DialogDescription>
+              Referencia: {viewingProof.concept}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted p-3 rounded-lg flex justify-between items-center">
+              <span className="font-semibold">{viewingProof.concept}</span>
+              <span className="font-bold text-lg">{formatCurrency(viewingProof.amount)}</span>
+            </div>
+
+            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
+              {viewingProof.url ? (
+                <img
+                  src={viewingProof.url}
+                  alt="Comprobante"
+                  className="max-w-full max-h-[60vh] object-contain"
+                />
+              ) : (
+                <div className="text-center text-muted-foreground p-8">
+                  <p>Cargando imagen...</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

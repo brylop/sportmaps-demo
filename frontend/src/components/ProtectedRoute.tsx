@@ -5,9 +5,12 @@ import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: ('athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer')[];
+  allowedRoles?: ('athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer' | 'reporter')[];
   skipOnboardingCheck?: boolean;
 }
+
+// These context roles always override role restrictions — they're admins
+const PRIVILEGED_CONTEXT_ROLES = ['owner', 'admin', 'super_admin', 'school_admin'];
 
 export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = false }: ProtectedRouteProps) {
   const { user, profile, loading: authLoading } = useAuth();
@@ -27,8 +30,15 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
   }
 
   // Allow access even without profile - it will be created automatically
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    return <Navigate to="/unauthorized" replace />;
+  if (allowedRoles && profile) {
+    // If the user has a privileged school context role (e.g., owner, admin),
+    // they bypass all role restrictions — they should see everything.
+    const hasPrivilegedContextRole = currentUserRole && PRIVILEGED_CONTEXT_ROLES.includes(currentUserRole);
+    const hasAllowedProfileRole = allowedRoles.includes(profile.role as any);
+
+    if (!hasPrivilegedContextRole && !hasAllowedProfileRole) {
+      return <Navigate to="/unauthorized" replace />;
+    }
   }
 
   // Hard Gate for School Onboarding (REMOVED: Consolidated in Dashboard)

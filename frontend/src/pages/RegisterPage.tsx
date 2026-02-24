@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +58,7 @@ export default function RegisterPage() {
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // Invitation data from URL
   const inviteId = searchParams.get('invite');
@@ -207,7 +208,13 @@ export default function RegisterPage() {
               <>
                 <p className="text-muted-foreground font-poppins mb-6">
                   Ya tienes una sesión activa como <strong>{user.email}</strong>.<br />
-                  ¿Deseas aceptar la invitación de <strong>{invitationInfo.school_name}</strong> para el perfil de <strong>{invitationInfo.role_to_assign === 'parent' ? 'Padre' : invitationInfo.role_to_assign === 'coach' ? 'Entrenador' : 'Atleta'}</strong>?
+                  ¿Deseas aceptar la invitación de <strong>{invitationInfo.school_name}</strong> para el perfil de <strong>{
+                    invitationInfo.role_to_assign === 'parent' ? 'Padre' :
+                      invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
+                        invitationInfo.role_to_assign === 'athlete' ? 'Atleta' :
+                          invitationInfo.role_to_assign === 'school_admin' ? 'Administrador de Sede' :
+                            invitationInfo.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'
+                  }</strong>?
                 </p>
 
                 <div className="flex flex-col gap-3 w-full">
@@ -302,7 +309,13 @@ export default function RegisterPage() {
                     Invitación de <strong>{invitationInfo.school_name}</strong>
                   </p>
                   <p className="text-xs text-blue-700">
-                    Te invitan como <strong>{invitationInfo.role_to_assign === 'parent' ? 'Padre/Madre' : invitationInfo.role_to_assign === 'coach' ? 'Entrenador' : 'Atleta'}</strong>
+                    Te invitan como <strong>{
+                      invitationInfo.role_to_assign === 'parent' ? 'Padre/Madre' :
+                        invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
+                          invitationInfo.role_to_assign === 'athlete' ? 'Atleta' :
+                            invitationInfo.role_to_assign === 'school_admin' ? 'Administrador de Sede' :
+                              invitationInfo.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'
+                    }</strong>
                     {invitationInfo.child_name && <> para <strong>{invitationInfo.child_name}</strong></>}
                   </p>
                 </div>

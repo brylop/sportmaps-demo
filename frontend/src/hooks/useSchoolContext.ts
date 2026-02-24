@@ -3,6 +3,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
 
+/**
+ * Represents a sports program offered by a school.
+ */
 export interface SchoolProgram {
     id: string;
     name: string;
@@ -11,29 +14,56 @@ export interface SchoolProgram {
     branch_id?: string;
 }
 
+/**
+ * Represents a user's role and membership within a specific school or branch.
+ */
 export interface SchoolRole {
     schoolId: string;
     schoolName: string;
-    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'organizer';
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'organizer' | 'reporter';
     branchId: string | null;
+    isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
 }
 
+/**
+ * The state and methods provided by the School Context.
+ */
 export interface SchoolContext {
+    /** The ID of the currently active school. */
     schoolId: string | null;
+    /** The name of the currently active school. */
     schoolName: string;
+    /** The role of the current user in the active school. */
     currentUserRole: SchoolRole['role'] | null;
+    /** List of programs available in the active school/branch. */
     programs: SchoolProgram[];
+    /** List of all schools the user is a member of. */
     availableSchools: SchoolRole[];
+    /** The ID of the currently active branch (null for all branches). */
     activeBranchId: string | null;
+    /** The display name of the currently active branch. */
     activeBranchName: string;
+    /** Current onboarding state of the active school. */
     onboardingStatus: 'pending' | 'in_progress' | 'completed';
+    /** Raw configuration settings for the school. */
     schoolSettings: any | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    /** Updates the overall onboarding status in the database. */
     updateOnboardingStatus: (status: 'pending' | 'in_progress' | 'completed') => Promise<boolean>;
+    /** Updates the specific step index in the onboarding wizard. */
     updateOnboardingStep: (step: number) => Promise<void>;
+    /** Switches the active context to another school/branch. */
+    /** Whether the user has global permissions for the current school. */
+    isGlobalAdmin: boolean;
+    /** Total number of branches in the active school. */
+    totalBranches: number;
+    /** Switches the active context to another school/branch. */
     switchSchool: (schoolId: string, branchId?: string | null) => void;
+    /** Default fee to use if no program price is found. */
     defaultMonthlyFee: number;
+    /** Whether the context is currently loading data. */
     loading: boolean;
+    /** Error message if any operation failed. */
     error: string | null;
 }
 
@@ -60,6 +90,8 @@ export function useSchoolContext(): SchoolContext {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
+    const [totalBranchesCount, setTotalBranchesCount] = useState(0);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
@@ -111,13 +143,21 @@ export function useSchoolContext(): SchoolContext {
                 if (memberError) throw memberError;
 
                 if (memberships && memberships.length > 0) {
-                    const mappedSchools: SchoolRole[] = memberships.map((m: { school_id: string; schools: { name: string; onboarding_status: string } | null; role: string; branch_id: string | null }) => ({
-                        schoolId: m.school_id,
-                        schoolName: m.schools?.name || 'Escuela sin nombre',
-                        role: m.role as SchoolRole['role'],
-                        branchId: m.branch_id || null,
-                        onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
-                    }));
+                    const mappedSchools: SchoolRole[] = memberships.map((m: any) => {
+                        // Owners and super_admins are ALWAYS global, regardless of branch_id
+                        const isAlwaysGlobal = m.role === 'owner' || m.role === 'super_admin';
+                        // school_admin and admin are global only if they have no branch_id set
+                        const isScopedAdmin = (m.role === 'admin' || m.role === 'school_admin') && !m.branch_id;
+
+                        return {
+                            schoolId: m.school_id,
+                            schoolName: m.schools?.name || 'Escuela sin nombre',
+                            role: m.role as SchoolRole['role'],
+                            branchId: m.branch_id || null,
+                            isGlobal: isAlwaysGlobal || isScopedAdmin,
+                            onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
+                        };
+                    });
 
                     setAvailableSchools(mappedSchools);
 
@@ -140,7 +180,7 @@ export function useSchoolContext(): SchoolContext {
                         .maybeSingle();
 
                     const userRole = userProfile?.role as string;
-                    if (userRole === 'school' || userRole === 'school_admin') {
+                    if (userRole === 'school' || userRole === 'school_admin' || userRole === 'reporter') {
                         // New School Owner -> Trigger Onboarding
                         console.log('User is SCHOOL role with no memberships. Triggering Onboarding state.');
                         setAvailableSchools([]);
@@ -183,9 +223,18 @@ export function useSchoolContext(): SchoolContext {
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
         setActiveBranchId(school.branchId);
+        setIsGlobalAdmin(!!school.isGlobal);
+
+        // Fetch branch count
+        const { count } = await supabase
+            .from('branches')
+            .select('*', { count: 'exact', head: true })
+            .eq('school_id', school.schoolId);
+
+        setTotalBranchesCount(count || 0);
 
         if (school.branchId) {
-            const { data: branch } = await (supabase as any)
+            const { data: branch } = await supabase
                 .from('branches')
                 .select('name')
                 .eq('id', school.branchId)
@@ -324,6 +373,8 @@ export function useSchoolContext(): SchoolContext {
         updateOnboardingStatus,
         updateOnboardingStep,
         switchSchool,
+        isGlobalAdmin,
+        totalBranches: totalBranchesCount,
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,
         error,
@@ -333,6 +384,10 @@ export function useSchoolContext(): SchoolContext {
 /**
  * Helper: Crea un estudiante y su pago pendiente de forma atómica.
  * Reutilizable desde cualquier flujo (modal, CSV, invitación).
+ * 
+ * @param params Objeto con la información del estudiante y del padre.
+ * @returns Un objeto con el ID del estudiante creado y estados de éxito de las inserciones.
+ * @throws Error si la creación del estudiante falla.
  */
 export async function createStudentWithPendingPayment(params: {
     fullName: string;
@@ -349,9 +404,10 @@ export async function createStudentWithPendingPayment(params: {
     medicalInfo?: string;
     notes?: string;
 }) {
-    let { schoolId, monthlyFee, programId } = params;
+    const { schoolId, programId } = params;
+    let { monthlyFee } = params;
 
-    // 0. Fetch program (now team) price if not provided
+    // 0. Fetch program price if not provided (from teams table)
     if (!monthlyFee && programId) {
         const { data: program } = await supabase
             .from('teams')
@@ -380,7 +436,7 @@ export async function createStudentWithPendingPayment(params: {
             school_id: params.schoolId,
             branch_id: params.branchId || null,
             program_id: params.programId || null,
-        } as any)
+        })
         .select()
         .single();
 
@@ -408,7 +464,7 @@ export async function createStudentWithPendingPayment(params: {
             due_date: dueDate.toISOString().split('T')[0],
             status: 'pending',
             payment_type: 'monthly',
-        } as any);
+        });
 
     if (paymentError) {
         console.error('Payment insert failed:', paymentError.message);
@@ -421,7 +477,7 @@ export async function createStudentWithPendingPayment(params: {
         try {
             // Record invitation in DB via RPC
             // The RPC automatically uses auth.uid() for 'invited_by'
-            const { data: inviteId, error: inviteError } = await (supabase.rpc as any)('invite_parent_to_school', {
+            const { data: inviteId, error: inviteError } = await supabase.rpc('invite_parent_to_school', {
                 p_parent_email: params.parentEmail.toLowerCase().trim(),
                 p_child_name: params.fullName,
                 p_program_id: params.programId || null,
@@ -445,8 +501,9 @@ export async function createStudentWithPendingPayment(params: {
                 )
             });
             console.log(`✉️ Invitación enviada y registrada para ${params.parentEmail}`);
-        } catch (inviteErr: any) {
-            console.warn('Invitation process error:', inviteErr.message);
+        } catch (inviteErr) {
+            const message = inviteErr instanceof Error ? inviteErr.message : String(inviteErr);
+            console.warn('Invitation process error:', message);
         }
     }
 

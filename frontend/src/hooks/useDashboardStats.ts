@@ -141,21 +141,21 @@ export function useDashboardStats(role?: UserRole) {
 
           if (school) {
             const { count: progCount } = await supabase
-              .from('programs')
+              .from('teams')
               .select('id', { count: 'exact' })
               .eq('school_id', school.id);
             stats.programs = progCount || 0;
 
             const { count: activeProgCount } = await supabase
-              .from('programs')
+              .from('teams')
               .select('id', { count: 'exact' })
               .eq('school_id', school.id)
               .eq('active', true);
             stats.activePrograms = activeProgCount || 0;
 
-            // Total students (enrollments)
+            // Total students (enrollments linked to teams)
             const { data: myPrograms } = await supabase
-              .from('programs')
+              .from('teams')
               .select('id')
               .eq('school_id', school.id);
 

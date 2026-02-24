@@ -66,7 +66,7 @@ class SchoolsAPI {
 
             // Fetch programs for this school
             const { data: programs } = await supabase
-                .from('programs')
+                .from('teams')
                 .select('*')
                 .eq('school_id', school.id)
                 .eq('active', true);

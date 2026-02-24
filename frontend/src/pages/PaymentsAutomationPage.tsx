@@ -2,17 +2,48 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
+import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
+
+interface BillingSettings {
+  id?: string;
+  school_id: string;
+  payment_due_day: number;
+  grace_period_days: number;
+  auto_generate_payments: boolean;
+  reminder_enabled: boolean;
+  reminder_days_before: number;
+  late_fee_enabled: boolean;
+  late_fee_percentage: number;
+  allow_coach_messaging: boolean;
+  require_payment_proof: boolean;
+}
+
+const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
+  payment_due_day: 5,
+  grace_period_days: 5,
+  auto_generate_payments: true,
+  reminder_enabled: true,
+  reminder_days_before: 3,
+  late_fee_enabled: false,
+  late_fee_percentage: 5,
+  allow_coach_messaging: true,
+  require_payment_proof: true,
+};
 
 // Interfaces for real data
 interface PaymentTransaction {
@@ -29,6 +60,11 @@ interface PaymentTransaction {
   program: { name: string } | null;
 }
 
+/**
+ * Página principal para la gestión y automatización de pagos de la escuela.
+ * Permite a los administradores validar comprobantes manuales, ver el historial de transacciones
+ * y exportar reportes financieros.
+ */
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -39,13 +75,61 @@ export default function PaymentsAutomationPage() {
   const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // Authentication Guard
-  if (!profile || (profile.role !== 'school' && profile.role !== 'admin' && profile.role !== 'coach')) {
-    // Allow coaches if they have permission (checked internally in components usually, but for page access we might need stricter check)
-    // For now, let's assume if they can navigate here, they are allowed, but we'll filter data.
-    // If strictly school admin page:
-    if (profile.role !== 'school' && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
-  }
+  // ── Billing settings state ──────────────────────────────────────────────
+  const [billing, setBilling] = useState<BillingSettings | null>(null);
+  const [billingSaving, setBillingSaving] = useState(false);
+
+  useEffect(() => {
+    if (schoolId) loadBillingSettings();
+  }, [schoolId]);
+
+  const loadBillingSettings = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase
+      .from('school_settings')
+      .select('*')
+      .eq('school_id', schoolId)
+      .maybeSingle();
+    setBilling(data ? (data as unknown as BillingSettings) : { ...DEFAULT_BILLING, school_id: schoolId });
+  };
+
+  const handleSaveBilling = async () => {
+    if (!billing || !schoolId) return;
+    setBillingSaving(true);
+    try {
+      const payload = {
+        school_id: schoolId,
+        payment_due_day: billing.payment_due_day,
+        grace_period_days: billing.grace_period_days,
+        auto_generate_payments: billing.auto_generate_payments,
+        reminder_enabled: billing.reminder_enabled,
+        reminder_days_before: billing.reminder_days_before,
+        late_fee_enabled: billing.late_fee_enabled,
+        late_fee_percentage: billing.late_fee_percentage,
+        allow_coach_messaging: billing.allow_coach_messaging,
+        require_payment_proof: billing.require_payment_proof,
+      };
+      if (billing.id) {
+        const { error } = await supabase.from('school_settings').update(payload).eq('id', billing.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('school_settings').insert(payload).select().single();
+        if (error) throw error;
+        setBilling(data as unknown as BillingSettings);
+      }
+      toast({ title: '✅ Configuración de pagos guardada' });
+    } catch (err: any) {
+      toast({ title: 'Error al guardar', description: err.message, variant: 'destructive' });
+    } finally {
+      setBillingSaving(false);
+    }
+  };
+
+  const updateBilling = <K extends keyof BillingSettings>(key: K, value: BillingSettings[K]) => {
+    if (billing) setBilling({ ...billing, [key]: value });
+  };
+  // ────────────────────────────────────────────────────────────────────────
+
 
   const fetchPayments = async () => {
     if (!schoolId) return;
@@ -84,7 +168,7 @@ export default function PaymentsAutomationPage() {
       // Transform data to flat structure if needed, or keep as is.
       // The types returned by select need casting or proper type definition match.
       // We'll use 'any' casting for the join results to match our interface simply.
-      const mappedPayments: PaymentTransaction[] = (data || []).map((p: any) => ({
+      const mappedPayments: PaymentTransaction[] = ((data as any[] || [])).map((p) => ({
         id: p.id,
         amount: p.amount,
         status: p.status,
@@ -96,15 +180,15 @@ export default function PaymentsAutomationPage() {
         parent: p.parent,
         child: p.child,
         program: p.program
-      }));
+      })) as PaymentTransaction[];
 
       setPayments(mappedPayments);
 
-    } catch (error: any) {
-      console.error('Error fetching payments:', error);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error al cargar pagos',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -116,6 +200,21 @@ export default function PaymentsAutomationPage() {
     fetchPayments();
   }, [schoolId, activeBranchId]);
 
+  // Authentication Guard (Moved after all hooks to comply with Rules of Hooks)
+  if (!profile || (profile.role !== 'school' && profile.role !== 'admin' && profile.role !== 'coach')) {
+    // Allow coaches if they have permission (checked internally in components usually, but for page access we might need stricter check)
+    // For now, let's assume if they can navigate here, they are allowed, but we'll filter data.
+    // If strictly school admin page:
+    if (profile.role !== 'school' && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  }
+
+  /**
+   * Aprueba o rechaza un pago registrado manualmente (transferencia/nequi).
+   * Si se aprueba, activa automáticamente la inscripción asociada y envía notificaciones.
+   * 
+   * @param paymentId UUID del pago a procesar.
+   * @param action Acción a realizar: 'approve' (aprobar) o 'reject' (rechazar).
+   */
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'rejected';
@@ -196,21 +295,23 @@ export default function PaymentsAutomationPage() {
         description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
         variant: action === 'approve' ? 'default' : 'destructive'
       });
-
-      // Refresh list
       await fetchPayments();
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo procesar la acción',
-        variant: 'destructive'
+        description: `No se pudo procesar la acción: ${message}`,
+        variant: 'destructive',
       });
     } finally {
       setProcessingId(null);
     }
   };
 
+  /**
+   * Genera y descarga un archivo CSV con el historial de pagos filtrado.
+   */
   const handleExportCSV = () => {
     if (payments.length === 0) {
       toast({
@@ -220,17 +321,13 @@ export default function PaymentsAutomationPage() {
       return;
     }
 
-    const headers = ['Fecha', 'Estudiante', 'Padre', 'Email', 'Monto', 'Concepto', 'Metodo', 'Estado'];
-    const rows = payments.map(p => [
-      new Date(p.created_at).toLocaleDateString(),
-      p.child?.full_name || 'N/A',
-      p.parent?.full_name || 'N/A',
-      p.parent?.email || 'N/A',
-      p.amount,
-      p.concept,
-      p.payment_method || 'N/A',
-      p.status
-    ]);
+    const headers = ['Fecha', 'Padre', 'Estudiante', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    const rows = (payments as PaymentTransaction[]).map(p => {
+      const date = new Date(p.created_at).toLocaleDateString();
+      const parentName = p.parent?.full_name || 'Desconocido';
+      const childName = p.child?.full_name || 'Desconocido';
+      return [date, parentName, childName, p.amount, p.status, p.concept, p.payment_type || 'N/A'];
+    });
 
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -247,6 +344,45 @@ export default function PaymentsAutomationPage() {
       title: "Reporte Generado",
       description: "El archivo CSV se ha descargado correctamente.",
     });
+  };
+
+  const handleShowProof = async (payment: PaymentTransaction) => {
+    if (!payment.receipt_url) return;
+
+    // If it's already a full URL (legacy or external), just show it
+    if (payment.receipt_url.startsWith('http')) {
+      setViewingProof({
+        open: true,
+        url: payment.receipt_url,
+        student: payment.child?.full_name || 'Estudiante',
+        amount: payment.amount
+      });
+      return;
+    }
+
+    // Generate signed URL for private bucket
+    try {
+      const cleanPath = getStoragePath(payment.receipt_url);
+      const { data, error } = await supabase.storage
+        .from('payment-receipts')
+        .createSignedUrl(cleanPath, 300); // 5 minutes
+
+      if (error) throw error;
+
+      setViewingProof({
+        open: true,
+        url: data.signedUrl,
+        student: payment.child?.full_name || 'Estudiante',
+        amount: payment.amount
+      });
+    } catch (err: unknown) {
+      console.error("Error generating signed URL:", err);
+      toast({
+        title: "Error de acceso",
+        description: "No se pudo generar el acceso seguro al comprobante.",
+        variant: "destructive"
+      });
+    }
   };
 
   const formatCurrency = (amount: number) =>
@@ -347,6 +483,7 @@ export default function PaymentsAutomationPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="history">Historial de Transacciones</TabsTrigger>
+          <TabsTrigger value="config">Configuración de Cobros</TabsTrigger>
         </TabsList>
 
         {/* Validation Tab */}
@@ -394,24 +531,18 @@ export default function PaymentsAutomationPage() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span>
-                            <span className="text-xs text-muted-foreground">{payment.parent?.email}</span>
                           </div>
                         </TableCell>
                         <TableCell className="font-bold text-primary">
                           {formatCurrency(payment.amount)}
                         </TableCell>
                         <TableCell>
-                          {payment.receipt_url || payment.payment_method === 'manual' ? (
+                          {payment.receipt_url ? (
                             <Button
                               variant="outline"
                               size="sm"
                               className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50"
-                              onClick={() => setViewingProof({
-                                open: true,
-                                url: payment.receipt_url || '',
-                                student: payment.child?.full_name || 'Estudiante',
-                                amount: payment.amount
-                              })}
+                              onClick={() => handleShowProof(payment)}
                             >
                               <Eye className="h-3 w-3" /> Ver
                             </Button>
@@ -469,6 +600,7 @@ export default function PaymentsAutomationPage() {
                     <TableHead>Monto</TableHead>
                     <TableHead>Método</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Soporte</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -493,6 +625,20 @@ export default function PaymentsAutomationPage() {
                               payment.status === 'awaiting_approval' ? 'Por Validar' : payment.status}
                         </Badge>
                       </TableCell>
+                      <TableCell>
+                        {payment.receipt_url ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-blue-600 hover:bg-blue-50"
+                            onClick={() => handleShowProof(payment)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {historyPayments.length === 0 && (
@@ -505,50 +651,191 @@ export default function PaymentsAutomationPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        {/* ─── Configuración de Cobros tab ───────────────────────────────────── */}
+        <TabsContent value="config" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Configuración de Cobros</h2>
+              <p className="text-sm text-muted-foreground">Reglas de facturación, mora, recordatorios y permisos.</p>
+            </div>
+            <Button onClick={handleSaveBilling} disabled={billingSaving} className="gap-2">
+              {billingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Guardar Cambios
+            </Button>
+          </div>
+
+          {billing && (
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Payment Rules */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <DollarSign className="h-5 w-5 text-emerald-500" /> Reglas de Cobro
+                  </CardTitle>
+                  <CardDescription>Cuándo y cómo se generan los cobros mensuales.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="due_day">Día de corte del mes</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="due_day" type="number" min={1} max={28} className="w-24"
+                        value={billing.payment_due_day}
+                        onChange={e => updateBilling('payment_due_day', parseInt(e.target.value) || 5)} />
+                      <span className="text-sm text-muted-foreground">de cada mes</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="grace">Días de gracia</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="grace" type="number" min={0} max={15} className="w-24"
+                        value={billing.grace_period_days}
+                        onChange={e => updateBilling('grace_period_days', parseInt(e.target.value) || 0)} />
+                      <span className="text-sm text-muted-foreground">días después del corte</span>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Generar cobros automáticos</Label>
+                      <p className="text-xs text-muted-foreground">Crear pagos pendientes cada mes</p>
+                    </div>
+                    <Switch checked={billing.auto_generate_payments}
+                      onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Late Fees */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-amber-500" /> Mora y Penalización
+                  </CardTitle>
+                  <CardDescription>Recargos por pago tardío.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Habilitar mora</Label>
+                      <p className="text-xs text-muted-foreground">Recargo después del período de gracia</p>
+                    </div>
+                    <Switch checked={billing.late_fee_enabled}
+                      onCheckedChange={v => updateBilling('late_fee_enabled', v)} />
+                  </div>
+                  {billing.late_fee_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="late_pct">Porcentaje de recargo</Label>
+                      <div className="flex items-center gap-2">
+                        <Input id="late_pct" type="number" min={1} max={50} className="w-24"
+                          value={billing.late_fee_percentage}
+                          onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
+                        <span className="text-sm text-muted-foreground">% adicional</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-2">
+                    <div>
+                      <Label className="font-medium">Exigir comprobante de pago</Label>
+                      <p className="text-xs text-muted-foreground">Los padres deben subir foto del recibo</p>
+                    </div>
+                    <Switch checked={billing.require_payment_proof}
+                      onCheckedChange={v => updateBilling('require_payment_proof', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Reminders */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bell className="h-5 w-5 text-blue-500" /> Recordatorios
+                  </CardTitle>
+                  <CardDescription>Notificaciones automáticas de pago.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Enviar recordatorios</Label>
+                      <p className="text-xs text-muted-foreground">Notificar a los padres antes del vencimiento</p>
+                    </div>
+                    <Switch checked={billing.reminder_enabled}
+                      onCheckedChange={v => updateBilling('reminder_enabled', v)} />
+                  </div>
+                  {billing.reminder_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="reminder_days">Días antes del vencimiento</Label>
+                      <div className="flex items-center gap-2">
+                        <Input id="reminder_days" type="number" min={1} max={15} className="w-24"
+                          value={billing.reminder_days_before}
+                          onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)} />
+                        <span className="text-sm text-muted-foreground">días antes</span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Permissions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-purple-500" /> Permisos
+                  </CardTitle>
+                  <CardDescription>Qué pueden hacer los coaches y el staff.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Coaches pueden enviar mensajes</Label>
+                      <p className="text-xs text-muted-foreground">Comunicación directa coach → padres</p>
+                    </div>
+                    <Switch checked={billing.allow_coach_messaging}
+                      onCheckedChange={v => updateBilling('allow_coach_messaging', v)} />
+                  </div>
+                  <Separator />
+                  <p className="text-xs text-muted-foreground text-center">
+                    Más opciones de permisos estarán disponibles próximamente.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
 
-      {/* Proof Viewer Dialog */}
-      <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
-        <DialogContent className="max-w-md">
+      {/* Proof of payment dialog */}
+      <Dialog open={viewingProof.open} onOpenChange={open => setViewingProof(prev => ({ ...prev, open }))}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Comprobante de Pago</DialogTitle>
             <DialogDescription>
-              Verificando soporte de pago para {viewingProof.student}.
+              {viewingProof.student} — {formatCurrency(viewingProof.amount)}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="bg-muted p-3 rounded-lg flex justify-between items-center">
-              <span className="font-semibold">{viewingProof.student}</span>
-              <span className="font-bold text-lg">{formatCurrency(viewingProof.amount)}</span>
-            </div>
-
-            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
-              {viewingProof.url ? (
-                <img
-                  src={viewingProof.url}
-                  alt="Comprobante"
-                  className="max-w-full max-h-[60vh] object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    // Show fallback text
-                  }}
-                />
-              ) : (
-                <div className="text-center text-muted-foreground p-8">
-                  <p>No hay imagen disponible.</p>
-                  <p className="text-xs">(Simulación: El usuario no subió archivo real)</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
-                Cerrar
-              </Button>
-            </div>
+          <div className="p-4 flex items-center justify-center bg-muted rounded-lg min-h-[300px]">
+            {viewingProof.url ? (
+              <img
+                src={viewingProof.url}
+                alt="Comprobante"
+                className="max-h-[500px] object-contain rounded"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="text-center text-muted-foreground p-8">
+                <p>No hay imagen disponible.</p>
+                <p className="text-xs">(El usuario no subió archivo real)</p>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
+              Cerrar
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
