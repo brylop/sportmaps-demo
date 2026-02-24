@@ -26,19 +26,10 @@ import Logo from './Logo';
 export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
   const { currentUserRole, isGlobalAdmin, totalBranches } = useSchoolContext();
+  const sidebar = useSidebar();
+  const { state } = sidebar;
 
-  // Guard the sidebar state access
-  let sidebarContext;
-  try {
-    sidebarContext = useSidebar();
-  } catch (e) {
-    // If not in a provider, we can't show the sidebar properly anyway
-    return null;
-  }
-
-  const { state } = sidebarContext;
-
-  if (!profile) return null;
+  if (!profile || !user) return null;
 
   const isCollapsed = state === 'collapsed';
 

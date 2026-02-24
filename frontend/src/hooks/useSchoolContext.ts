@@ -143,14 +143,21 @@ export function useSchoolContext(): SchoolContext {
                 if (memberError) throw memberError;
 
                 if (memberships && memberships.length > 0) {
-                    const mappedSchools: SchoolRole[] = memberships.map((m: any) => ({
-                        schoolId: m.school_id,
-                        schoolName: m.schools?.name || 'Escuela sin nombre',
-                        role: m.role as SchoolRole['role'],
-                        branchId: m.branch_id || null,
-                        isGlobal: !m.branch_id || m.role === 'owner' || m.role === 'super_admin',
-                        onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
-                    }));
+                    const mappedSchools: SchoolRole[] = memberships.map((m: any) => {
+                        // Owners and super_admins are ALWAYS global, regardless of branch_id
+                        const isAlwaysGlobal = m.role === 'owner' || m.role === 'super_admin';
+                        // school_admin and admin are global only if they have no branch_id set
+                        const isScopedAdmin = (m.role === 'admin' || m.role === 'school_admin') && !m.branch_id;
+
+                        return {
+                            schoolId: m.school_id,
+                            schoolName: m.schools?.name || 'Escuela sin nombre',
+                            role: m.role as SchoolRole['role'],
+                            branchId: m.branch_id || null,
+                            isGlobal: isAlwaysGlobal || isScopedAdmin,
+                            onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
+                        };
+                    });
 
                     setAvailableSchools(mappedSchools);
 
