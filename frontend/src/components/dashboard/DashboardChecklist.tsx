@@ -14,17 +14,17 @@ export const DashboardChecklist: React.FC<Props> = ({ steps, onStepClick }) => {
     if (steps.length === 0) return null;
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+        <div className="bg-white dark:bg-[#0f1a14] rounded-xl shadow-sm dark:shadow-lg border border-slate-200 dark:border-emerald-800/50 p-6 mb-8">
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h2 className="text-lg font-bold text-slate-900">Configuración de tu cuenta</h2>
-                    <p className="text-sm text-slate-500">Completa estos pasos para activar todas las funciones.</p>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Configuración de tu cuenta</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Completa estos pasos para activar todas las funciones.</p>
                 </div>
                 <div className="text-right">
-                    <span className="text-2xl font-bold text-blue-600">{progress}%</span>
-                    <div className="w-32 h-2 bg-slate-100 rounded-full mt-1">
+                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{progress}%</span>
+                    <div className="w-32 h-2 bg-slate-100 dark:bg-slate-700 rounded-full mt-1">
                         <div
-                            className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                             style={{ width: `${progress}%` }}
                         />
                     </div>
@@ -37,24 +37,24 @@ export const DashboardChecklist: React.FC<Props> = ({ steps, onStepClick }) => {
                         key={step.id}
                         onClick={() => onStepClick(step)}
                         className={`flex items-center justify-between p-4 rounded-lg border transition-all ${step.completed
-                                ? 'bg-slate-50 border-slate-200 opacity-75'
-                                : 'bg-white border-blue-100 hover:border-blue-300 shadow-sm'
+                            ? 'bg-slate-50 dark:bg-[#0a1f12] border-slate-200 dark:border-emerald-900/40 opacity-75'
+                            : 'bg-white dark:bg-[#0a1f12] border-emerald-200 dark:border-emerald-800/40 hover:border-emerald-400 dark:hover:border-emerald-600 shadow-sm'
                             }`}
                     >
                         <div className="flex items-center gap-4">
                             {step.completed ? (
-                                <CheckCircle2 className="w-6 h-6 text-green-500" />
+                                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
                             ) : (
-                                <Circle className="w-6 h-6 text-blue-300" />
+                                <Circle className="w-6 h-6 text-emerald-400 dark:text-emerald-700" />
                             )}
                             <div className="text-left">
-                                <p className={`font-semibold ${step.completed ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                <p className={`font-semibold ${step.completed ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-900 dark:text-white'}`}>
                                     {step.title}
                                 </p>
-                                <p className="text-xs text-slate-500">{step.description}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{step.description}</p>
                             </div>
                         </div>
-                        {!step.completed && <ArrowRight className="w-5 h-5 text-blue-400" />}
+                        {!step.completed && <ArrowRight className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />}
                     </button>
                 ))}
             </div>

@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
 import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
+import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -34,6 +35,7 @@ export default function DashboardPage() {
   const [invitation, setInvitation] = useState<any | null>(null);
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(true);
+  const [showCoachWizard, setShowCoachWizard] = useState(false);
 
   // Show welcome splash if it's the first time
   useEffect(() => {
@@ -282,7 +284,22 @@ export default function DashboardPage() {
       {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
         <DashboardChecklist
           steps={onboardingSteps}
-          onStepClick={(step) => navigate(step.href)}
+          onStepClick={(step) => {
+            if (step.id === 'complete_profile' && profile.role === 'coach') {
+              setShowCoachWizard(true);
+            } else {
+              navigate(step.href);
+            }
+          }}
+        />
+      )}
+
+      {/* Coach Profile Wizard */}
+      {profile.role === 'coach' && (
+        <CoachProfileWizard
+          open={showCoachWizard}
+          onOpenChange={setShowCoachWizard}
+          onSuccess={refreshOnboardingData}
         />
       )}
 

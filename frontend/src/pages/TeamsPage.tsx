@@ -126,9 +126,9 @@ export default function TeamsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">% Victoria</p>
                 <p className="text-2xl font-bold">
-                  {Math.round(
-                    mockTeams.reduce((sum, t) => sum + getWinRate(t), 0) / mockTeams.length
-                  )}%
+                  {mockTeams.length > 0
+                    ? Math.round(mockTeams.reduce((sum, t) => sum + getWinRate(t), 0) / mockTeams.length)
+                    : 0}%
                 </p>
               </div>
               <TrendingUp className="h-8 w-8 text-primary/20" />
@@ -259,25 +259,27 @@ export default function TeamsPage() {
       </div>
 
       {/* Empty State */}
-      {filteredTeams.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No se encontraron equipos</h3>
-            <p className="text-muted-foreground mb-4">
-              {searchQuery
-                ? 'Intenta con otros términos de búsqueda'
-                : 'Crea tu primer equipo para comenzar'}
-            </p>
-            <PermissionGate permission="teams:create">
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" />
-                Crear Equipo
-              </Button>
-            </PermissionGate>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+      {
+        filteredTeams.length === 0 && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium mb-2">No se encontraron equipos</h3>
+              <p className="text-muted-foreground mb-4">
+                {searchQuery
+                  ? 'Intenta con otros términos de búsqueda'
+                  : 'Crea tu primer equipo para comenzar'}
+              </p>
+              <PermissionGate permission="teams:create">
+                <Button className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Crear Equipo
+                </Button>
+              </PermissionGate>
+            </CardContent>
+          </Card>
+        )
+      }
+    </div >
   );
 }

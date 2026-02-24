@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
-export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents';
+export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates';
 
 export function useStorage() {
   const [uploading, setUploading] = useState(false);
