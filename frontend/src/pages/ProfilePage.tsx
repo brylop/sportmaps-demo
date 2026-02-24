@@ -87,9 +87,12 @@ export default function ProfilePage() {
       parent: 'Padre/Madre',
       coach: 'Entrenador/Coach',
       school: 'Escuela/Centro Deportivo',
+      school_admin: 'Administrador de Sede',
       wellness_professional: 'Profesional de Bienestar',
       store_owner: 'Tienda/Vendedor',
       admin: 'Administrador',
+      reporter: 'Auditoría/Súper Usuario',
+
     };
     return roles[role] || role;
   };

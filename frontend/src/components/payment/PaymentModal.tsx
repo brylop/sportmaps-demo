@@ -154,14 +154,14 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
         if (paymentStatus === 'paid') {
           // Simple increment RPC or fetch-update
           const { data: program } = await supabase
-            .from('programs')
+            .from('teams')
             .select('current_participants')
             .eq('id', item.programId!)
             .single();
 
           if (program) {
-            await supabase.from('programs').update({
-              current_participants: (program.current_participants || 0) + 1
+            await supabase.from('teams').update({
+              current_students: (program.current_participants || 0) + 1
             }).eq('id', item.programId!);
           }
         }

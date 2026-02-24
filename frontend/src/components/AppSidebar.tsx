@@ -42,12 +42,18 @@ export function AppSidebar() {
     switch (currentUserRole) {
       case 'owner':
       case 'super_admin':
-        navigationRole = 'admin';
+        // Single-branch owner: uses full school management nav
+        // Multi-branch owner: uses global admin nav with Users/Clubs
+        navigationRole = totalBranches > 1 ? 'admin' : 'school';
         break;
       case 'admin':
+        navigationRole = 'admin';
+        break;
       case 'school_admin':
+        navigationRole = 'school_admin';
+        break;
       case 'reporter':
-        navigationRole = currentUserRole === 'reporter' ? 'reporter' : 'school';
+        navigationRole = 'reporter';
         break;
       case 'coach':
       case 'staff':

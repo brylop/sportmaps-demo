@@ -180,7 +180,7 @@ export function useSchoolContext(): SchoolContext {
                         .maybeSingle();
 
                     const userRole = userProfile?.role as string;
-                    if (userRole === 'school' || userRole === 'school_admin') {
+                    if (userRole === 'school' || userRole === 'school_admin' || userRole === 'reporter') {
                         // New School Owner -> Trigger Onboarding
                         console.log('User is SCHOOL role with no memberships. Triggering Onboarding state.');
                         setAvailableSchools([]);
@@ -263,7 +263,7 @@ export function useSchoolContext(): SchoolContext {
         setLoading(true);
         try {
             let query = supabase
-                .from('programs')
+                .from('teams')
                 .select('id, name, price_monthly, sport, branch_id')
                 .eq('school_id', id);
 
@@ -406,10 +406,10 @@ export async function createStudentWithPendingPayment(params: {
     const { schoolId, programId } = params;
     let { monthlyFee } = params;
 
-    // 0. Fetch program price if not provided
+    // 0. Fetch program price if not provided (from teams table)
     if (!monthlyFee && programId) {
         const { data: program } = await supabase
-            .from('programs')
+            .from('teams')
             .select('price_monthly, name')
             .eq('id', programId)
             .maybeSingle();

@@ -83,6 +83,7 @@ const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesMa
 const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
 const PickupMonitorPage = lazy(() => import("./pages/school/PickupMonitorPage"));
 const InvitationsManagementPage = lazy(() => import("./pages/InvitationsManagementPage"));
+const ReporterDashboardPage = lazy(() => import("./pages/ReporterDashboardPage"));
 
 // ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
@@ -103,6 +104,8 @@ const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
+const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 
 // ─── Organizer pages (lazy) ───────────────────────────────────────────────────
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
@@ -249,6 +252,11 @@ const App = () => (
                           <PaymentRemindersPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="reporter-dashboard" element={
+                        <ProtectedRoute allowedRoles={['reporter']}>
+                          <ReporterDashboardPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="school-reports" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ReportsPage />
@@ -331,34 +339,34 @@ const App = () => (
                       <Route path="organizer/create-event" element={<CreateEventPage />} />
                       <Route path="organizer/event/:id" element={<EventManagementPage />} />
 
-                      {/* Admin routes */}
+                      {/* Admin routes — allowedRoles includes 'school' for the Global Admin (owner) */}
                       <Route path="admin/users" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
-                          <SettingsPage />
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <AdminUsersPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/clubs" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
-                          <ExplorePage />
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <AdminClubsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/reports" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <ReportsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/analytics" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminAnalyticsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/config" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <SettingsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/logs" element={
-                        <ProtectedRoute allowedRoles={['admin']}>
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <NotificationsPage />
                         </ProtectedRoute>
                       } />

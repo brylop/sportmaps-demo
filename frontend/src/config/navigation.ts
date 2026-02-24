@@ -150,7 +150,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Programas', href: '/programs-management', icon: Activity },
+          { title: 'Equipos', href: '/programs-management', icon: Activity },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -277,7 +277,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Programas', href: '/programs-management', icon: Activity },
+          { title: 'Equipos', href: '/programs-management', icon: Activity },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -325,15 +325,15 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
 
     reporter: [
       {
-        title: 'Auditoría',
+        title: 'Reportes',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Reportes Globales', href: '/school-reports', icon: FileText },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign }
+          { title: '📊 Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
         ]
       },
       {
-        title: 'Sistema',
+        title: 'Cuenta',
         items: [
           { title: 'Notificaciones', href: '/notifications', icon: Bell },
           { title: 'Configuración', href: '/settings', icon: Settings }

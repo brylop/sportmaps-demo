@@ -44,7 +44,7 @@ export function usePrograms(schoolId: string | undefined) {
       setError(null);
 
       const { data, error: fetchError } = await supabase
-        .from('programs')
+        .from('teams')
         .select('*')
         .eq('school_id', schoolId)
         .eq('active', true)
