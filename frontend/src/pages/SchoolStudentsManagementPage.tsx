@@ -52,8 +52,8 @@ export default function SchoolStudentsManagementPage() {
 
   // Real data from Supabase View
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ['school-students', schoolId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId) : Promise.resolve([]),
+    queryKey: ['school-students', schoolId, activeBranchId],
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId) : Promise.resolve([]),
     enabled: !!schoolId,
   });
 
@@ -212,6 +212,7 @@ export default function SchoolStudentsManagementPage() {
                   <TableHead>Nombre</TableHead>
                   <TableHead>Edad</TableHead>
                   <TableHead>Programa</TableHead>
+                  <TableHead>Sede</TableHead>
                   <TableHead>Acudiente</TableHead>
                   <TableHead>Mensualidad</TableHead>
                   <TableHead>Estado Pago</TableHead>
@@ -225,6 +226,9 @@ export default function SchoolStudentsManagementPage() {
                     <TableCell>{calculateAge(student.date_of_birth)} años</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{student.program_name || 'Sin programa'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
                     </TableCell>
                     <TableCell>{student.parent_name || '-'}</TableCell>
                     <TableCell className="font-semibold text-primary">

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Eye, EyeOff, MailCheck } from 'lucide-react';
+import { Loader2, Eye, EyeOff, MailCheck, Mail, School } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { USER_ROLES } from '@/constants/roles';
 import { Controller } from 'react-hook-form';
@@ -59,6 +59,14 @@ export default function RegisterPage() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
 
+  // Invitation data from URL
+  const inviteId = searchParams.get('invite');
+  const inviteEmail = searchParams.get('email');
+  const inviteRole = searchParams.get('role');
+  const [invitationInfo, setInvitationInfo] = useState<{
+    school_name: string; role_to_assign: string; child_name?: string;
+  } | null>(null);
+
   const { signUp, user } = useAuth();
 
   const {
@@ -81,13 +89,41 @@ export default function RegisterPage() {
     if (roleParam) {
       setValue('role', roleParam);
     }
-  }, [searchParams, setValue]);
+    // Pre-fill email from invitation link
+    if (inviteEmail) {
+      setValue('email', inviteEmail);
+    }
+  }, [searchParams, setValue, inviteEmail]);
+
+  // Fetch invitation details when invite param is present
+  useEffect(() => {
+    if (!inviteId) return;
+    const fetchInvite = async () => {
+      try {
+        const { data } = await (supabase.rpc as any)('get_invitation_details', {
+          p_invite_id: inviteId
+        });
+
+        if (data && data.length > 0) {
+          const invite = data[0];
+          setInvitationInfo({
+            school_name: invite.school_name || 'Tu Academia',
+            role_to_assign: invite.role_to_assign,
+            child_name: invite.child_name,
+          });
+        }
+      } catch {
+        // RLS may block - non-critical
+      }
+    };
+    fetchInvite();
+  }, [inviteId]);
 
   useEffect(() => {
     const fetchRoles = async () => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data, error } = await (supabase as any)
+        const { data } = await (supabase as any)
           .from('roles')
           .select('id, name, display_name')
           .eq('is_visible', true)
@@ -126,6 +162,11 @@ export default function RegisterPage() {
       // 2. Set submitted state to show success message
       setIsSubmitted(true);
 
+      // 3. Save invite ID for auto-accept after email verification + login
+      if (inviteId) {
+        localStorage.setItem('pending_invite_id', inviteId);
+      }
+
     } catch (error: any) {
       console.error("Registration error:", error);
 
@@ -149,6 +190,58 @@ export default function RegisterPage() {
       setIsLoading(false);
     }
   };
+
+  // VISTA PARA USUARIOS YA REGISTRADOS
+  if (user && inviteId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
+        <Card className="w-full max-w-md shadow-2xl border-t-8 border-blue-600 animate-in fade-in zoom-in duration-300">
+          <CardContent className="pt-10 flex flex-col items-center text-center">
+            <div className="bg-blue-100 p-4 rounded-full mb-6">
+              <School className="w-12 h-12 text-blue-600" />
+            </div>
+
+            <h2 className="text-2xl font-bold font-poppins text-blue-900 mb-2">Invitación Pendiente</h2>
+
+            {invitationInfo ? (
+              <>
+                <p className="text-muted-foreground font-poppins mb-6">
+                  Ya tienes una sesión activa como <strong>{user.email}</strong>.<br />
+                  ¿Deseas aceptar la invitación de <strong>{invitationInfo.school_name}</strong> para el perfil de <strong>{invitationInfo.role_to_assign === 'parent' ? 'Padre' : invitationInfo.role_to_assign === 'coach' ? 'Entrenador' : 'Atleta'}</strong>?
+                </p>
+
+                <div className="flex flex-col gap-3 w-full">
+                  <Button
+                    onClick={() => navigate('/dashboard')}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Ver en mi Panel de Control
+                  </Button>
+                  <Button
+                    asChild
+                    variant="ghost"
+                    className="w-full"
+                  >
+                    <Link to="/dashboard">Ir al Dashboard</Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                <p className="text-sm text-muted-foreground">Cargando detalles de la invitación...</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // REDIRECCIÓN SI YA ESTÁ LOGUEADO (Y NO HAY INVITACIÓN)
+  if (user && !inviteId) {
+    return <Navigate to="/dashboard" />;
+  }
 
   // VISTA DE ÉXITO (POST-REGISTRO)
   if (isSubmitted) {
@@ -197,6 +290,25 @@ export default function RegisterPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Invitation Banner */}
+          {invitationInfo && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2 rounded-lg">
+                  <School className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-blue-900 text-sm">
+                    Invitación de <strong>{invitationInfo.school_name}</strong>
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    Te invitan como <strong>{invitationInfo.role_to_assign === 'parent' ? 'Padre/Madre' : invitationInfo.role_to_assign === 'coach' ? 'Entrenador' : 'Atleta'}</strong>
+                    {invitationInfo.child_name && <> para <strong>{invitationInfo.child_name}</strong></>}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="fullName">Nombre Completo</Label>
@@ -221,6 +333,8 @@ export default function RegisterPage() {
                 placeholder="tu@email.com"
                 {...register('email')}
                 className={errors.email ? 'border-destructive' : ''}
+                readOnly={!!inviteEmail}
+                disabled={!!inviteEmail}
               />
               {errors.email && (
                 <p className="text-sm text-destructive">{errors.email.message}</p>

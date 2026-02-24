@@ -344,11 +344,27 @@ export async function createStudentWithPendingPayment(params: {
     branchId?: string;
     programId?: string;
     programName?: string;
-    monthlyFee: number;
+    monthlyFee?: number; // Optional now, will fetch if missing
     medicalInfo?: string;
     notes?: string;
 }) {
-    const { schoolId, monthlyFee } = params;
+    let { schoolId, monthlyFee, programId } = params;
+
+    // 0. Fetch program price if not provided
+    if (!monthlyFee && programId) {
+        const { data: program } = await supabase
+            .from('programs')
+            .select('price_monthly, name')
+            .eq('id', programId)
+            .maybeSingle();
+
+        if (program) {
+            monthlyFee = program.price_monthly || 150000;
+            if (!params.programName) params.programName = program.name;
+        }
+    }
+
+    if (!monthlyFee) monthlyFee = 150000; // Final fallback
 
     // 1. Create student record in children table
     const { data: child, error: childError } = await supabase

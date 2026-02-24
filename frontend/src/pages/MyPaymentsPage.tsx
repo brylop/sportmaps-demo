@@ -100,7 +100,8 @@ export default function MyPaymentsPage() {
           program_id,
           school_id,
           programs (
-            name
+            name,
+            price_monthly
           )
         `)
         .eq('parent_id', user?.id || '');
@@ -388,7 +389,7 @@ export default function MyPaymentsPage() {
                       childName: child.full_name,
                       programId: child.program_id,
                       programName: child.programs?.name || 'Programa de Formación',
-                      amount: child.monthly_fee || 0,
+                      amount: child.programs?.price_monthly || child.monthly_fee || 0,
                       schoolId: child.school_id,
                     });
                     setShowChildPicker(false);
@@ -405,7 +406,7 @@ export default function MyPaymentsPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-primary">{formatCurrency(child.monthly_fee || 0)}</p>
+                    <p className="font-bold text-primary">{formatCurrency(child.programs?.price_monthly || child.monthly_fee || 0)}</p>
                     <p className="text-xs text-muted-foreground">/mes</p>
                   </div>
                 </button>
