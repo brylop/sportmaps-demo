@@ -21,7 +21,17 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "0.0.0.0",
     port: 3001,
-    allowedHosts: true
+    allowedHosts: true,
+    proxy: {
+      '/api/nominatim': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/nominatim/, ''),
+        headers: {
+          'User-Agent': 'SportMaps/1.0 (sportmaps-demo)',
+        },
+      },
+    },
   },
   plugins: [
     react(),

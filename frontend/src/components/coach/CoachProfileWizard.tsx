@@ -387,11 +387,23 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                 {/* Primary Sport */}
                                 <div className="space-y-2">
                                     <Label>Deporte Principal *</Label>
-                                    <Input
-                                        value={primarySport}
-                                        onChange={(e) => setPrimarySport(e.target.value)}
-                                        placeholder="Ej: Fútbol, Natación, Porrismo..."
-                                    />
+                                    <Select value={primarySport} onValueChange={setPrimarySport}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Selecciona deporte" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Artes Marciales">Artes Marciales</SelectItem>
+                                            <SelectItem value="Atletismo">Atletismo</SelectItem>
+                                            <SelectItem value="Baloncesto">Baloncesto</SelectItem>
+                                            <SelectItem value="Fútbol">Fútbol</SelectItem>
+                                            <SelectItem value="Gimnasia">Gimnasia</SelectItem>
+                                            <SelectItem value="Natación">Natación</SelectItem>
+                                            <SelectItem value="Porrismo">Porrismo</SelectItem>
+                                            <SelectItem value="Tenis">Tenis</SelectItem>
+                                            <SelectItem value="Voleibol">Voleibol</SelectItem>
+                                            <SelectItem value="Otro">Otro</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                     {errors.primarySport && <p className="text-xs text-destructive">{errors.primarySport}</p>}
                                 </div>
                             </div>
