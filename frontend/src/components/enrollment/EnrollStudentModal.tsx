@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -78,7 +78,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
       );
 
       toast({
-        title: '¡Inscripción exitosa!',
+        title: 'Â¡InscripciÃ³n exitosa!',
         description: `${selectedStudent.full_name} ha sido inscrito en ${selectedClass.name}`,
       });
 
@@ -115,8 +115,8 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
     return (
       <Dialog open={open} onOpenChange={() => {}}>
         <DialogContent>
-          <div className=\"flex items-center justify-center p-8\">
-            <Loader2 className=\"h-8 w-8 animate-spin text-primary\" />
+          <div className="flex items-center justify-center p-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         </DialogContent>
       </Dialog>
@@ -125,13 +125,13 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className=\"max-w-2xl max-h-[80vh] overflow-y-auto\">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className=\"flex items-center gap-2\">
-            <UserPlus className=\"h-5 w-5 text-primary\" />
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" />
             Inscribir Estudiante en Clase
           </DialogTitle>
-          <div className=\"flex gap-2 mt-2\">
+          <div className="flex gap-2 mt-2">
             <Badge variant={step === 'select-student' ? 'default' : 'outline'}>
               1. Estudiante
             </Badge>
@@ -145,23 +145,23 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         </DialogHeader>
 
         {step === 'select-student' && (
-          <div className=\"space-y-4\">
+          <div className="space-y-4">
             <div>
               <Label>Seleccionar Estudiante</Label>
-              <div className=\"relative mt-2\">
-                <Search className=\"absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground\" />
+              <div className="relative mt-2">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder=\"Buscar estudiante...\"
+                  placeholder="Buscar estudiante..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className=\"pl-10\"
+                  className="pl-10"
                 />
               </div>
             </div>
 
-            <div className=\"max-h-[400px] overflow-y-auto space-y-2\">
+            <div className="max-h-[400px] overflow-y-auto space-y-2">
               {filteredStudents.length === 0 ? (
-                <div className=\"text-center py-8 text-muted-foreground\">
+                <div className="text-center py-8 text-muted-foreground">
                   No se encontraron estudiantes activos
                 </div>
               ) : (
@@ -173,15 +173,15 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
                     }`}
                     onClick={() => setSelectedStudent(student)}
                   >
-                    <div className=\"flex items-center justify-between\">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <p className=\"font-medium\">{student.full_name}</p>
-                        <p className=\"text-sm text-muted-foreground\">
-                          {student.grade ? `Grado ${student.grade}` : 'Sin grado'} • {student.parent_name || 'Sin padre/madre registrado'}
+                        <p className="font-medium">{student.full_name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {student.grade ? `Grado ${student.grade}` : 'Sin grado'} â€¢ {student.parent_name || 'Sin padre/madre registrado'}
                         </p>
                       </div>
                       {selectedStudent?.id === student.id && (
-                        <CheckCircle2 className=\"h-5 w-5 text-primary\" />
+                        <CheckCircle2 className="h-5 w-5 text-primary" />
                       )}
                     </div>
                   </div>
@@ -192,19 +192,19 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         )}
 
         {step === 'select-class' && (
-          <div className=\"space-y-4\">
-            <div className=\"bg-accent p-3 rounded-lg\">
-              <p className=\"text-sm text-muted-foreground\">Inscribiendo a:</p>
-              <p className=\"font-medium\">{selectedStudent?.full_name}</p>
+          <div className="space-y-4">
+            <div className="bg-accent p-3 rounded-lg">
+              <p className="text-sm text-muted-foreground">Inscribiendo a:</p>
+              <p className="font-medium">{selectedStudent?.full_name}</p>
             </div>
 
             <div>
               <Label>Seleccionar Clase</Label>
             </div>
 
-            <div className=\"max-h-[400px] overflow-y-auto space-y-2\">
+            <div className="max-h-[400px] overflow-y-auto space-y-2">
               {availableClasses.length === 0 ? (
-                <div className=\"text-center py-8 text-muted-foreground\">
+                <div className="text-center py-8 text-muted-foreground">
                   No hay clases disponibles con cupos
                 </div>
               ) : (
@@ -216,21 +216,21 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
                     }`}
                     onClick={() => setSelectedClass(classItem)}
                   >
-                    <div className=\"flex items-center justify-between\">
-                      <div className=\"flex-1\">
-                        <p className=\"font-medium\">{classItem.name}</p>
-                        <p className=\"text-sm text-muted-foreground\">
-                          {classItem.sport} • {classItem.level}
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium">{classItem.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {classItem.sport} â€¢ {classItem.level}
                         </p>
-                        <div className=\"flex items-center gap-2 mt-1\">
-                          <Users className=\"h-3 w-3\" />
-                          <span className=\"text-xs\">
+                        <div className="flex items-center gap-2 mt-1">
+                          <Users className="h-3 w-3" />
+                          <span className="text-xs">
                             {classItem.enrolled_count}/{classItem.capacity} inscritos
                           </span>
                         </div>
                       </div>
                       {selectedClass?.id === classItem.id && (
-                        <CheckCircle2 className=\"h-5 w-5 text-primary\" />
+                        <CheckCircle2 className="h-5 w-5 text-primary" />
                       )}
                     </div>
                   </div>
@@ -241,29 +241,29 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         )}
 
         {step === 'confirm' && (
-          <div className=\"space-y-4\">
-            <div className=\"text-center py-6 space-y-4\">
-              <div className=\"mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center\">
-                <CheckCircle2 className=\"h-8 w-8 text-primary\" />
+          <div className="space-y-4">
+            <div className="text-center py-6 space-y-4">
+              <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                <CheckCircle2 className="h-8 w-8 text-primary" />
               </div>
               <div>
-                <p className=\"text-lg font-semibold\">Confirmar Inscripción</p>
-                <p className=\"text-sm text-muted-foreground mt-2\">
-                  ¿Deseas inscribir al siguiente estudiante?
+                <p className="text-lg font-semibold">Confirmar InscripciÃ³n</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Â¿Deseas inscribir al siguiente estudiante?
                 </p>
               </div>
             </div>
 
-            <div className=\"bg-accent p-4 rounded-lg space-y-3\">
+            <div className="bg-accent p-4 rounded-lg space-y-3">
               <div>
-                <p className=\"text-sm text-muted-foreground\">Estudiante:</p>
-                <p className=\"font-medium\">{selectedStudent?.full_name}</p>
-                <p className=\"text-sm\">{selectedStudent?.grade && `Grado ${selectedStudent.grade}`}</p>
+                <p className="text-sm text-muted-foreground">Estudiante:</p>
+                <p className="font-medium">{selectedStudent?.full_name}</p>
+                <p className="text-sm">{selectedStudent?.grade && `Grado ${selectedStudent.grade}`}</p>
               </div>
-              <div className=\"border-t pt-3\">
-                <p className=\"text-sm text-muted-foreground\">En la clase:</p>
-                <p className=\"font-medium\">{selectedClass?.name}</p>
-                <p className=\"text-sm\">{selectedClass?.sport} • {selectedClass?.level}</p>
+              <div className="border-t pt-3">
+                <p className="text-sm text-muted-foreground">En la clase:</p>
+                <p className="font-medium">{selectedClass?.name}</p>
+                <p className="text-sm">{selectedClass?.sport} â€¢ {selectedClass?.level}</p>
               </div>
             </div>
           </div>
@@ -272,7 +272,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         <DialogFooter>
           {step === 'select-student' && (
             <>
-              <Button variant=\"outline\" onClick={handleClose}>
+              <Button variant="outline" onClick={handleClose}>
                 Cancelar
               </Button>
               <Button
@@ -285,8 +285,8 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
           )}
           {step === 'select-class' && (
             <>
-              <Button variant=\"outline\" onClick={() => setStep('select-student')}>
-                Atrás
+              <Button variant="outline" onClick={() => setStep('select-student')}>
+                AtrÃ¡s
               </Button>
               <Button
                 onClick={() => setStep('confirm')}
@@ -298,19 +298,19 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
           )}
           {step === 'confirm' && (
             <>
-              <Button variant=\"outline\" onClick={() => setStep('select-class')} disabled={enrolling}>
-                Atrás
+              <Button variant="outline" onClick={() => setStep('select-class')} disabled={enrolling}>
+                AtrÃ¡s
               </Button>
               <Button onClick={handleEnroll} disabled={enrolling}>
                 {enrolling ? (
                   <>
-                    <Loader2 className=\"h-4 w-4 mr-2 animate-spin\" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Inscribiendo...
                   </>
                 ) : (
                   <>
-                    <UserPlus className=\"h-4 w-4 mr-2\" />
-                    Confirmar Inscripción
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Confirmar InscripciÃ³n
                   </>
                 )}
               </Button>

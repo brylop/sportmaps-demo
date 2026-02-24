@@ -1,5 +1,5 @@
 // Dashboard Types - Centralized type definitions
-export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'super_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer';
+export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'super_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer' | 'reporter';
 
 export interface StatCardProps {
   title: string;

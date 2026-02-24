@@ -31,7 +31,7 @@ export default function ReportsPage() {
       setLoading(true);
       try {
         // 1. Fetch Students/Enrollments for Occupancy & Growth
-        let enrollmentsQuery = supabase
+        const enrollmentsQuery = supabase
           .from('enrollments')
           .select('status, created_at, programs(name, capacity)');
 

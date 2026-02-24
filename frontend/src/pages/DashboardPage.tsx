@@ -1,6 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -13,7 +13,6 @@ import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollment
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
-import { EmptyDashboardState } from '@/components/dashboard/EmptyDashboardState';
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
 import { Plus, MapPin } from 'lucide-react';
@@ -32,7 +31,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [showProfileBanner, setShowProfileBanner] = useState(true);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
-  const [invitation, setInvitation] = useState<any | null>(null);
+  const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
@@ -61,7 +60,7 @@ export default function DashboardPage() {
   const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
   const { data: notifications } = useNotifications();
 
-  const refreshOnboardingData = async () => {
+  const refreshOnboardingData = useCallback(async () => {
     if (!profile || !user) return;
 
     try {
@@ -98,26 +97,33 @@ export default function DashboardPage() {
         if (!invError && invData && invData.length > 0) {
           currentInvites = invData[0];
           setInvitation({
-            id: currentInvites.id,
-            school_name: currentInvites.school_name || 'Tu Academia',
-            role_to_assign: currentInvites.role_to_assign
+            schoolName: currentInvites.school_name,
+            role: currentInvites.role_to_assign,
+            parentName: currentInvites.parent_name,
+            childName: currentInvites.child_name,
+            programName: currentInvites.program_name
           });
         } else {
           setInvitation(null);
         }
-      } catch (invError) {
-        console.warn('Could not fetch invitations (RPC):', invError);
+      } catch (invErr) {
+        console.warn('Invitations fetch error:', invErr);
       }
 
-      // 3. Obtener pasos dinámicos usando la lógica centralizada
-      const steps = getStepsForRole((status as any).role || profile.role, {
-        ...status,
-        has_pending_invitation: !!currentInvites
-      });
-      setOnboardingSteps(steps);
+      // 3. Procesar resultados para el checklist
+      if (status) {
+        const steps = getStepsForRole(profile.role as UserRole, status);
+        setOnboardingSteps(steps);
 
-      // Update local onboarding status if provided by DB
-      if ((status as any).school_id && (status as any).has_school) {
+        if (steps.every(s => s.completed)) {
+          setShowProfileBanner(false);
+        }
+
+        // 4. Integrar lógica del Coach Wizard
+        if (profile.role === 'coach') {
+          const isWizardIncomplete = !status.has_bio || !status.has_experience || !status.has_sports;
+          setShowCoachWizard(isWizardIncomplete);
+        }
         // Here we could sync status.has_school etc to state if needed
       }
     } catch (error) {
@@ -125,11 +131,11 @@ export default function DashboardPage() {
     } finally {
       setLoadingStatus(false);
     }
-  };
+  }, [profile, user, toast]);
 
   useEffect(() => {
     refreshOnboardingData();
-  }, [profile, user, config.onboardingSteps]);
+  }, [refreshOnboardingData, config.onboardingSteps]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">

@@ -321,6 +321,24 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
+    ],
+
+    reporter: [
+      {
+        title: 'Auditoría',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Reportes Globales', href: '/school-reports', icon: FileText },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign }
+        ]
+      },
+      {
+        title: 'Sistema',
+        items: [
+          { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      }
     ]
   };
 

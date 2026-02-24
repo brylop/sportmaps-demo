@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase
         .from('profiles')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         .insert({
           id: userId,
           full_name: userData.full_name || 'Usuario',

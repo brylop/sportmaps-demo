@@ -4,13 +4,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2, MapPin } from "lucide-react";
 
 export const SchoolSwitcher = () => {
-    const { schoolId, activeBranchId, availableSchools, switchSchool, loading } = useSchoolContext();
+    const { schoolId, activeBranchId, availableSchools, switchSchool, loading, totalBranches } = useSchoolContext();
 
     if (loading) {
         return <div className="h-9 w-full animate-pulse rounded-md bg-muted" />;
     }
 
-    if (!availableSchools || availableSchools.length === 0) return null;
+    if (!availableSchools || availableSchools.length === 0 || (availableSchools.length === 1 && totalBranches <= 1)) return null;
 
     // Use a composite key to handle same school with different branches
     const currentKey = `${schoolId}:${activeBranchId || 'all'}`;

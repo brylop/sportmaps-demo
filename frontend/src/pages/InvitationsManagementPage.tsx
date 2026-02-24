@@ -43,6 +43,7 @@ interface Invitation {
   registration_link?: string;
   role_to_assign?: string;
   program_id?: string;
+  branch_name?: string;
 }
 
 export default function InvitationsManagementPage() {
@@ -60,7 +61,7 @@ export default function InvitationsManagementPage() {
     childName: '',
     programId: '',
     monthlyFee: defaultMonthlyFee,
-    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest',
+    role: 'parent' as UserRole | 'guest',
   });
 
   const [suggestedContacts, setSuggestedContacts] = useState<{ name: string, email: string, phone?: string, childName?: string, programId?: string }[]>([]);
@@ -106,7 +107,7 @@ export default function InvitationsManagementPage() {
           .eq('school_id', schoolId);
 
         if (data) {
-          contacts = data.map((d: any) => ({
+          contacts = (data as any[]).map((d) => ({
             name: d.parent_name || '',
             email: d.profiles?.email || '',
             phone: d.parent_phone || '',
@@ -122,7 +123,7 @@ export default function InvitationsManagementPage() {
           .eq('role', formData.role);
 
         if (data) {
-          contacts = data.map((d: any) => ({
+          contacts = (data as any[]).map((d) => ({
             name: d.profiles?.full_name || '',
             email: d.profiles?.email || '',
             phone: d.profiles?.phone || ''
@@ -137,7 +138,7 @@ export default function InvitationsManagementPage() {
   }, [schoolId, formData.role]);
 
   // Fetch real invitations
-  const { data: invitations = [], isLoading: loadingInvites } = useQuery({
+  const { data: invitations = [], isLoading } = useQuery<Invitation[]>({
     queryKey: ['invitations', schoolId, activeBranchId],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -156,7 +157,7 @@ export default function InvitationsManagementPage() {
       if (error) throw error;
 
       // Map DB fields to Invitation interface
-      return (data || []).map((inv: any) => ({
+      return (data || []).map((inv: any) => ({ // inv here is from DB result
         id: inv.id,
         invited_email: inv.email,
         parent_phone: inv.parent_phone || '',
@@ -167,7 +168,7 @@ export default function InvitationsManagementPage() {
         created_at: inv.created_at,
         role_to_assign: inv.role_to_assign,
         branch_name: inv.branches?.name || 'Sede Principal'
-      })) as any[];
+      })) as Invitation[];
     },
     enabled: !!schoolId,
   });
@@ -294,7 +295,7 @@ export default function InvitationsManagementPage() {
         childName: '',
         programId: '',
         monthlyFee: defaultMonthlyFee,
-        role: 'parent'
+        role: 'parent' as UserRole | 'guest'
       });
 
       toast({
@@ -311,13 +312,14 @@ export default function InvitationsManagementPage() {
         });
       }
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: '❌ Error',
-        description: error.message || 'No se pudo crear la invitación',
+        description: `No se pudo enviar la invitación: ${message}`,
         variant: 'destructive',
       });
-    }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -606,6 +608,8 @@ export default function InvitationsManagementPage() {
                   { id: 'parent', label: 'Padre/Madre' },
                   { id: 'coach', label: 'Entrenador' },
                   { id: 'athlete', label: 'Atleta' },
+                  { id: 'reporter', label: 'Súper Usuario (Reporter)' },
+                  { id: 'school_admin', label: 'Administrador' },
                   { id: 'guest', label: 'Invitado' },
                 ].map((role) => (
                   <Button
@@ -615,7 +619,7 @@ export default function InvitationsManagementPage() {
                     className="w-full text-xs h-9 px-2"
                     onClick={() => setFormData({
                       ...formData,
-                      role: role.id as any,
+                      role: role.id as 'parent' | 'coach' | 'athlete' | 'guest',
                       // Clear role-specific fields when switching to non-parent roles
                       ...(role.id !== 'parent' ? {
                         childName: '',

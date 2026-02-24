@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
+import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -29,6 +30,11 @@ interface PaymentTransaction {
   program: { name: string } | null;
 }
 
+/**
+ * Página principal para la gestión y automatización de pagos de la escuela.
+ * Permite a los administradores validar comprobantes manuales, ver el historial de transacciones
+ * y exportar reportes financieros.
+ */
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -38,14 +44,6 @@ export default function PaymentsAutomationPage() {
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
   const [processingId, setProcessingId] = useState<string | null>(null);
-
-  // Authentication Guard
-  if (!profile || (profile.role !== 'school' && profile.role !== 'admin' && profile.role !== 'coach')) {
-    // Allow coaches if they have permission (checked internally in components usually, but for page access we might need stricter check)
-    // For now, let's assume if they can navigate here, they are allowed, but we'll filter data.
-    // If strictly school admin page:
-    if (profile.role !== 'school' && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
-  }
 
   const fetchPayments = async () => {
     if (!schoolId) return;
@@ -84,7 +82,7 @@ export default function PaymentsAutomationPage() {
       // Transform data to flat structure if needed, or keep as is.
       // The types returned by select need casting or proper type definition match.
       // We'll use 'any' casting for the join results to match our interface simply.
-      const mappedPayments: PaymentTransaction[] = (data || []).map((p: any) => ({
+      const mappedPayments: PaymentTransaction[] = ((data as any[] || [])).map((p) => ({
         id: p.id,
         amount: p.amount,
         status: p.status,
@@ -96,15 +94,15 @@ export default function PaymentsAutomationPage() {
         parent: p.parent,
         child: p.child,
         program: p.program
-      }));
+      })) as PaymentTransaction[];
 
       setPayments(mappedPayments);
 
-    } catch (error: any) {
-      console.error('Error fetching payments:', error);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error al cargar pagos',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -116,6 +114,21 @@ export default function PaymentsAutomationPage() {
     fetchPayments();
   }, [schoolId, activeBranchId]);
 
+  // Authentication Guard (Moved after all hooks to comply with Rules of Hooks)
+  if (!profile || (profile.role !== 'school' && profile.role !== 'admin' && profile.role !== 'coach')) {
+    // Allow coaches if they have permission (checked internally in components usually, but for page access we might need stricter check)
+    // For now, let's assume if they can navigate here, they are allowed, but we'll filter data.
+    // If strictly school admin page:
+    if (profile.role !== 'school' && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  }
+
+  /**
+   * Aprueba o rechaza un pago registrado manualmente (transferencia/nequi).
+   * Si se aprueba, activa automáticamente la inscripción asociada y envía notificaciones.
+   * 
+   * @param paymentId UUID del pago a procesar.
+   * @param action Acción a realizar: 'approve' (aprobar) o 'reject' (rechazar).
+   */
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'rejected';
@@ -196,21 +209,23 @@ export default function PaymentsAutomationPage() {
         description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
         variant: action === 'approve' ? 'default' : 'destructive'
       });
-
-      // Refresh list
       await fetchPayments();
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: 'Error',
-        description: error.message || 'No se pudo procesar la acción',
-        variant: 'destructive'
+        description: `No se pudo procesar la acción: ${message}`,
+        variant: 'destructive',
       });
     } finally {
       setProcessingId(null);
     }
   };
 
+  /**
+   * Genera y descarga un archivo CSV con el historial de pagos filtrado.
+   */
   const handleExportCSV = () => {
     if (payments.length === 0) {
       toast({
@@ -220,17 +235,13 @@ export default function PaymentsAutomationPage() {
       return;
     }
 
-    const headers = ['Fecha', 'Estudiante', 'Padre', 'Email', 'Monto', 'Concepto', 'Metodo', 'Estado'];
-    const rows = payments.map(p => [
-      new Date(p.created_at).toLocaleDateString(),
-      p.child?.full_name || 'N/A',
-      p.parent?.full_name || 'N/A',
-      p.parent?.email || 'N/A',
-      p.amount,
-      p.concept,
-      p.payment_method || 'N/A',
-      p.status
-    ]);
+    const headers = ['Fecha', 'Padre', 'Estudiante', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    const rows = (payments as PaymentTransaction[]).map(p => {
+      const date = new Date(p.created_at).toLocaleDateString();
+      const parentName = p.parent?.full_name || 'Desconocido';
+      const childName = p.child?.full_name || 'Desconocido';
+      return [date, parentName, childName, p.amount, p.status, p.concept, p.payment_type || 'N/A'];
+    });
 
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -247,6 +258,45 @@ export default function PaymentsAutomationPage() {
       title: "Reporte Generado",
       description: "El archivo CSV se ha descargado correctamente.",
     });
+  };
+
+  const handleShowProof = async (payment: PaymentTransaction) => {
+    if (!payment.receipt_url) return;
+
+    // If it's already a full URL (legacy or external), just show it
+    if (payment.receipt_url.startsWith('http')) {
+      setViewingProof({
+        open: true,
+        url: payment.receipt_url,
+        student: payment.child?.full_name || 'Estudiante',
+        amount: payment.amount
+      });
+      return;
+    }
+
+    // Generate signed URL for private bucket
+    try {
+      const cleanPath = getStoragePath(payment.receipt_url);
+      const { data, error } = await supabase.storage
+        .from('payment-receipts')
+        .createSignedUrl(cleanPath, 300); // 5 minutes
+
+      if (error) throw error;
+
+      setViewingProof({
+        open: true,
+        url: data.signedUrl,
+        student: payment.child?.full_name || 'Estudiante',
+        amount: payment.amount
+      });
+    } catch (err: unknown) {
+      console.error("Error generating signed URL:", err);
+      toast({
+        title: "Error de acceso",
+        description: "No se pudo generar el acceso seguro al comprobante.",
+        variant: "destructive"
+      });
+    }
   };
 
   const formatCurrency = (amount: number) =>
@@ -394,24 +444,18 @@ export default function PaymentsAutomationPage() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span>
-                            <span className="text-xs text-muted-foreground">{payment.parent?.email}</span>
                           </div>
                         </TableCell>
                         <TableCell className="font-bold text-primary">
                           {formatCurrency(payment.amount)}
                         </TableCell>
                         <TableCell>
-                          {payment.receipt_url || payment.payment_method === 'manual' ? (
+                          {payment.receipt_url ? (
                             <Button
                               variant="outline"
                               size="sm"
                               className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50"
-                              onClick={() => setViewingProof({
-                                open: true,
-                                url: payment.receipt_url || '',
-                                student: payment.child?.full_name || 'Estudiante',
-                                amount: payment.amount
-                              })}
+                              onClick={() => handleShowProof(payment)}
                             >
                               <Eye className="h-3 w-3" /> Ver
                             </Button>
@@ -469,6 +513,7 @@ export default function PaymentsAutomationPage() {
                     <TableHead>Monto</TableHead>
                     <TableHead>Método</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Soporte</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -492,6 +537,20 @@ export default function PaymentsAutomationPage() {
                             payment.status === 'rejected' ? 'Rechazado' :
                               payment.status === 'awaiting_approval' ? 'Por Validar' : payment.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {payment.receipt_url ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-blue-600 hover:bg-blue-50"
+                            onClick={() => handleShowProof(payment)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

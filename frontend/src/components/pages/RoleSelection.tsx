@@ -89,7 +89,7 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
             { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
           ]);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
       } catch (err: unknown) {
         console.error("Error fetching roles:", err);
         // Fallback silencioso para no bloquear al usuario

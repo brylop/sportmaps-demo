@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { branchesAPI, SchoolBranch } from '@/lib/api/branches';
 import { Plus, Edit2, Trash2, MapPin, Phone, Building2, Users, Star } from 'lucide-react';
@@ -28,13 +28,7 @@ export default function SchoolBranchesManagementPage() {
         is_main: false,
     });
 
-    useEffect(() => {
-        if (schoolId) {
-            loadBranches();
-        }
-    }, [schoolId]);
-
-    async function loadBranches() {
+    const loadBranches = useCallback(async () => {
         if (!schoolId) return;
         try {
             setLoading(true);
@@ -46,7 +40,13 @@ export default function SchoolBranchesManagementPage() {
         } finally {
             setLoading(false);
         }
-    }
+    }, [schoolId]);
+
+    useEffect(() => {
+        if (schoolId) {
+            loadBranches();
+        }
+    }, [schoolId, loadBranches]);
 
     const resetForm = () => {
         setFormData({ name: '', address: '', city: '', phone: '', capacity: 50, is_main: false });
@@ -104,8 +104,9 @@ export default function SchoolBranchesManagementPage() {
             await branchesAPI.deleteBranch(id);
             toast.success('Sede eliminada');
             loadBranches();
-        } catch (error: any) {
-            toast.error(error.message || 'Error al eliminar la sede');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            toast.error(message || 'Error al eliminar la sede');
         }
     };
 
