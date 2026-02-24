@@ -14,7 +14,7 @@ export interface SchoolProgram {
 export interface SchoolRole {
     schoolId: string;
     schoolName: string;
-    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer';
+    role: 'owner' | 'admin' | 'super_admin' | 'school_admin' | 'school' | 'coach' | 'staff' | 'parent' | 'athlete' | 'viewer' | 'wellness_professional' | 'store_owner' | 'organizer';
     branchId: string | null;
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
 }
