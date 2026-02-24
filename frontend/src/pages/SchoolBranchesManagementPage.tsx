@@ -121,7 +121,7 @@ export default function SchoolBranchesManagementPage() {
         });
     };
 
-    const BranchForm = ({ onSubmit, submitLabel }: { onSubmit: (e: React.FormEvent) => void; submitLabel: string }) => (
+    const renderBranchForm = (onSubmit: (e: React.FormEvent) => void, submitLabel: string) => (
         <form onSubmit={onSubmit}>
             <div className="grid gap-4 py-4">
                 <div className="space-y-2">
@@ -225,7 +225,7 @@ export default function SchoolBranchesManagementPage() {
                                 Define una nueva ubicación física para tu academia.
                             </DialogDescription>
                         </DialogHeader>
-                        <BranchForm onSubmit={handleCreate} submitLabel="Crear Sede" />
+                        {renderBranchForm(handleCreate, 'Crear Sede')}
                     </DialogContent>
                 </Dialog>
             </div>
@@ -354,7 +354,7 @@ export default function SchoolBranchesManagementPage() {
                             Actualiza los datos de "{editingBranch?.name}".
                         </DialogDescription>
                     </DialogHeader>
-                    <BranchForm onSubmit={handleUpdate} submitLabel="Guardar Cambios" />
+                    {renderBranchForm(handleUpdate, 'Guardar Cambios')}
                 </DialogContent>
             </Dialog>
         </div>

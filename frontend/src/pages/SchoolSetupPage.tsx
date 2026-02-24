@@ -1,7 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,9 +11,9 @@ import { supabase } from '@/integrations/supabase/client';
 
 export default function SchoolSetupPage() {
     const { user, profile } = useAuth();
-    const { setOnboardingStatus, setActiveSchoolId } = useSchoolContext();
+    // Note: useSchoolContext is a plain hook (not a shared Context provider),
+    // so we force-reload after creation to re-resolve the context.
     const { toast } = useToast();
-    const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(false);
     const [schoolName, setSchoolName] = useState('');
     const [schoolType, setSchoolType] = useState('');
@@ -41,19 +39,7 @@ export default function SchoolSetupPage() {
 
             if (schoolError) throw schoolError;
 
-            // 2. Crear Sede Principal
-            const { error: branchError } = await supabase
-                .from('school_branches')
-                .insert({
-                    school_id: school.id,
-                    name: 'Sede Principal',
-                    is_main: true,
-                    status: 'active'
-                });
-
-            if (branchError) throw branchError;
-
-            // 3. Vincular como dueño
+            // 2. Vincular como dueño (FIRST — needed for branch RLS)
             const { error: memberError } = await supabase
                 .from('school_members')
                 .insert({
@@ -65,16 +51,25 @@ export default function SchoolSetupPage() {
 
             if (memberError) throw memberError;
 
+            // 3. Crear Sede Principal (AFTER membership exists)
+            const { error: branchError } = await supabase
+                .from('school_branches')
+                .insert({
+                    school_id: school.id,
+                    name: 'Sede Principal',
+                    is_main: true,
+                    status: 'active'
+                });
+
+            if (branchError) throw branchError;
+
             toast({
                 title: "¡Academia registrada!",
                 description: "Ahora puedes comenzar a configurar tu academia.",
             });
 
-            // Actualizar contexto y redirigir
-            if (setActiveSchoolId) setActiveSchoolId(school.id);
-            if (setOnboardingStatus) setOnboardingStatus('in_progress');
-
-            navigate('/dashboard');
+            // Force full reload to re-resolve school context with new membership
+            window.location.href = '/dashboard';
         } catch (error: any) {
             console.error('Error creating school:', error);
             toast({
@@ -91,7 +86,7 @@ export default function SchoolSetupPage() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <p>No tienes permisos para acceder a esta página.</p>
-                <Button onClick={() => navigate('/dashboard')}>Ir al Dashboard</Button>
+                <Button onClick={() => window.location.href = '/dashboard'}>Ir al Dashboard</Button>
             </div>
         );
     }

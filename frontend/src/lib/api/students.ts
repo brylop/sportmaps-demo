@@ -77,6 +77,7 @@ export interface StudentViewRow {
   program_name?: string;
   program_sport?: string;
   price_monthly?: number;
+  branch_name?: string;
 }
 
 export interface StudentStats {
@@ -119,13 +120,18 @@ class StudentsAPI {
   /**
    * Get enriched students data for School Management UI (uses 'students' VIEW)
    */
-  async getSchoolView(schoolId: string): Promise<StudentViewRow[]> {
+  async getSchoolView(schoolId: string, branchId?: string | null): Promise<StudentViewRow[]> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('students') // Queries the Database View
         .select('*')
-        .eq('school_id', schoolId)
-        .order('created_at', { ascending: false });
+        .eq('school_id', schoolId);
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
       return data as StudentViewRow[] || [];

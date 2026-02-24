@@ -63,16 +63,21 @@ export default function DashboardPage() {
     if (!profile || !user) return;
 
     try {
-      // 0. Auto-accept invitation if invite ID is in URL
+      // 0. Auto-accept invitation if invite ID is in URL or localStorage
       const inviteUrlId = new URLSearchParams(window.location.search).get('invite');
-      if (inviteUrlId && inviteUrlId.length > 30) { // Basic UUID check
+      const inviteStoredId = localStorage.getItem('pending_invite_id');
+      const pendingInviteId = inviteUrlId || inviteStoredId;
+
+      if (pendingInviteId && pendingInviteId.length > 30) { // Basic UUID check
         const { error: acceptError } = await (supabase.rpc as any)('accept_invitation', {
-          p_invite_id: inviteUrlId
+          p_invite_id: pendingInviteId
         });
+        // Clear localStorage regardless of error (avoid infinite retries)
+        localStorage.removeItem('pending_invite_id');
         if (!acceptError) {
           toast({
             title: '¡Invitación aceptada!',
-            description: 'Te hemos vinculado correctamente con la academia y tus hijos.',
+            description: 'Te hemos vinculado correctamente con la academia.',
           });
           // Remove param from URL without refreshing
           const newUrl = window.location.pathname;
@@ -84,28 +89,28 @@ export default function DashboardPage() {
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
       if (statusError) throw statusError;
 
-      // 2. Buscar invitaciones pendientes
-      const { data: invites } = await (supabase
-        .from('invitations' as any)
-        .select('id, role_to_assign, schools(name)') as any)
-        .eq('email', user.email)
-        .eq('status', 'pending')
-        .maybeSingle();
-
-      if (invites) {
-        setInvitation({
-          id: invites.id,
-          school_name: (invites.schools as any)?.name || 'Tu Academia',
-          role_to_assign: invites.role_to_assign
-        });
-      } else {
-        setInvitation(null);
+      // 2. Buscar invitaciones pendientes usando RPC (más robusto contra RLS)
+      let currentInvites = null;
+      try {
+        const { data: invData, error: invError } = await (supabase.rpc as any)('get_my_invitations');
+        if (!invError && invData && invData.length > 0) {
+          currentInvites = invData[0];
+          setInvitation({
+            id: currentInvites.id,
+            school_name: currentInvites.school_name || 'Tu Academia',
+            role_to_assign: currentInvites.role_to_assign
+          });
+        } else {
+          setInvitation(null);
+        }
+      } catch (invError) {
+        console.warn('Could not fetch invitations (RPC):', invError);
       }
 
       // 3. Obtener pasos dinámicos usando la lógica centralizada
       const steps = getStepsForRole((status as any).role || profile.role, {
         ...status,
-        has_pending_invitation: !!invites
+        has_pending_invitation: !!currentInvites
       });
       setOnboardingSteps(steps);
 
@@ -267,7 +272,10 @@ export default function DashboardPage() {
       {invitation && (
         <InvitationBanner
           invitation={invitation}
-          onAction={refreshOnboardingData}
+          onAction={() => {
+            setInvitation(null);
+            refreshOnboardingData();
+          }}
         />
       )}
 

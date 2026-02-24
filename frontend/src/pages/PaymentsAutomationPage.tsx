@@ -211,6 +211,44 @@ export default function PaymentsAutomationPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (payments.length === 0) {
+      toast({
+        title: "No hay datos",
+        description: "No hay transacciones para exportar.",
+      });
+      return;
+    }
+
+    const headers = ['Fecha', 'Estudiante', 'Padre', 'Email', 'Monto', 'Concepto', 'Metodo', 'Estado'];
+    const rows = payments.map(p => [
+      new Date(p.created_at).toLocaleDateString(),
+      p.child?.full_name || 'N/A',
+      p.parent?.full_name || 'N/A',
+      p.parent?.email || 'N/A',
+      p.amount,
+      p.concept,
+      p.payment_method || 'N/A',
+      p.status
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.className = "hidden";
+    link.setAttribute("href", url);
+    link.setAttribute("download", `reporte_pagos_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Reporte Generado",
+      description: "El archivo CSV se ha descargado correctamente.",
+    });
+  };
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
 
@@ -218,8 +256,8 @@ export default function PaymentsAutomationPage() {
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   // Separate lists
-  const pendingPayments = payments.filter(p => p.status === 'pending');
-  const historyPayments = payments.filter(p => p.status !== 'pending');
+  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const historyPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
 
   // Stats calculation
   const totalRevenue = payments
@@ -243,7 +281,7 @@ export default function PaymentsAutomationPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4 mr-2" />}
             Actualizar
           </Button>
-          <Button variant="default" onClick={() => {/* Future Export */ }}>
+          <Button variant="default" onClick={handleExportCSV}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Reporte
           </Button>
@@ -444,10 +482,15 @@ export default function PaymentsAutomationPage() {
                       <TableCell>
                         <Badge variant={
                           payment.status === 'paid' ? 'default' :
-                            payment.status === 'rejected' ? 'destructive' : 'secondary'
-                        } className={payment.status === 'paid' ? 'bg-green-500 hover:bg-green-600' : ''}>
+                            payment.status === 'rejected' ? 'destructive' :
+                              payment.status === 'awaiting_approval' ? 'secondary' : 'outline'
+                        } className={
+                          payment.status === 'paid' ? 'bg-green-500 hover:bg-green-600' :
+                            payment.status === 'awaiting_approval' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200' : ''
+                        }>
                           {payment.status === 'paid' ? 'Pagado' :
-                            payment.status === 'rejected' ? 'Rechazado' : payment.status}
+                            payment.status === 'rejected' ? 'Rechazado' :
+                              payment.status === 'awaiting_approval' ? 'Por Validar' : payment.status}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -469,6 +512,9 @@ export default function PaymentsAutomationPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Comprobante de Pago</DialogTitle>
+            <DialogDescription>
+              Verificando soporte de pago para {viewingProof.student}.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="bg-muted p-3 rounded-lg flex justify-between items-center">

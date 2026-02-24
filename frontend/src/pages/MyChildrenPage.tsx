@@ -6,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { Badge } from '@/components/ui/badge';
 
 interface AllergyInfo {
   has_allergies: boolean;
@@ -47,7 +48,7 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*')
+        .select('*, schools(name), programs(name, sport, level)')
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
@@ -80,7 +81,7 @@ export default function MyChildrenPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {displayChildren?.map((child) => (
+        {displayChildren?.map((child: any) => (
           <Card key={child.id} className="hover:shadow-lg transition-shadow">
             <CardHeader className="pb-4">
               <div className="flex items-start justify-between">
@@ -155,17 +156,35 @@ export default function MyChildrenPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="space-y-2">
+                {child.programs && (
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <School className="w-4 h-4 text-muted-foreground" />
+                    <span>{child.programs.name} {child.programs.level ? `(${child.programs.level})` : ''}</span>
+                  </div>
+                )}
 
-              {(child as any).school_name && (
-                <div className="text-xs text-muted-foreground">
-                  🏫 {(child as any).school_name}
-                </div>
-              )}
-              {(child as any).monthly_fee && (
-                <div className="text-sm font-semibold text-primary">
-                  💰 Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format((child as any).monthly_fee)}
-                </div>
-              )}
+                {child.programs?.sport && (
+                  <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                    {child.programs.sport}
+                  </Badge>
+                )}
+
+                {child.schools?.name && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span role="img" aria-label="academia">🏫</span>
+                    <span>{child.schools.name}</span>
+                  </div>
+                )}
+
+                {child.monthly_fee && (
+                  <div className="flex items-center gap-2 text-sm font-bold text-green-600 dark:text-green-500 pt-1">
+                    <span role="img" aria-label="pago">💰</span>
+                    <span>Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(child.monthly_fee)}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="pt-3 space-y-2">
                 <Link to={`/children/${child.id}/progress`}>
                   <Button variant="outline" size="sm" className="w-full">

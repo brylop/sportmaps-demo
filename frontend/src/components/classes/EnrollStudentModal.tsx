@@ -145,9 +145,9 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                                 <div className="flex flex-wrap gap-2 mt-2">
                                     <Badge variant="secondary">{classItem.name}</Badge>
                                     <Badge variant="outline">{classItem.sport}</Badge>
-                                    <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
+                                    <Badge className={enrolledStudents.length >= (classItem.capacity || 20) ? 'bg-red-500' : 'bg-green-500'}>
                                         <Users className="h-3 w-3 mr-1" />
-                                        {classItem.enrolled_count}/{classItem.capacity}
+                                        {enrolledStudents.length}/{classItem.capacity || 20}
                                     </Badge>
                                 </div>
                             )}

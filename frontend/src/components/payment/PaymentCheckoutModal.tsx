@@ -125,17 +125,20 @@ export function PaymentCheckoutModal({
           if (updateError) throw updateError;
         } else {
           // Create mode - Insert new payment with awaiting_approval
+          const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
+
           const { error: insertError } = await supabase.from('payments').insert({
             parent_id: user?.id,
             child_id: studentId,
             program_id: programId,
             school_id: schoolId,
+            branch_id: studentData?.branch_id || null, // Auto-associate with student's branch
             amount: amount,
             concept: concept,
             status: 'awaiting_approval',
             payment_method: 'transfer',
             payment_date: new Date().toISOString(),
-            due_date: new Date().toISOString(), // In real app, this should be set correctly
+            due_date: new Date().toISOString(),
             receipt_url: proofUrl,
           });
           if (insertError) throw insertError;
@@ -173,11 +176,14 @@ export function PaymentCheckoutModal({
         error = updateError;
       } else {
         // Create mode
+        const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
+
         const { error: insertError } = await supabase.from('payments').insert({
           parent_id: user?.id,
           child_id: studentId,
           program_id: programId,
           school_id: schoolId,
+          branch_id: studentData?.branch_id || null,
           amount: amount,
           concept: concept,
           status: 'paid',
