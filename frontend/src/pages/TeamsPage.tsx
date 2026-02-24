@@ -50,6 +50,8 @@ interface TeamWithRelations {
   coach?: {
     full_name: string;
   }[];
+  coach_name?: string;
+  is_virtual?: boolean;
 }
 
 export default function TeamsPage() {
@@ -87,9 +89,8 @@ export default function TeamsPage() {
         }
       }
 
-      // Fetch all teams for the school to handle complex OR filtering in memory
-      // This avoids the 400 Bad Request error from complex PostgREST parsing
-      const { data, error } = await supabase
+      // 1. Fetch all teams for the school
+      const { data: teamsData, error: teamsError } = await supabase
         .from('teams')
         .select(`
           *,
@@ -100,32 +101,72 @@ export default function TeamsPage() {
         .eq('school_id', schoolId)
         .order('name');
 
-      if (error) {
-        console.error('Error fetching teams:', error);
-        throw error;
+      if (teamsError) {
+        console.error('Error fetching teams:', teamsError);
+        throw teamsError;
       }
 
-      let allTeams = (data || []) as unknown as TeamWithRelations[];
+      // 2. Fetch all programs for the school to catch those without teams
+      const { data: programsData, error: programsError } = await supabase
+        .from('programs')
+        .select('*')
+        .eq('school_id', schoolId)
+        .eq('active', true);
+
+      if (programsError) {
+        console.error('Error fetching programs:', programsError);
+        // We don't throw here to at least show teams
+      }
+
+      let allTeams = (teamsData || []) as unknown as TeamWithRelations[];
+
+      // 3. Identify programs that don't have a team record yet
+      if (programsData && programsData.length > 0) {
+        const teamProgramIds = new Set(allTeams.map(t => t.program_id).filter(Boolean));
+
+        const programsWithoutTeams = programsData
+          .filter(p => !teamProgramIds.has(p.id))
+          .map(p => ({
+            id: `prog-${p.id}`,
+            name: p.name,
+            sport: p.sport || 'General',
+            level: p.level || 'beginner',
+            max_students: p.max_participants || 20,
+            current_students: 0,
+            status: p.active ? 'active' : 'inactive',
+            school_id: schoolId,
+            program_id: p.id,
+            programs: p,
+            is_virtual: true,
+            coach_name: 'Ver programa' // Indicate it comes from program
+          }));
+
+        allTeams = [...allTeams, ...(programsWithoutTeams as any)];
+      }
+
+      const isAdminRole = (currentUserRole as string) === 'owner' ||
+        (currentUserRole as string) === 'school' ||
+        (currentUserRole as string) === 'admin' ||
+        (currentUserRole as string) === 'school_admin' ||
+        (currentUserRole as string) === 'super_admin';
 
       // Apply visibility logic by Role in memory
-      if (currentUserRole === 'coach' && userId) {
-        // Coach view: filter by coach_id (which is now school_staff.id)
-        // We check if it matches the staffId of the logged user
+      if (isAdminRole) {
+        // Admins see everything unless a specific branch is selected
+        if (activeBranchId) {
+          allTeams = allTeams.filter(team =>
+            team.branch_id === activeBranchId || !team.branch_id
+          );
+        }
+      } else if (currentUserRole === 'coach' && userId) {
+        // Coach view: filter by coach_id
         allTeams = allTeams.filter(team =>
           team.coach_id === staffId ||
-          team.coach_id === userId // Fallback for old/direct profile links if any
+          team.coach_id === userId ||
+          (team.programs?.coach_id === staffId)
         );
-      } else if (activeBranchId && (
-        (currentUserRole as string) === 'school_admin' ||
-        (currentUserRole as string) === 'admin' ||
-        (currentUserRole as string) === 'staff' ||
-        (currentUserRole as string) === 'school'
-      )) {
-        // For specific branch staff/admins, show their branch OR global (school-level) teams
-        allTeams = allTeams.filter(team =>
-          team.branch_id === activeBranchId ||
-          !team.branch_id
-        );
+      } else if (activeBranchId) {
+        allTeams = allTeams.filter(team => team.branch_id === activeBranchId);
       }
 
       return allTeams;
@@ -171,12 +212,9 @@ export default function TeamsPage() {
       {/* Header section like Invitations */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-            <Users className="h-8 w-8 text-primary" />
-            Mis Equipos
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Gestiona tus equipos y deportistas
+          <h1 className="text-2xl md:text-3xl font-bold">Mis Equipos</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            Gestiona tus grupos deportivos y programas ({teams.length})
           </p>
         </div>
 
@@ -387,7 +425,7 @@ export default function TeamsPage() {
                     <TableCell>
                       <div className="flex items-center gap-1.5 text-xs">
                         <Star className="w-3.5 h-3.5 text-orange-400" />
-                        {team.coach?.[0]?.full_name || 'Sin asignar'}
+                        {team.coach?.[0]?.full_name || team.coach_name || 'Sin asignar'}
                       </div>
                     </TableCell>
                     <TableCell>

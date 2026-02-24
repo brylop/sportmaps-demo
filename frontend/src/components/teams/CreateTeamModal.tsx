@@ -147,7 +147,9 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 status: formData.status,
             };
 
-            if (team?.id) {
+            const isVirtual = team?.id?.startsWith('prog-');
+
+            if (team?.id && !isVirtual) {
                 // Update existing team
                 const { error } = await supabase
                     .from('teams')
@@ -161,7 +163,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     description: 'Los cambios se guardaron correctamente',
                 });
             } else {
-                // Create new team
+                // Create new team (either from scratch or from a "virtual" program)
                 const { error } = await supabase
                     .from('teams')
                     .insert({
@@ -172,8 +174,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 if (error) throw error;
 
                 toast({
-                    title: '¡Equipo creado!',
-                    description: 'El equipo se creó correctamente',
+                    title: isVirtual ? '¡Equipo vinculado!' : '¡Equipo creado!',
+                    description: isVirtual
+                        ? 'Se ha creado el registro de equipo para este programa.'
+                        : 'El equipo se creó correctamente',
                 });
             }
 
