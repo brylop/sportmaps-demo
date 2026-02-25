@@ -56,7 +56,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
       school: [
         { id: 'create_school', title: 'Crea tu Academia', description: 'Registra los datos básicos de tu escuela.', icon: Building, href: '/school-config', completed: false },
         { id: 'add_staff', title: 'Equipo de Trabajo', description: 'Registra entrenadores o administrativos.', icon: Users, href: '/staff', completed: false },
-        { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/teams', completed: false },
+        { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/programs-management', completed: false },
         { id: 'invite_students', title: 'Invita Estudiantes', description: 'Registra y envía invitaciones.', icon: Users, href: '/students', completed: false }
       ],
       parent: [
@@ -72,7 +72,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
       ],
       athlete: [
         { id: 'complete_profile', title: 'Completar Perfil', description: 'Asegúrate de que tus datos estén al día.', icon: UserCircle, href: '/profile', completed: false },
-        { id: 'enroll_program', title: 'Inscribirse en Programa', description: 'Busca una academia y únete.', icon: Trophy, href: '/explore', completed: false }
+        { id: 'enroll_program', title: 'Inscribirse en Equipo', description: 'Busca una academia y únete.', icon: Trophy, href: '/explore', completed: false }
       ],
       wellness_professional: [
         { id: 'complete_profile', title: 'Perfil Profesional', description: 'Completa tu especialidad y datos.', icon: Heart, href: '/profile', completed: false }
@@ -95,7 +95,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Resumen de tu actividad deportiva',
           stats: [
             {
-              title: 'Programas Activos',
+              title: 'Equipos Activos',
               value: stats.activeEnrollments,
               description: stats.activeEnrollments === 0 ? 'Sin inscripciones activas' : 'En curso actualmente',
               icon: Trophy
@@ -123,7 +123,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           quickActions: [
             { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
             { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments', variant: 'outline' },
-            { label: 'Explorar Programas', icon: Users, href: '/explore', variant: 'outline' }
+            { label: 'Explorar Equipos', icon: Users, href: '/explore', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.athlete
         };
@@ -162,7 +162,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           activities: [],
           quickActions: [
             { label: 'Agregar Hijo', icon: Users, href: '/children', variant: 'default' },
-            { label: 'Ver Programas', icon: Activity, href: '/explore', variant: 'outline' },
+            { label: 'Ver Equipos', icon: Activity, href: '/explore', variant: 'outline' },
             { label: 'Mis Pagos', icon: TrendingUp, href: '/my-payments', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.parent
@@ -222,9 +222,9 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               icon: Users
             },
             {
-              title: 'Programas',
+              title: 'Equipos',
               value: stats.programs,
-              description: stats.programs === 0 ? 'Crea tu primer programa' : `${stats.activePrograms} activos`,
+              description: stats.programs === 0 ? 'Crea tu primer equipo' : `${stats.activePrograms} activos`,
               icon: Activity
             },
             {
@@ -243,7 +243,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           activities: [],
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Equipos', icon: Activity, href: '/teams', variant: 'outline' },
+            { label: 'Ver Equipos', icon: Activity, href: '/programs-management', variant: 'outline' },
             { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.school
@@ -406,6 +406,46 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
             { label: 'Mis Eventos', icon: Trophy, href: '/organizer/home', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.organizer
+        };
+
+      case 'reporter':
+        return {
+          role: 'reporter' as UserRole,
+          title: 'Panel de Auditoría',
+          description: 'Vista consolidada de solo lectura',
+          stats: [
+            {
+              title: 'Panel de Reportes',
+              value: '📊',
+              description: 'Ver reportes completos',
+              icon: BarChart3
+            },
+            {
+              title: 'Acceso',
+              value: 'Solo Lectura',
+              description: 'Sin permisos de edición',
+              icon: Shield
+            },
+            {
+              title: 'Notificaciones',
+              value: stats.unreadNotifications,
+              description: 'Sin leer',
+              icon: Bell
+            },
+            {
+              title: 'Calendario',
+              value: '→',
+              description: 'Ver agenda',
+              icon: Calendar
+            }
+          ],
+          activities: [],
+          quickActions: [
+            { label: '📊 Abrir Panel de Reportes', icon: BarChart3, href: '/reporter-dashboard', variant: 'default' },
+            { label: 'Calendario', icon: Calendar, href: '/calendar', variant: 'outline' },
+            { label: 'Configuración', icon: Circle, href: '/settings', variant: 'outline' }
+          ],
+          onboardingSteps: []
         };
 
       default:

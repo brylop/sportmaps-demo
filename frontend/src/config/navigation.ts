@@ -150,7 +150,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -277,7 +276,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -321,8 +319,27 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
+    ],
+
+    reporter: [
+      {
+        title: 'Reportes',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: '📊 Panel de Reportes', href: '/reporter-dashboard', icon: BarChart3 },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      }
     ]
   };
 
   return roleSpecificNav[role] || [baseNav];
 }
+

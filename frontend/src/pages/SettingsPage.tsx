@@ -205,7 +205,9 @@ export default function ProfilePage() {
       store_owner: 'Tienda',
       admin: 'Admin',
       super_admin: 'Súper Admin',
-      organizer: 'Organizador'
+      organizer: 'Organizador',
+      reporter: 'Auditoría'
+
     };
     return roleLabels[profile?.role || ''] || profile?.role;
   };

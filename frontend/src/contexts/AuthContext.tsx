@@ -8,7 +8,7 @@ interface UserProfile {
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer' | 'reporter';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase
         .from('profiles')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         .insert({
           id: userId,
           full_name: userData.full_name || 'Usuario',

@@ -43,6 +43,7 @@ interface Invitation {
   registration_link?: string;
   role_to_assign?: string;
   program_id?: string;
+  branch_name?: string;
 }
 
 export default function InvitationsManagementPage() {
@@ -60,8 +61,25 @@ export default function InvitationsManagementPage() {
     childName: '',
     programId: '',
     monthlyFee: defaultMonthlyFee,
-    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'admin',
+    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'school_admin' | 'reporter',
   });
+
+  // Branch selector for admin invitations
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    supabase
+      .from('school_branches' as any)
+      .select('id, name, is_main')
+      .eq('school_id', schoolId)
+      .order('is_main', { ascending: false })  // sede principal primero
+      .order('name')
+      .then(({ data }) => {
+        if (data) setBranches(data as any[]);
+      });
+  }, [schoolId]);
 
   const [suggestedContacts, setSuggestedContacts] = useState<{ name: string, email: string, phone?: string, childName?: string, programId?: string }[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -106,7 +124,7 @@ export default function InvitationsManagementPage() {
           .eq('school_id', schoolId);
 
         if (data) {
-          contacts = data.map((d: any) => ({
+          contacts = (data as any[]).map((d) => ({
             name: d.parent_name || '',
             email: d.profiles?.email || '',
             phone: d.parent_phone || '',
@@ -114,21 +132,23 @@ export default function InvitationsManagementPage() {
             programId: d.program_id || ''
           }));
         }
-      } else {
+      } else if (['coach', 'staff', 'athlete', 'viewer', 'owner', 'admin'].includes(formData.role)) {
+        // Only query roles that exist in the school_members role constraint
         const { data } = await supabase
-          .from('school_members' as any)
+          .from('school_members')
           .select('role, profiles(full_name, email, phone)')
           .eq('school_id', schoolId)
           .eq('role', formData.role);
 
         if (data) {
-          contacts = data.map((d: any) => ({
+          contacts = (data as any[]).map((d) => ({
             name: d.profiles?.full_name || '',
             email: d.profiles?.email || '',
             phone: d.profiles?.phone || ''
           }));
         }
       }
+      // For school_admin and reporter: no pre-existing suggestions (new role)
       // Deduplicate and filter empty
       const unique = Array.from(new Set(contacts.map(c => c.email))).map(email => contacts.find(c => c.email === email)!);
       setSuggestedContacts(unique.filter(c => c.email));
@@ -137,14 +157,14 @@ export default function InvitationsManagementPage() {
   }, [schoolId, formData.role]);
 
   // Fetch real invitations
-  const { data: invitations = [], isLoading: loadingInvites } = useQuery({
+  const { data: invitations = [], isLoading } = useQuery<Invitation[]>({
     queryKey: ['invitations', schoolId, activeBranchId],
     queryFn: async () => {
       if (!schoolId) return [];
       let query = supabase
-        .from('invitations' as any) as any;
+        .from('invitations') as any;
 
-      query = query.select('*, branches(name)')
+      query = query.select('*, school_branches(name)')
         .eq('school_id', schoolId);
 
       if (activeBranchId) {
@@ -156,7 +176,7 @@ export default function InvitationsManagementPage() {
       if (error) throw error;
 
       // Map DB fields to Invitation interface
-      return (data || []).map((inv: any) => ({
+      return (data || []).map((inv: any) => ({ // inv here is from DB result
         id: inv.id,
         invited_email: inv.email,
         parent_phone: inv.parent_phone || '',
@@ -166,8 +186,8 @@ export default function InvitationsManagementPage() {
         status: inv.status,
         created_at: inv.created_at,
         role_to_assign: inv.role_to_assign,
-        branch_name: inv.branches?.name || 'Sede Principal'
-      })) as any[];
+        branch_name: inv.school_branches?.name || 'Sede Principal'
+      })) as Invitation[];
     },
     enabled: !!schoolId,
   });
@@ -249,10 +269,14 @@ export default function InvitationsManagementPage() {
         p_email: data.parentEmail,
         p_role: data.role,
         p_child_name: data.role === 'parent' ? data.childName : null,
-        p_program_id: data.role === 'parent' ? (data.programId || null) : null,
+        // Program: applies to parent, coach and athlete
+        p_program_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.programId || null) : null,
         p_monthly_fee: data.role === 'parent' ? fee : null,
         p_parent_phone: data.parentPhone || null,
-        p_branch_id: activeBranchId || null
+        // Branch: use selected branch for school_admin, coach, athlete; else activeBranchId
+        p_branch_id: ['school_admin', 'coach', 'athlete'].includes(data.role)
+          ? (selectedBranchId || activeBranchId || null)
+          : (activeBranchId || null)
       });
 
       if (error) throw error;
@@ -296,6 +320,7 @@ export default function InvitationsManagementPage() {
         monthlyFee: defaultMonthlyFee,
         role: 'parent'
       });
+      setSelectedBranchId('');
 
       toast({
         title: '✅ Invitación creada',
@@ -311,13 +336,14 @@ export default function InvitationsManagementPage() {
         });
       }
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
       toast({
         title: '❌ Error',
-        description: error.message || 'No se pudo crear la invitación',
+        description: `No se pudo enviar la invitación: ${message}`,
         variant: 'destructive',
       });
-    }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -526,8 +552,9 @@ export default function InvitationsManagementPage() {
                     <Badge variant="secondary" className="capitalize">
                       {invitation.role_to_assign === 'parent' ? 'Padre' :
                         invitation.role_to_assign === 'coach' ? 'Entrenador' :
-                          (invitation.role_to_assign === 'admin' || invitation.role_to_assign === 'owner') ? 'Administrador' :
-                            invitation.role_to_assign === 'athlete' ? 'Atleta' : 'Invitado'}
+                          invitation.role_to_assign === 'athlete' ? 'Atleta' :
+                            invitation.role_to_assign === 'school_admin' ? 'Admin Sede' :
+                              invitation.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-medium text-xs">
@@ -602,13 +629,14 @@ export default function InvitationsManagementPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label>Rol a asignar</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { id: 'parent', label: 'Padre/Madre' },
                   { id: 'coach', label: 'Entrenador' },
                   { id: 'athlete', label: 'Atleta' },
+                  { id: 'reporter', label: 'Súper Usuario (Reporter)' },
+                  { id: 'school_admin', label: 'Administrador' },
                   { id: 'guest', label: 'Invitado' },
-                  ...(isAdmin ? [{ id: 'admin', label: 'Administrador' }] : []),
                 ].map((role) => (
                   <Button
                     key={role.id}
@@ -617,7 +645,7 @@ export default function InvitationsManagementPage() {
                     className="w-full text-xs h-9 px-2"
                     onClick={() => setFormData({
                       ...formData,
-                      role: role.id as any,
+                      role: role.id as 'parent' | 'coach' | 'athlete' | 'guest',
                       // Clear role-specific fields when switching to non-parent roles
                       ...(role.id !== 'parent' ? {
                         childName: '',
@@ -634,10 +662,13 @@ export default function InvitationsManagementPage() {
 
             <div className="space-y-2">
               <Label htmlFor="parentEmail">
-                Email del {formData.role === 'parent' ? 'Padre/Madre' :
-                  formData.role === 'coach' ? 'Entrenador' :
-                    formData.role === 'admin' ? 'Administrador' :
-                      formData.role === 'athlete' ? 'Atleta' : 'Invitado'} *
+                Email del {
+                  formData.role === 'parent' ? 'Padre/Madre' :
+                    formData.role === 'coach' ? 'Entrenador' :
+                      formData.role === 'athlete' ? 'Atleta' :
+                        formData.role === 'school_admin' ? 'Administrador de Sede' :
+                          formData.role === 'reporter' ? 'Súper Usuario' : 'Invitado'
+                } *
               </Label>
               <div className="relative">
                 <Input
@@ -703,57 +734,93 @@ export default function InvitationsManagementPage() {
               />
             </div>
 
-            {formData.role === 'parent' && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="childName">Nombre del Hijo/a *</Label>
-                  <Input
-                    id="childName"
-                    placeholder="Ej: María Rodríguez"
-                    value={formData.childName}
-                    onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="programId">Programa *</Label>
-                  <Select
-                    value={formData.programId}
-                    onValueChange={handleProgramChange}
-                    required
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar programa" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {programs.map(program => (
-                        <SelectItem key={program.id} value={program.id}>
-                          {program.name} — {formatCurrency(program.monthly_fee)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Monthly Fee (Only for non-parent roles where manual adjustment might be needed, or hidden if always fixed) */}
-                {formData.role !== 'parent' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="monthlyFee">Mensualidad (COP) *</Label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="monthlyFee"
-                        type="number"
-                        className="pl-9"
-                        value={formData.monthlyFee}
-                        onChange={(e) => setFormData({ ...formData, monthlyFee: parseInt(e.target.value) || 0 })}
-                        required
-                      />
-                    </div>
-                  </div>
+            {/* Branch selector — only for school_admin role */}
+            {formData.role === 'school_admin' && (
+              <div className="space-y-2">
+                <Label htmlFor="branchSelect" className="flex items-center gap-1 font-medium">
+                  🏢 Sede que administrará *
+                </Label>
+                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                  <SelectTrigger id="branchSelect">
+                    <SelectValue placeholder={branches.length === 0 ? 'No hay sedes creadas aún' : 'Seleccionar sede...'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map(b => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Este Admin solo podrá ver los equipos, alumnos y pagos de la sede seleccionada.
+                </p>
+                {branches.length === 0 && (
+                  <p className="text-xs text-amber-600">
+                    ⚠️ Crea al menos una sede en <strong>Clubes / Sedes</strong> antes de invitar un Administrador de Sede.
+                  </p>
                 )}
-              </>
+              </div>
+            )}
+
+            {/* Info block for reporter role */}
+            {formData.role === 'reporter' && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-3 text-sm text-blue-700 dark:text-blue-300">
+                <strong>Súper Usuario (Reporter):</strong> Tendrá acceso de solo lectura a todos los reportes y analíticas de la escuela. No puede hacer cambios ni ver información financiera sensible.
+              </div>
+            )}
+
+            {/* Program selector — for parent, coach and athlete */}
+            {['parent', 'coach', 'athlete'].includes(formData.role) && (
+              <div className="space-y-2">
+                <Label htmlFor="programId">
+                  Programa {formData.role === 'parent' ? '*' : '(opcional)'}
+                </Label>
+                <Select value={formData.programId} onValueChange={handleProgramChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar programa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {programs.map(program => (
+                      <SelectItem key={program.id} value={program.id}>
+                        {program.name} — {formatCurrency(program.monthly_fee)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Sede selector — for coach and athlete (school_admin has its own block above) */}
+            {['coach', 'athlete'].includes(formData.role) && (
+              <div className="space-y-2">
+                <Label htmlFor="branchSelectCoach">🏢 Sede (opcional)</Label>
+                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                  <SelectTrigger id="branchSelectCoach">
+                    <SelectValue placeholder={branches.length === 0 ? 'No hay sedes creadas aún' : 'Seleccionar sede...'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map(b => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Si dejas vacío, se asigna a la sede principal.
+                </p>
+              </div>
+            )}
+
+            {/* Child name — only for parent role */}
+            {formData.role === 'parent' && (
+              <div className="space-y-2">
+                <Label htmlFor="childName">Nombre del Hijo/a *</Label>
+                <Input
+                  id="childName"
+                  placeholder="Ej: María Rodríguez"
+                  value={formData.childName}
+                  onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                  required
+                />
+              </div>
             )}
 
             {/* Preview link */}

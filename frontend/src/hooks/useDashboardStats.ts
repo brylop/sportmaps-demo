@@ -153,7 +153,7 @@ export function useDashboardStats(role?: UserRole) {
               .eq('active', true);
             stats.activePrograms = activeProgCount || 0;
 
-            // Total students (enrollments)
+            // Total students (enrollments linked to teams)
             const { data: myPrograms } = await supabase
               .from('teams')
               .select('id')

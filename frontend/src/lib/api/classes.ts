@@ -1,5 +1,5 @@
 // Classes/Programs API service — uses Supabase directly (table: teams)
-// Per NAMING_DICTIONARY.md: "classes" in UI = "programs" in Supabase
+// Per NAMING_DICTIONARY.md: "classes" in UI = "teams" in Supabase
 import { supabase } from '@/integrations/supabase/client';
 
 export interface Schedule {
@@ -13,13 +13,13 @@ export interface Class {
   name: string;
   description?: string;
   sport: string;
-  level?: string;
+  level: 'beginner' | 'intermediate' | 'advanced';
   school_id: string;
   coach_id?: string;
   coach_name?: string;
   capacity: number;
   enrolled_count: number;
-  current_students?: number;
+  current_participants?: number;
   schedule: Schedule[];
   location?: string;
   price?: number;
@@ -36,7 +36,7 @@ export interface ClassCreate {
   name: string;
   description?: string;
   sport: string;
-  level?: string;
+  level?: 'beginner' | 'intermediate' | 'advanced';
   school_id: string;
   coach_id?: string;
   coach_name?: string;
@@ -53,7 +53,7 @@ export interface ClassUpdate {
   name?: string;
   description?: string;
   sport?: string;
-  level?: string;
+  level?: 'beginner' | 'intermediate' | 'advanced';
   coach_id?: string;
   coach_name?: string;
   capacity?: number;
@@ -110,7 +110,7 @@ class ClassesAPI {
       throw new Error(error.message || 'Failed to create class');
     }
 
-    return this.mapProgramToClass(data);
+    return this.mapTeamToClass(data);
   }
 
   /**
@@ -161,7 +161,7 @@ class ClassesAPI {
         return [];
       }
 
-      return (data || []).map((p: any) => this.mapProgramToClass(p));
+      return (data || []).map((t: any) => this.mapTeamToClass(t));
     } catch (error) {
       console.warn('Error fetching classes:', error);
       return [];
@@ -185,7 +185,7 @@ class ClassesAPI {
       throw new Error(error?.message || 'Class not found');
     }
 
-    return this.mapProgramToClass(data);
+    return this.mapTeamToClass(data);
   }
 
   /**
@@ -216,7 +216,7 @@ class ClassesAPI {
       throw new Error(error?.message || 'Failed to update class');
     }
 
-    return this.mapProgramToClass(data);
+    return this.mapTeamToClass(data);
   }
 
   /**
@@ -321,40 +321,26 @@ class ClassesAPI {
   /**
    * Get class/program statistics for a school
    */
-  async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<ClassStats> {
+  async getStats(schoolId: string, branchId?: string | null): Promise<ClassStats> {
     try {
       let query = supabase
         .from('teams')
-        .select('id, sport, active, current_students, branch_id, coach_id');
+      const { data: teams } = await query;
 
-      if (schoolId) {
-        query = query.eq('school_id', schoolId);
-      }
+      if (!teams) return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
 
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      if (coachId) {
-        query = query.eq('coach_id', coachId);
-      }
-
-      const { data: programs } = await query;
-
-      if (!programs) return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
-
-      const total = programs.length;
-      const active = programs.filter(p => p.active).length;
-      const full = 0; // Would need to compare current_students vs max_students
+      const total = teams.length;
+      const active = teams.filter(t => t.active).length;
+      const full = 0; // Simple logic, can refine if capacity/student count comparison is needed
 
       const by_sport: Record<string, number> = {};
-      programs.forEach(p => {
-        if (p.sport) {
-          by_sport[p.sport] = (by_sport[p.sport] || 0) + 1;
+      teams.forEach(t => {
+        if (t.sport) {
+          by_sport[t.sport] = (by_sport[t.sport] || 0) + 1;
         }
       });
 
-      const total_enrolled = programs.reduce((sum, p) => sum + (p.current_students || 0), 0);
+      const total_enrolled = teams.reduce((sum, t) => sum + (t.current_students || 0), 0);
 
       return { total, active, full, by_sport, total_enrolled };
     } catch (error) {
@@ -366,26 +352,26 @@ class ClassesAPI {
   /**
    * Map a Supabase 'teams' row to the Class interface
    */
-  private mapProgramToClass(program: any): Class {
+  private mapTeamToClass(team: any): Class {
     return {
-      id: program.id,
-      name: program.name,
-      description: program.description,
-      sport: program.sport || '',
-      level: program.level,
-      school_id: program.school_id || '',
-      coach_id: program.coach_id,
-      coach_name: program.coach?.full_name,
-      capacity: program.max_students || 20,
-      enrolled_count: program.current_students || 0,
-      current_students: program.current_students || 0,
-      schedule: program.schedule || [],
-      price: program.price_monthly,
-      price_monthly: program.price_monthly,
-      status: program.active ? 'active' : 'inactive',
-      active: program.active,
-      created_at: program.created_at,
-      updated_at: program.updated_at,
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      sport: team.sport || '',
+      level: team.level || team.age_group || 'beginner',
+      school_id: team.school_id || '',
+      coach_id: team.coach_id,
+      coach_name: team.coach?.full_name,
+      capacity: team.max_students || 20,
+      enrolled_count: team.current_students || 0,
+      current_participants: team.current_students || 0,
+      schedule: team.schedule || [],
+      price: team.price_monthly,
+      price_monthly: team.price_monthly,
+      status: team.active ? 'active' : 'inactive',
+      active: team.active,
+      created_at: team.created_at,
+      updated_at: team.updated_at,
     };
   }
 }

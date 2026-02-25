@@ -11,6 +11,7 @@ import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { Suspense, lazy } from "react";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
 const PageLoader = () => (
@@ -82,6 +83,7 @@ const SchoolBranchesManagementPage = lazy(() => import("./pages/SchoolBranchesMa
 const SchoolSettingsPage = lazy(() => import("./pages/SchoolSettingsPage"));
 const PickupMonitorPage = lazy(() => import("./pages/school/PickupMonitorPage"));
 const InvitationsManagementPage = lazy(() => import("./pages/InvitationsManagementPage"));
+const ReporterDashboardPage = lazy(() => import("./pages/ReporterDashboardPage"));
 
 // ─── Athlete pages (lazy) ─────────────────────────────────────────────────────
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
@@ -102,6 +104,8 @@ const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
+const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 
 // ─── Organizer pages (lazy) ───────────────────────────────────────────────────
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
@@ -125,254 +129,262 @@ const App = () => (
     <TooltipProvider>
       <ThemeProvider>
         <AuthProvider>
-          <CartProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  {/* Public routes */}
-                  <Route path="/" element={<Index />} />
+          <ErrorBoundary>
+            <CartProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    {/* Public routes */}
+                    <Route path="/" element={<Index />} />
 
-                  <Route path="/explore" element={<ExplorePage />} />
-                  <Route path="/schools/:id" element={<SchoolDetailPage />} />
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/register" element={<RegisterPage />} />
-                  <Route path="/checkout" element={
-                    <ProtectedRoute>
-                      <CheckoutPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/setup/school" element={
-                    <ProtectedRoute>
-                      <SchoolSetupPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/parent-checkout" element={
-                    <ProtectedRoute>
-                      <ParentCheckoutPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/payment-result" element={<PaymentResultPage />} />
-                  <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                    <Route path="/explore" element={<ExplorePage />} />
+                    <Route path="/schools/:id" element={<SchoolDetailPage />} />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/checkout" element={
+                      <ProtectedRoute>
+                        <CheckoutPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/setup/school" element={
+                      <ProtectedRoute>
+                        <SchoolSetupPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/parent-checkout" element={
+                      <ProtectedRoute>
+                        <ParentCheckoutPage />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/payment-result" element={<PaymentResultPage />} />
+                    <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
-                  {/* Public Events routes */}
-                  <Route path="/events" element={<EventsMapPage />} />
-                  <Route path="/event/:slug" element={<EventPublicPage />} />
-                  <Route path="/s/:slug" element={<PublicSchoolPage />} />
+                    {/* Public Events routes */}
+                    <Route path="/events" element={<EventsMapPage />} />
+                    <Route path="/event/:slug" element={<EventPublicPage />} />
+                    <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
-                  {/* Main authenticated routes */}
-                  <Route element={
-                    <ProtectedRoute>
-                      <AuthLayout />
-                    </ProtectedRoute>
-                  }>
-                    {/* Access to dashboard via /dashboard */}
-                    <Route path="dashboard" element={<DashboardPage />} />
-                    <Route path="profile" element={<ProfilePage />} />
-                    <Route path="calendar" element={<CalendarPage />} />
-                    <Route path="notifications" element={<NotificationsPage />} />
-                    <Route path="settings" element={<SettingsPage />} />
-                    <Route path="messages" element={<MessagesPage />} />
+                    {/* Main authenticated routes */}
+                    <Route path="/" element={
+                      <ProtectedRoute>
+                        <AuthLayout />
+                      </ProtectedRoute>
+                    }>
+                      {/* Index of authenticated layout is dashboard */}
+                      <Route index element={<DashboardPage />} />
+                      <Route path="dashboard" element={<DashboardPage />} />
+                      <Route path="profile" element={<ProfilePage />} />
+                      <Route path="calendar" element={<CalendarPage />} />
+                      <Route path="notifications" element={<NotificationsPage />} />
+                      <Route path="settings" element={<SettingsPage />} />
+                      <Route path="messages" element={<MessagesPage />} />
 
-                    {/* Athlete routes */}
-                    <Route path="teams" element={<TeamsPage />} />
-                    <Route path="stats" element={<StatsPage />} />
-                    <Route path="goals" element={<GoalsPage />} />
-                    <Route path="training" element={<TrainingPage />} />
-                    <Route path="enrollments" element={<MyEnrollmentsPage />} />
-                    <Route path="shop" element={<ShopPage />} />
-                    <Route path="wellness" element={<AthleteWellnessPage />} />
+                      {/* Athlete routes */}
+                      <Route path="teams" element={<TeamsPage />} />
+                      <Route path="stats" element={<StatsPage />} />
+                      <Route path="goals" element={<GoalsPage />} />
+                      <Route path="training" element={<TrainingPage />} />
+                      <Route path="enrollments" element={<MyEnrollmentsPage />} />
+                      <Route path="shop" element={<ShopPage />} />
+                      <Route path="wellness" element={<AthleteWellnessPage />} />
 
-                    {/* Parent routes */}
-                    <Route path="children" element={<MyChildrenPage />} />
-                    <Route path="my-payments" element={<MyPaymentsPage />} />
-                    <Route path="children/:id/progress" element={<ChildProgressPage />} />
-                    <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
-                    <Route path="academic-progress" element={<AcademicProgressPage />} />
-                    <Route path="parent-attendance" element={<AttendancePage />} />
+                      {/* Parent routes */}
+                      <Route path="children" element={<MyChildrenPage />} />
+                      <Route path="my-payments" element={<MyPaymentsPage />} />
+                      <Route path="children/:id/progress" element={<ChildProgressPage />} />
+                      <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
+                      <Route path="academic-progress" element={<AcademicProgressPage />} />
+                      <Route path="parent-attendance" element={<AttendancePage />} />
 
-                    {/* Coach routes */}
-                    <Route path="coach-attendance" element={<CoachAttendancePage />} />
-                    <Route path="results" element={<ResultsPage />} />
-                    <Route path="training-plans" element={<TrainingPlansPage />} />
-                    <Route path="coach-reports" element={<CoachReportsPage />} />
-                    <Route path="evaluations" element={<CoachEvaluationsPage />} />
-                    <Route path="announcements" element={<AnnouncementsPage />} />
+                      {/* Coach routes */}
+                      <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="results" element={<ResultsPage />} />
+                      <Route path="training-plans" element={<TrainingPlansPage />} />
+                      <Route path="coach-reports" element={<CoachReportsPage />} />
+                      <Route path="evaluations" element={<CoachEvaluationsPage />} />
+                      <Route path="announcements" element={<AnnouncementsPage />} />
 
-                    {/* School routes (role-guarded) */}
-                    <Route path="students" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
-                        <SchoolStudentsManagementPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="invitations" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <InvitationsManagementPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="staff" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <StaffPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="programs-management" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <ProgramsManagementPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="attendance-supervision" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <AttendanceSupervisionPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="results-overview" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <ResultsOverviewPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="finances" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <FinancesPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="payments-automation" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <PaymentsAutomationPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="payment-reminders" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <PaymentRemindersPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="school-reports" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <ReportsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="facilities" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <SchoolFacilitiesPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="branches" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
-                        <SchoolBranchesManagementPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="school-config" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
-                        <SchoolSettingsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="pickup" element={
-                      <ProtectedRoute allowedRoles={['school', 'admin']}>
-                        <PickupMonitorPage />
-                      </ProtectedRoute>
-                    } />
+                      {/* School routes (role-guarded) */}
+                      <Route path="students" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <SchoolStudentsManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="invitations" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <InvitationsManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="staff" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <StaffPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="programs-management" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ProgramsManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="attendance-supervision" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AttendanceSupervisionPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="results-overview" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ResultsOverviewPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="finances" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <FinancesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="payments-automation" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <PaymentsAutomationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="payment-reminders" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <PaymentRemindersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="reporter-dashboard" element={
+                        <ProtectedRoute allowedRoles={['reporter']}>
+                          <ReporterDashboardPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school-reports" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <ReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="facilities" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolFacilitiesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="branches" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolBranchesManagementPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school-config" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin']}>
+                          <SchoolSettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="pickup" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin']}>
+                          <PickupMonitorPage />
+                        </ProtectedRoute>
+                      } />
 
-                    {/* Wellness routes */}
-                    <Route path="athletes" element={<WellnessPatientsPage />} />
-                    <Route path="schedule" element={<WellnessSchedulePage />} />
-                    <Route path="evaluations/new" element={<WellnessSchedulePage />} />
-                    <Route path="medical-history" element={<MedicalHistoryPage />} />
-                    <Route path="follow-ups" element={<WellnessPatientsPage />} />
-                    <Route path="nutrition" element={<NutritionPage />} />
-                    <Route path="wellness-reports" element={<ReportsPage />} />
+                      {/* Wellness routes */}
+                      <Route path="athletes" element={<WellnessPatientsPage />} />
+                      <Route path="schedule" element={<WellnessSchedulePage />} />
+                      <Route path="evaluations/new" element={<WellnessSchedulePage />} />
+                      <Route path="medical-history" element={<MedicalHistoryPage />} />
+                      <Route path="follow-ups" element={<WellnessPatientsPage />} />
+                      <Route path="nutrition" element={<NutritionPage />} />
+                      <Route path="wellness-reports" element={<ReportsPage />} />
 
-                    {/* Store routes (role-guarded) */}
-                    <Route path="products" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreProductsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="orders" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreOrdersPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="inventory" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreInventoryPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="suppliers" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreInventoryPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="categories" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreProductsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="customers" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreOrdersPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="promotions" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <StoreProductsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="store-reports" element={
-                      <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
-                        <ReportsPage />
-                      </ProtectedRoute>
-                    } />
+                      {/* Store routes (role-guarded) */}
+                      <Route path="products" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreProductsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="orders" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreOrdersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="inventory" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreInventoryPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="suppliers" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreInventoryPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="categories" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreProductsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="customers" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreOrdersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="promotions" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <StoreProductsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="store-reports" element={
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                          <ReportsPage />
+                        </ProtectedRoute>
+                      } />
 
-                    {/* Organizer routes */}
-                    <Route path="organizer/home" element={<OrganizerDashboardPage />} />
-                    <Route path="organizer/create-event" element={<CreateEventPage />} />
-                    <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                      {/* Organizer routes */}
+                      <Route path="organizer/home" element={<OrganizerDashboardPage />} />
+                      <Route path="organizer/create-event" element={<CreateEventPage />} />
+                      <Route path="organizer/event/:id" element={<EventManagementPage />} />
 
-                    {/* Admin routes */}
-                    <Route path="admin/users" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/clubs" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <ExplorePage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/reports" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <ReportsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/analytics" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <AdminAnalyticsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/config" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <SettingsPage />
-                      </ProtectedRoute>
-                    } />
-                    <Route path="admin/logs" element={
-                      <ProtectedRoute allowedRoles={['admin']}>
-                        <NotificationsPage />
-                      </ProtectedRoute>
-                    } />
-                  </Route>
+                      {/* Admin routes — allowedRoles includes 'school' for the Global Admin (owner) */}
+                      <Route path="admin/users" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <AdminUsersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/clubs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <AdminClubsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/reports" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <ReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/analytics" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <AdminAnalyticsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/config" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <SettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/logs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
+                          <NotificationsPage />
+                        </ProtectedRoute>
+                      } />
+                    </Route>
 
-                  {/* Catch-all route */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
+                    {/* Catch-all route */}
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Suspense>
 
-              {/* Mobile Bottom Navigation */}
-              <MobileBottomNav />
+                {/* Mobile Bottom Navigation */}
+                <MobileBottomNav />
 
-              {/* Global Cart Drawer */}
-              <CartDrawer />
-            </BrowserRouter>
-          </CartProvider>
+                {/* Global Cart Drawer */}
+                <CartDrawer />
+              </BrowserRouter>
+            </CartProvider>
+          </ErrorBoundary>
         </AuthProvider>
       </ThemeProvider>
     </TooltipProvider>
