@@ -333,49 +333,48 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     </div>
 
                     <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                            <Label>Entrenadores Asignados</Label>
                             {loadingInitialData ? (
-                                <div className="col-span-full flex items-center justify-center py-8">
-                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                <div className="flex items-center justify-center py-3 border rounded-md bg-muted/5">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary mr-2" />
+                                    <span className="text-sm text-muted-foreground">Cargando personal...</span>
                                 </div>
                             ) : staff.length === 0 ? (
-                                <p className="col-span-full text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/10">
+                                <p className="text-sm text-muted-foreground text-center py-3 border rounded-md bg-muted/5">
                                     No hay personal activo disponible
                                 </p>
                             ) : (
-                                staff
-                                    .filter(coach => !formData.coach_ids.includes(coach.id))
-                                    .map((coach) => {
-                                        const initials = coach.full_name
-                                            .split(' ')
-                                            .map((n: string) => n[0])
-                                            .join('')
-                                            .toUpperCase()
-                                            .substring(0, 2);
-
-                                        return (
-                                            <div
-                                                key={coach.id}
-                                                onClick={() => {
-                                                    setFormData(prev => ({
-                                                        ...prev,
-                                                        coach_ids: [...prev.coach_ids, coach.id]
-                                                    }));
-                                                }}
-                                                className="relative flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-200 border-transparent bg-muted/30 hover:bg-muted/50 hover:border-muted-foreground/20"
-                                            >
-                                                <div className="flex items-center justify-center h-10 w-10 rounded-full text-xs font-bold shrink-0 bg-muted-foreground/20 text-muted-foreground">
-                                                    {initials}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold truncate text-foreground">
-                                                        {coach.full_name}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground truncate">Entrenador</p>
-                                                </div>
+                                <Select
+                                    value=""
+                                    onValueChange={(value: string) => {
+                                        if (value && !formData.coach_ids.includes(value)) {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                coach_ids: [...prev.coach_ids, value]
+                                            }));
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Seleccione un entrenador para agregar..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {staff
+                                            .filter(coach => !formData.coach_ids.includes(coach.id))
+                                            .map((coach) => (
+                                                <SelectItem key={coach.id} value={coach.id}>
+                                                    {coach.full_name}
+                                                </SelectItem>
+                                            ))
+                                        }
+                                        {staff.filter(coach => !formData.coach_ids.includes(coach.id)).length === 0 && (
+                                            <div className="p-2 text-sm text-center text-muted-foreground">
+                                                No hay más entrenadores disponibles
                                             </div>
-                                        );
-                                    })
+                                        )}
+                                    </SelectContent>
+                                </Select>
                             )}
                         </div>
                         {formData.coach_ids.length > 0 && (
