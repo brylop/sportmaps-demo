@@ -18,7 +18,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus, Users, Check, Pencil, X } from 'lucide-react';
+import { Loader2, Plus, Users, Check, Pencil, X, Minus } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sports';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -261,7 +261,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
 
     return (
         <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
@@ -422,27 +422,59 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="max_students">Capacidad Máxima</Label>
-                            <Input
-                                id="max_students"
-                                type="number"
-                                min="1"
-                                value={formData.max_students}
-                                onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
-                            />
+                            <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(p => ({ ...p, max_students: Math.max(1, (p.max_students as number || 1) - 1) }))}
+                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                                >
+                                    <Minus className="h-4 w-4" />
+                                </button>
+                                <Input
+                                    id="max_students"
+                                    type="number"
+                                    min="1"
+                                    className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                                    value={formData.max_students}
+                                    onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(p => ({ ...p, max_students: (p.max_students as number || 0) + 1 }))}
+                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                                >
+                                    <Plus className="h-4 w-4" />
+                                </button>
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="price_monthly">Precio Mensual</Label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                            <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(p => ({ ...p, price_monthly: Math.max(0, (p.price_monthly as number || 0) - 10000) }))}
+                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
+                                >
+                                    <Minus className="h-4 w-4" />
+                                </button>
+                                <span className="absolute left-12 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
                                 <Input
                                     id="price_monthly"
-                                    type="number"
-                                    min="0"
-                                    step="1000"
-                                    className="pl-7"
-                                    value={formData.price_monthly}
-                                    onChange={(e) => setFormData({ ...formData, price_monthly: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                                    type="text"
+                                    className="border-0 text-center font-semibold focus-visible:ring-0 pl-16 pr-10"
+                                    value={formData.price_monthly ? Number(formData.price_monthly).toLocaleString('es-CO') : ''}
+                                    onChange={(e) => {
+                                        const value = e.target.value.replace(/\D/g, '');
+                                        setFormData({ ...formData, price_monthly: value === '' ? '' : parseInt(value, 10) });
+                                    }}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(p => ({ ...p, price_monthly: (p.price_monthly as number || 0) + 10000 }))}
+                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+                                >
+                                    <Plus className="h-4 w-4" />
+                                </button>
                             </div>
                         </div>
                         <div className="space-y-2">

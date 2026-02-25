@@ -21,6 +21,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 
 const studentSchema = z.object({
@@ -222,7 +223,12 @@ export default function SchoolStudentsManagementPage() {
               <TableBody>
                 {filteredStudents.map((student) => (
                   <TableRow key={student.id}>
-                    <TableCell className="font-medium">{student.full_name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{student.full_name}</span>
+                        <MedicalAlertBadge medicalInfo={student.medical_info} />
+                      </div>
+                    </TableCell>
                     <TableCell>{calculateAge(student.date_of_birth)} años</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{student.program_name || 'Sin programa'}</Badge>
@@ -487,7 +493,10 @@ export default function SchoolStudentsManagementPage() {
                   {viewingStudent.full_name.substring(0, 2)}
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg">{viewingStudent.full_name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-lg">{viewingStudent.full_name}</h3>
+                    <MedicalAlertBadge medicalInfo={viewingStudent.medical_info} />
+                  </div>
                   <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)} años</p>
                   {getPaymentBadge(viewingStudent.enrollment_status === 'active' ? 'paid' : 'pending')}
                 </div>

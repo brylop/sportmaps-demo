@@ -15,7 +15,9 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Loader2
+  Loader2,
+  Plus,
+  Minus
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -187,15 +189,32 @@ export function ProfileCompletionBanner({ onDismiss }: ProfileCompletionBannerPr
 
         <div className="space-y-2">
           <Label htmlFor="childAge">Edad</Label>
-          <Input
-            id="childAge"
-            type="number"
-            placeholder="Años"
-            min={3}
-            max={18}
-            value={childAge}
-            onChange={(e) => setChildAge(e.target.value)}
-          />
+          <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+            <button
+              type="button"
+              onClick={() => setChildAge(String(Math.max(3, (parseInt(childAge) || 3) - 1)))}
+              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <Input
+              id="childAge"
+              type="number"
+              placeholder="Años"
+              className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+              min={3}
+              max={18}
+              value={childAge}
+              onChange={(e) => setChildAge(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setChildAge(String(Math.min(18, (parseInt(childAge) || 3) + 1)))}
+              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2">

@@ -12,30 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
-
-interface AllergyInfo {
-  has_allergies: boolean;
-  allergy_type?: string;
-  allergy_severity?: string;
-  allergy_treatment?: string;
-  additional_notes?: string;
-}
-
-function parseAllergyInfo(medicalInfo: string | null | undefined): AllergyInfo | null {
-  if (!medicalInfo) return null;
-  try {
-    const parsed = JSON.parse(medicalInfo);
-    if (parsed.has_allergies) return parsed as AllergyInfo;
-    return null;
-  } catch {
-    // Legacy plain text format — check if it mentions allergies
-    if (medicalInfo.toLowerCase().includes('alergia')) {
-      return { has_allergies: true, allergy_type: medicalInfo };
-    }
-    return null;
-  }
-}
-
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 
 export default function MyChildrenPage() {
   const { user } = useAuth();
@@ -48,7 +25,7 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*, schools(name), programs(name, sport, level)')
+        .select('*, schools(name), teams(name, sport, level)')
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
@@ -104,55 +81,7 @@ export default function MyChildrenPage() {
                   </div>
                 </div>
                 {/* Allergy Icon */}
-                {(() => {
-                  const allergyInfo = parseAllergyInfo(child.medical_info);
-                  if (!allergyInfo) return null;
-                  return (
-                    <HoverCard>
-                      <HoverCardTrigger asChild>
-                        <button className="flex-shrink-0 p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/40 hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors cursor-pointer" aria-label="Información de alergias">
-                          <AlertTriangle className="w-5 h-5 text-orange-500" />
-                        </button>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="w-72 border-orange-200 dark:border-orange-800">
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-orange-500" />
-                            <h4 className="text-sm font-semibold text-orange-600 dark:text-orange-400">Información de Alergias</h4>
-                          </div>
-                          <div className="space-y-1.5 text-sm">
-                            {allergyInfo.allergy_type && (
-                              <div>
-                                <span className="font-medium text-muted-foreground">Tipo:</span>{' '}
-                                <span>{allergyInfo.allergy_type}</span>
-                              </div>
-                            )}
-                            {allergyInfo.allergy_severity && (
-                              <div>
-                                <span className="font-medium text-muted-foreground">Severidad:</span>{' '}
-                                <span className={allergyInfo.allergy_severity === 'alta' || allergyInfo.allergy_severity === 'Alta' ? 'text-red-500 font-semibold' : ''}>
-                                  {allergyInfo.allergy_severity}
-                                </span>
-                              </div>
-                            )}
-                            {allergyInfo.allergy_treatment && (
-                              <div>
-                                <span className="font-medium text-muted-foreground">Tratamiento:</span>{' '}
-                                <span>{allergyInfo.allergy_treatment}</span>
-                              </div>
-                            )}
-                            {allergyInfo.additional_notes && (
-                              <div className="pt-1 border-t border-muted">
-                                <span className="font-medium text-muted-foreground">Notas:</span>{' '}
-                                <span className="text-xs">{allergyInfo.additional_notes}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </HoverCardContent>
-                    </HoverCard>
-                  );
-                })()}
+                <MedicalAlertBadge medicalInfo={child.medical_info} />
               </div>
             </CardHeader>
             <CardContent className="space-y-3">

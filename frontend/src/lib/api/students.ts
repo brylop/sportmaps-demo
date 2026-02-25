@@ -104,6 +104,7 @@ export interface StudentViewRow {
   program_sport?: string;
   price_monthly?: number;
   branch_name?: string;
+  medical_info?: string | null;
 }
 
 export interface StudentStats {

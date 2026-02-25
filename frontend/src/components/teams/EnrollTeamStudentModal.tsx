@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { classesAPI } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
@@ -230,7 +231,10 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                 <div className="flex items-start sm:items-center justify-between gap-3">
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                                            <p className="font-medium truncate text-sm sm:text-base">{student.full_name}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-medium truncate text-sm sm:text-base">{student.full_name}</p>
+                                                                <MedicalAlertBadge medicalInfo={student.medical_info} />
+                                                            </div>
                                                             {enrolled && (
                                                                 <Badge variant="secondary" className="bg-primary/10 text-primary whitespace-nowrap w-fit">
                                                                     <Check className="h-3 w-3 mr-1" />

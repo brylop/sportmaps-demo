@@ -56,7 +56,7 @@ export function useEnrollments() {
         .select(
           `
           *,
-          program:programs(
+          program:teams(
             id,
             name,
             sport,

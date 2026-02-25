@@ -13,6 +13,7 @@ import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
@@ -260,7 +261,10 @@ export default function StudentsPage() {
                   {filteredStudents.map((student) => (
                     <TableRow key={student.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-medium whitespace-nowrap">
-                        {student.full_name}
+                        <div className="flex items-center gap-2">
+                          <span>{student.full_name}</span>
+                          <MedicalAlertBadge medicalInfo={student.medical_info} />
+                        </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {student.email ? (

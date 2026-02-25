@@ -33,7 +33,7 @@ export default function ReportsPage() {
         // 1. Fetch Students/Enrollments for Occupancy & Growth
         const enrollmentsQuery = supabase
           .from('enrollments')
-          .select('status, created_at, programs(name, capacity)');
+          .select('status, created_at, teams(name, capacity)');
 
         // Note: We'd need to filter by school_id, but enrollments link to programs which link to schools.
         // For simplicity/performance, we might assume the RLS handles filtered view or join programs.

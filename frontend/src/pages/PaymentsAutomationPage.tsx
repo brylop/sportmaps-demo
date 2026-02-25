@@ -149,7 +149,7 @@ export default function PaymentsAutomationPage() {
           concept,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children(full_name),
-          program:programs(name)
+          team:teams(name)
         `)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });

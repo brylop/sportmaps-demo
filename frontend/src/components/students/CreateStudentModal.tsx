@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus, Loader2, DollarSign } from 'lucide-react';
+import { UserPlus, Loader2, Minus, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { createStudentWithPendingPayment, useSchoolContext } from '@/hooks/useSchoolContext';
 
@@ -108,7 +108,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
 
     return (
         <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
@@ -191,15 +191,32 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
 
                     <div className="space-y-2">
                         <Label htmlFor="fee">Mensualidad Pactada (COP)</Label>
-                        <div className="relative">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+                            <button
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, monthlyFee: Math.max(0, p.monthlyFee - 10000) }))}
+                                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
+                            >
+                                <Minus className="h-4 w-4" />
+                            </button>
+                            <span className="absolute left-12 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
                             <Input
                                 id="fee"
-                                type="number"
-                                className="pl-9"
-                                value={formData.monthlyFee}
-                                onChange={(e) => setFormData(p => ({ ...p, monthlyFee: parseInt(e.target.value) || 0 }))}
+                                type="text"
+                                className="border-0 text-center font-semibold focus-visible:ring-0 pl-16 pr-10"
+                                value={formData.monthlyFee ? Number(formData.monthlyFee).toLocaleString('es-CO') : ''}
+                                onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setFormData(p => ({ ...p, monthlyFee: val === '' ? 0 : parseInt(val, 10) }));
+                                }}
                             />
+                            <button
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, monthlyFee: p.monthlyFee + 10000 }))}
+                                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+                            >
+                                <Plus className="h-4 w-4" />
+                            </button>
                         </div>
                     </div>
 

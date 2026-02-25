@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, GraduationCap, Upload, Clock } from "lucide-react";
+import { ArrowLeft, GraduationCap, Upload, Clock, Plus, Minus } from "lucide-react";
 
 interface CoachRegisterProps {
   onNavigate: (page: string) => void;
@@ -208,13 +208,29 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
         <form onSubmit={experienceForm.handleSubmit(handleExperienceSubmit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="yearsExperience">Años de Experiencia</Label>
-            <Input
-              id="yearsExperience"
-              type="number"
-              min="0"
-              {...experienceForm.register("yearsExperience", { valueAsNumber: true })}
-              className="focus:border-primary focus:ring-primary"
-            />
+            <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+              <button
+                type="button"
+                onClick={() => experienceForm.setValue('yearsExperience', Math.max(0, (experienceForm.getValues('yearsExperience') || 0) - 1))}
+                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <Input
+                id="yearsExperience"
+                type="number"
+                min="0"
+                className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                {...experienceForm.register("yearsExperience", { valueAsNumber: true })}
+              />
+              <button
+                type="button"
+                onClick={() => experienceForm.setValue('yearsExperience', (experienceForm.getValues('yearsExperience') || 0) + 1)}
+                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
             {experienceForm.formState.errors.yearsExperience && (
               <p className="text-destructive text-sm">{experienceForm.formState.errors.yearsExperience.message}</p>
             )}
@@ -247,9 +263,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           </div>
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(1)}
               className="flex-1"
             >
@@ -306,9 +322,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           </div>
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(2)}
               className="flex-1"
             >
@@ -332,7 +348,7 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
       </CardHeader>
       <CardContent>
         <form onSubmit={codeForm.handleSubmit(handleCodeSubmit)} className="space-y-4">
-          <div className="max-h-48 overflow-y-auto border rounded-lg p-4 bg-muted/30">
+          <div className="max-h-48 overflow-y-auto custom-scrollbar border rounded-lg p-4 bg-muted/30">
             <div className="text-sm space-y-3">
               <h4 className="font-semibold text-primary">Código de Conducta SportMaps</h4>
               <p>Como entrenador en SportMaps, me comprometo a:</p>
@@ -368,9 +384,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           )}
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(3)}
               className="flex-1"
             >
@@ -398,15 +414,15 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
             Tu perfil está pendiente de revisión. Te notificaremos por email una vez que tu cuenta sea aprobada.
           </p>
         </div>
-        
-        <Button 
-          variant="default" 
+
+        <Button
+          variant="default"
           className="w-full"
           onClick={() => onNavigate("dashboard")}
         >
           Ir a mi Panel de Control
         </Button>
-        
+
         <p className="text-xs text-muted-foreground mt-4">
           Panel limitado hasta completar la aprobación
         </p>
@@ -422,20 +438,18 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           <div className="flex justify-center items-center space-x-2 mb-4">
             {[1, 2, 3, 4, 5].map((step) => (
               <div key={step} className="flex items-center">
-                <div 
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                    step <= currentStep 
-                      ? 'bg-primary text-primary-foreground' 
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step <= currentStep
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground'
-                  }`}
+                    }`}
                 >
                   {step}
                 </div>
                 {step < 5 && (
-                  <div 
-                    className={`w-8 h-1 mx-1 ${
-                      step < currentStep ? 'bg-primary' : 'bg-muted'
-                    }`}
+                  <div
+                    className={`w-8 h-1 mx-1 ${step < currentStep ? 'bg-primary' : 'bg-muted'
+                      }`}
                   />
                 )}
               </div>
@@ -458,7 +472,7 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           <div className="text-center mt-6">
             <p className="text-sm text-muted-foreground">
               ¿Quieres cambiar tu rol?{" "}
-              <button 
+              <button
                 className="text-primary font-medium hover:underline"
                 onClick={() => onNavigate("role-selection")}
               >
