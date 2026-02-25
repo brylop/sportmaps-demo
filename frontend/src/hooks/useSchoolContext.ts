@@ -212,7 +212,7 @@ export function useSchoolContext(): SchoolContext {
 
     // 2. Effect: Fetch Programs when Active School Changes
     useEffect(() => {
-        if (activeSchoolId) {
+        if (activeSchoolId && activeSchoolId !== "") {
             fetchPrograms(activeSchoolId, activeBranchId);
             fetchSettings(activeSchoolId);
         }
@@ -260,6 +260,7 @@ export function useSchoolContext(): SchoolContext {
     };
 
     const fetchPrograms = async (id: string, branchId: string | null = null) => {
+        if (!id || id === "") return;
         setLoading(true);
         try {
             let query = supabase
@@ -294,6 +295,7 @@ export function useSchoolContext(): SchoolContext {
     };
 
     const fetchSettings = async (id: string) => {
+        if (!id || id === "") return;
         const { data } = await supabase
             .from('school_settings')
             .select('*')
@@ -432,7 +434,6 @@ export async function createStudentWithPendingPayment(params: {
             parent_email_temp: params.parentEmail || null,
             parent_phone_temp: params.parentPhone || null,
             medical_info: params.medicalInfo || null,
-            notes: params.notes || null,
             school_id: params.schoolId,
             branch_id: params.branchId || null,
             program_id: params.programId || null,

@@ -35,7 +35,7 @@ export type Action = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'all';
  * Role-Permission Matrix
  * Defines what each role can do
  */
-const rolePermissions: Record<UserRole, Permission[]> = {
+const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, Permission[]> = {
   athlete: [
     'dashboard:view',
     'calendar:view',
@@ -149,6 +149,19 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:edit'
   ],
 
+  reporter: [
+    'dashboard:view',
+    'calendar:view',
+    'teams:view',
+    'students:view',
+    'stats:view',
+    'reports:view',
+    'reports:create',
+    'messages:view',
+    'settings:view',
+    'settings:edit'
+  ],
+
   admin: [
     'dashboard:view',
     'calendar:view',
@@ -180,15 +193,18 @@ const rolePermissions: Record<UserRole, Permission[]> = {
 };
 
 // ALIASING FOR DB COMPATIBILITY
-// Database uses 'school_admin' and 'super_admin', Frontend uses 'school' and 'admin'
+// Database uses 'school_admin', 'super_admin', 'owner', etc.
 (rolePermissions as any)['school_admin'] = rolePermissions.school;
 (rolePermissions as any)['super_admin'] = rolePermissions.admin;
+(rolePermissions as any)['owner'] = rolePermissions.admin;
+(rolePermissions as any)['guest'] = rolePermissions.athlete; // guests get basic access
 
 /**
  * Check if a user has a specific permission
  */
 export function hasPermission(userRole: UserRole, permission: Permission): boolean {
   const permissions = rolePermissions[userRole];
+  if (!permissions) return false; // Safety: unknown role → deny
   return permissions.includes(permission);
 }
 
@@ -225,7 +241,7 @@ export function hasAllPermissions(userRole: UserRole, permissions: Permission[])
  * Feature flags by role
  * Controls visibility of UI features
  */
-export const featureFlags: Record<UserRole, Record<string, boolean>> = {
+export const featureFlags: Partial<Record<UserRole, Record<string, boolean>>> & Record<string, Record<string, boolean>> = {
   athlete: {
     canCreateEvents: false,
     canManageTeams: false,
@@ -272,6 +288,13 @@ export const featureFlags: Record<UserRole, Record<string, boolean>> = {
     canCreateEvents: true,
     canManageTeams: false,
     canViewFinances: true,
+    canAccessAdmin: false,
+    canExportData: true
+  },
+  reporter: {
+    canCreateEvents: false,
+    canManageTeams: false,
+    canViewFinances: false,
     canAccessAdmin: false,
     canExportData: true
   },

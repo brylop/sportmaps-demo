@@ -337,7 +337,9 @@ export default function InvitationsManagementPage() {
       }
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message
+        : (typeof error === 'object' && error !== null && 'message' in error) ? String((error as any).message)
+          : String(error);
       toast({
         title: '❌ Error',
         description: `No se pudo enviar la invitación: ${message}`,

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Loader2, Eye, EyeOff, MailCheck, Mail, School } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { USER_ROLES } from '@/constants/roles';
@@ -48,6 +49,21 @@ interface RoleOption {
   name: string;
   display_name: string;
 }
+
+const ROLE_DISPLAY_NAMES: Record<string, string> = {
+  athlete: '🏃 Deportista/Atleta',
+  parent: '👨‍👩‍👧 Padre/Madre',
+  coach: '🎓 Entrenador/Coach',
+  school: '🏫 Escuela/Centro Deportivo',
+  school_admin: '🏢 Administrador de Sede',
+  reporter: '📊 Súper Usuario (Reporter)',
+  guest: '👤 Invitado',
+  admin: '🛡️ Administrador',
+  super_admin: '🛡️ Super Administrador',
+  wellness_professional: '💚 Profesional Bienestar',
+  store_owner: '🏪 Dueño de Tienda',
+  organizer: '📋 Organizador',
+};
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -113,8 +129,8 @@ export default function RegisterPage() {
             child_name: invite.child_name,
           });
         }
-      } catch {
-        // RLS may block - non-critical
+      } catch (err) {
+        console.warn('Invitation validation failed or ID is invalid. This is expected if the link is malformed or unauthorized.', err);
       }
     };
     fetchInvite();
@@ -192,6 +208,37 @@ export default function RegisterPage() {
     }
   };
 
+  const handleAcceptLoggedIn = async () => {
+    if (!inviteId) return;
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('accept_invitation_pro', {
+        p_invite_id: inviteId
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "¡Configuración lista!",
+        description: "Se ha vinculado tu perfil y sincronizado tu nuevo rol. Redirigiendo...",
+      });
+
+      // Clear pending invite from storage
+      localStorage.removeItem('pending_invite_id');
+
+      // Force a full reload to ensure the AuthContext picks up the new role from DB
+      window.location.href = '/dashboard';
+    } catch (err: any) {
+      toast({
+        title: "Error al aceptar",
+        description: err.message || "No se pudo procesar la invitación.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // VISTA PARA USUARIOS YA REGISTRADOS
   if (user && inviteId) {
     return (
@@ -219,24 +266,27 @@ export default function RegisterPage() {
 
                 <div className="flex flex-col gap-3 w-full">
                   <Button
-                    onClick={() => navigate('/dashboard')}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={handleAcceptLoggedIn}
+                    disabled={isLoading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 h-12 text-lg font-bold"
                   >
-                    Ver en mi Panel de Control
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
+                    Aceptar Invitación Ahora
                   </Button>
+
                   <Button
                     asChild
                     variant="ghost"
-                    className="w-full"
+                    className="w-full text-muted-foreground hover:text-blue-600"
                   >
-                    <Link to="/dashboard">Ir al Dashboard</Link>
+                    <Link to="/dashboard">Ir al Dashboard directamente</Link>
                   </Button>
                 </div>
               </>
             ) : (
-              <div className="flex flex-col items-center gap-4">
+              <div className="flex flex-col items-center gap-4 py-4">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                <p className="text-sm text-muted-foreground">Cargando detalles de la invitación...</p>
+                <p className="text-sm text-muted-foreground">Validando invitación...</p>
               </div>
             )}
           </CardContent>
@@ -244,8 +294,6 @@ export default function RegisterPage() {
       </div>
     );
   }
-
-  // REDIRECCIÓN SI YA ESTÁ LOGUEADO (Y NO HAY INVITACIÓN)
   if (user && !inviteId) {
     return <Navigate to="/dashboard" />;
   }
@@ -381,33 +429,43 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
-              <Controller
-                name="role"
-                control={control}
-                render={({ field }) => (
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
-                      <SelectValue placeholder="Selecciona tu rol" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles.length > 0 ? (
-                        roles.map((role) => (
-                          <SelectItem key={role.id} value={role.name}>
-                            {role.display_name}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <>
-                          <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
-                          <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
-                          <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
-                          <SelectItem value={USER_ROLES.SCHOOL_ADMIN}>🏫 Escuela/Centro Deportivo</SelectItem>
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
+              {inviteRole ? (
+                /* When coming from an invitation, lock the role */
+                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
+                  <span className="text-sm font-medium">
+                    {ROLE_DISPLAY_NAMES[inviteRole] || inviteRole}
+                  </span>
+                  <Badge variant="outline" className="ml-auto text-xs">Asignado por invitación</Badge>
+                </div>
+              ) : (
+                <Controller
+                  name="role"
+                  control={control}
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
+                        <SelectValue placeholder="Selecciona tu rol" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles.length > 0 ? (
+                          roles.map((role) => (
+                            <SelectItem key={role.id} value={role.name}>
+                              {role.display_name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <>
+                            <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
+                            <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
+                            <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
+                            <SelectItem value={USER_ROLES.SCHOOL_ADMIN}>🏫 Escuela/Centro Deportivo</SelectItem>
+                          </>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              )}
               {errors.role && (
                 <p className="text-sm text-destructive">{errors.role.message}</p>
               )}

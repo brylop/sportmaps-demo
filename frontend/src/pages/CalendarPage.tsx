@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { usePermissions } from '@/hooks/usePermissions';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { LocationAutocomplete } from '@/components/events/LocationAutocomplete';
@@ -58,6 +59,7 @@ interface CalendarEvent {
   sport?: string;
   event_label?: string;
   team_id?: string;
+  creator_name?: string;
 }
 
 // ─── Sport icon mapping ───────────────────────────────────────────────────
@@ -169,6 +171,10 @@ export default function CalendarPage() {
   const { can } = usePermissions();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { schoolId, currentUserRole } = useSchoolContext();
+
+  // Admin/owner/reporter see all school events
+  const isSchoolWideView = ['owner', 'admin', 'super_admin', 'school_admin', 'reporter'].includes(currentUserRole || '');
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -222,9 +228,43 @@ export default function CalendarPage() {
 
   // ── Fetch events ──────────────────────────────────────────────────────
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['calendar-events', user?.id],
+    queryKey: ['calendar-events', user?.id, schoolId, isSchoolWideView],
     queryFn: async () => {
       if (!user) return [];
+
+      // School-wide view: fetch events from all members of the school
+      if (isSchoolWideView && schoolId) {
+        // 1. Get all member profile IDs in this school
+        const { data: members } = await supabase
+          .from('school_members')
+          .select('profile_id, profiles(full_name)')
+          .eq('school_id', schoolId)
+          .eq('status', 'active');
+
+        const memberIds = (members || []).map((m: any) => m.profile_id);
+        if (memberIds.length === 0) return [];
+
+        // Build a name lookup
+        const nameMap: Record<string, string> = {};
+        (members || []).forEach((m: any) => {
+          nameMap[m.profile_id] = m.profiles?.full_name || 'Sin nombre';
+        });
+
+        // 2. Fetch events for all school members
+        const { data, error } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .in('user_id', memberIds)
+          .order('start_time', { ascending: true });
+        if (error) throw error;
+
+        return (data || []).map((e: any) => ({
+          ...e,
+          creator_name: nameMap[e.user_id] || 'Desconocido',
+        })) as CalendarEvent[];
+      }
+
+      // Personal view: only own events
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*')
@@ -439,11 +479,15 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Mi Calendario</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {isSchoolWideView ? 'Calendario de la Escuela' : 'Mi Calendario'}
+          </h1>
           <p className="text-muted-foreground">
-            {coachSport
-              ? `Gestiona tus actividades de ${coachSport}`
-              : 'Gestiona tus entrenamientos, partidos y eventos'}
+            {isSchoolWideView
+              ? 'Todos los eventos de entrenadores y sedes'
+              : coachSport
+                ? `Gestiona tus actividades de ${coachSport}`
+                : 'Gestiona tus entrenamientos, partidos y eventos'}
           </p>
         </div>
         <PermissionGate permission="calendar:create">
@@ -595,6 +639,12 @@ export default function CalendarPage() {
                           <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${typeConfig.color}`}>
                             {event.event_label || typeConfig.label}
                           </Badge>
+                          {isSchoolWideView && event.creator_name && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              <Users className="h-2.5 w-2.5 mr-0.5" />
+                              {event.creator_name}
+                            </Badge>
+                          )}
                         </div>
                       </div>
 
@@ -667,6 +717,12 @@ export default function CalendarPage() {
                         <Badge variant="outline" className={`mt-2 text-[10px] ${typeConfig.color}`}>
                           {event.event_label || typeConfig.label}
                         </Badge>
+                        {isSchoolWideView && event.creator_name && (
+                          <Badge variant="secondary" className="mt-2 ml-1 text-[10px]">
+                            <Users className="h-2.5 w-2.5 mr-0.5" />
+                            {event.creator_name}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </div>
