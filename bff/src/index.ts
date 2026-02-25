@@ -15,7 +15,21 @@ const PORT = process.env.PORT || 3000;
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+        // Permitir requests sin origin (como Postman o curl) o localhost en development
+        if (!origin || origin.startsWith('http://localhost:')) {
+            return callback(null, true);
+        }
+
+        const allowedProductionDomain = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+        // Si el origen coincide exactamente con la URL principal, o termina en .vercel.app (Preview branches)
+        if (origin === allowedProductionDomain || origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
+        return callback(new Error('Bloqueado por CORS'));
+    },
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use(pinoHttp({
