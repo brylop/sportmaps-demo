@@ -308,12 +308,30 @@ export default function ProfilePage() {
               </div>
 
               {/* Coach: Primary Sport */}
-              {profile?.role === 'coach' && coachProfile?.primary_sport && (
-                <div>
-                  <Label>Deporte Principal</Label>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium">{coachProfile.primary_sport}</span>
+              {profile?.role === 'coach' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Deporte Principal</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                      onClick={() => { setCoachWizardStep(1); setShowCoachWizard(true); }}
+                    >
+                      <Plus className="w-3 h-3" />
+                      {coachProfile?.primary_sport ? 'Cambiar Deporte' : 'Configurar Deporte'}
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 text-primary">
+                      <Trophy className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        {coachProfile?.primary_sport || 'No configurado'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Especialidad principal</p>
+                    </div>
                   </div>
                 </div>
               )}

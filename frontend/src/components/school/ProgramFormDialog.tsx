@@ -38,7 +38,7 @@ interface ProgramFormData {
   price_monthly: number;
   age_min?: number;
   age_max?: number;
-  max_participants?: number;
+  max_students?: number;
   coach_id?: string;
   facility_id?: string;
 }
@@ -57,7 +57,7 @@ interface ProgramFormDialogProps {
     price_monthly: number;
     age_min?: number | null;
     age_max?: number | null;
-    max_participants?: number | null;
+    max_students?: number | null;
     coach_id?: string | null;
     facility_id?: string | null;
   };
@@ -97,10 +97,10 @@ export function ProgramFormDialog({
       sport: program?.sport || '',
       description: program?.description || '',
       schedule: program?.schedule || '',
-      price_monthly: program?.price_monthly || 0,
+      price_monthly: program?.price_monthly ?? ('' as any),
       age_min: program?.age_min || undefined,
       age_max: program?.age_max || undefined,
-      max_participants: program?.max_participants || undefined,
+      max_students: program?.max_students || undefined,
       coach_id: program?.coach_id || undefined,
       facility_id: program?.facility_id || undefined,
     },
@@ -142,18 +142,18 @@ export function ProgramFormDialog({
     setLoading(true);
     try {
       if (program?.id) {
-        // Update existing program
+        // Update existing program (in teams table)
         const { error } = await supabase
-          .from('programs')
+          .from('teams')
           .update({
             name: data.name,
             sport: data.sport,
             description: data.description || null,
             schedule: data.schedule,
-            price_monthly: data.price_monthly,
-            age_min: data.age_min || null,
-            age_max: data.age_max || null,
-            max_participants: data.max_participants || null,
+            price_monthly: data.price_monthly === '' as any ? 0 : Number(data.price_monthly),
+            age_min: data.age_min === '' as any ? null : (data.age_min || null),
+            age_max: data.age_max === '' as any ? null : (data.age_max || null),
+            max_students: data.max_students === '' as any ? null : (data.max_students || null),
             coach_id: data.coach_id || null,
             facility_id: data.facility_id || null,
             updated_at: new Date().toISOString(),
@@ -162,20 +162,20 @@ export function ProgramFormDialog({
 
         if (error) throw error;
       } else {
-        // Create new program
-        const { error } = await supabase.from('programs').insert({
+        // Create new program (in teams table)
+        const { error } = await supabase.from('teams').insert({
           school_id: schoolId,
           name: data.name,
           sport: data.sport,
           description: data.description || null,
           schedule: data.schedule,
-          price_monthly: data.price_monthly,
-          age_min: data.age_min || null,
-          age_max: data.age_max || null,
-          max_participants: data.max_participants || null,
+          price_monthly: data.price_monthly === '' as any ? 0 : Number(data.price_monthly),
+          age_min: data.age_min === '' as any ? null : (data.age_min || null),
+          age_max: data.age_max === '' as any ? null : (data.age_max || null),
+          max_students: data.max_students === '' as any ? null : (data.max_students || null),
           coach_id: data.coach_id || null,
           facility_id: data.facility_id || null,
-          current_participants: 0,
+          current_students: 0,
           active: true,
         });
 
@@ -299,9 +299,18 @@ export function ProgramFormDialog({
                     name="price_monthly"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Precio Mensual ($)</FormLabel>
+                        <FormLabel>Precio Mensual</FormLabel>
                         <FormControl>
-                          <Input type="number" placeholder="0" {...field} />
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                            <Input
+                              type="number"
+                              className="pl-7"
+                              placeholder="0"
+                              {...field}
+                              onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                            />
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -396,12 +405,18 @@ export function ProgramFormDialog({
                 <div className="grid grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
-                    name="max_participants"
+                    name="max_students"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Capacidad</FormLabel>
                         <FormControl>
-                          <Input type="number" placeholder="20" {...field} />
+                          <Input
+                            type="number"
+                            placeholder="20"
+                            {...field}
+                            value={field.value ?? ''}
+                            onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -415,7 +430,13 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Edad Mín</FormLabel>
                         <FormControl>
-                          <Input type="number" placeholder="6" {...field} />
+                          <Input
+                            type="number"
+                            placeholder="6"
+                            {...field}
+                            value={field.value ?? ''}
+                            onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -429,7 +450,13 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Edad Máx</FormLabel>
                         <FormControl>
-                          <Input type="number" placeholder="12" {...field} />
+                          <Input
+                            type="number"
+                            placeholder="12"
+                            {...field}
+                            value={field.value ?? ''}
+                            onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

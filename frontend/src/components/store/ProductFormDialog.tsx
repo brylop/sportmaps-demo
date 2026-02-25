@@ -10,8 +10,8 @@ import { Loader2 } from 'lucide-react';
 interface ProductFormData {
   name: string;
   description: string;
-  price: number;
-  stock: number;
+  price: number | '';
+  stock: number | '';
   category: string;
   image_url: string;
 }
@@ -26,23 +26,23 @@ interface ProductFormDialogProps {
 }
 
 const categories = [
-  'Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Running', 
+  'Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Running',
   'Fitness', 'Boxeo', 'Ciclismo', 'Ropa', 'Accesorios', 'Nutrición'
 ];
 
-export function ProductFormDialog({ 
-  open, 
-  onOpenChange, 
-  onSubmit, 
+export function ProductFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
   initialData,
   isLoading,
-  mode 
+  mode
 }: ProductFormDialogProps) {
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     description: '',
-    price: 0,
-    stock: 0,
+    price: 0 as number | '',
+    stock: 0 as number | '',
     category: '',
     image_url: '',
   });
@@ -71,7 +71,11 @@ export function ProductFormDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      price: Number(formData.price) || 0,
+      stock: Number(formData.stock) || 0,
+    } as ProductFormData);
   };
 
   return (
@@ -93,7 +97,7 @@ export function ProductFormDialog({
               required
             />
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="description">Descripción *</Label>
             <Textarea
@@ -107,16 +111,20 @@ export function ProductFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="price">Precio ($) *</Label>
-              <Input
-                id="price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                required
-              />
+              <Label htmlFor="price">Precio *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                <Input
+                  id="price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="pl-7"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                  required
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="stock">Stock *</Label>
@@ -125,7 +133,7 @@ export function ProductFormDialog({
                 type="number"
                 min="0"
                 value={formData.stock}
-                onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setFormData({ ...formData, stock: e.target.value === '' ? '' : parseInt(e.target.value) })}
                 required
               />
             </div>

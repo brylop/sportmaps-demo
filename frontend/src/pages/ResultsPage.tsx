@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 export default function ResultsPage() {
   const { user } = useAuth();
@@ -29,18 +30,65 @@ export default function ResultsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
+  const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
+
   // Fetch teams
   const { data: teams } = useQuery({
-    queryKey: ['coach-teams', user?.id],
+    queryKey: ['coach-teams', user?.id, schoolId, activeBranchId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!schoolId) return [];
+
+      let staffId = null;
+      if (currentUserRole === 'coach' && user?.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', user.email)
+          .single();
+
+        if (staffData) {
+          staffId = staffData.id;
+        }
+      }
+
+      const query = (supabase as any)
         .from('teams')
-        .select('*')
-        .eq('coach_id', user?.id);
+        .select(`
+          id,
+          name,
+          sport,
+          age_group,
+          coach_id,
+          branch_id,
+          team_coaches(coach_id)
+        `)
+        .eq('school_id', schoolId)
+        .eq('status', 'active');
+
+      const { data, error } = await query;
       if (error) throw error;
-      return data;
+
+      let validTeams = data || [];
+
+      // Filter logic
+      const isAdminRole = ['owner', 'admin', 'school_admin', 'super_admin'].includes(currentUserRole || '');
+
+      if (isAdminRole) {
+        if (activeBranchId) {
+          validTeams = validTeams.filter((t: any) => t.branch_id === activeBranchId || !t.branch_id);
+        }
+      } else if (currentUserRole === 'coach' && staffId) {
+        validTeams = validTeams.filter((t: any) =>
+          t.coach_id === staffId ||
+          t.team_coaches?.some((tc: any) => tc.coach_id === staffId)
+        );
+      } else {
+        validTeams = [];
+      }
+
+      return validTeams;
     },
-    enabled: !!user?.id,
+    enabled: !!schoolId && !!user?.id,
   });
 
   // Fetch match results
@@ -135,8 +183,8 @@ export default function ResultsPage() {
             Registra y consulta resultados de partidos
           </p>
         </div>
-        <Button 
-          className="gap-2" 
+        <Button
+          className="gap-2"
           onClick={() => setDialogOpen(true)}
           disabled={!selectedTeamId}
         >
@@ -232,15 +280,15 @@ export default function ResultsPage() {
                           <Badge
                             variant={
                               result === 'win' ? 'default' :
-                              result === 'draw' ? 'secondary' : 'destructive'
+                                result === 'draw' ? 'secondary' : 'destructive'
                             }
                           >
                             {getResultLabel(result)}
                           </Badge>
                         </div>
                         <Badge variant="outline">{match.match_type}</Badge>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => setDeleteId(match.id)}
                         >
@@ -255,7 +303,7 @@ export default function ResultsPage() {
                   <div className="text-center py-8 text-muted-foreground">
                     <Trophy className="w-12 h-12 mx-auto mb-2 opacity-20" />
                     <p>No hay resultados registrados aún</p>
-                    <Button 
+                    <Button
                       className="mt-4 gap-2"
                       onClick={() => setDialogOpen(true)}
                     >
@@ -314,7 +362,7 @@ export default function ResultsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => deleteId && deleteMutation.mutate(deleteId)}
               className="bg-destructive text-destructive-foreground"
             >

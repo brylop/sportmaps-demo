@@ -56,7 +56,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
       school: [
         { id: 'create_school', title: 'Crea tu Academia', description: 'Registra los datos básicos de tu escuela.', icon: Building, href: '/school-config', completed: false },
         { id: 'add_staff', title: 'Equipo de Trabajo', description: 'Registra entrenadores o administrativos.', icon: Users, href: '/staff', completed: false },
-        { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/programs-management', completed: false },
+        { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/teams', completed: false },
         { id: 'invite_students', title: 'Invita Estudiantes', description: 'Registra y envía invitaciones.', icon: Users, href: '/students', completed: false }
       ],
       parent: [
@@ -243,7 +243,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           activities: [],
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Programas', icon: Activity, href: '/programs-management', variant: 'outline' },
+            { label: 'Ver Equipos', icon: Activity, href: '/teams', variant: 'outline' },
             { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.school

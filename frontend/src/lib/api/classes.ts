@@ -1,4 +1,4 @@
-// Classes/Programs API service — uses Supabase directly (table: programs)
+// Classes/Programs API service — uses Supabase directly (table: teams)
 // Per NAMING_DICTIONARY.md: "classes" in UI = "programs" in Supabase
 import { supabase } from '@/integrations/supabase/client';
 
@@ -13,13 +13,13 @@ export interface Class {
   name: string;
   description?: string;
   sport: string;
-  level: 'beginner' | 'intermediate' | 'advanced';
+  level?: string;
   school_id: string;
   coach_id?: string;
   coach_name?: string;
   capacity: number;
   enrolled_count: number;
-  current_participants?: number;
+  current_students?: number;
   schedule: Schedule[];
   location?: string;
   price?: number;
@@ -36,7 +36,7 @@ export interface ClassCreate {
   name: string;
   description?: string;
   sport: string;
-  level?: 'beginner' | 'intermediate' | 'advanced';
+  level?: string;
   school_id: string;
   coach_id?: string;
   coach_name?: string;
@@ -53,7 +53,7 @@ export interface ClassUpdate {
   name?: string;
   description?: string;
   sport?: string;
-  level?: 'beginner' | 'intermediate' | 'advanced';
+  level?: string;
   coach_id?: string;
   coach_name?: string;
   capacity?: number;
@@ -88,7 +88,7 @@ class ClassesAPI {
    */
   async createClass(classData: ClassCreate): Promise<Class> {
     const { data, error } = await supabase
-      .from('programs')
+      .from('teams')
       .insert({
         name: classData.name,
         description: classData.description,
@@ -96,7 +96,7 @@ class ClassesAPI {
         school_id: classData.school_id,
         coach_id: classData.coach_id,
         price_monthly: classData.price || 0,
-        max_participants: classData.capacity || 20,
+        max_students: classData.capacity || 20,
         active: classData.status !== 'inactive',
       })
       .select(`
@@ -128,7 +128,7 @@ class ClassesAPI {
   }): Promise<Class[]> {
     try {
       let query = supabase
-        .from('programs')
+        .from('teams')
         .select(`
           *,
           coach:coach_id(full_name)
@@ -173,7 +173,7 @@ class ClassesAPI {
    */
   async getClass(id: string): Promise<Class> {
     const { data, error } = await supabase
-      .from('programs')
+      .from('teams')
       .select(`
         *,
         coach:coach_id(full_name)
@@ -197,13 +197,13 @@ class ClassesAPI {
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.sport !== undefined) updateData.sport = updates.sport;
     if (updates.price !== undefined) updateData.price_monthly = updates.price;
-    if (updates.capacity !== undefined) updateData.max_participants = updates.capacity;
+    if (updates.capacity !== undefined) updateData.max_students = updates.capacity;
     if (updates.status !== undefined) updateData.active = updates.status !== 'inactive';
     if (updates.coach_id !== undefined) updateData.coach_id = updates.coach_id;
     updateData.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
-      .from('programs')
+      .from('teams')
       .update(updateData)
       .eq('id', id)
       .select(`
@@ -224,7 +224,7 @@ class ClassesAPI {
    */
   async deleteClass(id: string): Promise<void> {
     const { error } = await supabase
-      .from('programs')
+      .from('teams')
       .delete()
       .eq('id', id);
 
@@ -321,15 +321,22 @@ class ClassesAPI {
   /**
    * Get class/program statistics for a school
    */
-  async getStats(schoolId: string, branchId?: string | null): Promise<ClassStats> {
+  async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<ClassStats> {
     try {
       let query = supabase
-        .from('programs')
-        .select('id, sport, active, current_participants, branch_id')
-        .eq('school_id', schoolId);
+        .from('teams')
+        .select('id, sport, active, current_students, branch_id, coach_id');
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      }
 
       if (branchId) {
         query = query.eq('branch_id', branchId);
+      }
+
+      if (coachId) {
+        query = query.eq('coach_id', coachId);
       }
 
       const { data: programs } = await query;
@@ -338,7 +345,7 @@ class ClassesAPI {
 
       const total = programs.length;
       const active = programs.filter(p => p.active).length;
-      const full = 0; // Would need to compare current_participants vs max_participants
+      const full = 0; // Would need to compare current_students vs max_students
 
       const by_sport: Record<string, number> = {};
       programs.forEach(p => {
@@ -347,7 +354,7 @@ class ClassesAPI {
         }
       });
 
-      const total_enrolled = programs.reduce((sum, p) => sum + (p.current_participants || 0), 0);
+      const total_enrolled = programs.reduce((sum, p) => sum + (p.current_students || 0), 0);
 
       return { total, active, full, by_sport, total_enrolled };
     } catch (error) {
@@ -357,7 +364,7 @@ class ClassesAPI {
   }
 
   /**
-   * Map a Supabase 'programs' row to the Class interface
+   * Map a Supabase 'teams' row to the Class interface
    */
   private mapProgramToClass(program: any): Class {
     return {
@@ -365,13 +372,13 @@ class ClassesAPI {
       name: program.name,
       description: program.description,
       sport: program.sport || '',
-      level: program.level || 'beginner',
+      level: program.level,
       school_id: program.school_id || '',
       coach_id: program.coach_id,
       coach_name: program.coach?.full_name,
-      capacity: program.max_participants || 20,
-      enrolled_count: program.current_participants || 0,
-      current_participants: program.current_participants || 0,
+      capacity: program.max_students || 20,
+      enrolled_count: program.current_students || 0,
+      current_students: program.current_students || 0,
       schedule: program.schedule || [],
       price: program.price_monthly,
       price_monthly: program.price_monthly,

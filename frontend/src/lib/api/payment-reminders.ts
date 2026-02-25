@@ -87,7 +87,7 @@ class PaymentRemindersAPI {
 
         // Fetch programs
         const { data: programs } = await supabase
-            .from('programs')
+            .from('teams')
             .select('id, name')
             .in('id', programIds);
 

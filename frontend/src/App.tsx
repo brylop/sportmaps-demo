@@ -162,13 +162,12 @@ const App = () => (
                   <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
                   {/* Main authenticated routes */}
-                  <Route path="/" element={
+                  <Route element={
                     <ProtectedRoute>
                       <AuthLayout />
                     </ProtectedRoute>
                   }>
-                    {/* Index of authenticated layout is dashboard */}
-                    <Route index element={<DashboardPage />} />
+                    {/* Access to dashboard via /dashboard */}
                     <Route path="dashboard" element={<DashboardPage />} />
                     <Route path="profile" element={<ProfilePage />} />
                     <Route path="calendar" element={<CalendarPage />} />

@@ -18,9 +18,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus, Users } from 'lucide-react';
+import { Loader2, Plus, Users, Check, Pencil } from 'lucide-react';
+import { SPORTS_LIST } from '@/lib/constants/sports';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card } from '@/components/ui/card';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface CreateTeamModalProps {
@@ -41,10 +45,11 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
         description: '',
         sport: '',
         level: 'beginner',
-        max_students: 20,
+        max_students: 20 as number | '',
         location: '',
-        price_monthly: 0,
-        coach_id: '',
+        price_monthly: 0 as number | '',
+        coach_id: '', // Main coach (legacy)
+        coach_ids: [] as string[], // Multiple coaches
         status: 'active',
     });
 
@@ -63,8 +68,14 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: team.location || '',
                 price_monthly: team.price_monthly || 0,
                 coach_id: team.coach_id || 'none',
+                coach_ids: [] as string[],
                 status: team.status || 'active',
             });
+
+            // If editing, fetch the coaches associations
+            if (team.id) {
+                fetchTeamCoaches(team.id);
+            }
         } else if (open && !team) {
             // Reset for new team
             setFormData({
@@ -76,10 +87,28 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
+                coach_ids: [],
                 status: 'active',
             });
         }
     }, [open, team]);
+
+    const fetchTeamCoaches = async (teamId: string) => {
+        try {
+            const { data, error } = await (supabase as any)
+                .from('team_coaches')
+                .select('coach_id')
+                .eq('team_id', teamId);
+
+            if (error) throw error;
+            if (data) {
+                const ids = data.map(item => item.coach_id);
+                setFormData(prev => ({ ...prev, coach_ids: ids }));
+            }
+        } catch (error) {
+            console.error('Error fetching team coaches:', error);
+        }
+    };
 
     useEffect(() => {
         if (open && schoolId) {
@@ -106,6 +135,30 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
         }
     };
 
+    const syncTeamCoaches = async (teamId: string, coachIds: string[]) => {
+        try {
+            // Delete existing relations
+            await (supabase as any)
+                .from('team_coaches')
+                .delete()
+                .eq('team_id', teamId);
+
+            // Insert new ones
+            if (coachIds.length > 0) {
+                const inserts = coachIds.map(id => ({
+                    team_id: teamId,
+                    coach_id: id,
+                    school_id: schoolId
+                }));
+                const { error } = await (supabase as any).from('team_coaches').insert(inserts);
+                if (error) throw error;
+            }
+        } catch (error) {
+            console.error('Error syncing team coaches:', error);
+            throw error;
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -126,10 +179,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 description: formData.description,
                 sport: formData.sport,
                 level: formData.level,
-                max_students: formData.max_students,
+                max_students: formData.max_students === '' ? null : Number(formData.max_students),
                 location: formData.location,
-                price_monthly: formData.price_monthly,
-                coach_id: formData.coach_id === 'none' ? null : (formData.coach_id || null),
+                price_monthly: formData.price_monthly === '' ? 0 : Number(formData.price_monthly),
+                coach_id: formData.coach_ids.length > 0 ? formData.coach_ids[0] : null, // Set first as main
                 school_id: schoolId,
                 status: formData.status,
             };
@@ -143,20 +196,29 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
 
                 if (error) throw error;
 
+                // Sync coaches
+                await syncTeamCoaches(team.id, formData.coach_ids);
+
                 toast({
                     title: '¡Equipo actualizado!',
                     description: 'Los cambios se guardaron correctamente',
                 });
             } else {
                 // Create new team
-                const { error } = await supabase
+                const { data: createdTeam, error } = await supabase
                     .from('teams')
                     .insert({
                         ...teamData,
                         current_students: 0
-                    });
+                    })
+                    .select('id')
+                    .single();
 
                 if (error) throw error;
+
+                if (createdTeam) {
+                    await syncTeamCoaches(createdTeam.id, formData.coach_ids);
+                }
 
                 toast({
                     title: '¡Equipo creado!',
@@ -190,6 +252,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
+                coach_ids: [],
                 status: 'active',
             });
             onClose();
@@ -202,10 +265,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
-                        Nuevo Equipo
+                        {team ? 'Editar Equipo' : 'Nuevo Equipo'}
                     </DialogTitle>
                     <DialogDescription>
-                        Configura los detalles del nuevo equipo. Este formulario sigue el estándar de Programas.
+                        Configura los detalles del equipo y asigna uno o más entrenadores.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -224,13 +287,21 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="sport">Deporte *</Label>
-                            <Input
-                                id="sport"
-                                placeholder="Ej: Fútbol, Voleibol"
+                            <Select
                                 value={formData.sport}
-                                onChange={(e) => setFormData({ ...formData, sport: e.target.value })}
-                                required
-                            />
+                                onValueChange={(value) => setFormData({ ...formData, sport: value })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Seleccionar deporte" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {SPORTS_LIST.map((sport) => (
+                                        <SelectItem key={sport} value={sport}>
+                                            {sport}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="level">Nivel</Label>
@@ -261,26 +332,84 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="coach_id">Entrenador Responsable</Label>
-                            <Select
-                                value={formData.coach_id || 'none'}
-                                onValueChange={(value) => setFormData({ ...formData, coach_id: value })}
-                            >
-                                <SelectTrigger id="coach_id">
-                                    <SelectValue placeholder={loadingInitialData ? "Cargando..." : "Seleccionar entrenador"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="none">Sin asignar</SelectItem>
-                                    {staff.map((coach) => (
-                                        <SelectItem key={coach.id} value={coach.id}>
-                                            {coach.full_name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {loadingInitialData ? (
+                                <div className="col-span-full flex items-center justify-center py-8">
+                                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                </div>
+                            ) : staff.length === 0 ? (
+                                <p className="col-span-full text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/10">
+                                    No hay personal activo disponible
+                                </p>
+                            ) : (
+                                staff.map((coach) => {
+                                    const isSelected = formData.coach_ids.includes(coach.id);
+                                    const initials = coach.full_name
+                                        .split(' ')
+                                        .map((n: string) => n[0])
+                                        .join('')
+                                        .toUpperCase()
+                                        .substring(0, 2);
+
+                                    return (
+                                        <div
+                                            key={coach.id}
+                                            onClick={() => {
+                                                if (isSelected) {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        coach_ids: prev.coach_ids.filter(id => id !== coach.id)
+                                                    }));
+                                                } else {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        coach_ids: [...prev.coach_ids, coach.id]
+                                                    }));
+                                                }
+                                            }}
+                                            className={`
+                                                relative flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-200
+                                                ${isSelected
+                                                    ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
+                                                    : 'border-transparent bg-muted/30 hover:bg-muted/50 hover:border-muted-foreground/20'
+                                                }
+                                            `}
+                                        >
+                                            <div className={`
+                                                flex items-center justify-center h-10 w-10 rounded-full text-xs font-bold shrink-0
+                                                ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'}
+                                            `}>
+                                                {initials}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className={`text-sm font-semibold truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                                                    {coach.full_name}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground truncate">Entrenador</p>
+                                            </div>
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 h-4 w-4 bg-primary rounded-full flex items-center justify-center animate-in zoom-in-50">
+                                                    <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
                         </div>
+                        {formData.coach_ids.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {formData.coach_ids.map(id => {
+                                    const c = staff.find(s => s.id === id);
+                                    return c ? (
+                                        <Badge key={id} variant="secondary" className="gap-1 animate-in zoom-in-95 duration-200">
+                                            {c.full_name}
+                                        </Badge>
+                                    ) : null;
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
@@ -291,19 +420,23 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                                 type="number"
                                 min="1"
                                 value={formData.max_students}
-                                onChange={(e) => setFormData({ ...formData, max_students: parseInt(e.target.value) || 20 })}
+                                onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="price_monthly">Precio Sugerido ($)</Label>
-                            <Input
-                                id="price_monthly"
-                                type="number"
-                                min="0"
-                                step="1000"
-                                value={formData.price_monthly}
-                                onChange={(e) => setFormData({ ...formData, price_monthly: parseFloat(e.target.value) || 0 })}
-                            />
+                            <Label htmlFor="price_monthly">Precio Mensual</Label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                                <Input
+                                    id="price_monthly"
+                                    type="number"
+                                    min="0"
+                                    step="1000"
+                                    className="pl-7"
+                                    value={formData.price_monthly}
+                                    onChange={(e) => setFormData({ ...formData, price_monthly: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                                />
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="status">Estado</Label>
@@ -345,12 +478,12 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                             {creating ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Creando...
+                                    Guardando...
                                 </>
                             ) : (
                                 <>
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Crear Equipo
+                                    {team ? <Pencil className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                                    {team ? 'Guardar Cambios' : 'Crear Equipo'}
                                 </>
                             )}
                         </Button>

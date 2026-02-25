@@ -64,12 +64,12 @@ interface Program {
   name: string;
   description: string | null;
   sport: string;
-  schedule: string | null;
+  schedule: any; // Can be string (demo) or object (DB)
   price_monthly: number;
   age_min: number | null;
   age_max: number | null;
-  max_participants: number | null;
-  current_participants: number;
+  max_students: number | null;
+  current_students: number;
   active: boolean;
   // New evolution fields
   level?: string;
@@ -125,9 +125,9 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-      // Fetch programs
+      // Fetch programs (from teams table)
       const { data: programsData, error: programsError } = await supabase
-        .from('programs')
+        .from('teams')
         .select('*')
         .eq('school_id', id)
         .eq('active', true)
@@ -209,8 +209,8 @@ export default function SchoolDetailPage() {
   };
 
   const getAvailability = (program: Program) => {
-    if (!program.max_participants) return 'Cupos ilimitados';
-    const available = program.max_participants - program.current_participants;
+    if (!program.max_students) return 'Cupos ilimitados';
+    const available = program.max_students - program.current_students;
     return available > 0 ? `${available} cupos disponibles` : 'Lleno';
   };
 
@@ -225,8 +225,8 @@ export default function SchoolDetailPage() {
         price_monthly: 45000,
         age_min: 6,
         age_max: 10,
-        max_participants: 20,
-        current_participants: 12,
+        max_students: 20,
+        current_students: 12,
         active: true
       },
       {
@@ -238,8 +238,8 @@ export default function SchoolDetailPage() {
         price_monthly: 55000,
         age_min: 11,
         age_max: 15,
-        max_participants: 18,
-        current_participants: 15,
+        max_students: 18,
+        current_students: 15,
         active: true
       },
       {
@@ -251,8 +251,8 @@ export default function SchoolDetailPage() {
         price_monthly: 75000,
         age_min: 14,
         age_max: 18,
-        max_participants: 15,
-        current_participants: 14,
+        max_students: 15,
+        current_students: 14,
         active: true
       }
     ];
@@ -568,13 +568,13 @@ export default function SchoolDetailPage() {
                           className="w-full"
                           onClick={() => handleEnroll(program)}
                           disabled={
-                            program.max_participants !== null &&
-                            program.current_participants >= program.max_participants
+                            program.max_students !== null &&
+                            program.current_students >= program.max_students
                           }
                         >
                           <Calendar className="h-4 w-4 mr-2" />
-                          {program.max_participants !== null &&
-                            program.current_participants >= program.max_participants
+                          {program.max_students !== null &&
+                            program.current_students >= program.max_students
                             ? 'Programa Lleno'
                             : 'Inscribirme'}
                         </Button>

@@ -305,15 +305,34 @@ class StudentsAPI {
   /**
    * Get student statistics for a school
    */
-  async getStats(schoolId: string, branchId?: string | null): Promise<StudentStats> {
+  async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentStats> {
     try {
       let query = supabase
         .from('children')
-        .select('grade', { count: 'exact' })
-        .eq('school_id', schoolId);
+        .select('grade', { count: 'exact' });
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      }
 
       if (branchId) {
         query = query.eq('branch_id', branchId);
+      }
+
+      if (coachId) {
+        // Enrolled students for this coach
+        const { data: coachStudents } = await supabase
+          .from('enrollments')
+          .select('child_id, teams!inner(coach_id)')
+          .eq('teams.coach_id', coachId);
+
+        const studentIds = (coachStudents || []).map(s => s.child_id);
+        if (studentIds.length > 0) {
+          query = query.in('id', studentIds);
+        } else {
+          // No students found for this coach
+          return { total: 0, active: 0, inactive: 0, by_grade: {} };
+        }
       }
 
       const { data: students, count: total } = await query;

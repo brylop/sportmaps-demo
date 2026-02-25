@@ -44,9 +44,9 @@ export default function ReportsPage() {
           .select(`
             status, 
             created_at, 
-            programs!inner (
+            programs:program_id!inner (
               name, 
-              capacity, 
+              max_students, 
               school_id,
               branch_id
             )
@@ -63,18 +63,14 @@ export default function ReportsPage() {
         // --- Process Occupancy ---
         const programMap = new Map<string, { occupied: number, capacity: number }>();
         let totalStudents = 0;
-        let totalCapacity = 0;
 
         filteredEnrollments.forEach((e: any) => {
           if (e.status === 'active') {
             const pName = e.programs?.name || 'Varios';
-            const pCap = e.programs?.capacity || 20; // Default capacity if missing
+            const pCap = e.programs?.max_students || 20; // Default capacity if missing
 
             if (!programMap.has(pName)) {
               programMap.set(pName, { occupied: 0, capacity: pCap });
-              totalCapacity += pCap; // Add capacity only once per program? 
-              // Wait, capacity is per program. 
-              // We should sum capacities of UNIQUE programs.
             }
 
             // Increment occupied
@@ -86,7 +82,7 @@ export default function ReportsPage() {
 
         // Correction for Total Capacity: fetch all programs to get true capacity sum
         // (The loop above only counts programs that have at least 1 student)
-        let progsQuery = supabase.from('programs').select('name, capacity').eq('school_id', schoolId);
+        let progsQuery = supabase.from('teams').select('name, max_students').eq('school_id', schoolId);
         if (activeBranchId) progsQuery = progsQuery.eq('branch_id', activeBranchId);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: allPrograms } = await progsQuery as any;
@@ -96,13 +92,13 @@ export default function ReportsPage() {
 
         if (allPrograms) {
           allPrograms.forEach(p => {
-            realTotalCapacity += (p.capacity || 0);
+            realTotalCapacity += (p.max_students || 0);
             // Verify if we counted detailed students
             const foundObserved = programMap.get(p.name);
             finalOccupancyData.push({
               name: p.name,
               occupied: foundObserved ? foundObserved.occupied : 0,
-              vacant: (p.capacity || 0) - (foundObserved ? foundObserved.occupied : 0)
+              vacant: (p.max_students || 0) - (foundObserved ? foundObserved.occupied : 0)
             });
           });
         }

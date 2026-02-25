@@ -4,6 +4,7 @@ import { useStorage } from '@/hooks/useStorage';
 import { coachesAPI, CoachCertification } from '@/lib/api/coaches';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { SPORTS_LIST } from '@/lib/constants/sports';
 
 import {
     Dialog,
@@ -392,16 +393,11 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                             <SelectValue placeholder="Selecciona deporte" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="Artes Marciales">Artes Marciales</SelectItem>
-                                            <SelectItem value="Atletismo">Atletismo</SelectItem>
-                                            <SelectItem value="Baloncesto">Baloncesto</SelectItem>
-                                            <SelectItem value="Fútbol">Fútbol</SelectItem>
-                                            <SelectItem value="Gimnasia">Gimnasia</SelectItem>
-                                            <SelectItem value="Natación">Natación</SelectItem>
-                                            <SelectItem value="Porrismo">Porrismo</SelectItem>
-                                            <SelectItem value="Tenis">Tenis</SelectItem>
-                                            <SelectItem value="Voleibol">Voleibol</SelectItem>
-                                            <SelectItem value="Otro">Otro</SelectItem>
+                                            {SPORTS_LIST.map((sport) => (
+                                                <SelectItem key={sport} value={sport}>
+                                                    {sport}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                     {errors.primarySport && <p className="text-xs text-destructive">{errors.primarySport}</p>}

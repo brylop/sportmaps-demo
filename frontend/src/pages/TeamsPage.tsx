@@ -54,6 +54,12 @@ interface TeamWithRelations {
   coach?: {
     full_name: string;
   }[];
+  team_coaches?: {
+    coach: {
+      id: string;
+      full_name: string;
+    };
+  }[];
   coach_name?: string;
   is_virtual?: boolean;
 }
@@ -96,15 +102,13 @@ export default function TeamsPage() {
       }
 
       // Fetch all unified teams for the school
-      const { data: teamsData, error: teamsError } = await supabase
+      const query = (supabase as any)
         .from('teams')
-        .select(`
-          *,
-          school_branches(name, id),
-          coach:school_staff(full_name, id)
-        `)
+        .select('*, school_branches(name, id), team_coaches(coach:school_staff(full_name, id))')
         .eq('school_id', schoolId)
-        .order('name');
+        .order('created_at', { ascending: false });
+
+      const { data: teamsData, error: teamsError } = await query;
 
       if (teamsError) throw teamsError;
       let allTeams = (teamsData || []) as unknown as TeamWithRelations[];
@@ -123,13 +127,16 @@ export default function TeamsPage() {
             team.branch_id === activeBranchId || !team.branch_id
           );
         }
-      } else if (currentUserRole === 'coach' && userId) {
-        // Coach view: filter by coach_id
-        allTeams = allTeams.filter(team =>
-          team.coach_id === staffId ||
-          team.coach_id === userId ||
-          (team.programs?.coach_id === staffId)
-        );
+      }
+      // Filtering logic based on user role
+      if (currentUserRole === 'coach' && staffId) {
+        // Coach view: filter by team_coaches relation or legacy fields
+        allTeams = allTeams.filter(team => {
+          const isAssigned = team.team_coaches?.some((tc: any) => tc.coach?.id === staffId);
+          const isLegacyCoach = team.coach_id === staffId;
+
+          return isAssigned || isLegacyCoach;
+        });
       } else if (activeBranchId) {
         allTeams = allTeams.filter(team => team.branch_id === activeBranchId);
       }
@@ -517,16 +524,12 @@ export default function TeamsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {team.programs ? (
-                        <div className="flex flex-col gap-1">
-                          <span className="text-sm font-medium">{team.programs.name}</span>
-                          <span className="text-[10px] text-muted-foreground capitalize">
-                            Nivel: {team.programs.level || team.level || '—'}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-medium">{team.programs?.name || team.name}</span>
+                        <span className="text-[10px] text-muted-foreground capitalize">
+                          Nivel: {team.programs?.level || team.level || '—'}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 text-xs">
@@ -535,9 +538,20 @@ export default function TeamsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <Star className="w-3.5 h-3.5 text-orange-400" />
-                        {team.coach?.[0]?.full_name || team.coach_name || 'Sin asignar'}
+                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        {team.team_coaches && team.team_coaches.length > 0 ? (
+                          team.team_coaches.map((tc: any) => (
+                            <Badge key={tc.coach?.id} variant="secondary" className="text-[10px] py-0 h-4 bg-orange-50 text-orange-700 border-orange-100">
+                              {tc.coach?.full_name}
+                            </Badge>
+                          ))
+                        ) : team.coach?.[0]?.full_name ? (
+                          <Badge variant="secondary" className="text-[10px] py-0 h-4 bg-orange-50 text-orange-700 border-orange-100">
+                            {team.coach[0].full_name}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Sin asignar</span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -693,9 +707,23 @@ export default function TeamsPage() {
                   <Progress value={((team.current_students || 0) / (team.max_students || 20)) * 100} className="h-2" />
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Star className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Coach: {team.coach?.[0]?.full_name || 'Sin asignar'}</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  <Star className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                  <div className="flex flex-wrap gap-1">
+                    {team.team_coaches && team.team_coaches.length > 0 ? (
+                      team.team_coaches.map((tc: any) => (
+                        <Badge key={tc.coach?.id} variant="secondary" className="text-[9px] py-0 h-3.5 bg-orange-50 text-orange-700 border-orange-100">
+                          {tc.coach?.full_name}
+                        </Badge>
+                      ))
+                    ) : team.coach?.[0]?.full_name ? (
+                      <Badge variant="secondary" className="text-[9px] py-0 h-3.5 bg-orange-50 text-orange-700 border-orange-100">
+                        {team.coach[0].full_name}
+                      </Badge>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground italic">Sin asignar</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex gap-2 pt-2 border-t">

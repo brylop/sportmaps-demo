@@ -91,15 +91,15 @@ export default function SchoolSettingsPage() {
             };
 
             if (settings.id) {
-                const { error } = await supabase
+                const { error } = await (supabase as any)
                     .from('school_settings')
-                    .update(payload)
+                    .update(payload as any)
                     .eq('id', settings.id);
                 if (error) throw error;
             } else {
-                const { data, error } = await supabase
+                const { data, error } = await (supabase as any)
                     .from('school_settings')
-                    .insert(payload)
+                    .insert(payload as any)
                     .select()
                     .single();
                 if (error) throw error;
@@ -174,7 +174,7 @@ export default function SchoolSettingsPage() {
                                     max={28}
                                     className="w-24"
                                     value={settings.payment_due_day}
-                                    onChange={(e) => updateSetting('payment_due_day', parseInt(e.target.value) || 5)}
+                                    onChange={(e) => updateSetting('payment_due_day', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                 />
                                 <span className="text-sm text-muted-foreground">de cada mes</span>
                             </div>
@@ -189,7 +189,7 @@ export default function SchoolSettingsPage() {
                                     max={15}
                                     className="w-24"
                                     value={settings.grace_period_days}
-                                    onChange={(e) => updateSetting('grace_period_days', parseInt(e.target.value) || 0)}
+                                    onChange={(e) => updateSetting('grace_period_days', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                 />
                                 <span className="text-sm text-muted-foreground">días después del corte</span>
                             </div>
@@ -239,7 +239,7 @@ export default function SchoolSettingsPage() {
                                         max={50}
                                         className="w-24"
                                         value={settings.late_fee_percentage}
-                                        onChange={(e) => updateSetting('late_fee_percentage', parseInt(e.target.value) || 5)}
+                                        onChange={(e) => updateSetting('late_fee_percentage', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                     />
                                     <span className="text-sm text-muted-foreground">% adicional</span>
                                 </div>
@@ -289,7 +289,7 @@ export default function SchoolSettingsPage() {
                                         max={15}
                                         className="w-24"
                                         value={settings.reminder_days_before}
-                                        onChange={(e) => updateSetting('reminder_days_before', parseInt(e.target.value) || 3)}
+                                        onChange={(e) => updateSetting('reminder_days_before', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                     />
                                     <span className="text-sm text-muted-foreground">días antes</span>
                                 </div>

@@ -60,7 +60,7 @@ export default function InvitationsManagementPage() {
     childName: '',
     programId: '',
     monthlyFee: defaultMonthlyFee,
-    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest',
+    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'admin',
   });
 
   const [suggestedContacts, setSuggestedContacts] = useState<{ name: string, email: string, phone?: string, childName?: string, programId?: string }[]>([]);
@@ -526,7 +526,8 @@ export default function InvitationsManagementPage() {
                     <Badge variant="secondary" className="capitalize">
                       {invitation.role_to_assign === 'parent' ? 'Padre' :
                         invitation.role_to_assign === 'coach' ? 'Entrenador' :
-                          invitation.role_to_assign === 'athlete' ? 'Atleta' : 'Invitado'}
+                          (invitation.role_to_assign === 'admin' || invitation.role_to_assign === 'owner') ? 'Administrador' :
+                            invitation.role_to_assign === 'athlete' ? 'Atleta' : 'Invitado'}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-medium text-xs">
@@ -601,12 +602,13 @@ export default function InvitationsManagementPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label>Rol a asignar</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
                 {[
                   { id: 'parent', label: 'Padre/Madre' },
                   { id: 'coach', label: 'Entrenador' },
                   { id: 'athlete', label: 'Atleta' },
                   { id: 'guest', label: 'Invitado' },
+                  ...(isAdmin ? [{ id: 'admin', label: 'Administrador' }] : []),
                 ].map((role) => (
                   <Button
                     key={role.id}
@@ -631,7 +633,12 @@ export default function InvitationsManagementPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="parentEmail">Email del {formData.role === 'parent' ? 'Padre' : formData.role === 'coach' ? 'Entrenador' : 'Atleta'} *</Label>
+              <Label htmlFor="parentEmail">
+                Email del {formData.role === 'parent' ? 'Padre/Madre' :
+                  formData.role === 'coach' ? 'Entrenador' :
+                    formData.role === 'admin' ? 'Administrador' :
+                      formData.role === 'athlete' ? 'Atleta' : 'Invitado'} *
+              </Label>
               <div className="relative">
                 <Input
                   id="parentEmail"
