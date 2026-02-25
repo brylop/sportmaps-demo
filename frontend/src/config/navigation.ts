@@ -150,6 +150,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
+          { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -276,6 +277,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
+          { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
