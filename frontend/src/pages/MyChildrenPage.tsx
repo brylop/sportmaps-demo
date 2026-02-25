@@ -86,16 +86,16 @@ export default function MyChildrenPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                {child.programs && (
+                {child.teams && (
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <School className="w-4 h-4 text-muted-foreground" />
-                    <span>{child.programs.name} {child.programs.level ? `(${child.programs.level})` : ''}</span>
+                    <span>{child.teams.name} {child.teams.level ? `(${child.teams.level})` : ''}</span>
                   </div>
                 )}
 
-                {child.programs?.sport && (
+                {child.teams?.sport && (
                   <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                    {child.programs.sport}
+                    {child.teams.sport}
                   </Badge>
                 )}
 

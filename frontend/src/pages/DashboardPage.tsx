@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useState, useCallback } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
@@ -29,6 +29,9 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const { activeBranchId, activeBranchName } = useSchoolContext();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const pendingInviteId = localStorage.getItem('pending_invite_id');
+  const inviteUrlId = searchParams.get('invite');
   const [showProfileBanner, setShowProfileBanner] = useState(true);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
@@ -64,27 +67,43 @@ export default function DashboardPage() {
     if (!profile || !user) return;
 
     try {
-      // 0. Auto-accept invitation if invite ID is in URL or localStorage
-      const inviteUrlId = new URLSearchParams(window.location.search).get('invite');
-      const inviteStoredId = localStorage.getItem('pending_invite_id');
-      const pendingInviteId = inviteUrlId || inviteStoredId;
+      // Prioridad: 1. URL (?invite=...)  2. localStorage (pending_invite_id)
+      const targetInviteId = inviteUrlId || pendingInviteId;
 
-      if (pendingInviteId && pendingInviteId.length > 30) { // Basic UUID check
-        const { error: acceptError } = await (supabase.rpc as any)('accept_invitation', {
-          p_invite_id: pendingInviteId
+      if (targetInviteId && targetInviteId.length > 30) {
+        console.log('Intentando auto-aceptar invitación:', targetInviteId);
+        const { error: acceptError } = await (supabase.rpc as any)('accept_invitation_pro', {
+          p_invite_id: targetInviteId
         });
-        // Clear localStorage regardless of error (avoid infinite retries)
-        localStorage.removeItem('pending_invite_id');
+
         if (!acceptError) {
+          console.log('Invitación aceptada con éxito');
+          // Solo limpiar si tuvo éxito
+          localStorage.removeItem('pending_invite_id');
           toast({
             title: '¡Invitación aceptada!',
             description: 'Te hemos vinculado correctamente con la academia.',
           });
-          // Remove param from URL without refreshing
-          const newUrl = window.location.pathname;
-          window.history.replaceState({}, '', newUrl);
+
+          // Limpiar el parámetro de la URL sin recargar para mantener fluidez
+          if (inviteUrlId) {
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+          }
+
+          // RECargar para asegurar que los nuevos permisos (role en profiles) se apliquen
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        } else {
+          console.error('Error al aceptar invitación:', acceptError);
+          // Si el error es que ya no es válida o ya se procesó, entonces sí limpiamos para evitar bucles de error
+          if (acceptError.message?.includes('ya procesada') || acceptError.message?.includes('no válida')) {
+            localStorage.removeItem('pending_invite_id');
+          }
         }
       }
+
 
       // 1. Obtener estados del checklist (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
@@ -97,8 +116,9 @@ export default function DashboardPage() {
         if (!invError && invData && invData.length > 0) {
           currentInvites = invData[0];
           setInvitation({
-            schoolName: currentInvites.school_name,
-            role: currentInvites.role_to_assign,
+            id: currentInvites.id,
+            school_name: currentInvites.school_name,
+            role_to_assign: currentInvites.role_to_assign,
             parentName: currentInvites.parent_name,
             childName: currentInvites.child_name,
             programName: currentInvites.program_name

@@ -9,6 +9,12 @@ export interface Schedule {
   end_time: string;
 }
 
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return regex.test(id);
+};
+
 export interface Class {
   id: string;
   name: string;
@@ -128,17 +134,19 @@ class ClassesAPI {
     limit?: number;
   }): Promise<Class[]> {
     try {
+      if (!params?.school_id || !isValidUUID(params.school_id)) {
+        console.warn('getClasses called without valid school_id, returning empty array');
+        return [];
+      }
+
       let query = supabase
         .from('teams')
         .select(`
           *,
           coach:coach_id(full_name)
         `)
+        .eq('school_id', params.school_id)
         .order('created_at', { ascending: false });
-
-      if (params?.school_id) {
-        query = query.eq('school_id', params.school_id);
-      }
       if (params?.sport) {
         query = query.eq('sport', params.sport);
       }
@@ -317,6 +325,9 @@ class ClassesAPI {
    * Get class/program statistics for a school
    */
   async getStats(schoolId: string, branchId?: string | null): Promise<ClassStats> {
+    if (!schoolId || !isValidUUID(schoolId)) {
+      return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+    }
     try {
       let query = supabase
         .from('teams')

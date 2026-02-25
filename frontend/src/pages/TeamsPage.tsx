@@ -766,6 +766,7 @@ export default function TeamsPage() {
           refetch();
         }}
         schoolId={schoolId || ''}
+        branchId={activeBranchId}
         team={editingTeam}
       />
       <EnrollTeamStudentModal

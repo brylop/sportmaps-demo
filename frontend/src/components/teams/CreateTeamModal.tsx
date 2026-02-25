@@ -32,10 +32,11 @@ interface CreateTeamModalProps {
     onClose: () => void;
     onSuccess: () => void;
     schoolId: string;
+    branchId?: string | null;
     team?: any; // Add team for editing mode
 }
 
-export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: CreateTeamModalProps) {
+export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, team }: CreateTeamModalProps) {
     const [creating, setCreating] = useState(false);
     const queryClient = useQueryClient();
     const { toast } = useToast();
@@ -184,6 +185,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 price_monthly: formData.price_monthly === '' ? 0 : Number(formData.price_monthly),
                 coach_id: formData.coach_ids.length > 0 ? formData.coach_ids[0] : null, // Set first as main
                 school_id: schoolId,
+                branch_id: branchId || null,
                 status: formData.status,
             };
 

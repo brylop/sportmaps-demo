@@ -161,11 +161,12 @@ export default function ReporterDashboardPage() {
     }
 
     async function fetchStudents() {
+        if (!schoolId) return;
         const { data } = await (supabase as any)
             .from('children')
             .select(`
         id, full_name, status, created_at,
-        programs:teams!program_id (name, monthly_fee),
+        teams!program_id (name, monthly_fee),
         school_branches:branch_id (name)
       `)
             .eq('school_id', schoolId)
@@ -174,10 +175,10 @@ export default function ReporterDashboardPage() {
         const rows: StudentRow[] = (data || []).map((s: any) => ({
             id: s.id,
             full_name: s.full_name || 'Sin nombre',
-            program: s.programs?.name || '—',
+            program: s.teams?.name || '—',
             sede: s.school_branches?.name || 'Principal',
             status: s.status || 'active',
-            fee: s.programs?.monthly_fee || 0,
+            fee: s.teams?.monthly_fee || 0,
             joined: s.created_at ? format(new Date(s.created_at), 'dd/MM/yyyy') : '—',
         }));
         setStudents(rows);
@@ -196,13 +197,14 @@ export default function ReporterDashboardPage() {
     }
 
     async function fetchPayments() {
+        if (!schoolId) return;
         const since = format(subMonths(new Date(), parseInt(dateRange) / 30), 'yyyy-MM-dd');
         const { data } = await (supabase as any)
             .from('payments')
             .select(`
         id, amount, status, payment_month, created_at,
         children:student_id (full_name),
-        programs:teams (name)
+        teams (name)
       `)
             .eq('school_id', schoolId)
             .gte('created_at', since)
@@ -214,7 +216,7 @@ export default function ReporterDashboardPage() {
             amount: p.amount || 0,
             status: p.status || 'pending',
             month: p.payment_month || '—',
-            program: p.programs?.name || '—',
+            program: p.teams?.name || '—',
         }));
         setPayments(rows);
 
@@ -234,12 +236,13 @@ export default function ReporterDashboardPage() {
     }
 
     async function fetchCoaches() {
+        if (!schoolId) return;
         const { data } = await (supabase as any)
             .from('school_members')
             .select(`
         id, role,
         profiles:user_id (full_name, email),
-        programs:teams (name),
+        teams (name),
         school_branches:branch_id (name)
       `)
             .eq('school_id', schoolId)
@@ -249,7 +252,7 @@ export default function ReporterDashboardPage() {
             id: m.id,
             name: m.profiles?.full_name || 'Sin nombre',
             email: m.profiles?.email || '—',
-            program: m.programs?.name || '—',
+            program: m.teams?.name || '—',
             sede: m.school_branches?.name || 'Principal',
             students: 0,
         }));
@@ -262,6 +265,7 @@ export default function ReporterDashboardPage() {
     }
 
     async function fetchSedes() {
+        if (!schoolId) return;
         const { data: sedesData } = await (supabase as any)
             .from('school_branches')
             .select('id, name')
@@ -295,6 +299,7 @@ export default function ReporterDashboardPage() {
     }
 
     async function fetchPrograms() {
+        if (!schoolId) return;
         const { data } = await (supabase as any)
             .from('teams')
             .select('id, name, monthly_fee, description')

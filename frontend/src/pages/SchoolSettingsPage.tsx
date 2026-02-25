@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Save, Settings, Bell, DollarSign, Clock, Shield } from 'lucide-react';
+import { Save, Settings, Bell, DollarSign, Clock, Shield, Building2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -37,8 +37,11 @@ const DEFAULT_SETTINGS: Omit<SchoolSettingsData, 'school_id'> = {
     require_payment_proof: true,
 };
 
+import { useNavigate } from 'react-router-dom';
+
 export default function SchoolSettingsPage() {
     const { schoolId, schoolName } = useSchoolContext();
+    const navigate = useNavigate();
     const [settings, setSettings] = useState<SchoolSettingsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -325,6 +328,44 @@ export default function SchoolSettingsPage() {
                             <p className="text-xs text-muted-foreground text-center">
                                 Más opciones de permisos estarán disponibles próximamente.
                             </p>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Infrastructure Management */}
+                <Card className="md:col-span-2 bg-primary/5 border-primary/20">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Building2 className="h-5 w-5 text-primary" />
+                            Sedes e Infraestructura
+                        </CardTitle>
+                        <CardDescription>Gestiona tus sedes físicas y las instalaciones (canchas, gimnasios, etc.) disponibles.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <Button
+                                variant="outline"
+                                className="h-auto py-4 flex flex-col items-center gap-2 border-primary/30 hover:bg-primary/10"
+                                onClick={() => navigate('/branches')}
+                            >
+                                <MapPin className="h-6 w-6 text-primary" />
+                                <div className="text-center">
+                                    <div className="font-semibold">Gestionar Sedes</div>
+                                    <div className="text-xs text-muted-foreground">Configurar sucursales y ubicaciones</div>
+                                </div>
+                            </Button>
+
+                            <Button
+                                variant="outline"
+                                className="h-auto py-4 flex flex-col items-center gap-2 border-primary/30 hover:bg-primary/10"
+                                onClick={() => navigate('/facilities')}
+                            >
+                                <Building2 className="h-6 w-6 text-primary" />
+                                <div className="text-center">
+                                    <div className="font-semibold">Gestionar Instalaciones</div>
+                                    <div className="text-xs text-muted-foreground">Canchas, espacios y equipamiento</div>
+                                </div>
+                            </Button>
                         </div>
                     </CardContent>
                 </Card>

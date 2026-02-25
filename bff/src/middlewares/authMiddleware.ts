@@ -36,13 +36,14 @@ export const requireAuth = async (
         }
 
         const { data: profile, error: profileError } = await supabase
-            .from('user_profiles')
+            .from('school_members')
             .select('school_id, role')
-            .eq('user_id', user.id)
+            .eq('profile_id', user.id)
+            .eq('status', 'active')
             .single();
 
         if (profileError || !profile) {
-            return res.status(403).json({ error: 'Perfil de usuario no encontrado.' });
+            return res.status(403).json({ error: 'Perfil de miembro de escuela no encontrado o inactivo.' });
         }
 
         if (!profile.school_id) {

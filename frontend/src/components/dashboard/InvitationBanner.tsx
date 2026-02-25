@@ -16,10 +16,21 @@ interface InvitationBannerProps {
 
 export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, onAction }) => {
     const { toast } = useToast();
+    const [isAccepting, setIsAccepting] = React.useState(false);
 
     const handleAccept = async () => {
+        if (!invitation?.id) {
+            toast({
+                title: "Error",
+                description: "ID de invitación no disponible.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        setIsAccepting(true);
         try {
-            const { data, error } = await (supabase.rpc as any)('accept_invitation', { p_invite_id: invitation.id });
+            const { data, error } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: invitation.id });
 
             if (error) throw error;
 
@@ -35,6 +46,8 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
                 description: error.message || "No se pudo aceptar la invitación.",
                 variant: "destructive"
             });
+        } finally {
+            setIsAccepting(false);
         }
     };
 
@@ -55,9 +68,15 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
                 <div className="flex gap-2">
                     <button
                         onClick={handleAccept}
-                        className="bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors flex items-center gap-2"
+                        disabled={isAccepting || !invitation?.id}
+                        className="bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
-                        <Check className="w-4 h-4" /> Aceptar
+                        {isAccepting ? (
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                        ) : (
+                            <Check className="w-4 h-4" />
+                        )}
+                        Aceptar
                     </button>
                     <button className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-800 transition-colors">
                         <X className="w-4 h-4" />

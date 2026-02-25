@@ -60,6 +60,17 @@ interface PaymentTransaction {
   program: { name: string } | null;
 }
 
+interface TeamSubscription {
+  id: string;
+  full_name: string;
+  monthly_fee: number;
+  team_id: string;
+  teams: {
+    name: string;
+  } | null;
+  payment_method?: string;
+}
+
 /**
  * Página principal para la gestión y automatización de pagos de la escuela.
  * Permite a los administradores validar comprobantes manuales, ver el historial de transacciones
@@ -72,6 +83,7 @@ export default function PaymentsAutomationPage() {
 
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [teamSubscriptions, setTeamSubscriptions] = useState<TeamSubscription[]>([]);
   const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -80,8 +92,12 @@ export default function PaymentsAutomationPage() {
   const [billingSaving, setBillingSaving] = useState(false);
 
   useEffect(() => {
-    if (schoolId) loadBillingSettings();
-  }, [schoolId]);
+    if (schoolId) {
+      loadBillingSettings();
+      fetchPayments();
+      loadTeamSubscriptions();
+    }
+  }, [schoolId, activeBranchId]);
 
   const loadBillingSettings = async () => {
     if (!schoolId) return;
@@ -196,16 +212,48 @@ export default function PaymentsAutomationPage() {
     }
   };
 
-  useEffect(() => {
-    fetchPayments();
-  }, [schoolId, activeBranchId]);
+  const loadTeamSubscriptions = async () => {
+    if (!schoolId) return;
+    try {
+      let query = supabase
+        .from('children')
+        .select(`
+          id,
+          full_name,
+          monthly_fee,
+          team_id,
+          teams(
+            name
+          )
+        `)
+        .eq('school_id', schoolId)
+        .not('team_id', 'is', null);
+
+      if (activeBranchId) {
+        query = query.eq('branch_id', activeBranchId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setTeamSubscriptions(data as unknown as TeamSubscription[]);
+    } catch (error) {
+      console.error('Error loading team subscriptions:', error);
+    }
+  };
+
 
   // Authentication Guard (Moved after all hooks to comply with Rules of Hooks)
-  if (!profile || (profile.role !== 'school' && profile.role !== 'admin' && profile.role !== 'coach')) {
-    // Allow coaches if they have permission (checked internally in components usually, but for page access we might need stricter check)
-    // For now, let's assume if they can navigate here, they are allowed, but we'll filter data.
-    // If strictly school admin page:
-    if (profile.role !== 'school' && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  const isAuthorized = profile && [
+    'school',
+    'admin',
+    'school_admin',
+    'super_admin',
+    'owner',
+    'coach'
+  ].includes(profile.role);
+
+  if (!isAuthorized) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   /**
@@ -472,30 +520,24 @@ export default function PaymentsAutomationPage() {
         </Card>
       </div>
 
-      <Tabs defaultValue="validation" className="space-y-4">
+      <Tabs defaultValue="recurrent" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="validation" className="relative">
-            Validación Manual
-            {pendingPayments.length > 0 && (
-              <span className="ml-2 bg-destructive text-destructive-foreground px-1.5 py-0.5 rounded-full text-[10px]">
-                {pendingPayments.length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="history">Historial de Transacciones</TabsTrigger>
-          <TabsTrigger value="config">Configuración de Cobros</TabsTrigger>
+          <TabsTrigger value="recurrent">Cobros Recurrentes</TabsTrigger>
+          <TabsTrigger value="teams">Vista por Equipos</TabsTrigger>
+          <TabsTrigger value="history">Transacciones</TabsTrigger>
+          <TabsTrigger value="config">Configuración</TabsTrigger>
         </TabsList>
 
-        {/* Validation Tab */}
-        <TabsContent value="validation">
+        {/* Cobros Recurrentes Tab */}
+        <TabsContent value="recurrent">
           <Card className="border-amber-200 bg-amber-50/10">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5 text-amber-600" />
-                Pagos Pendientes de Aprobación
+                Validación de Cobros
               </CardTitle>
               <CardDescription>
-                Revisa los comprobantes de transferencia y aprueba o rechaza los pagos.
+                Gestiona los pagos pendientes de validación y recordatorios.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -583,12 +625,82 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
+        {/* Vista por Equipos Tab */}
+        <TabsContent value="teams">
+          <Card>
+            <CardHeader>
+              <CardTitle>Vista por Equipos</CardTitle>
+              <CardDescription>
+                Listado de cobros programados por cada equipo y estudiante.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Alumno</TableHead>
+                      <TableHead>Equipo</TableHead>
+                      <TableHead>Monto Mensual</TableHead>
+                      <TableHead>Próximo Cobro</TableHead>
+                      <TableHead>Método de Pago</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-24 text-center">
+                          <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : teamSubscriptions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                          No hay estudiantes asignados a equipos.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      teamSubscriptions.map((sub) => (
+                        <TableRow key={sub.id}>
+                          <TableCell className="font-medium text-blue-600 cursor-pointer hover:underline">
+                            {sub.full_name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">
+                              {sub.teams?.name || 'Sin equipo'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-bold">
+                            {formatCurrency(sub.monthly_fee || 0)}
+                          </TableCell>
+                          <TableCell>
+                            <span className="flex items-center gap-1.5 text-sm">
+                              <Clock className="h-3.5 w-3.5 text-amber-500" />
+                              Día {billing?.payment_due_day || 5} (Prox. Mes)
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700 border-transparent">
+                              <CreditCard className="h-3.5 w-3.5" />
+                              Cobro Automático
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* History Tab */}
         <TabsContent value="history">
           <Card>
             <CardHeader>
-              <CardTitle>Historial de Transacciones</CardTitle>
-              <CardDescription>Registro completo de pagos aprobados, rechazados y fallidos.</CardDescription>
+              <CardTitle>Transacciones</CardTitle>
+              <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -651,12 +763,12 @@ export default function PaymentsAutomationPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        {/* ─── Configuración de Cobros tab ───────────────────────────────────── */}
+        {/* ─── Configuración Tab ───────────────────────────────────── */}
         <TabsContent value="config" className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Configuración de Cobros</h2>
-              <p className="text-sm text-muted-foreground">Reglas de facturación, mora, recordatorios y permisos.</p>
+              <h2 className="text-lg font-semibold">Configuración</h2>
+              <p className="text-sm text-muted-foreground">Reglas de facturación, mora y notificaciones.</p>
             </div>
             <Button onClick={handleSaveBilling} disabled={billingSaving} className="gap-2">
               {billingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

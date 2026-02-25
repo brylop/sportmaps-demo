@@ -112,6 +112,7 @@ export default function SchoolDetailPage() {
   }, [id]);
 
   const fetchSchoolData = async () => {
+    if (!id || id === "") return;
     try {
       setLoading(true);
 

@@ -9,6 +9,12 @@
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from './bffClient';
 
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return regex.test(id);
+};
+
 export interface Student {
   id: string;
   full_name: string;
@@ -121,6 +127,8 @@ interface BFFStudentRow {
   document_id: string;
   grade?: string;
   medical_info?: string;
+  team?: string;
+  sport?: string;
   // El BFF acepta más campos, estos son los que el CSV actual exporta
 }
 
@@ -159,6 +167,9 @@ class StudentsAPI {
    */
   async getSchoolView(schoolId: string, branchId?: string | null): Promise<StudentViewRow[]> {
     try {
+      if (!schoolId || !isValidUUID(schoolId)) {
+        return [];
+      }
       let query = supabase
         .from('students')
         .select('*')
@@ -333,6 +344,8 @@ class StudentsAPI {
           document_id: docId || `AUTO-${i}`,   // fallback si no hay documento
           grade: row['grade'] || row['grado'] || undefined,
           medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+          team: row['team'] || row['equipo'] || undefined,
+          sport: row['sport'] || row['deporte'] || undefined,
         });
         continue;
       }
@@ -348,6 +361,8 @@ class StudentsAPI {
         document_id: docId,
         grade: row['grade'] || row['grado'] || undefined,
         medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+        team: row['team'] || row['equipo'] || undefined,
+        sport: row['sport'] || row['deporte'] || undefined,
       });
     }
 
@@ -393,6 +408,9 @@ class StudentsAPI {
    * Get student statistics for a school
    */
   async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentStats> {
+    if (!schoolId || !isValidUUID(schoolId)) {
+      return { total: 0, active: 0, inactive: 0, by_grade: {} };
+    }
     try {
       let query = supabase
         .from('children')

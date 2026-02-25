@@ -32,6 +32,8 @@ interface ParsedStudent {
   date_of_birth?: string;
   gender?: string;
   grade?: string;
+  team?: string;
+  sport?: string;
   parent_name?: string;
   parent_email?: string;
   parent_phone?: string;
@@ -82,6 +84,8 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
         date_of_birth: row.date_of_birth || row.fecha_nacimiento || '',
         gender: row.gender || row.genero || '',
         grade: row.grade || row.grado || '',
+        team: row.team || row.equipo || '',
+        sport: row.sport || row.deporte || '',
         parent_name: row.parent_name || row.nombre_acudiente || '',
         parent_email: row.parent_email || row.email_acudiente || '',
         parent_phone: row.parent_phone || row.telefono_acudiente || '',
@@ -207,9 +211,9 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
   };
 
   const downloadTemplate = () => {
-    const template = `full_name,email,phone,date_of_birth,gender,grade,parent_name,parent_email,parent_phone,monthly_fee
-Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,María García,maria.garcia@email.com,3009876543,150000
-Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carlos Martínez,carlos.martinez@email.com,3108765432,180000
+    const template = `full_name,email,phone,date_of_birth,gender,grade,team,sport,parent_name,parent_email,parent_phone,monthly_fee
+Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,Sub-15,Fútbol,María García,maria.garcia@email.com,3009876543,150000
+Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Sub-12,Natación,Carlos Martínez,carlos.martinez@email.com,3108765432,180000
 `;
 
     const blob = new Blob([template], { type: 'text/csv' });
@@ -314,8 +318,9 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Nombre</TableHead>
+                    <TableHead className="text-xs">Equipo</TableHead>
+                    <TableHead className="text-xs">Deporte</TableHead>
                     <TableHead className="text-xs">Acudiente</TableHead>
-                    <TableHead className="text-xs">Teléfono</TableHead>
                     <TableHead className="text-xs">Mensualidad</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -323,14 +328,15 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                   {parsedStudents.slice(0, 5).map((s, i) => (
                     <TableRow key={i}>
                       <TableCell className="text-xs py-1">{s.full_name}</TableCell>
+                      <TableCell className="text-xs py-1">{s.team || '-'}</TableCell>
+                      <TableCell className="text-xs py-1">{s.sport || '-'}</TableCell>
                       <TableCell className="text-xs py-1">{s.parent_name || '-'}</TableCell>
-                      <TableCell className="text-xs py-1">{s.parent_phone || '-'}</TableCell>
                       <TableCell className="text-xs py-1 font-semibold">{formatCurrency(s.monthly_fee)}</TableCell>
                     </TableRow>
                   ))}
                   {parsedStudents.length > 5 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-xs text-center text-muted-foreground py-1">
+                      <TableCell colSpan={5} className="text-xs text-center text-muted-foreground py-1">
                         ... y {parsedStudents.length - 5} más
                       </TableCell>
                     </TableRow>
@@ -420,6 +426,8 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Carl
                 <p><strong>Columnas requeridas:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
                   <li><code>full_name</code> - Nombre completo del estudiante (requerido)</li>
+                  <li><code>team</code> - Nombre del equipo (se crea auto si no existe)</li>
+                  <li><code>sport</code> - Deporte del equipo (ej: Fútbol, Natación)</li>
                   <li><code>parent_name</code> - Nombre del padre/madre</li>
                   <li><code>parent_email</code> - Email del padre/madre</li>
                   <li><code>parent_phone</code> - Teléfono del padre/madre</li>

@@ -54,7 +54,7 @@ export default function AdvancedSearchPage() {
         .from('schools')
         .select(`
           *,
-          programs (
+          teams (
             price_monthly,
             active
           )
@@ -65,7 +65,7 @@ export default function AdvancedSearchPage() {
 
       // Procesar datos para calcular rango de precios
       return data.map((school: any) => {
-        const activePrograms = school.programs?.filter((p: any) => p.active) || [];
+        const activePrograms = school.teams?.filter((p: any) => p.active) || [];
         const prices = activePrograms.map((p: any) => p.price_monthly);
         const min_price = prices.length > 0 ? Math.min(...prices) : 0;
         const max_price = prices.length > 0 ? Math.max(...prices) : 0;
@@ -301,7 +301,7 @@ export default function AdvancedSearchPage() {
           ) : (
             <div className="grid gap-4">
               {filteredSchools.map(school => (
-                <Card 
+                <Card
                   key={school.id}
                   className="group cursor-pointer hover:shadow-md transition-all duration-300 hover:border-primary/50"
                   onClick={() => navigate(`/schools/${school.id}`)}
@@ -360,7 +360,7 @@ export default function AdvancedSearchPage() {
                               </Badge>
                             )}
                           </div>
-                          
+
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             {school.amenities?.slice(0, 3).map(amenity => (
                               <span key={amenity} className="flex items-center gap-1">

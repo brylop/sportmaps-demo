@@ -115,9 +115,16 @@ export function useDashboardStatsReal() {
         // Note: studentsAPI and classesAPI might need branchId support too
         // If schoolId is null but it's a coach, we can still get stats for that coach
         const [studentStats, classStats] = await Promise.all([
-          studentsAPI.getStats(schoolId || '', activeBranchId, coachIdFilter).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
-          classesAPI.getStats(schoolId || '', activeBranchId, coachIdFilter).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
-        ]);
+          schoolId || coachIdFilter
+            ? studentsAPI.getStats(schoolId || '', activeBranchId, coachIdFilter)
+            : Promise.resolve({ total: 0, active: 0, inactive: 0, by_grade: {} }),
+          schoolId || coachIdFilter
+            ? classesAPI.getStats(schoolId || '', activeBranchId)
+            : Promise.resolve({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }),
+        ]).catch((err) => {
+          console.error("Error fetching dashboard stats:", err);
+          return [{ total: 0, active: 0, inactive: 0, by_grade: {} }, { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }];
+        });
 
         setStats({
           students_count: studentStats.total,

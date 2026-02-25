@@ -14,6 +14,8 @@ const StudentSchema = z.object({
         .regex(/^[0-9A-Za-z\-]+$/, 'Documento inválido'),
     grade: z.string().max(20).optional(),
     medical_info: z.string().max(1000).optional(),
+    team: z.string().max(100).optional(),
+    sport: z.string().max(100).optional(),
 });
 
 const BulkUploadSchema = z.object({
@@ -57,14 +59,14 @@ router.post(
                 });
             }
 
-            // 3. Buscar cuáles ya existen en esta escuela
+            // 3. Buscar cuáles ya existen en esta escuela (usando colas SQL reales: children.doc_number)
             const { data: existing } = await supabase
-                .from('students')
-                .select('id, document_id')
-                .eq('school_id', schoolId)      // 🔒 solo busca en TU escuela
-                .in('document_id', docIds);
+                .from('children')
+                .select('id, doc_number')
+                .eq('school_id', schoolId)
+                .in('doc_number', docIds);
 
-            const existingMap = new Map(existing?.map(s => [s.document_id, s.id]) ?? []);
+            const existingMap = new Map(existing?.map(s => [s.doc_number, s.id]) ?? []);
 
             // 4. Separar en nuevos vs. existentes
             const toInsert: typeof students = [];
@@ -86,46 +88,206 @@ router.post(
 
             // 5. Ejecutar inserts
             let inserted = 0;
+            const insertedChildMap = new Map<string, string>(); // doc_number → child_id
             if (toInsert.length > 0) {
                 const records = toInsert.map(s => ({
-                    ...s,
-                    school_id: schoolId,    // 🔒 forzado por el servidor
-                    status: 'active',
+                    full_name: `${s.first_name} ${s.last_name}`.trim(),
+                    doc_number: s.document_id,
+                    doc_type: 'CC', // Por defecto
+                    grade: s.grade,
+                    medical_info: s.medical_info,
+                    school_id: schoolId,
+                    is_demo: false, // Por defecto
                     created_at: new Date().toISOString(),
                 }));
 
                 const { data, error } = await supabase
-                    .from('students')
+                    .from('children')
                     .insert(records)
-                    .select('id');
+                    .select('id, doc_number');
 
                 if (error) {
                     req.log?.error({ err: error }, 'Error en bulk insert');
                     return res.status(500).json({ error: 'Error en base de datos al insertar.' });
                 }
                 inserted = data?.length ?? 0;
+
+                // Map doc_number → child id for enrollment later
+                for (const row of data ?? []) {
+                    insertedChildMap.set(row.doc_number, row.id);
+                }
             }
 
             // 6. Ejecutar updates (si upsert: true)
             let updated = 0;
-            for (const { id, data: studentData } of toUpdate) {
+            for (const { id, data: s } of toUpdate) {
                 const { error } = await supabase
-                    .from('students')
-                    .update({ ...studentData, updated_at: new Date().toISOString() })
+                    .from('children')
+                    .update({
+                        full_name: `${s.first_name} ${s.last_name}`.trim(),
+                        doc_number: s.document_id,
+                        grade: s.grade,
+                        medical_info: s.medical_info,
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', id)
-                    .eq('school_id', schoolId);  // 🔒 doble check
+                    .eq('school_id', schoolId);
 
                 if (!error) updated++;
             }
 
-            // 7. Respuesta con reporte detallado
+            // 7. Auto-crear equipos y enrollments ─────────────────────────────
+            let teamsCreated = 0;
+            let enrollmentsCreated = 0;
+
+            // Collect unique team names from all students (inserted + updated)
+            const teamStudentMap = new Map<string, { sport: string; docIds: string[] }>();
+            for (const student of students) {
+                if (student.team) {
+                    const teamKey = student.team.trim().toLowerCase();
+                    if (!teamStudentMap.has(teamKey)) {
+                        teamStudentMap.set(teamKey, {
+                            sport: student.sport || 'General',
+                            docIds: [],
+                        });
+                    }
+                    teamStudentMap.get(teamKey)!.docIds.push(student.document_id);
+                }
+            }
+
+            if (teamStudentMap.size > 0) {
+                // Get all original team names (preserve casing from first occurrence)
+                const teamOriginalNames = new Map<string, string>();
+                for (const student of students) {
+                    if (student.team) {
+                        const key = student.team.trim().toLowerCase();
+                        if (!teamOriginalNames.has(key)) {
+                            teamOriginalNames.set(key, student.team.trim());
+                        }
+                    }
+                }
+
+                // Check which teams already exist for this school
+                const teamNames = [...teamOriginalNames.values()];
+                const { data: existingTeams } = await supabase
+                    .from('teams')
+                    .select('id, name')
+                    .eq('school_id', schoolId)
+                    .in('name', teamNames);
+
+                const existingTeamMap = new Map(
+                    (existingTeams ?? []).map(t => [t.name.toLowerCase(), t.id])
+                );
+
+                // Create missing teams
+                const teamsToCreate = [...teamStudentMap.entries()]
+                    .filter(([key]) => !existingTeamMap.has(key))
+                    .map(([key, val]) => ({
+                        name: teamOriginalNames.get(key) || key,
+                        sport: val.sport,
+                        school_id: schoolId,
+                        status: 'active',
+                        current_students: 0,
+                        created_at: new Date().toISOString(),
+                    }));
+
+                if (teamsToCreate.length > 0) {
+                    const { data: createdTeams, error: teamError } = await supabase
+                        .from('teams')
+                        .insert(teamsToCreate)
+                        .select('id, name');
+
+                    if (teamError) {
+                        req.log?.error({ err: teamError }, 'Error creando equipos');
+                    } else {
+                        teamsCreated = createdTeams?.length ?? 0;
+                        for (const t of createdTeams ?? []) {
+                            existingTeamMap.set(t.name.toLowerCase(), t.id);
+                        }
+                    }
+                }
+
+                // Build a doc_number → child_id map for ALL students (inserted + updated)
+                const allDocIds = [...teamStudentMap.values()].flatMap(v => v.docIds);
+                const { data: childRows } = await supabase
+                    .from('children')
+                    .select('id, doc_number')
+                    .eq('school_id', schoolId)
+                    .in('doc_number', allDocIds);
+
+                const docToChildId = new Map(
+                    (childRows ?? []).map(c => [c.doc_number, c.id])
+                );
+
+                // Create enrollments (skip if already exists)
+                const enrollmentRecords: Array<{ child_id: string; program_id: string; status: string; start_date: string }> = [];
+
+                for (const [teamKey, teamData] of teamStudentMap.entries()) {
+                    const teamId = existingTeamMap.get(teamKey);
+                    if (!teamId) continue;
+
+                    for (const docId of teamData.docIds) {
+                        const childId = docToChildId.get(docId);
+                        if (!childId) continue;
+
+                        enrollmentRecords.push({
+                            child_id: childId,
+                            program_id: teamId,
+                            status: 'active',
+                            start_date: new Date().toISOString().split('T')[0],
+                        });
+                    }
+                }
+
+                if (enrollmentRecords.length > 0) {
+                    // Check which enrollments already exist to avoid duplicates
+                    const childIdsForEnroll = enrollmentRecords.map(e => e.child_id);
+                    const programIdsForEnroll = [...new Set(enrollmentRecords.map(e => e.program_id))];
+
+                    const { data: existingEnrollments } = await supabase
+                        .from('enrollments')
+                        .select('child_id, program_id')
+                        .in('child_id', childIdsForEnroll)
+                        .in('program_id', programIdsForEnroll);
+
+                    const existingEnrollSet = new Set(
+                        (existingEnrollments ?? []).map(e => `${e.child_id}:${e.program_id}`)
+                    );
+
+                    const newEnrollments = enrollmentRecords.filter(
+                        e => !existingEnrollSet.has(`${e.child_id}:${e.program_id}`)
+                    );
+
+                    if (newEnrollments.length > 0) {
+                        const { data: enrollData, error: enrollError } = await supabase
+                            .from('enrollments')
+                            .insert(newEnrollments)
+                            .select('id');
+
+                        if (enrollError) {
+                            req.log?.error({ err: enrollError }, 'Error creando enrollments');
+                        } else {
+                            enrollmentsCreated = enrollData?.length ?? 0;
+                        }
+                    }
+                }
+            }
+
+            // 8. Respuesta con reporte detallado
             const totalFailed = skipped.length;
             const statusCode = totalFailed === 0 ? 200 : inserted + updated > 0 ? 207 : 422;
 
             return res.status(statusCode).json({
                 success: totalFailed === 0,
-                message: `${inserted + updated} procesados, ${totalFailed} omitidos.`,
-                summary: { total: students.length, inserted, updated, skipped: totalFailed },
+                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${teamsCreated} equipos creados, ${enrollmentsCreated} inscripciones.`,
+                summary: {
+                    total: students.length,
+                    inserted,
+                    updated,
+                    skipped: totalFailed,
+                    teams_created: teamsCreated,
+                    enrollments_created: enrollmentsCreated,
+                },
                 skipped,  // detalle fila por fila de los omitidos
             });
 

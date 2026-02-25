@@ -241,9 +241,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error signing in:', error);
+      let message = err.message;
+      if (message === "Invalid login credentials") {
+        message = "Credenciales inválidas. Por favor verifica tu email y contraseña. (Tip: Revisa si escribiste 'spoortmaps' correctamente si estás usando correos de prueba)";
+      }
+
       toast({
         title: "Error en el inicio de sesión",
-        description: err.message,
+        description: message,
         variant: "destructive",
       });
       throw error;
