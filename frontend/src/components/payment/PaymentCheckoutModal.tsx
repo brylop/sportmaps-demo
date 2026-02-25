@@ -54,12 +54,22 @@ export function PaymentCheckoutModal({
 
   const paymentMethods = [
     {
+      id: 'transfer' as const,
+      name: 'Transferencia / Nequi / Daviplata',
+      description: 'Nequi, Daviplata o transferencia bancaria',
+      icon: Smartphone,
+      popular: true,
+      fee: 0,
+      enabled: true
+    },
+    {
       id: 'pse' as const,
       name: 'PSE',
       description: 'Pago con débito bancario',
       icon: Building2,
-      popular: true,
-      fee: 0
+      popular: false,
+      fee: 0,
+      enabled: false
     },
     {
       id: 'card' as const,
@@ -67,15 +77,8 @@ export function PaymentCheckoutModal({
       description: 'Visa o Mastercard',
       icon: CreditCard,
       popular: false,
-      fee: 0
-    },
-    {
-      id: 'transfer' as const,
-      name: 'Transferencia / Nequi',
-      description: 'Nequi, Daviplata o Bancolombia',
-      icon: Smartphone,
-      popular: true,
-      fee: 0
+      fee: 0,
+      enabled: false
     }
   ];
 
@@ -266,28 +269,37 @@ export function PaymentCheckoutModal({
               {paymentMethods.map((method) => {
                 const Icon = method.icon;
                 const isSelected = selectedMethod === method.id;
+                const isDisabled = !method.enabled;
 
                 return (
                   <button
                     key={method.id}
-                    onClick={() => handlePaymentMethod(method.id)}
-                    className={`w-full flex items-center gap-4 p-4 border-2 rounded-lg transition-all hover:border-primary ${isSelected ? 'border-primary bg-primary/5' : 'border-border'
+                    onClick={() => !isDisabled && handlePaymentMethod(method.id)}
+                    disabled={isDisabled}
+                    className={`w-full flex items-center gap-4 p-4 border-2 rounded-lg transition-all ${isDisabled
+                        ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
+                        : isSelected
+                          ? 'border-primary bg-primary/5 hover:border-primary'
+                          : 'border-border hover:border-primary'
                       }`}
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isSelected ? 'bg-primary text-white' : 'bg-muted'
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'
                       }`}>
                       <Icon className="h-6 w-6" />
                     </div>
                     <div className="flex-1 text-left">
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{method.name}</p>
-                        {method.popular && (
-                          <Badge variant="secondary" className="text-xs">Más usado</Badge>
+                        {method.popular && method.enabled && (
+                          <Badge variant="secondary" className="text-xs">Recomendado</Badge>
+                        )}
+                        {isDisabled && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/30">Próximamente</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">{method.description}</p>
                     </div>
-                    {isSelected && (
+                    {isSelected && !isDisabled && (
                       <CheckCircle2 className="h-5 w-5 text-primary" />
                     )}
                   </button>

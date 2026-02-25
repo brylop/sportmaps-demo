@@ -254,8 +254,7 @@ export default function PaymentsAutomationPage() {
     'admin',
     'school_admin',
     'super_admin',
-    'owner',
-    'coach'
+    'owner'
   ].includes(profile.role);
 
   if (!isAuthorized) {

@@ -25,11 +25,7 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select(`
-          *,
-          schools(name),
-          programs:program_id(name, sport, level)
-        `)
+        .select('*, schools(name), teams!team_id(name, sport, level)')
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
