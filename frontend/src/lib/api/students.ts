@@ -1,6 +1,13 @@
 // Students API service — uses Supabase directly (table: children)
 // Per NAMING_DICTIONARY.md: tabla=children, UI=estudiantes
+//
+// MIGRACIÓN BFF (Feb 2026):
+//   - Lecturas (GET):  siguen via Supabase SDK directo ← sin cambios
+//   - bulkUpload:      migrado al BFF → POST /api/v1/students/bulk
+//     Motivos: validación server-side, school_id forzado, reporte fila por fila
+//
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from './bffClient';
 
 export interface Student {
   id: string;
@@ -11,7 +18,7 @@ export interface Student {
   gender?: 'male' | 'female' | 'other';
   grade?: string;
   school_id: string;
-  parent_id?: string | null; // Nullable now
+  parent_id?: string | null;
   parent_name?: string;
   parent_email?: string;
   parent_phone?: string;
@@ -52,11 +59,30 @@ export interface StudentUpdate {
   school_id?: string;
 }
 
+// ── Tipos de respuesta del BFF ────────────────────────────────────────────────
 export interface BulkUploadResponse {
-  success: number;
+  success: boolean;
+  message: string;
+  summary: {
+    total: number;
+    inserted: number;
+    updated: number;
+    skipped: number;
+  };
+  // Detalle de filas que no se procesaron (duplicados sin upsert, etc.)
+  skipped: Array<{ document_id: string; reason: string }>;
+  // Compatibilidad con código existente que lea .success / .failed / .errors
+  /** @deprecated usar summary.inserted */
   failed: number;
+  /** @deprecated usar skipped */
   errors: Array<{ row: number; error: string }>;
+  /** @deprecated usar summary */
   students: Student[];
+}
+
+export interface BulkUploadOptions {
+  /** Si true, actualiza estudiantes con document_id existente. Default: false */
+  upsert?: boolean;
 }
 
 export interface StudentViewRow {
@@ -85,6 +111,16 @@ export interface StudentStats {
   active: number;
   inactive: number;
   by_grade: Record<string, number>;
+}
+
+// ── Columnas que acepta el BFF (mapeadas desde headers del CSV) ───────────────
+interface BFFStudentRow {
+  first_name: string;
+  last_name: string;
+  document_id: string;
+  grade?: string;
+  medical_info?: string;
+  // El BFF acepta más campos, estos son los que el CSV actual exporta
 }
 
 class StudentsAPI {
@@ -123,7 +159,7 @@ class StudentsAPI {
   async getSchoolView(schoolId: string, branchId?: string | null): Promise<StudentViewRow[]> {
     try {
       let query = supabase
-        .from('students') // Queries the Database View
+        .from('students')
         .select('*')
         .eq('school_id', schoolId);
 
@@ -239,66 +275,116 @@ class StudentsAPI {
   }
 
   /**
-   * Bulk upload students from CSV — parsed client-side, inserted via Supabase
+   * Bulk upload students from CSV — parseado client-side, enviado al BFF.
+   *
+   * ANTES: insertaba fila por fila directo a Supabase (N queries, sin validación).
+   * AHORA: parsea el CSV, arma el array, y hace UNA sola llamada al BFF.
+   *        El BFF valida, inyecta school_id, detecta duplicados y retorna reporte.
+   *
+   * Compatible con el contrato anterior: retorna { success, failed, errors, students }
    */
-  async bulkUpload(file: File, schoolId: string): Promise<BulkUploadResponse> {
-    const text = await file.text();
-    const lines = text.split('\n');
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  async bulkUpload(
+    file: File,
+    schoolId: string,  // Mantenido por compatibilidad — el BFF lo ignora y usa el JWT
+    options: BulkUploadOptions = {},
+  ): Promise<BulkUploadResponse> {
 
-    const success: Student[] = [];
-    const errors: Array<{ row: number; error: string }> = [];
+    // ── 1. Parsear el CSV (igual que antes) ───────────────────────────────
+    const text = await file.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+    if (lines.length < 2) {
+      return {
+        success: false,
+        message: 'El archivo CSV está vacío o solo tiene encabezados.',
+        summary: { total: 0, inserted: 0, updated: 0, skipped: 0 },
+        skipped: [],
+        failed: 0, errors: [], students: [],
+      };
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const parseErrors: Array<{ row: number; error: string }> = [];
+    const students: BFFStudentRow[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      const values = line.split(',').map(v => v.trim());
+      const values = lines[i].split(',').map(v => v.trim());
       const row: Record<string, string> = {};
-      headers.forEach((h, idx) => {
-        row[h] = values[idx] || '';
-      });
+      headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
 
-      const fullName = row['full_name'] || row['nombre'] || row['name'];
-      const dob = row['date_of_birth'] || row['fecha_nacimiento'] || row['dob'];
+      // Mapear headers en español e inglés (igual que antes)
+      const firstName = row['first_name'] || row['nombre'] || '';
+      const lastName = row['last_name'] || row['apellido'] || '';
+      const docId = row['document_id'] || row['documento'] || row['cedula'] || '';
 
-      if (!fullName) {
-        errors.push({ row: i + 1, error: 'Missing full_name' });
+      // full_name como fallback si el CSV no tiene first/last separados
+      if (!firstName && !lastName) {
+        const fullName = row['full_name'] || row['nombre_completo'] || '';
+        if (!fullName) {
+          parseErrors.push({ row: i + 1, error: 'Falta nombre del estudiante' });
+          continue;
+        }
+        // Dividir en first/last por el primer espacio
+        const parts = fullName.split(' ');
+        students.push({
+          first_name: parts[0],
+          last_name: parts.slice(1).join(' ') || '-',
+          document_id: docId || `AUTO-${i}`,   // fallback si no hay documento
+          grade: row['grade'] || row['grado'] || undefined,
+          medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+        });
         continue;
       }
 
-      try {
-        const { data, error } = await supabase
-          .from('children')
-          .insert({
-            full_name: fullName,
-            date_of_birth: dob || '2015-01-01',
-            school_id: schoolId,
-            grade: row['grade'] || row['grado'] || null,
-            emergency_contact: row['emergency_contact'] || row['contacto_emergencia'] || null,
-            medical_info: row['medical_info'] || row['notas_medicas'] || null,
-            sport: row['sport'] || row['deporte'] || null,
-            team_name: row['team_name'] || row['equipo'] || null,
-            parent_id: null // Explicitly null for bulk uploads until linked
-          })
-          .select()
-          .single();
-
-        if (error) {
-          errors.push({ row: i + 1, error: error.message });
-        } else if (data) {
-          success.push(this.mapChildToStudent(data));
-        }
-      } catch (e: any) {
-        errors.push({ row: i + 1, error: e.message });
+      if (!docId) {
+        parseErrors.push({ row: i + 1, error: 'Falta document_id / documento' });
+        continue;
       }
+
+      students.push({
+        first_name: firstName,
+        last_name: lastName,
+        document_id: docId,
+        grade: row['grade'] || row['grado'] || undefined,
+        medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+      });
     }
 
+    // Si todos fallaron en el parseo, no llamamos al BFF
+    if (students.length === 0) {
+      return {
+        success: false,
+        message: `No se pudo parsear ningún estudiante. ${parseErrors.length} errores.`,
+        summary: { total: 0, inserted: 0, updated: 0, skipped: parseErrors.length },
+        skipped: [],
+        failed: parseErrors.length,
+        errors: parseErrors,
+        students: [],
+      };
+    }
+
+    // ── 2. Llamar al BFF — UNA sola request en vez de N inserts ──────────
+    const bffResponse = await bffClient.post<{
+      success: boolean;
+      message: string;
+      summary: { total: number; inserted: number; updated: number; skipped: number };
+      skipped: Array<{ document_id: string; reason: string }>;
+    }>('/api/v1/students/bulk', {
+      students,
+      options: { upsert: options.upsert ?? false },
+    });
+
+    // ── 3. Adaptar respuesta al contrato anterior ─────────────────────────
     return {
-      success: success.length,
-      failed: errors.length,
-      errors,
-      students: success,
+      // Nuevos campos
+      success: bffResponse.success,
+      message: bffResponse.message,
+      summary: bffResponse.summary,
+      skipped: bffResponse.skipped,
+      // Campos legacy para componentes que aún los lean
+      failed: bffResponse.summary.skipped + parseErrors.length,
+      errors: parseErrors,  // solo errores de parseo CSV, los del BFF están en skipped
+      students: [],            // el BFF no retorna los objetos completos (no los necesitamos)
     };
   }
 
@@ -318,7 +404,6 @@ class StudentsAPI {
 
       const { data: students, count: total } = await query;
 
-      // Calculations
       const by_grade: Record<string, number> = {};
       students?.forEach(s => {
         if (s.grade) {
@@ -358,7 +443,7 @@ class StudentsAPI {
       sport: child.sport,
       team_name: child.team_name,
       avatar_url: child.avatar_url || parentProfile?.avatar_url,
-      status: 'active', // children table doesn't have status
+      status: 'active',
       created_at: child.created_at,
       updated_at: child.updated_at,
     } as Student;

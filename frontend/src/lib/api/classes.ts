@@ -1,6 +1,7 @@
 // Classes/Programs API service — uses Supabase directly (table: teams)
 // Per NAMING_DICTIONARY.md: "classes" in UI = "teams" in Supabase
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from './bffClient';
 
 export interface Schedule {
   day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -234,40 +235,34 @@ class ClassesAPI {
   }
 
   /**
-   * Enroll a student in a program via Supabase enrollments table
+   * Enroll a student in a program via BFF
    */
   async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
-    // Get the user_id from children table (parent_id) or use directly
-    const { data: child } = await supabase
-      .from('children')
-      .select('parent_id')
-      .eq('id', studentId)
-      .single();
+    try {
+      const response = await bffClient.post<{ success: boolean; data: any }>('/api/v1/enrollments', {
+        student_id: studentId,
+        class_id: classId,
+      });
 
-    const { data, error } = await supabase
-      .from('enrollments')
-      .insert({
-        program_id: classId,
-        user_id: child?.parent_id || studentId,
-        child_id: studentId,
+      return {
+        id: response.data.id,
+        class_id: classId,
+        student_id: studentId,
+        student_name: studentName,
+        enrollment_date: response.data.created_at,
         status: 'active',
-        start_date: new Date().toISOString().split('T')[0],
-      })
-      .select()
-      .single();
+      };
+    } catch (error: any) {
+      console.error('Error enrolling student via BFF:', error.body || error.message);
 
-    if (error) {
-      throw new Error(error.message || 'Failed to enroll student');
+      let msg = error.message || 'Failed to enroll student';
+      if (error.status === 409) msg = 'La clase ya está llena.';
+      if (error.body?.details) {
+        msg += ": " + JSON.stringify(error.body.details);
+      }
+
+      throw new Error(msg);
     }
-
-    return {
-      id: data.id,
-      class_id: classId,
-      student_id: studentId,
-      student_name: studentName,
-      enrollment_date: data.created_at,
-      status: 'active',
-    };
   }
 
   /**
