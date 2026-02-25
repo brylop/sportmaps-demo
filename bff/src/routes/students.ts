@@ -23,7 +23,7 @@ const BulkUploadSchema = z.object({
     options: z.object({
         // Si true: actualiza si document_id ya existe. Si false: reporta como error.
         upsert: z.boolean().default(false),
-    }).default({}),
+    }).default({ upsert: false }),
 });
 
 // ── POST /api/v1/students/bulk ────────────────────────────────────────────────
@@ -136,17 +136,21 @@ router.post(
 );
 
 // ── GET /api/v1/students ──────────────────────────────────────────────────────
-router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { data, error } = await supabase
-        .from('students')
-        .select('id, first_name, last_name, document_id, grade, status')
-        .eq('school_id', req.schoolId)   // 🔒 siempre filtrado
-        .order('last_name');
+router.get('/', requireAuth, requireRole('admin', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { data, error } = await supabase
+            .from('students')
+            .select('id, first_name, last_name, document_id, grade, status')
+            .eq('school_id', req.schoolId)   // 🔒 siempre filtrado
+            .order('last_name');
 
-    if (error) return res.status(500).json({ error: 'Error al obtener estudiantes.' });
-    return res.json({ students: data });
+        if (error) return res.status(500).json({ error: 'Error al obtener estudiantes.' });
+        return res.json({ students: data });
+    } catch (err: any) {
+        req.log?.error({ err: err.message || err }, 'Error inesperado al obtener estudiantes');
+        return res.status(500).json({ error: 'Error interno del servidor.' });
+    }
 });
-
 // Necesario para que el catch use next()
 function next(err: unknown) { throw err; }
 

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
-import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -13,48 +13,50 @@ const EnrollmentSchema = z.object({
 });
 
 // ── POST /api/v1/enrollments ──────────────────────────────────────────────────
-router.post('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireAuth, requireRole('admin', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { schoolId } = req;
-
+        // 1. Validar request
         const parsed = EnrollmentSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({
-                error: 'Datos inválidos.',
-                details: parsed.error.issues,  // ✅ Zod v4
+                error: 'Datos inválidos',
+                details: parsed.error.issues,
             });
         }
 
         const { student_id, class_id, program_id } = parsed.data;
 
-        const { data: result, error: rpcError } = await supabase
-            .rpc('enroll_student', {
-                p_student_id: student_id,
-                p_class_id: class_id,
-                p_program_id: program_id ?? null,
-                p_school_id: schoolId,           // 🔒 forzado por el servidor
-            });
+        // 2. Ejecutar transacción atómica vía RPC en Supabase
+        // req.schoolId asegura que no matriculemos en otra escuela
+        const { data, error } = await supabase.rpc('enroll_student', {
+            p_student_id: student_id,
+            p_class_id: class_id,
+            p_school_id: req.schoolId,
+            p_program_id: program_id || null
+        });
 
-        if (rpcError) {
-            req.log?.error({ err: rpcError }, 'Error en RPC enroll_student');
-            return res.status(500).json({ error: 'Error al procesar la inscripción.' });
-        }
+        if (error) {
+            req.log?.error({ err: error }, 'RPC enroll_student falló');
 
-        // La función retorna { error: string } o { success: true, enrollment: {...} }
-        if (result?.error) {
-            const statusCode = result.error.includes('llena') ? 409
-                : result.error.includes('no encontrado') ? 404
-                    : 400;
-            return res.status(statusCode).json({ error: result.error });
+            // Mapear errores de negocio comunes
+            if (error.message.includes('No hay cupos disponibles')) {
+                return res.status(409).json({ error: 'La clase está llena.' });
+            }
+            if (error.message.includes('ya está inscrito')) {
+                return res.status(400).json({ error: 'El estudiante ya está inscrito en esta clase.' });
+            }
+
+            return res.status(500).json({ error: 'Error interno al procesar la inscripción.' });
         }
 
         return res.status(201).json({
             success: true,
-            data: result.enrollment,
+            message: 'Inscripción exitosa',
+            data: data
         });
 
-    } catch (err) {
-        req.log?.error({ err }, 'Error inesperado en POST /enrollments');
+    } catch (err: any) {
+        req.log?.error({ err: err.message || err }, 'Error inesperado en inscripciones');
         return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
