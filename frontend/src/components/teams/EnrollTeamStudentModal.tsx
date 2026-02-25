@@ -226,57 +226,66 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                             key={student.id}
                                             className={`transition-all ${enrolled ? 'border-primary bg-primary/5' : 'hover:border-primary/50'}`}
                                         >
-                                            <CardContent className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center flex-wrap gap-2">
-                                                        <p className="font-medium truncate max-w-[150px] sm:max-w-none">{student.full_name}</p>
-                                                        {enrolled && (
-                                                            <Badge variant="secondary" className="bg-primary/10 text-primary whitespace-nowrap">
-                                                                <Check className="h-3 w-3 mr-1" />
-                                                                Inscrito
-                                                            </Badge>
+                                            <CardContent className="p-3">
+                                                <div className="flex items-start sm:items-center justify-between gap-3">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                                            <p className="font-medium truncate text-sm sm:text-base">{student.full_name}</p>
+                                                            {enrolled && (
+                                                                <Badge variant="secondary" className="bg-primary/10 text-primary whitespace-nowrap w-fit">
+                                                                    <Check className="h-3 w-3 mr-1" />
+                                                                    Inscrito
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-0 sm:gap-2 text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
+                                                            {student.email && <span className="truncate max-w-full">{student.email}</span>}
+                                                            {student.grade && (
+                                                                <span className="hidden sm:inline text-muted-foreground/50">• {student.grade}</span>
+                                                            )}
+                                                            {student.grade && (
+                                                                <span className="sm:hidden">{student.grade}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-shrink-0">
+                                                        {enrolled ? (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleUnenroll(student)}
+                                                                disabled={isCurrentlyEnrolling}
+                                                                className="text-destructive border-destructive hover:bg-destructive/10 h-8 sm:h-9"
+                                                            >
+                                                                {isCurrentlyEnrolling ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        <X className="h-4 w-4 mr-1" />
+                                                                        <span className="hidden xs:inline">Remover</span>
+                                                                        <span className="xs:hidden">X</span>
+                                                                    </>
+                                                                )}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => handleEnroll(student)}
+                                                                disabled={isCurrentlyEnrolling || isFull}
+                                                                className="bg-green-600 hover:bg-green-700 h-8 sm:h-9"
+                                                            >
+                                                                {isCurrentlyEnrolling ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        <UserPlus className="h-4 w-4 mr-1" />
+                                                                        <span className="hidden xs:inline">Inscribir</span>
+                                                                        <span className="xs:hidden">+</span>
+                                                                    </>
+                                                                )}
+                                                            </Button>
                                                         )}
                                                     </div>
-                                                    <div className="flex flex-wrap gap-x-2 gap-y-1 text-sm text-muted-foreground mt-1">
-                                                        {student.email && <span className="truncate max-w-[180px] sm:max-w-none">{student.email}</span>}
-                                                        {student.grade && <span>• {student.grade}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex sm:ml-4">
-                                                    {enrolled ? (
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => handleUnenroll(student)}
-                                                            disabled={isCurrentlyEnrolling}
-                                                            className="text-destructive border-destructive hover:bg-destructive/10 w-full sm:w-auto"
-                                                        >
-                                                            {isCurrentlyEnrolling ? (
-                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <>
-                                                                    <X className="h-4 w-4 mr-1" />
-                                                                    Remover
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    ) : (
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={() => handleEnroll(student)}
-                                                            disabled={isCurrentlyEnrolling || isFull}
-                                                            className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
-                                                        >
-                                                            {isCurrentlyEnrolling ? (
-                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <>
-                                                                    <UserPlus className="h-4 w-4 mr-1" />
-                                                                    Inscribir
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    )}
                                                 </div>
                                             </CardContent>
                                         </Card>

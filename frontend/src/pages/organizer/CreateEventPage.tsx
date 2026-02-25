@@ -55,7 +55,7 @@ export default function CreateEventPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validation
     if (!formData.title || !formData.sport || !formData.event_date || !formData.start_time || !formData.city) {
       toast({
@@ -268,7 +268,7 @@ export default function CreateEventPage() {
                   type="number"
                   min="1"
                   value={formData.capacity}
-                  onChange={(e) => handleChange('capacity', parseInt(e.target.value) || 50)}
+                  onChange={(e) => handleChange('capacity', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                 />
               </div>
 
@@ -282,7 +282,7 @@ export default function CreateEventPage() {
                     min="0"
                     step="1000"
                     value={formData.price}
-                    onChange={(e) => handleChange('price', parseInt(e.target.value) || 0)}
+                    onChange={(e) => handleChange('price', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                     className="pl-9"
                     placeholder="0 = Gratis"
                   />

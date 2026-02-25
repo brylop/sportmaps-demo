@@ -31,7 +31,7 @@ export interface DashboardStats {
 }
 
 export function useDashboardStatsReal() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { schoolId, activeBranchId } = useSchoolContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +40,7 @@ export function useDashboardStatsReal() {
   const loadingRef = useRef(false);
 
   useEffect(() => {
-    if (schoolId) {
+    if (schoolId || profile?.role === 'coach' || profile?.role === 'parent') {
       loadStats();
     } else {
       setLoading(false);
@@ -48,51 +48,75 @@ export function useDashboardStatsReal() {
   }, [profile, schoolId, activeBranchId]);
 
   const loadStats = async () => {
-    if (!profile || !schoolId || loadingRef.current) {
-      return;
+    if (!profile || loadingRef.current) {
+      if (!schoolId && profile?.role !== 'coach' && profile?.role !== 'parent') {
+        return;
+      }
     }
 
     try {
       loadingRef.current = true;
       setLoading(true);
 
-      if (profile.role === 'school' || (profile.role as any) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
+      if (profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'admin' || (profile?.role as any) === 'super_admin' || profile?.role === 'coach') {
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        // Revenue query with branch filter
-        let revenueQuery = supabase
-          .from('payments')
-          .select('amount')
-          .eq('school_id', schoolId)
-          .eq('status', 'paid')
-          .gte('payment_date', startOfMonth.toISOString());
+        // Revenue query with branch filter - only if schoolId exists
+        let monthlyRevenue = 0;
+        let pendingCount = 0;
 
-        if (activeBranchId) {
-          revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
+        if (schoolId) {
+          let revenueQuery = supabase
+            .from('payments')
+            .select('amount')
+            .eq('school_id', schoolId)
+            .eq('status', 'paid')
+            .gte('payment_date', startOfMonth.toISOString());
+
+          if (activeBranchId) {
+            revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
+          }
+
+          const { data: revenueData } = await (revenueQuery as any);
+          monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+          // Pending payments query with branch filter
+          let pendingQuery = supabase
+            .from('payments')
+            .select('*', { count: 'exact', head: true })
+            .eq('school_id', schoolId)
+            .eq('status', 'pending');
+
+          if (activeBranchId) {
+            pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
+          }
+
+          const { count: pendingCountRes } = await (pendingQuery as any);
+          pendingCount = pendingCountRes || 0;
         }
 
-        const { data: revenueData } = await (revenueQuery as any);
-        const monthlyRevenue = revenueData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+        const isCoach = profile?.role === 'coach';
+        let coachIdFilter = undefined;
 
-        // Pending payments query with branch filter
-        let pendingQuery = supabase
-          .from('payments')
-          .select('*', { count: 'exact', head: true })
-          .eq('school_id', schoolId)
-          .eq('status', 'pending');
+        if (isCoach && user?.email) {
+          const { data: staffData } = await supabase
+            .from('school_staff')
+            .select('id')
+            .eq('email', user.email)
+            .maybeSingle();
 
-        if (activeBranchId) {
-          pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
+          if (staffData) {
+            coachIdFilter = staffData.id;
+          }
         }
-
-        const { count: pendingCount } = await (pendingQuery as any);
 
         // Note: studentsAPI and classesAPI might need branchId support too
+        // If schoolId is null but it's a coach, we can still get stats for that coach
         const [studentStats, classStats] = await Promise.all([
-          studentsAPI.getStats(schoolId, activeBranchId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
-          classesAPI.getStats(schoolId, activeBranchId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
+          studentsAPI.getStats(schoolId || '', activeBranchId, coachIdFilter).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
+          classesAPI.getStats(schoolId || '', activeBranchId, coachIdFilter).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 })),
         ]);
 
         setStats({

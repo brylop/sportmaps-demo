@@ -157,7 +157,7 @@ export default function DashboardPage() {
   const dynamicStats = config.stats.map((stat, index) => {
     // 2. REAL USER: SHOW REAL DATA
     if (realStats && !realStatsLoading) {
-      if (profile.role === 'school' || (profile.role as string) === 'school_admin') {
+      if (profile.role === 'school' || (profile.role as string) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
         if (index === 0) {
           // Students (Config Index 0)
           const count = realStats.students_count || 0;
@@ -170,30 +170,31 @@ export default function DashboardPage() {
           };
         }
         if (index === 1) {
-          // Programs (Config Index 1)
+          // Programs (Config Index 1) - Label and value
           const count = realStats.classes_count || 0;
+          const label = profile.role === 'coach' ? 'Equipos' : 'Programas';
           return {
             ...stat,
+            label, // Override label if coach
             value: count,
-            description: 'Clases/Programas creados'
+            description: profile.role === 'coach' ? 'Equipos asignados' : 'Clases/Programas creados'
           };
         }
         if (index === 2) {
-          // Coaches (Config Index 2)
-          // Currently mapping activeTeams as proxy for coaches or just placeholder 0
+          // Coaches or third card
           const count = realStats.activeTeams || 0;
           return {
             ...stat,
             value: count,
-            description: 'Entrenadores activos'
+            description: profile.role === 'coach' ? 'Actividades próximas' : 'Entrenadores activos'
           };
         }
         if (index === 3) {
-          // Revenue (Config Index 3)
+          // Revenue or notifications
           return {
             ...stat,
-            value: formatCurrency(realStats.monthly_revenue || 0),
-            description: 'Ingresos confirmados este mes'
+            value: profile.role === 'coach' ? (realStats.notifications || 0) : formatCurrency(realStats.monthly_revenue || 0),
+            description: profile.role === 'coach' ? 'Mensajes nuevos' : 'Ingresos confirmados este mes'
           };
         }
       }

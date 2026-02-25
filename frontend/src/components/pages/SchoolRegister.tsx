@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, School, Upload, FileCheck } from "lucide-react";
+import { SPORTS_LIST } from "@/lib/constants/sports";
 
 interface SchoolRegisterProps {
   onNavigate: (page: string) => void;
@@ -92,7 +93,7 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
   };
 
   const handleOrgSubmit = (data: any) => {
-    setOrgData({...data, sports: selectedSports});
+    setOrgData({ ...data, sports: selectedSports });
     setCurrentStep(4);
   };
 
@@ -103,18 +104,14 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
   };
 
   const handleSportToggle = (sport: string) => {
-    setSelectedSports(prev => 
-      prev.includes(sport) 
+    setSelectedSports(prev =>
+      prev.includes(sport)
         ? prev.filter(s => s !== sport)
         : [...prev, sport]
     );
   };
 
-  const sportsList = [
-    "Fútbol", "Baloncesto", "Voleibol", "Tenis", "Natación", 
-    "Atletismo", "Gimnasia", "Balonmano", "Hockey", "CrossFit",
-    "Artes Marciales", "Ciclismo", "Padel", "Squash", "Multideporte"
-  ];
+  const sportsList = SPORTS_LIST;
 
   const renderStep1 = () => (
     <Card className="w-full max-w-md mx-auto">
@@ -259,9 +256,9 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
           </div>
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(1)}
               className="flex-1"
             >
@@ -332,18 +329,18 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
           </div>
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(2)}
               className="flex-1"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Volver
             </Button>
-            <Button 
-              type="submit" 
-              className="flex-1" 
+            <Button
+              type="submit"
+              className="flex-1"
               variant="default"
               disabled={selectedSports.length === 0}
             >
@@ -402,9 +399,9 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
           </div>
 
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setCurrentStep(3)}
               className="flex-1"
             >
@@ -432,7 +429,7 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
             Gracias por querer formar parte de SportMaps. Te contactaremos pronto con el estado de tu solicitud.
           </p>
         </div>
-        
+
         <div className="space-y-3 mb-6">
           <div className="bg-muted/50 p-4 rounded-lg text-left">
             <h4 className="font-semibold text-sm mb-2">Próximos pasos:</h4>
@@ -444,15 +441,15 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
             </ul>
           </div>
         </div>
-        
-        <Button 
-          variant="default" 
+
+        <Button
+          variant="default"
           className="w-full mb-3"
           onClick={() => onNavigate("dashboard")}
         >
           Ir al Panel de Administración
         </Button>
-        
+
         <p className="text-xs text-muted-foreground">
           Panel limitado hasta aprobación completa
         </p>
@@ -468,20 +465,18 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
           <div className="flex justify-center items-center space-x-2 mb-4">
             {[1, 2, 3, 4, 5].map((step) => (
               <div key={step} className="flex items-center">
-                <div 
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                    step <= currentStep 
-                      ? 'bg-primary text-primary-foreground' 
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step <= currentStep
+                      ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground'
-                  }`}
+                    }`}
                 >
                   {step}
                 </div>
                 {step < 5 && (
-                  <div 
-                    className={`w-8 h-1 mx-1 ${
-                      step < currentStep ? 'bg-primary' : 'bg-muted'
-                    }`}
+                  <div
+                    className={`w-8 h-1 mx-1 ${step < currentStep ? 'bg-primary' : 'bg-muted'
+                      }`}
                   />
                 )}
               </div>
@@ -504,7 +499,7 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
           <div className="text-center mt-6">
             <p className="text-sm text-muted-foreground">
               ¿Quieres cambiar tu rol?{" "}
-              <button 
+              <button
                 className="text-primary font-medium hover:underline"
                 onClick={() => onNavigate("role-selection")}
               >

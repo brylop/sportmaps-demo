@@ -18,9 +18,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus, Users } from 'lucide-react';
+import { Loader2, Plus, Users, Check, Pencil, X } from 'lucide-react';
+import { SPORTS_LIST } from '@/lib/constants/sports';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card } from '@/components/ui/card';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface CreateTeamModalProps {
@@ -41,10 +45,11 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
         description: '',
         sport: '',
         level: 'beginner',
-        max_students: 20,
+        max_students: 20 as number | '',
         location: '',
-        price_monthly: 0,
-        coach_id: '',
+        price_monthly: 0 as number | '',
+        coach_id: '', // Main coach (legacy)
+        coach_ids: [] as string[], // Multiple coaches
         status: 'active',
     });
 
@@ -63,8 +68,14 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: team.location || '',
                 price_monthly: team.price_monthly || 0,
                 coach_id: team.coach_id || 'none',
+                coach_ids: [] as string[],
                 status: team.status || 'active',
             });
+
+            // If editing, fetch the coaches associations
+            if (team.id) {
+                fetchTeamCoaches(team.id);
+            }
         } else if (open && !team) {
             // Reset for new team
             setFormData({
@@ -76,10 +87,28 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
+                coach_ids: [],
                 status: 'active',
             });
         }
     }, [open, team]);
+
+    const fetchTeamCoaches = async (teamId: string) => {
+        try {
+            const { data, error } = await (supabase as any)
+                .from('team_coaches')
+                .select('coach_id')
+                .eq('team_id', teamId);
+
+            if (error) throw error;
+            if (data) {
+                const ids = data.map(item => item.coach_id);
+                setFormData(prev => ({ ...prev, coach_ids: ids }));
+            }
+        } catch (error) {
+            console.error('Error fetching team coaches:', error);
+        }
+    };
 
     useEffect(() => {
         if (open && schoolId) {
@@ -106,6 +135,30 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
         }
     };
 
+    const syncTeamCoaches = async (teamId: string, coachIds: string[]) => {
+        try {
+            // Delete existing relations
+            await (supabase as any)
+                .from('team_coaches')
+                .delete()
+                .eq('team_id', teamId);
+
+            // Insert new ones
+            if (coachIds.length > 0) {
+                const inserts = coachIds.map(id => ({
+                    team_id: teamId,
+                    coach_id: id,
+                    school_id: schoolId
+                }));
+                const { error } = await (supabase as any).from('team_coaches').insert(inserts);
+                if (error) throw error;
+            }
+        } catch (error) {
+            console.error('Error syncing team coaches:', error);
+            throw error;
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -126,10 +179,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 description: formData.description,
                 sport: formData.sport,
                 level: formData.level,
-                max_students: formData.max_students,
+                max_students: formData.max_students === '' ? null : Number(formData.max_students),
                 location: formData.location,
-                price_monthly: formData.price_monthly,
-                coach_id: formData.coach_id === 'none' ? null : (formData.coach_id || null),
+                price_monthly: formData.price_monthly === '' ? 0 : Number(formData.price_monthly),
+                coach_id: formData.coach_ids.length > 0 ? formData.coach_ids[0] : null, // Set first as main
                 school_id: schoolId,
                 status: formData.status,
             };
@@ -143,20 +196,29 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
 
                 if (error) throw error;
 
+                // Sync coaches
+                await syncTeamCoaches(team.id, formData.coach_ids);
+
                 toast({
                     title: '¡Equipo actualizado!',
                     description: 'Los cambios se guardaron correctamente',
                 });
             } else {
                 // Create new team
-                const { error } = await supabase
+                const { data: createdTeam, error } = await supabase
                     .from('teams')
                     .insert({
                         ...teamData,
                         current_students: 0
-                    });
+                    })
+                    .select('id')
+                    .single();
 
                 if (error) throw error;
+
+                if (createdTeam) {
+                    await syncTeamCoaches(createdTeam.id, formData.coach_ids);
+                }
 
                 toast({
                     title: '¡Equipo creado!',
@@ -190,6 +252,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 location: '',
                 price_monthly: 0,
                 coach_id: '',
+                coach_ids: [],
                 status: 'active',
             });
             onClose();
@@ -202,10 +265,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
-                        Nuevo Equipo
+                        {team ? 'Editar Equipo' : 'Nuevo Equipo'}
                     </DialogTitle>
                     <DialogDescription>
-                        Configura los detalles del nuevo equipo. Este formulario sigue el estándar de Programas.
+                        Configura los detalles del equipo y asigna uno o más entrenadores.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -224,13 +287,21 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="sport">Deporte *</Label>
-                            <Input
-                                id="sport"
-                                placeholder="Ej: Fútbol, Voleibol"
+                            <Select
                                 value={formData.sport}
-                                onChange={(e) => setFormData({ ...formData, sport: e.target.value })}
-                                required
-                            />
+                                onValueChange={(value) => setFormData({ ...formData, sport: value })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Seleccionar deporte" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {SPORTS_LIST.map((sport) => (
+                                        <SelectItem key={sport} value={sport}>
+                                            {sport}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="level">Nivel</Label>
@@ -261,26 +332,91 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-3">
                         <div className="space-y-2">
-                            <Label htmlFor="coach_id">Entrenador Responsable</Label>
-                            <Select
-                                value={formData.coach_id || 'none'}
-                                onValueChange={(value) => setFormData({ ...formData, coach_id: value })}
-                            >
-                                <SelectTrigger id="coach_id">
-                                    <SelectValue placeholder={loadingInitialData ? "Cargando..." : "Seleccionar entrenador"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="none">Sin asignar</SelectItem>
-                                    {staff.map((coach) => (
-                                        <SelectItem key={coach.id} value={coach.id}>
-                                            {coach.full_name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label>Entrenadores Asignados</Label>
+                            {loadingInitialData ? (
+                                <div className="flex items-center justify-center py-3 border rounded-md bg-muted/5">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary mr-2" />
+                                    <span className="text-sm text-muted-foreground">Cargando personal...</span>
+                                </div>
+                            ) : staff.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-3 border rounded-md bg-muted/5">
+                                    No hay personal activo disponible
+                                </p>
+                            ) : (
+                                <Select
+                                    value=""
+                                    onValueChange={(value: string) => {
+                                        if (value && !formData.coach_ids.includes(value)) {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                coach_ids: [...prev.coach_ids, value]
+                                            }));
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Seleccione un entrenador para agregar..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {staff
+                                            .filter(coach => !formData.coach_ids.includes(coach.id))
+                                            .map((coach) => (
+                                                <SelectItem key={coach.id} value={coach.id}>
+                                                    {coach.full_name}
+                                                </SelectItem>
+                                            ))
+                                        }
+                                        {staff.filter(coach => !formData.coach_ids.includes(coach.id)).length === 0 && (
+                                            <div className="p-2 text-sm text-center text-muted-foreground">
+                                                No hay más entrenadores disponibles
+                                            </div>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            )}
                         </div>
+                        {formData.coach_ids.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/50">
+                                {formData.coach_ids.map(id => {
+                                    const c = staff.find(s => s.id === id);
+                                    if (!c) return null;
+
+                                    const initials = c.full_name
+                                        .split(' ')
+                                        .map((n: string) => n[0])
+                                        .join('')
+                                        .toUpperCase()
+                                        .substring(0, 2);
+
+                                    return (
+                                        <div
+                                            key={id}
+                                            className="flex items-center gap-2 pl-1 pr-3 py-1 bg-primary/10 border border-primary/20 text-primary-foreground rounded-full animate-in zoom-in-95 duration-200"
+                                        >
+                                            <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-[10px] font-bold">
+                                                {initials}
+                                            </div>
+                                            <span className="text-sm font-medium text-foreground">{c.full_name}</span>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        coach_ids: prev.coach_ids.filter(coachId => coachId !== id)
+                                                    }));
+                                                }}
+                                                className="ml-1 hover:bg-primary/20 rounded-full p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+                                            >
+                                                <X className="h-3.5 w-3.5 text-foreground/80 hover:text-foreground" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
@@ -291,19 +427,23 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                                 type="number"
                                 min="1"
                                 value={formData.max_students}
-                                onChange={(e) => setFormData({ ...formData, max_students: parseInt(e.target.value) || 20 })}
+                                onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="price_monthly">Precio Sugerido ($)</Label>
-                            <Input
-                                id="price_monthly"
-                                type="number"
-                                min="0"
-                                step="1000"
-                                value={formData.price_monthly}
-                                onChange={(e) => setFormData({ ...formData, price_monthly: parseFloat(e.target.value) || 0 })}
-                            />
+                            <Label htmlFor="price_monthly">Precio Mensual</Label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                                <Input
+                                    id="price_monthly"
+                                    type="number"
+                                    min="0"
+                                    step="1000"
+                                    className="pl-7"
+                                    value={formData.price_monthly}
+                                    onChange={(e) => setFormData({ ...formData, price_monthly: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                                />
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="status">Estado</Label>
@@ -345,18 +485,18 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                             {creating ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Creando...
+                                    Guardando...
                                 </>
                             ) : (
                                 <>
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Crear Equipo
+                                    {team ? <Pencil className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                                    {team ? 'Guardar Cambios' : 'Crear Equipo'}
                                 </>
                             )}
                         </Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
-        </Dialog>
+        </Dialog >
     );
 }

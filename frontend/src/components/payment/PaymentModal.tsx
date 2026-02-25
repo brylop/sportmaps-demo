@@ -150,19 +150,19 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
           }
         }
 
-        // Update program participants count only if paid
+        // Update team students count only if paid
         if (paymentStatus === 'paid') {
           // Simple increment RPC or fetch-update
-          const { data: program } = await supabase
+          const { data: team } = await supabase
             .from('teams')
-            .select('current_participants')
+            .select('current_students')
             .eq('id', item.programId!)
             .single();
 
-          if (program) {
+          if (team) {
             await supabase.from('teams').update({
-              current_students: (program.current_participants || 0) + 1
-            }).eq('id', item.programId!);
+              current_students: (team.current_students || 0) + 1
+            } as any).eq('id', item.programId!);
           }
         }
       }
