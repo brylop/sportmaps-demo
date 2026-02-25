@@ -18,7 +18,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus, Users, Check, Pencil } from 'lucide-react';
+import { Loader2, Plus, Users, Check, Pencil, X } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sports';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -340,156 +340,164 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, team }: Cr
                                 </div>
                             ) : staff.length === 0 ? (
                                 <p className="col-span-full text-sm text-muted-foreground text-center py-8 border rounded-lg bg-muted/10">
-                                    No hay personal activo disponible
-                                </p>
-                            ) : (
-                                staff.map((coach) => {
-                                    const isSelected = formData.coach_ids.includes(coach.id);
-                                    const initials = coach.full_name
-                                        .split(' ')
-                                        .map((n: string) => n[0])
-                                        .join('')
-                                        .toUpperCase()
-                                        .substring(0, 2);
+                                    ) : (
+                                    staff
+                                    .filter(coach => !formData.coach_ids.includes(coach.id))
+                                    .map((coach) => {
+                                        const initials = coach.full_name
+                                    .split(' ')
+                                            .map((n: string) => n[0])
+                                    .join('')
+                                    .toUpperCase()
+                                    .substring(0, 2);
 
                                     return (
-                                        <div
-                                            key={coach.id}
-                                            onClick={() => {
-                                                if (isSelected) {
-                                                    setFormData(prev => ({
-                                                        ...prev,
-                                                        coach_ids: prev.coach_ids.filter(id => id !== coach.id)
-                                                    }));
-                                                } else {
-                                                    setFormData(prev => ({
-                                                        ...prev,
-                                                        coach_ids: [...prev.coach_ids, coach.id]
-                                                    }));
-                                                }
-                                            }}
-                                            className={`
-                                                relative flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-200
-                                                ${isSelected
-                                                    ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20'
-                                                    : 'border-transparent bg-muted/30 hover:bg-muted/50 hover:border-muted-foreground/20'
-                                                }
-                                            `}
-                                        >
-                                            <div className={`
-                                                flex items-center justify-center h-10 w-10 rounded-full text-xs font-bold shrink-0
-                                                ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'}
-                                            `}>
-                                                {initials}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className={`text-sm font-semibold truncate ${isSelected ? 'text-primary' : 'text-foreground'}`}>
-                                                    {coach.full_name}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground truncate">Entrenador</p>
-                                            </div>
-                                            {isSelected && (
-                                                <div className="absolute top-2 right-2 h-4 w-4 bg-primary rounded-full flex items-center justify-center animate-in zoom-in-50">
-                                                    <Check className="h-2.5 w-2.5 text-primary-foreground" />
-                                                </div>
-                                            )}
+                                    <div
+                                        key={coach.id}
+                                        onClick={() => {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                coach_ids: [...prev.coach_ids, coach.id]
+                                            }));
+                                        }}
+                                        className="relative flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-200 border-transparent bg-muted/30 hover:bg-muted/50 hover:border-muted-foreground/20"
+                                    >
+                                        <div className="flex items-center justify-center h-10 w-10 rounded-full text-xs font-bold shrink-0 bg-muted-foreground/20 text-muted-foreground">
+                                            {initials}
                                         </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold truncate text-foreground">
+                                                {coach.full_name}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground truncate">Entrenador</p>
+                                        </div>
+                                    </div>
                                     );
-                                })
+                                    })
                             )}
-                        </div>
-                        {formData.coach_ids.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {formData.coach_ids.map(id => {
-                                    const c = staff.find(s => s.id === id);
-                                    return c ? (
-                                        <Badge key={id} variant="secondary" className="gap-1 animate-in zoom-in-95 duration-200">
-                                            {c.full_name}
-                                        </Badge>
-                                    ) : null;
-                                })}
-                            </div>
-                        )}
+                                </div>
+                    </ScrollArea>
                     </div>
+                    {formData.coach_ids.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/50">
+                            {formData.coach_ids.map(id => {
+                                const c = staff.find(s => s.id === id);
+                                if (!c) return null;
 
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="max_students">Capacidad Máxima</Label>
-                            <Input
-                                id="max_students"
-                                type="number"
-                                min="1"
-                                value={formData.max_students}
-                                onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="price_monthly">Precio Mensual</Label>
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
-                                <Input
-                                    id="price_monthly"
-                                    type="number"
-                                    min="0"
-                                    step="1000"
-                                    className="pl-7"
-                                    value={formData.price_monthly}
-                                    onChange={(e) => setFormData({ ...formData, price_monthly: e.target.value === '' ? '' : parseFloat(e.target.value) })}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="status">Estado</Label>
-                            <Select
-                                value={formData.status}
-                                onValueChange={(value: any) => setFormData({ ...formData, status: value })}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="active">Activo</SelectItem>
-                                    <SelectItem value="inactive">Inactivo</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
+                                const initials = c.full_name
+                                    .split(' ')
+                                    .map((n: string) => n[0])
+                                    .join('')
+                                    .toUpperCase()
+                                    .substring(0, 2);
 
+                                return (
+                                    <div
+                                        key={id}
+                                        className="flex items-center gap-2 pl-1 pr-3 py-1 bg-primary/10 border border-primary/20 text-primary-foreground rounded-full animate-in zoom-in-95 duration-200"
+                                    >
+                                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-primary text-[10px] font-bold">
+                                            {initials}
+                                        </div>
+                                        <span className="text-sm font-medium text-foreground">{c.full_name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    coach_ids: prev.coach_ids.filter(coachId => coachId !== id)
+                                                }));
+                                            }}
+                                            className="ml-1 hover:bg-primary/20 rounded-full p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+                                        >
+                                            <X className="h-3.5 w-3.5 text-foreground/80 hover:text-foreground" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                        <Label htmlFor="location">Ubicación / Sede</Label>
+                        <Label htmlFor="max_students">Capacidad Máxima</Label>
                         <Input
-                            id="location"
-                            placeholder="Nombre de la cancha o lugar de entrenamiento"
-                            value={formData.location}
-                            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                            id="max_students"
+                            type="number"
+                            min="1"
+                            value={formData.max_students}
+                            onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
                         />
                     </div>
-
-                    <DialogFooter className="pt-4 border-t">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handleClose}
-                            disabled={creating}
+                    <div className="space-y-2">
+                        <Label htmlFor="price_monthly">Precio Mensual</Label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
+                            <Input
+                                id="price_monthly"
+                                type="number"
+                                min="0"
+                                step="1000"
+                                className="pl-7"
+                                value={formData.price_monthly}
+                                onChange={(e) => setFormData({ ...formData, price_monthly: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="status">Estado</Label>
+                        <Select
+                            value={formData.status}
+                            onValueChange={(value: any) => setFormData({ ...formData, status: value })}
                         >
-                            Cancelar
-                        </Button>
-                        <Button type="submit" disabled={creating} className="bg-primary hover:bg-primary/90">
-                            {creating ? (
-                                <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Guardando...
-                                </>
-                            ) : (
-                                <>
-                                    {team ? <Pencil className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                                    {team ? 'Guardar Cambios' : 'Crear Equipo'}
-                                </>
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="active">Activo</SelectItem>
+                                <SelectItem value="inactive">Inactivo</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="location">Ubicación / Sede</Label>
+                    <Input
+                        id="location"
+                        placeholder="Nombre de la cancha o lugar de entrenamiento"
+                        value={formData.location}
+                        onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    />
+                </div>
+
+                <DialogFooter className="pt-4 border-t">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleClose}
+                        disabled={creating}
+                    >
+                        Cancelar
+                    </Button>
+                    <Button type="submit" disabled={creating} className="bg-primary hover:bg-primary/90">
+                        {creating ? (
+                            <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Guardando...
+                            </>
+                        ) : (
+                            <>
+                                {team ? <Pencil className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                                {team ? 'Guardar Cambios' : 'Crear Equipo'}
+                            </>
+                        )}
+                    </Button>
+                </DialogFooter>
+            </form>
+        </DialogContent>
+        </Dialog >
     );
 }
