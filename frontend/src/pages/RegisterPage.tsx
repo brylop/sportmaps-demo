@@ -22,7 +22,7 @@ const registerSchema = z.object({
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  phone: z.string().optional(),
+  phone: z.string().regex(/^\+?[0-9\s-]*$/, 'Formato de teléfono inválido').optional().or(z.literal('')),
   dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),

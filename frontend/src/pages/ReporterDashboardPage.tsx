@@ -165,7 +165,7 @@ export default function ReporterDashboardPage() {
             .from('children')
             .select(`
         id, full_name, status, created_at,
-        programs:program_id (name, monthly_fee),
+        programs:teams!program_id (name, monthly_fee),
         school_branches:branch_id (name)
       `)
             .eq('school_id', schoolId)
@@ -202,7 +202,7 @@ export default function ReporterDashboardPage() {
             .select(`
         id, amount, status, payment_month, created_at,
         children:student_id (full_name),
-        programs:program_id (name)
+        programs:teams (name)
       `)
             .eq('school_id', schoolId)
             .gte('created_at', since)
@@ -239,7 +239,7 @@ export default function ReporterDashboardPage() {
             .select(`
         id, role,
         profiles:user_id (full_name, email),
-        programs:program_id (name),
+        programs:teams (name),
         school_branches:branch_id (name)
       `)
             .eq('school_id', schoolId)

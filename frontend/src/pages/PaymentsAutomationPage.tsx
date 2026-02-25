@@ -110,10 +110,10 @@ export default function PaymentsAutomationPage() {
         require_payment_proof: billing.require_payment_proof,
       };
       if (billing.id) {
-        const { error } = await supabase.from('school_settings').update(payload).eq('id', billing.id);
+        const { error } = await (supabase.from('school_settings') as any).update(payload).eq('id', billing.id);
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.from('school_settings').insert(payload).select().single();
+        const { data, error } = await (supabase.from('school_settings') as any).insert(payload).select().single();
         if (error) throw error;
         setBilling(data as unknown as BillingSettings);
       }
@@ -149,7 +149,7 @@ export default function PaymentsAutomationPage() {
           concept,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children(full_name),
-          program:programs(name)
+          program:teams(name)
         `)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });

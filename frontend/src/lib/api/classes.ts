@@ -320,6 +320,13 @@ class ClassesAPI {
     try {
       let query = supabase
         .from('teams')
+        .select('*')
+        .eq('school_id', schoolId);
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+
       const { data: teams } = await query;
 
       if (!teams) return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };

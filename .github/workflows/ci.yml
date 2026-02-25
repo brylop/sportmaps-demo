@@ -55,12 +55,10 @@ jobs:
       - name: 🏗️ Build de verificación
         run: npm run build
         env:
-          # Usar secrets si están configurados, o fallback a valores de prueba.
-          # El throw en client.ts solo ocurre en runtime (browser), no en build.
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING || 'https://placeholder.supabase.co' }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_STAGING || 'placeholder-key' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_STAGING }}
           VITE_WOMPI_PUBLIC_KEY: ${{ secrets.VITE_WOMPI_PUBLIC_KEY || 'pub_stagtest_placeholder' }}
-          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN || '' }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: staging
 
       - name: 📊 Verificar tamaño del bundle
@@ -136,7 +134,7 @@ jobs:
         run: npx playwright test --project=chromium
         working-directory: ${{ env.WORKING_DIR }}
         env:
-          PLAYWRIGHT_BASE_URL: ${{ secrets.STAGING_URL }}
+          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_URL || secrets.STAGING_URL }}
           PLAYWRIGHT_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
           PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
 

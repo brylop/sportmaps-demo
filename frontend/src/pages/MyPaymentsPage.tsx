@@ -128,7 +128,7 @@ export default function MyPaymentsPage() {
           monthly_fee,
           program_id,
           school_id,
-          programs (
+          programs:teams!program_id (
             name,
             price_monthly
           )
