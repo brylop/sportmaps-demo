@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Building2 } from 'lucide-react';
+import { Building2, Minus, Plus } from 'lucide-react';
 
 const facilitySchema = z.object({
   name: z.string().min(2, 'Nombre es requerido'),
@@ -107,12 +107,35 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
 
           <div className="space-y-2">
             <Label htmlFor="capacity">Capacidad *</Label>
-            <Input
-              id="capacity"
-              type="number"
-              placeholder="Número de personas"
-              {...form.register('capacity')}
-            />
+            <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+              <button
+                type="button"
+                onClick={() => {
+                  const val = parseInt(form.getValues('capacity')) || 0;
+                  form.setValue('capacity', String(Math.max(1, val - 1)), { shouldValidate: true });
+                }}
+                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <Input
+                id="capacity"
+                type="number"
+                placeholder="Número de personas"
+                className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                {...form.register('capacity')}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const val = parseInt(form.getValues('capacity')) || 0;
+                  form.setValue('capacity', String(val + 1), { shouldValidate: true });
+                }}
+                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
             {form.formState.errors.capacity && (
               <p className="text-sm text-destructive">{form.formState.errors.capacity.message}</p>
             )}

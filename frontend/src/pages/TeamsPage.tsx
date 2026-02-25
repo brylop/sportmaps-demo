@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -239,7 +241,7 @@ export default function TeamsPage() {
       {/* Stats Cards - Replicating screenshot */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card
-          className={`bg-card transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          className={`bg - card transition - all border - l - 4 border - l - primary cursor - pointer hover: shadow - md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
           onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
         >
           <CardHeader className="pb-2">
@@ -256,7 +258,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg-card transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          className={`bg - card transition - all border - l - 4 border - l - orange - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
           onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
         >
           <CardHeader className="pb-2">
@@ -273,7 +275,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg-card transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          className={`bg - card transition - all border - l - 4 border - l - green - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
           onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
         >
           <CardHeader className="pb-2">
@@ -290,7 +292,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg-card transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          className={`bg - card transition - all border - l - 4 border - l - blue - 500 cursor - pointer hover: shadow - md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
           onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
         >
           <CardHeader className="pb-2">
@@ -448,7 +450,10 @@ export default function TeamsPage() {
                             <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xs">
                               {student.full_name?.substring(0, 2).toUpperCase()}
                             </div>
-                            <span className="font-medium">{student.full_name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{student.full_name}</span>
+                              <MedicalAlertBadge medicalInfo={student.medical_info} />
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -581,7 +586,7 @@ export default function TeamsPage() {
                     <TableCell>
                       <Badge
                         variant={team.status === 'active' ? 'default' : 'secondary'}
-                        className={`capitalize text-[10px] ${team.status === 'active' ? 'bg-green-500 hover:bg-green-600' : ''}`}
+                        className={`capitalize text - [10px] ${team.status === 'active' ? 'bg-green-500 hover:bg-green-600' : ''} `}
                       >
                         {team.status === 'active' ? 'Activo' : 'Inactivo'}
                       </Badge>

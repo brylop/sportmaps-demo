@@ -13,7 +13,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Download }
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
+import { studentsAPI } from '@/lib/api/students';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface CSVImportModalProps {
@@ -47,6 +47,7 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
   const [result, setResult] = useState<{
     success: number;
     failed: number;
+    updated?: number;
     errors: Array<{ row: number; error: string }>;
   } | null>(null);
   const { toast } = useToast();
@@ -147,64 +148,47 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const handleUpload = async () => {
-    if (parsedStudents.length === 0) return;
+    if (!file) return;
 
     try {
       setUploading(true);
-      setUploadProgress(5);
+      setUploadProgress(10);
 
-      let successCount = 0;
-      let failedCount = 0;
-      const errors: Array<{ row: number; error: string }> = [];
-
-      for (let i = 0; i < parsedStudents.length; i++) {
-        const s = parsedStudents[i];
-        setUploadProgress(Math.round(((i + 1) / parsedStudents.length) * 90));
-
-        try {
-          await createStudentWithPendingPayment({
-            fullName: s.full_name,
-            dateOfBirth: s.date_of_birth || undefined,
-            parentEmail: s.parent_email || undefined,
-            parentPhone: s.parent_phone || undefined,
-            parentName: s.parent_name || undefined,
-            schoolId,
-            schoolName,
-            branchId: branchId || undefined,
-            monthlyFee: s.monthly_fee,
-            programName: s.grade || 'Importado CSV',
-          });
-          successCount++;
-        } catch (err: any) {
-          failedCount++;
-          errors.push({ row: i + 2, error: err.message || 'Error desconocido' });
-        }
-      }
+      // ── MIGRACIÓN BFF ──────────────────────────────────────────────────────
+      // Se utiliza el método bulkUpload que ahora internamente usa el BFF.
+      // Esto previene N llamadas y asegura consistencia atómica.
+      const bffResponse = await studentsAPI.bulkUpload(file, schoolId, { upsert: true });
 
       setUploadProgress(100);
-      setResult({ success: successCount, failed: failedCount, errors });
+      setResult({
+        success: bffResponse.summary.inserted,
+        updated: bffResponse.summary.updated,
+        failed: bffResponse.summary.skipped + bffResponse.errors.length,
+        errors: [
+          ...bffResponse.errors,
+          ...bffResponse.skipped.map(s => ({ row: 0, error: `${s.document_id}: ${s.reason}` }))
+        ]
+      });
 
-      if (successCount > 0) {
+      if (bffResponse.success) {
         toast({
-          title: '¡Importación exitosa!',
-          description: `${successCount} estudiante${successCount > 1 ? 's' : ''} importado${successCount > 1 ? 's' : ''} con pago pendiente`,
+          title: '¡Procesamiento BFF exitoso!',
+          description: bffResponse.message,
         });
         setTimeout(() => onSuccess(), 1500);
-      }
-
-      if (failedCount > 0) {
+      } else {
         toast({
-          title: 'Algunas filas fallaron',
-          description: `${failedCount} fila${failedCount > 1 ? 's' : ''} con errores`,
+          title: 'Importación parcial',
+          description: 'Revisa el reporte para ver filas omitidas o errores.',
           variant: 'destructive',
         });
       }
 
     } catch (error: any) {
-      console.error('Upload error:', error);
+      console.error('BFF Upload error:', error);
       toast({
-        title: 'Error al procesar archivo',
-        description: error.message || 'Por favor intenta de nuevo',
+        title: 'Error vinculando con el BFF',
+        description: error.message || 'El servidor BFF no respondió correctamente.',
         variant: 'destructive',
       });
     } finally {

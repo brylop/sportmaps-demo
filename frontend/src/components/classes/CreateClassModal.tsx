@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Minus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { classesAPI, ClassCreate } from '@/lib/api/classes';
 import { supabase } from '@/integrations/supabase/client';
@@ -132,7 +132,7 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-5 w-5 text-primary" />
@@ -234,25 +234,61 @@ export function CreateClassModal({ open, onClose, onSuccess, schoolId }: CreateC
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="capacity">Capacidad</Label>
-              <Input
-                id="capacity"
-                type="number"
-                min="1"
-                max="100"
-                value={formData.capacity}
-                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) || 20 })}
-              />
+              <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, capacity: Math.max(1, (formData.capacity || 1) - 1) })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <Input
+                  id="capacity"
+                  type="number"
+                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                  min="1"
+                  max="100"
+                  value={formData.capacity}
+                  onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) || 20 })}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, capacity: (formData.capacity || 0) + 1 })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="price">Precio Mensual ($)</Label>
-              <Input
-                id="price"
-                type="number"
-                min="0"
-                step="1000"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-              />
+              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, price: Math.max(0, (formData.price || 0) - 10000) })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <span className="absolute left-10 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
+                <Input
+                  id="price"
+                  type="text"
+                  className="border-0 text-center font-semibold focus-visible:ring-0 pl-14 pr-10"
+                  value={formData.price ? Number(formData.price).toLocaleString('es-CO') : ''}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setFormData({ ...formData, price: val === '' ? 0 : parseFloat(val) });
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, price: (formData.price || 0) + 10000 })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 

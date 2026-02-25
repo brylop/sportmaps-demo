@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trophy } from 'lucide-react';
+import { Trophy, Minus, Plus } from 'lucide-react';
 
 const resultSchema = z.object({
   match_date: z.string().min(1, 'Fecha es requerida'),
@@ -48,12 +48,12 @@ const matchTypes = [
   'Final',
 ];
 
-export function MatchResultFormDialog({ 
-  open, 
-  onOpenChange, 
-  onSubmit, 
+export function MatchResultFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
   teamId,
-  isLoading 
+  isLoading
 }: MatchResultFormDialogProps) {
   const form = useForm<ResultFormData>({
     resolver: zodResolver(resultSchema),
@@ -85,7 +85,7 @@ export function MatchResultFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trophy className="h-5 w-5" />
@@ -157,22 +157,56 @@ export function MatchResultFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="home_score">Goles Local *</Label>
-              <Input
-                id="home_score"
-                type="number"
-                min="0"
-                {...form.register('home_score')}
-              />
+              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+                <button
+                  type="button"
+                  onClick={() => form.setValue('home_score', String(Math.max(0, (parseInt(form.getValues('home_score')) || 0) - 1)))}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <Input
+                  id="home_score"
+                  type="number"
+                  min="0"
+                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                  {...form.register('home_score')}
+                />
+                <button
+                  type="button"
+                  onClick={() => form.setValue('home_score', String((parseInt(form.getValues('home_score')) || 0) + 1))}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="away_score">Goles Visitante *</Label>
-              <Input
-                id="away_score"
-                type="number"
-                min="0"
-                {...form.register('away_score')}
-              />
+              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
+                <button
+                  type="button"
+                  onClick={() => form.setValue('away_score', String(Math.max(0, (parseInt(form.getValues('away_score')) || 0) - 1)))}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <Input
+                  id="away_score"
+                  type="number"
+                  min="0"
+                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                  {...form.register('away_score')}
+                />
+                <button
+                  type="button"
+                  onClick={() => form.setValue('away_score', String((parseInt(form.getValues('away_score')) || 0) + 1))}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
