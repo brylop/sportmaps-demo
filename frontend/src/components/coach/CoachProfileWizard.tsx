@@ -116,7 +116,7 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
         };
 
         loadData();
-    }, [open, user?.id, profile]);
+    }, [open, user?.id]);
 
     // ─── Avatar handler ──────────────────────────────────
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -176,23 +176,36 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
     const handleSubmit = async () => {
         if (!user?.id) return;
 
+        // 1. VALIDATION: Check for duplicate certifications BEFORE any state/API changes
+        const duplicates = certBlocks.filter(block => {
+            if (!block.name.trim()) return false;
+            const inExisting = existingCerts.some(ec => ec.name.toLowerCase() === block.name.trim().toLowerCase());
+            const inNew = certBlocks.some(b => b.id !== block.id && b.name.trim().toLowerCase() === block.name.trim().toLowerCase());
+            return inExisting || inNew;
+        });
+
+        if (duplicates.length > 0) {
+            toast.error('No puedes agregar certificados con nombres que ya existen');
+            return;
+        }
+
         setIsSubmitting(true);
         try {
-            // 1. Upload avatar if changed
+            // 2. Avatar Upload
             let avatarUrl = profile?.avatar_url || '';
             if (avatarFile) {
                 const url = await uploadFile(avatarFile, 'avatars', `coaches/${user.id}`);
                 if (url) avatarUrl = url;
             }
 
-            // 2. Update profiles table (basic info)
+            // 3. Basic Profile Update (Silent to avoid double toast)
             await updateProfile({
                 full_name: fullName.trim(),
                 phone: phone.trim(),
                 avatar_url: avatarUrl,
-            });
+            }, { silent: true });
 
-            // 3. Upsert coach_profiles
+            // 4. Professional Profile Extension
             await coachesAPI.upsertCoachProfile({
                 id: user.id,
                 doc_type: docType,
@@ -201,9 +214,9 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                 profile_completed: true,
             });
 
-            // 4. Upload and save new certifications
+            // 5. New Certifications
             for (const block of certBlocks) {
-                if (!block.name.trim()) continue; // Skip empty blocks
+                if (!block.name.trim()) continue;
 
                 let fileUrl: string | null = null;
                 let fileName: string | null = null;
@@ -253,11 +266,11 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                 </DialogHeader>
 
                 {/* Stepper */}
-                <div className="mb-6 mt-2 px-4">
+                <div className="mb-6 mt-2 px-12">
                     <div className="relative flex justify-between items-center">
-                        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-muted -translate-y-1/2 z-0"></div>
+                        <div className="absolute top-5 left-0 w-full h-0.5 bg-muted z-0"></div>
                         <div
-                            className="absolute top-1/2 left-0 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-300"
+                            className="absolute top-5 left-0 h-0.5 bg-primary z-0 transition-all duration-300"
                             style={{ width: currentStep === 1 ? '0%' : '100%' }}
                         ></div>
 
@@ -266,7 +279,7 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                 }`}>
                                 {currentStep > 1 ? <Check className="w-5 h-5" /> : 1}
                             </div>
-                            <span className={`text-[10px] mt-2 font-medium uppercase tracking-wider ${currentStep >= 1 ? 'text-primary' : 'text-muted-foreground'
+                            <span className={`text-[10px] mt-2 font-semibold uppercase tracking-wider ${currentStep >= 1 ? 'text-primary' : 'text-muted-foreground'
                                 }`}>Datos Básicos</span>
                         </div>
 
@@ -275,7 +288,7 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                 }`}>
                                 2
                             </div>
-                            <span className={`text-[10px] mt-2 font-medium uppercase tracking-wider ${currentStep >= 2 ? 'text-primary' : 'text-muted-foreground'
+                            <span className={`text-[10px] mt-2 font-semibold uppercase tracking-wider ${currentStep >= 2 ? 'text-primary' : 'text-muted-foreground'
                                 }`}>Certificados</span>
                         </div>
                     </div>
@@ -496,6 +509,9 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                                                     e.preventDefault();
                                                                     updateCertBlock(block.id, 'file', null);
                                                                     updateCertBlock(block.id, 'fileName', '');
+                                                                    // Reset the native input value so the SAME file can be picked again
+                                                                    const input = document.getElementById(`cert-file-${block.id}`) as HTMLInputElement;
+                                                                    if (input) input.value = '';
                                                                 }}
                                                             >
                                                                 <X className="w-3 h-3" />

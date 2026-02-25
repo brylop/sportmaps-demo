@@ -211,22 +211,22 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <InvitationsManagementPage />
                         </ProtectedRoute>
                       } />
                       <Route path="staff" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <StaffPage />
                         </ProtectedRoute>
                       } />
                       <Route path="programs-management" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <ProgramsManagementPage />
                         </ProtectedRoute>
                       } />
                       <Route path="attendance-supervision" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <AttendanceSupervisionPage />
                         </ProtectedRoute>
                       } />
@@ -236,17 +236,17 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="finances" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <FinancesPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payments-automation" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <PaymentsAutomationPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payment-reminders" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <PaymentRemindersPage />
                         </ProtectedRoute>
                       } />
@@ -266,7 +266,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="branches" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'owner']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolBranchesManagementPage />
                         </ProtectedRoute>
                       } />

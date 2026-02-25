@@ -25,11 +25,18 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*, schools(name), teams(name, sport, level)')
+        .select(`
+          *,
+          schools(name),
+          programs:program_id(name, sport, level)
+        `)
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching children:', error);
+        throw error;
+      }
       return data;
     },
     enabled: !!user?.id,
@@ -40,6 +47,16 @@ export default function MyChildrenPage() {
 
   if (isLoading) {
     return <LoadingSpinner fullScreen text="Cargando tus hijos..." />;
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Error al cargar tus hijos"
+        message="Hubo un problema al recuperar la información. Por favor, intenta de nuevo."
+        onRetry={() => refetch()}
+      />
+    );
   }
 
   return (

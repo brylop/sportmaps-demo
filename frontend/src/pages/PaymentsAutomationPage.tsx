@@ -164,8 +164,8 @@ export default function PaymentsAutomationPage() {
           receipt_url,
           concept,
           parent:profiles!payments_parent_id_fkey(full_name, email),
-          child:children(full_name),
-          program:teams(name)
+          child:children!payments_child_id_fkey(full_name),
+          program:teams!payments_program_id_fkey(name)
         `)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
@@ -200,11 +200,12 @@ export default function PaymentsAutomationPage() {
 
       setPayments(mappedPayments);
 
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+    } catch (error: any) {
+      console.error('Error in fetchPayments:', error);
+      const errorMessage = error?.message || error?.error_description || String(error);
       toast({
         title: 'Error al cargar pagos',
-        description: message,
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -222,7 +223,7 @@ export default function PaymentsAutomationPage() {
           full_name,
           monthly_fee,
           team_id,
-          teams(
+          teams:teams!children_team_id_fkey(
             name
           )
         `)
@@ -236,8 +237,13 @@ export default function PaymentsAutomationPage() {
       const { data, error } = await query;
       if (error) throw error;
       setTeamSubscriptions(data as unknown as TeamSubscription[]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading team subscriptions:', error);
+      toast({
+        title: 'Error en suscripciones',
+        description: error?.message || String(error),
+        variant: 'destructive',
+      });
     }
   };
 

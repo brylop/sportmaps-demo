@@ -34,7 +34,7 @@ import {
   ChevronLeft
 } from "lucide-react";
 import heroImage from "@/assets/hero-sportsmaps.jpg";
-import logoImage from "@/assets/sportmaps-logo.png";
+import logoImage from "@/assets/logo-bienvenida.png";
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";

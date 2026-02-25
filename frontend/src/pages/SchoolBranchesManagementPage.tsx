@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { branchesAPI, SchoolBranch } from '@/lib/api/branches';
-import { Plus, Edit2, Trash2, MapPin, Phone, Building2, Users, Star } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Phone, Building2, Users, Star, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { NumberStepper } from '@/components/ui/number-stepper';
 
 export default function SchoolBranchesManagementPage() {
     const { schoolId } = useSchoolContext();
@@ -57,6 +58,14 @@ export default function SchoolBranchesManagementPage() {
         if (!schoolId) return;
 
         try {
+            // Si la nueva sede es principal, desmarcar la actual si existe
+            if (formData.is_main) {
+                const currentMain = branches.find(b => b.is_main);
+                if (currentMain) {
+                    await branchesAPI.updateBranch(currentMain.id, { is_main: false });
+                }
+            }
+
             await branchesAPI.createBranch({
                 name: formData.name,
                 address: formData.address || undefined,
@@ -80,6 +89,14 @@ export default function SchoolBranchesManagementPage() {
         if (!editingBranch) return;
 
         try {
+            // Si se está marcando como principal, desmarcar la anterior si es una diferente
+            if (formData.is_main) {
+                const currentMain = branches.find(b => b.is_main && b.id !== editingBranch.id);
+                if (currentMain) {
+                    await branchesAPI.updateBranch(currentMain.id, { is_main: false });
+                }
+            }
+
             await branchesAPI.updateBranch(editingBranch.id, {
                 name: formData.name,
                 address: formData.address || undefined,
@@ -167,26 +184,33 @@ export default function SchoolBranchesManagementPage() {
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="capacity">Capacidad máxima</Label>
-                        <Input
-                            id="capacity"
-                            type="number"
-                            min={1}
-                            placeholder="50"
+                        <NumberStepper
                             value={formData.capacity}
-                            onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) || 50 })}
+                            onChange={(val) => setFormData({ ...formData, capacity: Number(val) || 1 })}
+                            min={1}
                         />
                     </div>
                 </div>
-                <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                    <Switch
-                        id="is_main"
-                        checked={formData.is_main}
-                        onCheckedChange={(checked) => setFormData({ ...formData, is_main: checked })}
-                    />
-                    <Label htmlFor="is_main" className="cursor-pointer">
-                        <span className="font-medium">Sede Principal</span>
-                        <p className="text-xs text-muted-foreground">Marcada como la sede principal de la academia</p>
-                    </Label>
+                <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                        <Switch
+                            id="is_main"
+                            checked={formData.is_main}
+                            onCheckedChange={(checked) => setFormData({ ...formData, is_main: checked })}
+                        />
+                        <Label htmlFor="is_main" className="cursor-pointer">
+                            <span className="font-medium">Sede Principal</span>
+                            <p className="text-xs text-muted-foreground">Marcada como la sede principal de la academia</p>
+                        </Label>
+                    </div>
+                    {formData.is_main && (
+                        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                            <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+                            <p className="text-xs text-amber-700 font-medium">
+                                Esta acción desmarcará la sede principal actual. Solo puede haber una sede principal a la vez.
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
             <DialogFooter>

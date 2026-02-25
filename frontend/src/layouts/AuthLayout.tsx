@@ -1,60 +1,96 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/contexts/AuthContext";
-import { useCart } from "@/contexts/CartContext";
+import { useSchoolContext } from "@/hooks/useSchoolContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { GlobalSearch } from "@/components/global/GlobalSearch";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Outlet } from "react-router-dom";
-import { ShoppingCart } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
-  const { setIsOpen, getItemCount } = useCart();
-  const itemCount = getItemCount();
+  const { schoolId, schoolName, currentUserRole } = useSchoolContext();
+  const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSchoolLogo = async () => {
+      if (schoolId) {
+        const { data } = await supabase
+          .from('schools')
+          .select('logo_url')
+          .eq('id', schoolId)
+          .maybeSingle();
+        if (data?.logo_url) setSchoolLogo(data.logo_url);
+      }
+    };
+    fetchSchoolLogo();
+  }, [schoolId]);
+
+  const showSchoolBranding = ['owner', 'admin', 'school_admin', 'school', 'coach'].includes(currentUserRole || '');
+  const isCoach = currentUserRole === 'coach';
+  const hasSchool = !!schoolId;
 
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full overflow-x-hidden">
         <AppSidebar />
-        
+
         <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
-          {/* Header with sidebar trigger and global search */}
-          <header className="h-14 flex items-center border-b px-2 md:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 gap-2 md:gap-4">
-            <SidebarTrigger className="flex-shrink-0" />
-            
-            {/* Global Search - Hidden on mobile, visible on md+ */}
-            <div className="hidden md:block flex-1 max-w-md">
-              <GlobalSearch placeholder="Buscar escuelas, productos..." />
+          {/* Custom Premium Header */}
+          <header className="h-16 flex items-center border-b px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="flex-shrink-0 hover:bg-accent transition-colors" />
+
+              <div className="h-8 w-[1px] bg-border hidden md:block" />
+
+              {/* School Branding Section */}
+              {showSchoolBranding && (hasSchool || !isCoach) && (
+                <div className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2 duration-500">
+                  {schoolLogo ? (
+                    <img
+                      src={schoolLogo}
+                      alt={schoolName}
+                      className="h-9 w-9 rounded-lg object-contain bg-white p-1 border shadow-sm"
+                    />
+                  ) : (
+                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 text-primary font-bold text-xs">
+                      {schoolName?.substring(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-foreground leading-none">
+                      {schoolName || 'Mi Academia'}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mt-0.5">
+                      {currentUserRole?.replace('_', ' ')}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-            
-            <div className="flex-1 md:hidden overflow-hidden">
-              <h1 className="text-base md:text-lg font-semibold truncate">SportMaps</h1>
-            </div>
-            
-            <div className="flex items-center gap-1 md:gap-3">
-              {/* Cart Button */}
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="relative h-9 w-9 md:h-10 md:w-10"
-                onClick={() => setIsOpen(true)}
-              >
-                <ShoppingCart className="h-4 w-4 md:h-5 md:w-5" />
-                {itemCount > 0 && (
-                  <Badge 
-                    className="absolute -top-1 -right-1 h-4 w-4 md:h-5 md:w-5 flex items-center justify-center p-0 text-[10px] md:text-xs bg-accent text-accent-foreground"
-                  >
-                    {itemCount > 9 ? '9+' : itemCount}
-                  </Badge>
-                )}
-              </Button>
-              
-              <ThemeToggle />
-              
-              <div className="hidden md:block text-sm text-muted-foreground truncate max-w-[150px]">
-                {profile?.full_name || user?.email}
+
+            <div className="flex items-center gap-4">
+              {/* Theme and User Section */}
+              <div className="flex items-center gap-2 pr-2 border-r">
+                <ThemeToggle />
+              </div>
+
+              <div className="flex items-center gap-3 pl-1">
+                <div className="hidden md:flex flex-col items-end">
+                  <span className="text-sm font-semibold text-foreground leading-none">
+                    {profile?.full_name || user?.email?.split('@')[0]}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground capitalize">
+                    {profile?.role || 'Usuario'}
+                  </span>
+                </div>
+                <Avatar className="h-9 w-9 border-2 border-primary/20 hover:border-primary/50 transition-all cursor-pointer">
+                  <AvatarImage src={profile?.avatar_url} />
+                  <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold">
+                    {(profile?.full_name || 'U').substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
               </div>
             </div>
           </header>

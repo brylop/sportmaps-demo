@@ -17,10 +17,10 @@ export const getStepsForRole = (role: string, status: any) => {
 
             // Operational flow (Branch Admin or Owner)
             return [
-                { id: 'create_branch', title: 'Configurar Sedes', description: 'Gestiona tu sede principal y sucursales.', completed: status.has_branches, href: '/branches', icon: Building },
+                { id: 'create_branch', title: 'Configurar Sede Principal', description: 'Edita dirección, ciudad y capacidad de tu sede.', completed: status.has_branches, href: '/branches', icon: Building },
                 { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users },
                 { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
-                { id: 'invite_parents', title: 'Vincular Familias', description: 'Invita a los padres por correo.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
+                { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
             ];
 
         case USER_ROLES.PARENT:
@@ -40,7 +40,7 @@ export const getStepsForRole = (role: string, status: any) => {
         case USER_ROLES.COACH:
             return [
                 { id: 'accept_invite', title: 'Vincular Academia', description: 'Acepta la invitación de tu escuela.', completed: status.has_accepted_invite, href: '/notifications', icon: Building },
-                { id: 'complete_profile', title: 'Perfil Profesional', description: 'Sube tu experiencia y certificaciones.', completed: status.profile_complete, href: '/profile', icon: UserCircle }
+                { id: 'complete_profile', title: 'Perfil Profesional', description: 'Sube tu experiencia y certificaciones.', completed: status.has_professional_profile, href: '/profile', icon: UserCircle }
             ];
 
         case USER_ROLES.ATHLETE:

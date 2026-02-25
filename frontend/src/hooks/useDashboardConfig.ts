@@ -172,7 +172,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
         return {
           role: 'coach',
           title: 'Panel de Entrenador',
-          description: 'Gestiona tus equipos y jugadores',
+          description: 'Gestiona tus equipos y estudiantes',
           stats: [
             {
               title: 'Equipos',
@@ -181,7 +181,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               icon: Users
             },
             {
-              title: 'Jugadores Totales',
+              title: 'Estudiantes Total',
               value: stats.totalStudents || 0, // Assuming totalStudents maps to players for coach context if needed, or 0
               description: 'En todos los equipos',
               icon: Users

@@ -765,8 +765,8 @@ export default function InvitationsManagementPage() {
 
             {/* Info block for reporter role */}
             {formData.role === 'reporter' && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-3 text-sm text-blue-700 dark:text-blue-300">
-                <strong>Súper Usuario (Reporter):</strong> Tendrá acceso de solo lectura a todos los reportes y analíticas de la escuela. No puede hacer cambios ni ver información financiera sensible.
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-primary">
+                <strong className="font-bold">Súper Usuario (Reporter):</strong> Tendrá acceso de solo lectura a todos los reportes y analíticas de la escuela. No puede hacer cambios ni ver información financiera sensible.
               </div>
             )}
 

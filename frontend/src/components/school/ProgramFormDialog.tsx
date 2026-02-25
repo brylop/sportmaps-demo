@@ -28,7 +28,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Trophy, CheckCircle2, Minus, Plus } from 'lucide-react';
+import { Loader2, Trophy, CheckCircle2 } from 'lucide-react';
+import { NumberStepper } from '../ui/number-stepper';
 
 interface ProgramFormData {
   name: string;
@@ -301,33 +302,13 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Precio Mensual</FormLabel>
                         <FormControl>
-                          <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
-                            <button
-                              type="button"
-                              onClick={() => field.onChange(Math.max(0, (field.value as number || 0) - 10000))}
-                              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
-                            >
-                              <Minus className="h-4 w-4" />
-                            </button>
-                            <span className="absolute left-12 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
-                            <Input
-                              type="text"
-                              className="border-0 text-center font-semibold focus-visible:ring-0 pl-16 pr-10"
-                              placeholder="0"
-                              value={field.value ? Number(field.value).toLocaleString('es-CO') : ''}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(/\D/g, '');
-                                field.onChange(val === '' ? '' : Number(val));
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => field.onChange((field.value as number || 0) + 10000)}
-                              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <NumberStepper
+                            value={field.value}
+                            onChange={field.onChange}
+                            min={0}
+                            step={10000}
+                            unit="$"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -427,29 +408,11 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Capacidad</FormLabel>
                         <FormControl>
-                          <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                            <button
-                              type="button"
-                              onClick={() => field.onChange(Math.max(1, (field.value as number || 1) - 1))}
-                              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                            >
-                              <Minus className="h-4 w-4" />
-                            </button>
-                            <Input
-                              type="number"
-                              className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
-                              placeholder="20"
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => field.onChange((field.value as number || 0) + 1)}
-                              className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <NumberStepper
+                            value={field.value ?? ''}
+                            onChange={field.onChange}
+                            min={1}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -463,29 +426,12 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Edad Mín</FormLabel>
                         <FormControl>
-                          <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                            <button
-                              type="button"
-                              onClick={() => field.onChange(Math.max(3, (field.value as number || 3) - 1))}
-                              className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <Input
-                              type="number"
-                              className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
-                              placeholder="6"
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => field.onChange((field.value as number || 0) + 1)}
-                              className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
+                          <NumberStepper
+                            value={field.value ?? ''}
+                            onChange={field.onChange}
+                            min={0}
+                            className="h-9"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -499,29 +445,12 @@ export function ProgramFormDialog({
                       <FormItem>
                         <FormLabel>Edad Máx</FormLabel>
                         <FormControl>
-                          <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                            <button
-                              type="button"
-                              onClick={() => field.onChange(Math.max(4, (field.value as number || 4) - 1))}
-                              className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <Input
-                              type="number"
-                              className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
-                              placeholder="12"
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value === '' ? '' : Number(e.target.value))}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => field.onChange((field.value as number || 0) + 1)}
-                              className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
+                          <NumberStepper
+                            value={field.value ?? ''}
+                            onChange={field.onChange}
+                            min={0}
+                            className="h-9"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

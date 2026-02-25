@@ -30,7 +30,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, userData: Partial<UserProfile>) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+  updateProfile: (updates: Partial<UserProfile>, options?: { silent?: boolean }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -308,8 +308,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateProfile = async (updates: Partial<UserProfile>) => {
+  const updateProfile = async (updates: Partial<UserProfile>, options?: { silent?: boolean }) => {
     if (!user) throw new Error('No user logged in');
+    const silent = options?.silent || false;
 
     try {
       const { error } = await supabase
@@ -322,10 +323,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const updatedProfile = await fetchProfile(user.id);
       if (updatedProfile) setProfile(updatedProfile);
 
-      toast({
-        title: "Perfil actualizado",
-        description: "Tus datos han sido actualizados exitosamente",
-      });
+      if (!silent) {
+        toast({
+          title: "Perfil actualizado",
+          description: "Tus datos han sido actualizados exitosamente",
+        });
+      }
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error updating profile:', error);

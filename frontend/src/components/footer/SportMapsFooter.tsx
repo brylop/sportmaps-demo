@@ -7,14 +7,14 @@ export function SportMapsFooter() {
     <footer className="bg-gradient-to-b from-[#1a1a2e] to-[#0f0f1a] text-gray-300 font-poppins">
       <div className="container mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          
+
           {/* 1. Identidad y Redes Sociales Oficiales */}
           <div className="space-y-6">
             <div className="space-y-4">
               <Link to="/" className="flex items-center gap-2">
-                <img 
-                  src="/sportmaps-logo.png" 
-                  alt="SportMaps" 
+                <img
+                  src="/logo-bienvenida.png"
+                  alt="SportMaps"
                   className="h-10 w-auto"
                 />
                 <span className="text-xl font-bold text-white">
@@ -71,8 +71,8 @@ export function SportMapsFooter() {
               </li>
               <li className="flex items-center gap-3 text-sm">
                 <Mail className="h-4 w-4 text-primary flex-shrink-0" />
-                <a 
-                  href="mailto:contacto@sportmaps.co" 
+                <a
+                  href="mailto:contacto@sportmaps.co"
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   contacto@sportmaps.co
@@ -80,8 +80,8 @@ export function SportMapsFooter() {
               </li>
               <li className="flex items-center gap-3 text-sm">
                 <Phone className="h-4 w-4 text-primary flex-shrink-0" />
-                <a 
-                  href="tel:+573128463555" 
+                <a
+                  href="tel:+573128463555"
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   +57 (312) 846-3555
@@ -112,13 +112,13 @@ export function SportMapsFooter() {
 }
 
 // Sub-componentes
-function FooterLink({ 
-  text, 
-  href = "#", 
+function FooterLink({
+  text,
+  href = "#",
   isLegal = false,
-  isHighlighted = false 
-}: { 
-  text: string; 
+  isHighlighted = false
+}: {
+  text: string;
   href?: string;
   isLegal?: boolean;
   isHighlighted?: boolean;
@@ -127,13 +127,12 @@ function FooterLink({
     <li className={isLegal ? "inline" : ""}>
       <Link
         to={href}
-        className={`text-sm transition-colors ${
-          isHighlighted 
-            ? "text-primary hover:text-primary/80 font-medium" 
+        className={`text-sm transition-colors ${isHighlighted
+            ? "text-primary hover:text-primary/80 font-medium"
             : isLegal
               ? "text-gray-500 hover:text-gray-300 underline-offset-2 hover:underline"
               : "text-gray-400 hover:text-white"
-        }`}
+          }`}
       >
         {text}
       </Link>
@@ -141,13 +140,13 @@ function FooterLink({
   );
 }
 
-function SocialBtn({ 
-  icon: Icon, 
-  href, 
-  label 
-}: { 
-  icon: React.ComponentType<{ className?: string }>; 
-  href: string; 
+function SocialBtn({
+  icon: Icon,
+  href,
+  label
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  href: string;
   label: string;
 }) {
   return (

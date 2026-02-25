@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Minus, Plus } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { NumberStepper } from '../ui/number-stepper';
 
 interface ProductFormData {
   name: string;
@@ -112,62 +113,21 @@ export function ProductFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="price">Precio *</Label>
-              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, price: Math.max(0, (formData.price as number || 0) - 1000) })}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="absolute left-10 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
-                <Input
-                  id="price"
-                  type="text"
-                  className="border-0 text-center font-semibold focus-visible:ring-0 pl-14 pr-10"
-                  value={formData.price ? Number(formData.price).toLocaleString('es-CO') : ''}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setFormData({ ...formData, price: val === '' ? '' : parseFloat(val) });
-                  }}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, price: (formData.price as number || 0) + 1000 })}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
+              <NumberStepper
+                value={formData.price}
+                onChange={(val) => setFormData({ ...formData, price: val })}
+                min={0}
+                step={1000}
+                unit="$"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="stock">Stock *</Label>
-              <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, stock: Math.max(0, (formData.stock as number || 0) - 1) })}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <Input
-                  id="stock"
-                  type="number"
-                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
-                  min="0"
-                  value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: e.target.value === '' ? '' : parseInt(e.target.value) })}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, stock: (formData.stock as number || 0) + 1 })}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
+              <NumberStepper
+                value={formData.stock}
+                onChange={(val) => setFormData({ ...formData, stock: val })}
+                min={0}
+              />
             </div>
           </div>
 

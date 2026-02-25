@@ -15,7 +15,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { USER_ROLES } from '@/constants/roles';
 import { Controller } from 'react-hook-form';
 import { useToast } from '@/hooks/use-toast';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 
 // Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
@@ -243,19 +248,19 @@ export default function RegisterPage() {
   if (user && inviteId) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
-        <Card className="w-full max-w-md shadow-2xl border-t-8 border-blue-600 animate-in fade-in zoom-in duration-300">
+        <Card className="w-full max-w-md shadow-2xl border-t-8 border-primary animate-in fade-in zoom-in duration-300">
           <CardContent className="pt-10 flex flex-col items-center text-center">
-            <div className="bg-blue-100 p-4 rounded-full mb-6">
-              <School className="w-12 h-12 text-blue-600" />
+            <div className="bg-primary/10 p-4 rounded-full mb-6">
+              <School className="w-12 h-12 text-primary" />
             </div>
 
-            <h2 className="text-2xl font-bold font-poppins text-blue-900 mb-2">Invitación Pendiente</h2>
+            <h2 className="text-2xl font-bold font-poppins text-foreground mb-2">Invitación Pendiente</h2>
 
             {invitationInfo ? (
               <>
                 <p className="text-muted-foreground font-poppins mb-6">
-                  Ya tienes una sesión activa como <strong>{user.email}</strong>.<br />
-                  ¿Deseas aceptar la invitación de <strong>{invitationInfo.school_name}</strong> para el perfil de <strong>{
+                  Ya tienes una sesión activa como <strong className="text-primary">{user.email}</strong>.<br />
+                  ¿Deseas aceptar la invitación de <strong className="text-primary">{invitationInfo.school_name}</strong> para el perfil de <strong>{
                     invitationInfo.role_to_assign === 'parent' ? 'Padre' :
                       invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
                         invitationInfo.role_to_assign === 'athlete' ? 'Atleta' :
@@ -268,7 +273,7 @@ export default function RegisterPage() {
                   <Button
                     onClick={handleAcceptLoggedIn}
                     disabled={isLoading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 h-12 text-lg font-bold"
+                    className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-12 text-lg font-bold"
                   >
                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                     Aceptar Invitación Ahora
@@ -277,7 +282,7 @@ export default function RegisterPage() {
                   <Button
                     asChild
                     variant="ghost"
-                    className="w-full text-muted-foreground hover:text-blue-600"
+                    className="w-full text-muted-foreground hover:text-primary"
                   >
                     <Link to="/dashboard">Ir al Dashboard directamente</Link>
                   </Button>
@@ -285,7 +290,7 @@ export default function RegisterPage() {
               </>
             ) : (
               <div className="flex flex-col items-center gap-4 py-4">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 <p className="text-sm text-muted-foreground">Validando invitación...</p>
               </div>
             )}
@@ -347,16 +352,16 @@ export default function RegisterPage() {
         <CardContent>
           {/* Invitation Banner */}
           {invitationInfo && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-top-2">
+            <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center gap-3">
-                <div className="bg-blue-100 p-2 rounded-lg">
-                  <School className="w-5 h-5 text-blue-600" />
+                <div className="bg-primary/10 p-2 rounded-lg">
+                  <School className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-semibold text-blue-900 text-sm">
-                    Invitación de <strong>{invitationInfo.school_name}</strong>
+                  <p className="font-semibold text-foreground text-sm">
+                    Invitación de <strong className="text-primary">{invitationInfo.school_name}</strong>
                   </p>
-                  <p className="text-xs text-blue-700">
+                  <p className="text-xs text-primary/80">
                     Te invitan como <strong>{
                       invitationInfo.role_to_assign === 'parent' ? 'Padre/Madre' :
                         invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
@@ -364,7 +369,7 @@ export default function RegisterPage() {
                             invitationInfo.role_to_assign === 'school_admin' ? 'Administrador de Sede' :
                               invitationInfo.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'
                     }</strong>
-                    {invitationInfo.child_name && <> para <strong>{invitationInfo.child_name}</strong></>}
+                    {invitationInfo.child_name && <> para <strong className="text-primary">{invitationInfo.child_name}</strong></>}
                   </p>
                 </div>
               </div>
@@ -415,12 +420,53 @@ export default function RegisterPage() {
 
             <div className="space-y-2">
               <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
-              <Input
-                id="dateOfBirth"
-                type="date"
-                autoComplete="bday"
-                {...register('dateOfBirth')}
-                className={errors.dateOfBirth ? 'border-destructive' : ''}
+              <Controller
+                name="dateOfBirth"
+                control={control}
+                render={({ field }) => (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !field.value && "text-muted-foreground",
+                          errors.dateOfBirth && "border-destructive"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {field.value ? (
+                          format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
+                        ) : (
+                          <span>Selecciona tu fecha</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                        onSelect={(date) => {
+                          if (date) {
+                            // Save as YYYY-MM-DD
+                            const year = date.getFullYear();
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const day = String(date.getDate()).padStart(2, '0');
+                            field.onChange(`${year}-${month}-${day}`);
+                          }
+                        }}
+                        captionLayout="dropdown-buttons"
+                        fromYear={1920}
+                        toYear={new Date().getFullYear()}
+                        locale={es}
+                        disabled={(date) =>
+                          date > new Date() || date < new Date("1920-01-01")
+                        }
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )}
               />
               {errors.dateOfBirth && (
                 <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>

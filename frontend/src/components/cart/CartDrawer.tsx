@@ -4,18 +4,19 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  ShoppingCart, 
-  Trash2, 
-  Plus, 
-  Minus, 
-  School, 
-  Package, 
+import {
+  ShoppingCart,
+  Trash2,
+  Plus,
+  Minus,
+  School,
+  Package,
   Calendar,
   CreditCard
 } from 'lucide-react';
 import { useCart, CartItemType } from '@/contexts/CartContext';
 import { cn } from '@/lib/utils';
+import { NumberStepper } from '../ui/number-stepper';
 
 const typeConfig: Record<CartItemType, { icon: typeof School; label: string; color: string }> = {
   enrollment: { icon: School, label: 'Inscripción', color: 'bg-primary/10 text-primary' },
@@ -101,9 +102,9 @@ export function CartDrawer() {
                     </div>
                     <div className="space-y-3">
                       {products.map((item) => (
-                        <CartItemCard 
-                          key={item.id} 
-                          item={item} 
+                        <CartItemCard
+                          key={item.id}
+                          item={item}
                           onRemove={removeItem}
                           onUpdateQuantity={updateQuantity}
                           showQuantity
@@ -233,25 +234,12 @@ function CartItemCard({ item, onRemove, onUpdateQuantity, showQuantity }: CartIt
         <div className="flex items-center justify-between mt-2">
           {/* Quantity controls for products */}
           {showQuantity && onUpdateQuantity && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
-              >
-                <Minus className="h-3 w-3" />
-              </Button>
-              <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
+            <NumberStepper
+              value={item.quantity}
+              onChange={(val) => onUpdateQuantity(item.id, Number(val) || 1)}
+              min={1}
+              className="h-8 w-28"
+            />
           )}
 
           <span className="font-bold text-sm text-primary ml-auto">

@@ -36,7 +36,7 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
       case "athlete":
         return { icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary", route: "athlete-register" };
       case "parent":
-        return { icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500", route: "athlete-register" };
+        return { icon: User, bgColor: "bg-emerald-50", iconColor: "text-emerald-600", route: "athlete-register" };
       case "wellness_professional":
         return { icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500", route: "wellness-register" };
       case "store_owner":
@@ -89,13 +89,13 @@ const RoleSelection = ({ onNavigate, onRoleSelect }: RoleSelectionProps) => {
             { id: "organizer", title: "Organizador de Eventos", description: "Torneos y eventos", icon: CalendarDays, bgColor: "bg-yellow-50", iconColor: "text-yellow-500" }
           ]);
         }
-         
+
       } catch (err: unknown) {
         console.error("Error fetching roles:", err);
         // Fallback silencioso para no bloquear al usuario
         setRoles([
           { id: "athlete", title: "Deportista", description: "Reservas y tienda", icon: Users, bgColor: "bg-primary/10", iconColor: "text-primary" },
-          { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-blue-50", iconColor: "text-blue-500" },
+          { id: "parent", title: "Padre / Madre", description: "Gestión de hijos y pagos", icon: User, bgColor: "bg-emerald-50", iconColor: "text-emerald-600" },
           { id: "coach", title: "Entrenador", description: "Clases, agenda y pagos", icon: GraduationCap, bgColor: "bg-secondary/10", iconColor: "text-secondary" },
           { id: "school_admin", title: "Escuela / Centro", description: "Entrenadores, agenda y cobros", icon: School, bgColor: "bg-orange-50", iconColor: "text-orange-500" },
           { id: "wellness_professional", title: "Profesional de Bienestar", description: "Salud y nutrición", icon: Activity, bgColor: "bg-green-50", iconColor: "text-green-500" },

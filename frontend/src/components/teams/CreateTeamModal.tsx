@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Loader2, Plus, Users, Check, Pencil, X, Minus } from 'lucide-react';
+import { NumberStepper } from '@/components/ui/number-stepper';
 import { SPORTS_LIST } from '@/lib/constants/sports';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -26,6 +27,12 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card } from '@/components/ui/card';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface CreateTeamModalProps {
     open: boolean;
@@ -51,10 +58,12 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         price_monthly: 0 as number | '',
         coach_id: '', // Main coach (legacy)
         coach_ids: [] as string[], // Multiple coaches
+        branch_ids: [] as string[], // Multiple branches
         status: 'active',
     });
 
     const [staff, setStaff] = useState<any[]>([]);
+    const [branchesList, setBranchesList] = useState<any[]>([]);
     const [loadingInitialData, setLoadingInitialData] = useState(false);
 
     // Populate form if editing
@@ -70,12 +79,14 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 price_monthly: team.price_monthly || 0,
                 coach_id: team.coach_id || 'none',
                 coach_ids: [] as string[],
+                branch_ids: [] as string[],
                 status: team.status || 'active',
             });
 
-            // If editing, fetch the coaches associations
+            // If editing, fetch the coaches and branches associations
             if (team.id) {
                 fetchTeamCoaches(team.id);
+                fetchTeamBranches(team.id);
             }
         } else if (open && !team) {
             // Reset for new team
@@ -89,6 +100,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 price_monthly: 0,
                 coach_id: '',
                 coach_ids: [],
+                branch_ids: [],
                 status: 'active',
             });
         }
@@ -111,6 +123,23 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         }
     };
 
+    const fetchTeamBranches = async (teamId: string) => {
+        try {
+            const { data, error } = await (supabase as any)
+                .from('team_branches')
+                .select('branch_id')
+                .eq('team_id', teamId);
+
+            if (error) throw error;
+            if (data) {
+                const ids = data.map(item => item.branch_id);
+                setFormData(prev => ({ ...prev, branch_ids: ids }));
+            }
+        } catch (error) {
+            console.error('Error fetching team branches:', error);
+        }
+    };
+
     useEffect(() => {
         if (open && schoolId) {
             fetchInitialData();
@@ -129,6 +158,15 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 .eq('status', 'active');
 
             setStaff(staffData || []);
+
+            // Fetch branches
+            const { data: branchData } = await supabase
+                .from('school_branches')
+                .select('id, name, address, city')
+                .eq('school_id', schoolId)
+                .eq('status', 'active');
+
+            setBranchesList(branchData || []);
         } catch (error) {
             console.error('Error fetching initial data:', error);
         } finally {
@@ -160,6 +198,30 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         }
     };
 
+    const syncTeamBranches = async (teamId: string, branchIds: string[]) => {
+        try {
+            // Delete existing relations
+            await (supabase as any)
+                .from('team_branches')
+                .delete()
+                .eq('team_id', teamId);
+
+            // Insert new ones
+            if (branchIds.length > 0) {
+                const inserts = branchIds.map(id => ({
+                    team_id: teamId,
+                    branch_id: id,
+                    school_id: schoolId
+                }));
+                const { error } = await (supabase as any).from('team_branches').insert(inserts);
+                if (error) throw error;
+            }
+        } catch (error) {
+            console.error('Error syncing team branches:', error);
+            throw error;
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -184,8 +246,8 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 location: formData.location,
                 price_monthly: formData.price_monthly === '' ? 0 : Number(formData.price_monthly),
                 coach_id: formData.coach_ids.length > 0 ? formData.coach_ids[0] : null, // Set first as main
+                branch_id: formData.branch_ids.length > 0 ? formData.branch_ids[0] : (branchId || null), // Update branch_id for backward compatibility
                 school_id: schoolId,
-                branch_id: branchId || null,
                 status: formData.status,
             };
 
@@ -198,8 +260,11 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
 
                 if (error) throw error;
 
-                // Sync coaches
-                await syncTeamCoaches(team.id, formData.coach_ids);
+                // Sync coaches and branches
+                await Promise.all([
+                    syncTeamCoaches(team.id, formData.coach_ids),
+                    syncTeamBranches(team.id, formData.branch_ids)
+                ]);
 
                 toast({
                     title: '¡Equipo actualizado!',
@@ -219,7 +284,10 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 if (error) throw error;
 
                 if (createdTeam) {
-                    await syncTeamCoaches(createdTeam.id, formData.coach_ids);
+                    await Promise.all([
+                        syncTeamCoaches(createdTeam.id, formData.coach_ids),
+                        syncTeamBranches(createdTeam.id, formData.branch_ids)
+                    ]);
                 }
 
                 toast({
@@ -255,6 +323,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 price_monthly: 0,
                 coach_id: '',
                 coach_ids: [],
+                branch_ids: [],
                 status: 'active',
             });
             onClose();
@@ -424,60 +493,21 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                     <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="max_students">Capacidad Máxima</Label>
-                            <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData(p => ({ ...p, max_students: Math.max(1, (p.max_students as number || 1) - 1) }))}
-                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                                >
-                                    <Minus className="h-4 w-4" />
-                                </button>
-                                <Input
-                                    id="max_students"
-                                    type="number"
-                                    min="1"
-                                    className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
-                                    value={formData.max_students}
-                                    onChange={(e) => setFormData({ ...formData, max_students: e.target.value === '' ? '' : parseInt(e.target.value) })}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData(p => ({ ...p, max_students: (p.max_students as number || 0) + 1 }))}
-                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
-                                >
-                                    <Plus className="h-4 w-4" />
-                                </button>
-                            </div>
+                            <NumberStepper
+                                value={formData.max_students}
+                                onChange={(val) => setFormData({ ...formData, max_students: val })}
+                                min={1}
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="price_monthly">Precio Mensual</Label>
-                            <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData(p => ({ ...p, price_monthly: Math.max(0, (p.price_monthly as number || 0) - 10000) }))}
-                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r bg-muted/20"
-                                >
-                                    <Minus className="h-4 w-4" />
-                                </button>
-                                <span className="absolute left-12 text-muted-foreground font-medium z-10 pointer-events-none">$</span>
-                                <Input
-                                    id="price_monthly"
-                                    type="text"
-                                    className="border-0 text-center font-semibold focus-visible:ring-0 pl-16 pr-10"
-                                    value={formData.price_monthly ? Number(formData.price_monthly).toLocaleString('es-CO') : ''}
-                                    onChange={(e) => {
-                                        const value = e.target.value.replace(/\D/g, '');
-                                        setFormData({ ...formData, price_monthly: value === '' ? '' : parseInt(value, 10) });
-                                    }}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData(p => ({ ...p, price_monthly: (p.price_monthly as number || 0) + 10000 }))}
-                                    className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
-                                >
-                                    <Plus className="h-4 w-4" />
-                                </button>
-                            </div>
+                            <NumberStepper
+                                value={formData.price_monthly}
+                                onChange={(val) => setFormData({ ...formData, price_monthly: val })}
+                                min={0}
+                                step={10000}
+                                unit="$"
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="status">Estado</Label>
@@ -496,14 +526,97 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <Label htmlFor="location">Ubicación / Sede</Label>
-                        <Input
-                            id="location"
-                            placeholder="Nombre de la cancha o lugar de entrenamiento"
-                            value={formData.location}
-                            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                        />
+                    <div className="space-y-3">
+                        <div className="space-y-2">
+                            <Label htmlFor="location">Ubicación / Sede</Label>
+                            {loadingInitialData ? (
+                                <div className="flex items-center justify-center py-3 border rounded-md bg-muted/5">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary mr-2" />
+                                    <span className="text-sm text-muted-foreground">Cargando sedes...</span>
+                                </div>
+                            ) : branchesList.length === 0 ? (
+                                <Input
+                                    id="location"
+                                    placeholder="Nombre de la cancha o lugar de entrenamiento"
+                                    value={formData.location}
+                                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                                />
+                            ) : (
+                                <Select
+                                    value=""
+                                    onValueChange={(value: string) => {
+                                        if (value && !formData.branch_ids.includes(value)) {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                branch_ids: [...prev.branch_ids, value]
+                                            }));
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Seleccione una sede para agregar..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {branchesList
+                                            .filter(branch => !formData.branch_ids.includes(branch.id))
+                                            .map((branch) => (
+                                                <SelectItem key={branch.id} value={branch.id}>
+                                                    {branch.name}
+                                                </SelectItem>
+                                            ))
+                                        }
+                                        {branchesList.filter(branch => !formData.branch_ids.includes(branch.id)).length === 0 && (
+                                            <div className="p-2 text-sm text-center text-muted-foreground">
+                                                No hay más sedes disponibles
+                                            </div>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
+                        {formData.branch_ids.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border/50">
+                                {formData.branch_ids.map(id => {
+                                    const b = branchesList.find(s => s.id === id);
+                                    if (!b) return null;
+
+                                    return (
+                                        <TooltipProvider key={id}>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div
+                                                        className="flex items-center gap-2 pl-3 pr-2 py-1 bg-secondary/20 border border-secondary/30 text-secondary-foreground rounded-full animate-in zoom-in-95 duration-200 cursor-help"
+                                                    >
+                                                        <span className="text-sm font-medium">{b.name}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    branch_ids: prev.branch_ids.filter(branchId => branchId !== id)
+                                                                }));
+                                                            }}
+                                                            className="ml-1 hover:bg-secondary/40 rounded-full p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-secondary focus:ring-offset-1"
+                                                        >
+                                                            <X className="h-3.5 w-3.5 text-foreground/80 hover:text-foreground" />
+                                                        </button>
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <p className="font-semibold text-xs border-b pb-1 mb-1">{b.name}</p>
+                                                        <p className="text-xs">{b.address || 'Sin dirección registrada'}</p>
+                                                        {b.city && <p className="text-[10px] opacity-70 italic">{b.city}</p>}
+                                                    </div>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <DialogFooter className="pt-4 border-t">

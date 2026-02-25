@@ -1,6 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const hasAutoOpenedRef = useRef(false);
 
   // Show welcome splash if it's the first time
   useEffect(() => {
@@ -58,9 +59,15 @@ export default function DashboardPage() {
   // Get real stats from NEW hook (Multitenant aware)
   const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
 
-  // Keep old hook for structure config
-  const { data: statsData } = useDashboardStats((profile?.role as UserRole) || 'athlete');
-  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
+  // Unify stats: only use generic stats hook for non-school/coach roles
+  const isMultitenantRole = profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'coach' || profile?.role === 'parent';
+  const { data: statsData } = useDashboardStats(isMultitenantRole ? undefined : ((profile?.role as UserRole) || 'athlete'));
+
+  // For multitenant roles, we pass empty stats to config so cards show 0/loading instead of different demo data
+  const config = useDashboardConfig(
+    (profile?.role as UserRole) || 'athlete',
+    isMultitenantRole ? undefined : statsData
+  );
   const { data: notifications } = useNotifications();
 
   const refreshOnboardingData = useCallback(async () => {
@@ -104,34 +111,36 @@ export default function DashboardPage() {
         }
       }
 
-
-      // 1. Obtener estados del checklist (La función SQL maestra)
+      // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
-      if (statusError) throw statusError;
 
-      // 2. Buscar invitaciones pendientes usando RPC (más robusto contra RLS)
-      let currentInvites = null;
-      try {
-        const { data: invData, error: invError } = await (supabase.rpc as any)('get_my_invitations');
-        if (!invError && invData && invData.length > 0) {
-          currentInvites = invData[0];
+      if (statusError) {
+        console.error('Error fetching onboarding status:', statusError);
+        return;
+      }
+
+      console.log('Onboarding status updated:', status);
+
+      if (status) {
+        // 2. Gestionar invitaciones
+        const { data: invitations, error: inviteError } = await supabase
+          .from('invitations')
+          .select('*, schools(name)')
+          .eq('email', profile.email)
+          .eq('status', 'pending');
+
+        if (!inviteError && invitations && invitations.length > 0) {
+          const currentInvites = invitations[0];
           setInvitation({
             id: currentInvites.id,
-            school_name: currentInvites.school_name,
+            school_name: (currentInvites.schools as any)?.name || 'Tu Escuela',
             role_to_assign: currentInvites.role_to_assign,
-            parentName: currentInvites.parent_name,
-            childName: currentInvites.child_name,
-            programName: currentInvites.program_name
           });
         } else {
           setInvitation(null);
         }
-      } catch (invErr) {
-        console.warn('Invitations fetch error:', invErr);
-      }
 
-      // 3. Procesar resultados para el checklist
-      if (status) {
+        // 3. Generar pasos para la UI
         const steps = getStepsForRole(profile.role as UserRole, status);
         setOnboardingSteps(steps);
 
@@ -141,11 +150,19 @@ export default function DashboardPage() {
 
         // 4. Integrar lógica del Coach Wizard
         if (profile.role === 'coach') {
-          const isWizardIncomplete = !status.has_bio || !status.has_experience || !status.has_sports;
-          setShowCoachWizard(isWizardIncomplete);
+          const isWizardIncomplete = !status.has_professional_profile;
+
+          // Solo abrir automáticamente la primera vez que detectamos que está incompleto
+          if (isWizardIncomplete && !showCoachWizard && !hasAutoOpenedRef.current) {
+            setShowCoachWizard(true);
+            hasAutoOpenedRef.current = true;
+          }
+          // Si ya está completo, asegurarnos de que el wizard esté cerrado
+          else if (!isWizardIncomplete && showCoachWizard) {
+            setShowCoachWizard(false);
+          }
         }
-        // Here we could sync status.has_school etc to state if needed
-      }
+      }  // Here we could sync status.has_school etc to state if needed
     } catch (error) {
       console.error('Error refreshing onboarding data:', error);
     } finally {
@@ -155,7 +172,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     refreshOnboardingData();
-  }, [refreshOnboardingData, config.onboardingSteps]);
+  }, [refreshOnboardingData]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -175,8 +192,17 @@ export default function DashboardPage() {
 
   // Logic to determine stats to display
   const dynamicStats = config.stats.map((stat, index) => {
+    // 1. SHOW LOADING STATE
+    if (realStatsLoading) {
+      return {
+        ...stat,
+        value: '...',
+        description: 'Cargando datos...'
+      };
+    }
+
     // 2. REAL USER: SHOW REAL DATA
-    if (realStats && !realStatsLoading) {
+    if (realStats) {
       if (profile.role === 'school' || (profile.role as string) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
         if (index === 0) {
           // Students (Config Index 0)
@@ -309,16 +335,18 @@ export default function DashboardPage() {
       )}
 
       {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
-        <DashboardChecklist
-          steps={onboardingSteps}
-          onStepClick={(step) => {
-            if (step.id === 'complete_profile' && profile.role === 'coach') {
-              setShowCoachWizard(true);
-            } else {
-              navigate(step.href);
-            }
-          }}
-        />
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+          <DashboardChecklist
+            steps={onboardingSteps}
+            onStepClick={(step) => {
+              if (step.id === 'complete_profile' && profile.role === 'coach') {
+                setShowCoachWizard(true);
+              } else {
+                navigate(step.href);
+              }
+            }}
+          />
+        </div>
       )}
 
       {/* Coach Profile Wizard */}

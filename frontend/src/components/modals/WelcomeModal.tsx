@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import logoImage from '@/assets/sportmaps-logo.png';
+import logoImage from '@/assets/logo-bienvenida.png';
 
 interface WelcomeModalProps {
   open: boolean;

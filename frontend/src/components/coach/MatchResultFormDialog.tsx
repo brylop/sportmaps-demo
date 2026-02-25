@@ -8,7 +8,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trophy, Minus, Plus } from 'lucide-react';
+import { Trophy } from 'lucide-react';
+import { NumberStepper } from '../ui/number-stepper';
 
 const resultSchema = z.object({
   match_date: z.string().min(1, 'Fecha es requerida'),
@@ -157,56 +158,20 @@ export function MatchResultFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="home_score">Goles Local *</Label>
-              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
-                <button
-                  type="button"
-                  onClick={() => form.setValue('home_score', String(Math.max(0, (parseInt(form.getValues('home_score')) || 0) - 1)))}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <Input
-                  id="home_score"
-                  type="number"
-                  min="0"
-                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
-                  {...form.register('home_score')}
-                />
-                <button
-                  type="button"
-                  onClick={() => form.setValue('home_score', String((parseInt(form.getValues('home_score')) || 0) + 1))}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
+              <NumberStepper
+                value={form.watch('home_score') === '' ? '' : parseInt(form.watch('home_score'))}
+                onChange={(val) => form.setValue('home_score', String(val))}
+                min={0}
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="away_score">Goles Visitante *</Label>
-              <div className="flex items-center border rounded-md h-10 w-full bg-background overflow-hidden relative">
-                <button
-                  type="button"
-                  onClick={() => form.setValue('away_score', String(Math.max(0, (parseInt(form.getValues('away_score')) || 0) - 1)))}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <Input
-                  id="away_score"
-                  type="number"
-                  min="0"
-                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
-                  {...form.register('away_score')}
-                />
-                <button
-                  type="button"
-                  onClick={() => form.setValue('away_score', String((parseInt(form.getValues('away_score')) || 0) + 1))}
-                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l bg-muted/20"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
+              <NumberStepper
+                value={form.watch('away_score') === '' ? '' : parseInt(form.watch('away_score'))}
+                onChange={(val) => form.setValue('away_score', String(val))}
+                min={0}
+              />
             </div>
           </div>
 

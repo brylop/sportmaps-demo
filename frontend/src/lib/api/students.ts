@@ -414,7 +414,7 @@ class StudentsAPI {
     try {
       let query = supabase
         .from('children')
-        .select('grade', { count: 'exact' });
+        .select('*', { count: 'exact', head: true });
 
       if (schoolId) {
         query = query.eq('school_id', schoolId);
