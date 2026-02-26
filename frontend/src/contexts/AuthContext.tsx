@@ -83,13 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           full_name: userData.full_name || 'Usuario',
           email: userData.email || '',
           phone: userData.phone || null,
-          role: (userData.role || 'athlete') as any, // Cast to any to bypass strict type check for now
+          role: (userData.role || 'athlete') as Database["public"]["Enums"]["user_role"],
           avatar_url: userData.avatar_url || null,
           bio: null,
           date_of_birth: userData.date_of_birth || null,
           sportmaps_points: 0,
           subscription_tier: 'free'
-        } as any)
+        })
         .select()
         .maybeSingle();
 
@@ -315,7 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() } as any)
+        .update({ ...updates, updated_at: new Date().toISOString() } as Database["public"]["Tables"]["profiles"]["Update"])
         .eq('id', user.id);
 
       if (error) throw error;

@@ -29,6 +29,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { transactionsAPI } from '@/lib/api/transactions';
 
 export interface PaymentItem {
   type: 'enrollment' | 'product' | 'appointment' | 'reservation';
@@ -104,124 +105,29 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
     try {
       if (!user) throw new Error('Debes iniciar sesión para realizar un pago');
 
-      const today = new Date();
-      const dueDate = new Date();
-      dueDate.setMonth(dueDate.getMonth() + 1);
-
-      // Calculate subscription dates if applicable
-      const subscriptionStartDate = paymentType === 'subscription' ? today.toISOString().split('T')[0] : null;
-      const subscriptionEndDate = paymentType === 'subscription' ? dueDate.toISOString().split('T')[0] : null;
-
-      // Determine final status based on method
-      // Manual payments go to 'pending' for review. Online payments are 'paid'.
-      const paymentStatus = paymentMethod === 'manual' ? 'pending' : 'paid';
-
-      // 1. Create Enrollment if needed (only if paid immediately OR if we allow pending enrollments)
-      // For now, we create enrollment as 'active' only if paid, OR 'pending_payment' if manual.
-      // But database constraint check: enrollment status enum? (active, cancelled, completed, pending)
-      // Let's stick to 'active' for simplicity, assuming school trusts the proof, OR pending.
-      // Actually, standard flow: Enrollment created active only after payment confirmation.
-      // But to not block the user, let's create it as 'active' but relying on payment check?
-      // Better: Create enrollment with status 'pending' if manual.
-
-      if (item.type === 'enrollment') {
-        const enrollmentStatus = paymentStatus === 'paid' ? 'active' : 'pending';
-
-        // Check if already enrolled to avoid duplicates? (Supabase constraints handle uniqueness usually)
-
-        const { error: enrollmentError } = await supabase
-          .from('enrollments')
-          .insert({
-            user_id: user.id,
-            child_id: item.childId || null,
-            program_id: item.programId,
-            school_id: item.schoolId, // Important for RLS
-            start_date: today.toISOString().split('T')[0],
-            status: enrollmentStatus,
-          });
-
-        if (enrollmentError) {
-          // Check for duplicate key error
-          if (enrollmentError.code === '23505') {
-            // Already enrolled, maybe just update? skip for now.
-            console.log("Already enrolled, proceeding to payment record.");
-          } else {
-            throw enrollmentError;
+      // Use TransactionAPI for consolidated post-payment processing
+      const result = await transactionsAPI.processPurchase({
+        userId: user.id,
+        email: user.email || '',
+        paymentMethod: paymentMethod,
+        reference: newReceiptNumber,
+        items: [{
+          id: item.id,
+          type: item.type as any,
+          name: item.name,
+          description: item.description || '',
+          price: item.amount,
+          quantity: 1,
+          metadata: {
+            schoolId: item.schoolId,
+            programId: item.programId,
+            childId: item.childId,
+            vendorId: item.vendorId,
           }
-        }
-
-        // Update team students count only if paid
-        if (paymentStatus === 'paid') {
-          // Simple increment RPC or fetch-update
-          const { data: team } = await supabase
-            .from('teams')
-            .select('current_students')
-            .eq('id', item.programId!)
-            .single();
-
-          if (team) {
-            await supabase.from('teams').update({
-              current_students: (team.current_students || 0) + 1
-            } as any).eq('id', item.programId!);
-          }
-        }
-      }
-
-      // 2. Resolve School ID (Robust fallback)
-      let finalSchoolId = item.schoolId;
-      if (!finalSchoolId) {
-        // Fallback to demo school if not provided (should stick to real logic mostly)
-        const { data: demoSchool } = await supabase
-          .from('schools')
-          .select('id')
-          .eq('email', 'spoortmaps+school@gmail.com')
-          .maybeSingle();
-        if (demoSchool) finalSchoolId = demoSchool.id;
-      }
-
-      // 3. Create Payment Record
-      const { error: paymentError } = await supabase.from('payments').insert({
-        parent_id: user.id,
-        child_id: item.childId || null,
-        amount: item.amount,
-        concept: `${item.type === 'enrollment' ? 'Inscripción' : item.type === 'product' ? 'Compra' : 'Reserva'}: ${item.name}`,
-        due_date: dueDate.toISOString().split('T')[0],
-        payment_date: paymentStatus === 'paid' ? today.toISOString().split('T')[0] : null, // Only set payment date if paid
-        status: paymentStatus,
-        receipt_number: paymentStatus === 'paid' ? newReceiptNumber : null, // Receipt only if paid
-        payment_type: paymentType,
-        payment_method: paymentMethod, // 'card', 'pse', 'manual'
-        subscription_start_date: subscriptionStartDate,
-        subscription_end_date: subscriptionEndDate,
-        school_id: finalSchoolId
+        }]
       });
 
-      if (paymentError) throw paymentError;
-
-      // 4. Notifications
-      if (item.schoolId) {
-        // Notify school owner
-        const { data: school } = await supabase.from('schools').select('owner_id').eq('id', item.schoolId).single();
-        if (school?.owner_id) {
-          await supabase.rpc('notify_user', {
-            p_user_id: school.owner_id,
-            p_title: paymentStatus === 'paid' ? '¡Nuevo pago recibido!' : 'Nuevo pago por revisar',
-            p_message: `${profile?.full_name || 'Usuario'} ha ${paymentStatus === 'paid' ? 'pagado' : 'reportado pago de'} ${formatCurrency(item.amount)} por ${item.name}.`,
-            p_type: 'payment',
-            p_link: '/payments-automation'
-          });
-        }
-      }
-
-      // Notify User
-      await supabase.rpc('send_notification', {
-        p_title: paymentStatus === 'paid' ? '¡Pago exitoso!' : 'Pago enviado a revisión',
-        p_message: paymentStatus === 'paid'
-          ? `Tu pago de ${formatCurrency(item.amount)} por ${item.name} ha sido procesado.`
-          : `Hemos recibido tu comprobante por ${formatCurrency(item.amount)}. Te notificaremos cuando la escuela lo apruebe.`,
-        p_type: 'success',
-        p_link: item.type === 'enrollment' ? '/calendar' : '/my-payments',
-      });
+      if (!result.success) throw new Error(result.error);
 
       // 5. Success UI
       setStep('success');

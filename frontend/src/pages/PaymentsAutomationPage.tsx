@@ -22,8 +22,8 @@ import { EmailTemplates } from '@/lib/email-templates';
 interface BillingSettings {
   id?: string;
   school_id: string;
-  payment_due_day: number;
-  grace_period_days: number;
+  payment_cutoff_day: number;
+  payment_grace_days: number;
   auto_generate_payments: boolean;
   reminder_enabled: boolean;
   reminder_days_before: number;
@@ -34,8 +34,8 @@ interface BillingSettings {
 }
 
 const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
-  payment_due_day: 5,
-  grace_period_days: 5,
+  payment_cutoff_day: 5,
+  payment_grace_days: 5,
   auto_generate_payments: true,
   reminder_enabled: true,
   reminder_days_before: 3,
@@ -115,8 +115,8 @@ export default function PaymentsAutomationPage() {
     try {
       const payload = {
         school_id: schoolId,
-        payment_due_day: billing.payment_due_day,
-        grace_period_days: billing.grace_period_days,
+        payment_cutoff_day: billing.payment_cutoff_day,
+        payment_grace_days: billing.payment_grace_days,
         auto_generate_payments: billing.auto_generate_payments,
         reminder_enabled: billing.reminder_enabled,
         reminder_days_before: billing.reminder_days_before,
@@ -126,10 +126,10 @@ export default function PaymentsAutomationPage() {
         require_payment_proof: billing.require_payment_proof,
       };
       if (billing.id) {
-        const { error } = await (supabase.from('school_settings') as any).update(payload).eq('id', billing.id);
+        const { error } = await supabase.from('school_settings').update(payload).eq('id', billing.id);
         if (error) throw error;
       } else {
-        const { data, error } = await (supabase.from('school_settings') as any).insert(payload).select().single();
+        const { data, error } = await supabase.from('school_settings').insert(payload).select().single();
         if (error) throw error;
         setBilling(data as unknown as BillingSettings);
       }
@@ -681,7 +681,7 @@ export default function PaymentsAutomationPage() {
                           <TableCell>
                             <span className="flex items-center gap-1.5 text-sm">
                               <Clock className="h-3.5 w-3.5 text-amber-500" />
-                              Día {billing?.payment_due_day || 5} (Prox. Mes)
+                              Día {billing?.payment_cutoff_day || 5} (Prox. Mes)
                             </span>
                           </TableCell>
                           <TableCell>
@@ -796,8 +796,8 @@ export default function PaymentsAutomationPage() {
                     <Label htmlFor="due_day">Día de corte del mes</Label>
                     <div className="flex items-center gap-2">
                       <Input id="due_day" type="number" min={1} max={28} className="w-24"
-                        value={billing.payment_due_day}
-                        onChange={e => updateBilling('payment_due_day', parseInt(e.target.value) || 5)} />
+                        value={billing.payment_cutoff_day}
+                        onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)} />
                       <span className="text-sm text-muted-foreground">de cada mes</span>
                     </div>
                   </div>

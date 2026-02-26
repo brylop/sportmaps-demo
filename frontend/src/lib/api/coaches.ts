@@ -34,11 +34,11 @@ export const coachesAPI = {
      * Get coach professional profile
      */
     async getCoachProfile(userId: string): Promise<CoachProfile | null> {
-        const { data, error } = await (supabase
-            .from('coach_profiles' as any)
+        const { data, error } = await supabase
+            .from('coach_profiles')
             .select('*')
             .eq('id', userId)
-            .maybeSingle() as any);
+            .maybeSingle();
 
         if (error) {
             console.error('Error fetching coach profile:', error);
@@ -51,14 +51,14 @@ export const coachesAPI = {
      * Create or update coach professional profile
      */
     async upsertCoachProfile(payload: UpsertCoachProfilePayload): Promise<CoachProfile | null> {
-        const { data, error } = await (supabase
-            .from('coach_profiles' as any)
+        const { data, error } = await supabase
+            .from('coach_profiles')
             .upsert({
                 ...payload,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'id' })
             .select()
-            .single() as any);
+            .single();
 
         if (error) {
             console.error('Error upserting coach profile:', error);
@@ -71,11 +71,11 @@ export const coachesAPI = {
      * Get all certifications for a coach
      */
     async getCertifications(coachId: string): Promise<CoachCertification[]> {
-        const { data, error } = await (supabase
-            .from('coach_certifications' as any)
+        const { data, error } = await supabase
+            .from('coach_certifications')
             .select('*')
             .eq('coach_id', coachId)
-            .order('created_at', { ascending: false }) as any);
+            .order('created_at', { ascending: false });
 
         if (error) {
             console.error('Error fetching certifications:', error);
@@ -88,8 +88,8 @@ export const coachesAPI = {
      * Add a new certification
      */
     async addCertification(coachId: string, name: string, fileUrl: string | null, fileName: string | null): Promise<CoachCertification | null> {
-        const { data, error } = await (supabase
-            .from('coach_certifications' as any)
+        const { data, error } = await supabase
+            .from('coach_certifications')
             .insert({
                 coach_id: coachId,
                 name,
@@ -97,7 +97,7 @@ export const coachesAPI = {
                 file_name: fileName
             })
             .select()
-            .single() as any);
+            .single();
 
         if (error) {
             console.error('Error adding certification:', error);
@@ -110,10 +110,10 @@ export const coachesAPI = {
      * Delete a certification
      */
     async deleteCertification(id: string): Promise<void> {
-        const { error } = await (supabase
-            .from('coach_certifications' as any)
+        const { error } = await supabase
+            .from('coach_certifications')
             .delete()
-            .eq('id', id) as any);
+            .eq('id', id);
 
         if (error) {
             console.error('Error deleting certification:', error);

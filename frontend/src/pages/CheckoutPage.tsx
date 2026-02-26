@@ -25,6 +25,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { checkoutAPI } from '@/lib/api/checkout';
+import { transactionsAPI } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 
 export default function CheckoutPage() {
@@ -58,78 +59,17 @@ export default function CheckoutPage() {
    * WHO paid, for WHICH program/team
    */
   const processPostPayment = async (reference: string, transactionId?: string) => {
-    for (const item of items) {
-      if (item.type === 'enrollment' && item.metadata.programId) {
-        const result = await checkoutAPI.processEnrollment({
-          student_id: user!.id,
-          parent_id: user!.id,
-          class_id: item.metadata.programId,
-          school_id: item.metadata.schoolId,
-          amount: item.price,
-          payment_method: paymentMethodUsed || paymentFlow,
-        });
-        if (!result.success) throw new Error(result.error || 'Enrollment failed');
-      }
-
-      if (item.type === 'product' && item.metadata.productId) {
-        // 1. Create the parent order
-        const { data: orderData, error: orderError } = await supabase.from('orders').insert({
-          user_id: user!.id,
-          total_amount: item.price * item.quantity,
-          status: 'pending',
-          shipping_address: { pending: true },
-          contact_email: user!.email,
-          payment_method: paymentMethodUsed || paymentFlow,
-        }).select().single();
-
-        if (orderError) throw orderError;
-
-        // 2. Create the order items
-        if (orderData) {
-          await supabase.from('order_items').insert({
-            order_id: orderData.id,
-            product_id: item.metadata.productId,
-            quantity: item.quantity,
-            unit_price: item.price,
-          });
-        }
-
-        if (item.metadata.vendorId) {
-          await supabase.rpc('notify_user', {
-            p_user_id: item.metadata.vendorId,
-            p_title: 'Nueva Venta',
-            p_message: `Vendiste ${item.quantity}x ${item.name}`,
-            p_type: 'sale',
-            p_link: '/orders',
-          });
-        }
-      }
-
-      if (item.type === 'appointment' && item.metadata.professionalId) {
-        await supabase.from('wellness_appointments').insert({
-          professional_id: item.metadata.professionalId, athlete_id: user!.id,
-          appointment_date: item.metadata.appointmentDate,
-          appointment_time: item.metadata.appointmentTime || '10:00',
-          service_type: item.metadata.serviceType || item.name, status: 'confirmed',
-        });
-        await supabase.rpc('notify_user', {
-          p_user_id: item.metadata.professionalId,
-          p_title: 'Nueva Cita',
-          p_message: `Nueva cita para ${item.name} el ${item.metadata.appointmentDate}`,
-          p_type: 'appointment',
-          p_link: '/wellness/schedule',
-        });
-      }
-    }
-
-    // Notify user with traceability summary
-    const itemSummary = items.map(i => `${i.name} (${i.metadata?.schoolName || 'SportMaps'})`).join(', ');
-    await supabase.rpc('send_notification', {
-      p_title: 'Compra Exitosa',
-      p_message: `Pedido #${reference} confirmado: ${itemSummary}`,
-      p_type: 'payment',
-      p_link: '/my-payments',
+    const result = await transactionsAPI.processPurchase({
+      userId: user!.id,
+      email: user!.email || '',
+      items,
+      paymentMethod: paymentMethodUsed || paymentFlow,
+      reference,
     });
+
+    if (!result.success) {
+      throw new Error(result.error || 'Error procesando la transacción');
+    }
   };
 
   /**

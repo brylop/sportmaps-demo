@@ -122,12 +122,12 @@ export default function RegisterPage() {
     if (!inviteId) return;
     const fetchInvite = async () => {
       try {
-        const { data } = await (supabase.rpc as any)('get_invitation_details', {
+        const { data } = await supabase.rpc('get_invitation_details', {
           p_invite_id: inviteId
         });
 
-        if (data && data.length > 0) {
-          const invite = data[0];
+        if (data && (data as any).length > 0) {
+          const invite = (data as any)[0];
           setInvitationInfo({
             school_name: invite.school_name || 'Tu Academia',
             role_to_assign: invite.role_to_assign,
@@ -144,8 +144,7 @@ export default function RegisterPage() {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from('roles')
           .select('id, name, display_name')
           .eq('is_visible', true)
@@ -175,8 +174,7 @@ export default function RegisterPage() {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        role: data.role as any,
+        role: data.role as any, // Auth metadata is often dynamic, keeping as any or casting to a wider type
         invitation_code: data.code,
         school_name: data.schoolName,
       });

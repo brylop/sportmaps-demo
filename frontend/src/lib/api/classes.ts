@@ -2,6 +2,10 @@
 // Per NAMING_DICTIONARY.md: "classes" in UI = "teams" in Supabase
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from './bffClient';
+import { Database } from '@/integrations/supabase/types';
+
+type TeamRow = Database['public']['Tables']['teams']['Row'];
+type TeamWithCoach = TeamRow & { coach?: { full_name: string | null } | null };
 
 export interface Schedule {
   day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -170,7 +174,7 @@ class ClassesAPI {
         return [];
       }
 
-      return (data || []).map((t: any) => this.mapTeamToClass(t));
+      return (data || []).map((t) => this.mapTeamToClass(t as TeamWithCoach));
     } catch (error) {
       console.warn('Error fetching classes:', error);
       return [];
@@ -201,7 +205,7 @@ class ClassesAPI {
    * Update a program
    */
   async updateClass(id: string, updates: ClassUpdate): Promise<Class> {
-    const updateData: any = {};
+    const updateData: Database['public']['Tables']['teams']['Update'] = {};
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.sport !== undefined) updateData.sport = updates.sport;
@@ -310,10 +314,10 @@ class ClassesAPI {
         return [];
       }
 
-      return (data || []).map((enrollment: any) => ({
+      return (data || []).map((enrollment) => ({
         enrollment_id: enrollment.id,
         enrollment_date: enrollment.created_at,
-        student: enrollment.children,
+        student: enrollment.children as any, // Join results are still tricky for TS without complex nesting
       }));
     } catch (error) {
       console.warn('Error fetching class students:', error);
@@ -372,20 +376,20 @@ class ClassesAPI {
   /**
    * Map a Supabase 'teams' row to the Class interface
    */
-  private mapTeamToClass(team: any): Class {
+  private mapTeamToClass(team: TeamWithCoach): Class {
     return {
       id: team.id,
       name: team.name,
       description: team.description,
       sport: team.sport || '',
-      level: team.level || team.age_group || 'beginner',
+      level: (team.level || team.age_group || 'beginner') as 'beginner' | 'intermediate' | 'advanced',
       school_id: team.school_id || '',
       coach_id: team.coach_id,
       coach_name: team.coach?.full_name,
       capacity: team.max_students || 20,
       enrolled_count: team.current_students || 0,
       current_participants: team.current_students || 0,
-      schedule: team.schedule || [],
+      schedule: (team.schedule as unknown as Schedule[]) || [],
       price: team.price_monthly,
       price_monthly: team.price_monthly,
       status: team.active ? 'active' : 'inactive',

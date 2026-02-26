@@ -14,8 +14,8 @@ import { Badge } from '@/components/ui/badge';
 interface SchoolSettingsData {
     id?: string;
     school_id: string;
-    payment_due_day: number;
-    grace_period_days: number;
+    payment_cutoff_day: number;
+    payment_grace_days: number;
     auto_generate_payments: boolean;
     reminder_enabled: boolean;
     reminder_days_before: number;
@@ -26,8 +26,8 @@ interface SchoolSettingsData {
 }
 
 const DEFAULT_SETTINGS: Omit<SchoolSettingsData, 'school_id'> = {
-    payment_due_day: 5,
-    grace_period_days: 5,
+    payment_cutoff_day: 5,
+    payment_grace_days: 5,
     auto_generate_payments: true,
     reminder_enabled: true,
     reminder_days_before: 3,
@@ -82,8 +82,8 @@ export default function SchoolSettingsPage() {
             setSaving(true);
             const payload = {
                 school_id: schoolId,
-                payment_due_day: settings.payment_due_day,
-                grace_period_days: settings.grace_period_days,
+                payment_cutoff_day: settings.payment_cutoff_day,
+                payment_grace_days: settings.payment_grace_days,
                 auto_generate_payments: settings.auto_generate_payments,
                 reminder_enabled: settings.reminder_enabled,
                 reminder_days_before: settings.reminder_days_before,
@@ -94,15 +94,15 @@ export default function SchoolSettingsPage() {
             };
 
             if (settings.id) {
-                const { error } = await (supabase as any)
+                const { error } = await supabase
                     .from('school_settings')
-                    .update(payload as any)
+                    .update(payload)
                     .eq('id', settings.id);
                 if (error) throw error;
             } else {
-                const { data, error } = await (supabase as any)
+                const { data, error } = await supabase
                     .from('school_settings')
-                    .insert(payload as any)
+                    .insert(payload)
                     .select()
                     .single();
                 if (error) throw error;
@@ -176,8 +176,8 @@ export default function SchoolSettingsPage() {
                                     min={1}
                                     max={28}
                                     className="w-24"
-                                    value={settings.payment_due_day}
-                                    onChange={(e) => updateSetting('payment_due_day', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
+                                    value={settings.payment_cutoff_day}
+                                    onChange={(e) => updateSetting('payment_cutoff_day', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                 />
                                 <span className="text-sm text-muted-foreground">de cada mes</span>
                             </div>
@@ -191,8 +191,8 @@ export default function SchoolSettingsPage() {
                                     min={0}
                                     max={15}
                                     className="w-24"
-                                    value={settings.grace_period_days}
-                                    onChange={(e) => updateSetting('grace_period_days', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
+                                    value={settings.payment_grace_days}
+                                    onChange={(e) => updateSetting('payment_grace_days', e.target.value === '' ? ('' as any) : parseInt(e.target.value))}
                                 />
                                 <span className="text-sm text-muted-foreground">días después del corte</span>
                             </div>
