@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { bffClient } from '@/lib/api/bffClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -29,42 +30,24 @@ export default function CoachReportsPage() {
 
   const teams = teamsData || [];
 
-  const { data: rosterData } = useQuery({
-    queryKey: ['team-roster', selectedTeamId],
+  const { data: report, isLoading } = useQuery({
+    queryKey: ['team-report', selectedTeamId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', selectedTeamId);
-      if (error) throw error;
-      return data;
+      return await bffClient.get<{
+        team: any;
+        roster: any[];
+        results: any[];
+        attendance: any[];
+        scorers: any[];
+      }>(`/api/v1/reports/coach/${selectedTeamId}`);
     },
     enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
 
-  const roster = rosterData || [];
-
-  const { data: resultsData, isLoading } = useQuery({
-    queryKey: ['match-results', selectedTeamId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('match_results')
-        .select('*')
-        .eq('team_id', selectedTeamId);
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
-  });
-
-  const results = resultsData || [];
-
-  // Mock attendance data (en producción vendría de session_attendance)
-  // Mock attendance data (en producción vendría de session_attendance)
-  const attendanceData = [];
-
-  // Mock scorer data
-  const scorerData = [];
+  const roster = report?.roster || [];
+  const results = report?.results || [];
+  const attendanceData = report?.attendance || [];
+  const scorerData = report?.scorers || [];
 
   return (
     <div className="space-y-6">
@@ -75,7 +58,7 @@ export default function CoachReportsPage() {
             Analiza el rendimiento de tu equipo
           </p>
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" onClick={() => window.print()}>
           <Download className="w-4 h-4" />
           Exportar PDF
         </Button>

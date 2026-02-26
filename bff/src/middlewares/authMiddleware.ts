@@ -9,7 +9,8 @@ declare global {
         interface Request {
             user: { id: string; email: string };
             schoolId: string;
-            role: 'admin' | 'coach' | 'staff' | 'parent' | 'athlete';
+            branchId: string | null;
+            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'coach' | 'parent' | 'athlete';
         }
     }
 }
@@ -37,7 +38,7 @@ export const requireAuth = async (
 
         const { data: profile, error: profileError } = await supabase
             .from('school_members')
-            .select('school_id, role')
+            .select('school_id, role, branch_id')
             .eq('profile_id', user.id)
             .eq('status', 'active')
             .single();
@@ -52,6 +53,7 @@ export const requireAuth = async (
 
         req.user = { id: user.id, email: user.email! };
         req.schoolId = profile.school_id;
+        req.branchId = profile.branch_id || null;
         req.role = profile.role;
 
         next();

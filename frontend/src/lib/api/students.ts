@@ -63,6 +63,9 @@ export interface StudentUpdate {
   team_name?: string;
   avatar_url?: string;
   school_id?: string;
+  status?: 'active' | 'inactive' | 'suspended';
+  program_id?: string;
+  branch_id?: string;
 }
 
 // ── Tipos de respuesta del BFF ────────────────────────────────────────────────
@@ -111,6 +114,7 @@ export interface StudentViewRow {
   price_monthly?: number;
   branch_name?: string;
   medical_info?: string | null;
+  status?: 'active' | 'inactive' | 'suspended';
 }
 
 export interface StudentStats {
@@ -127,9 +131,15 @@ interface BFFStudentRow {
   document_id: string;
   grade?: string;
   medical_info?: string;
+  branch?: string;
   team?: string;
   sport?: string;
-  // El BFF acepta más campos, estos son los que el CSV actual exporta
+  date_of_birth?: string;
+  gender?: string;
+  parent_name?: string;
+  parent_email?: string;
+  parent_phone?: string;
+  monthly_fee?: number;
 }
 
 class StudentsAPI {
@@ -344,8 +354,15 @@ class StudentsAPI {
           document_id: docId || `AUTO-${i}`,   // fallback si no hay documento
           grade: row['grade'] || row['grado'] || undefined,
           medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+          branch: row['branch'] || row['sede'] || undefined,
           team: row['team'] || row['equipo'] || undefined,
           sport: row['sport'] || row['deporte'] || undefined,
+          date_of_birth: row['date_of_birth'] || row['fecha_nacimiento'] || undefined,
+          gender: row['gender'] || row['genero'] || row['género'] || undefined,
+          parent_name: row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || undefined,
+          parent_email: row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || undefined,
+          parent_phone: row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || undefined,
+          monthly_fee: row['monthly_fee'] || row['mensualidad'] ? Number(row['monthly_fee'] || row['mensualidad']) : undefined,
         });
         continue;
       }
@@ -361,8 +378,15 @@ class StudentsAPI {
         document_id: docId,
         grade: row['grade'] || row['grado'] || undefined,
         medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+        branch: row['branch'] || row['sede'] || undefined,
         team: row['team'] || row['equipo'] || undefined,
         sport: row['sport'] || row['deporte'] || undefined,
+        date_of_birth: row['date_of_birth'] || row['fecha_nacimiento'] || undefined,
+        gender: row['gender'] || row['genero'] || row['género'] || undefined,
+        parent_name: row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || undefined,
+        parent_email: row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || undefined,
+        parent_phone: row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || undefined,
+        monthly_fee: row['monthly_fee'] || row['mensualidad'] ? Number(row['monthly_fee'] || row['mensualidad']) : undefined,
       });
     }
 

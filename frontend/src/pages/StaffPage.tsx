@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Mail, Trash2, Users } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { UserPlus, Mail, Trash2, Users, UserMinus, UserCheck } from 'lucide-react';
 import { useSchoolStaff } from '@/hooks/useSchoolData';
 import { StaffFormDialog } from '@/components/school/StaffFormDialog';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -20,9 +21,26 @@ import {
 } from '@/components/ui/alert-dialog';
 
 export default function StaffPage() {
-  const { staff, isLoading, createStaff, deleteStaff, isCreating } = useSchoolStaff();
+  const { staff, isLoading, createStaff, updateStaff, deleteStaff, isCreating } = useSchoolStaff();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('active');
+
+  const filteredStaff = staff.filter(member =>
+    activeTab === 'active' ? member.status === 'active' : member.status !== 'active'
+  );
+
+  const handleToggleStatus = (member: any) => {
+    updateStaff({
+      id: member.id,
+      full_name: member.full_name,
+      email: member.email,
+      phone: member.phone,
+      specialty: member.specialty,
+      certifications: member.certifications,
+      status: member.status === 'active' ? 'inactive' : 'active'
+    });
+  };
 
   const handleDelete = () => {
     if (deleteId) {
@@ -78,9 +96,16 @@ export default function StaffPage() {
         </Button>
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="active">Activos</TabsTrigger>
+          <TabsTrigger value="inactive">Inactivos</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <Card>
         <CardHeader>
-          <CardTitle>Personal Activo</CardTitle>
+          <CardTitle>{activeTab === 'active' ? 'Personal Activo' : 'Personal Inactivo'}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -96,43 +121,63 @@ export default function StaffPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {staff.map((member) => (
-                <TableRow key={member.id}>
-                  <TableCell className="font-medium">{member.full_name}</TableCell>
-                  <TableCell>{member.email}</TableCell>
-                  <TableCell>{member.phone || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 flex-wrap max-w-[200px]">
-                      {member.certifications?.slice(0, 2).map((cert, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs">{cert}</Badge>
-                      ))}
-                      {member.certifications && member.certifications.length > 2 && (
-                        <Badge variant="outline" className="text-xs">+{member.certifications.length - 2}</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge className="bg-primary">{member.status === 'active' ? 'Activo' : 'Inactivo'}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button variant="ghost" size="sm">
-                        <Mail className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setDeleteId(member.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+              {filteredStaff.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No hay entrenadores en esta categoría.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                filteredStaff.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell className="font-medium">{member.full_name}</TableCell>
+                    <TableCell>{member.email}</TableCell>
+                    <TableCell>{member.phone || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1 flex-wrap max-w-[200px]">
+                        {member.certifications?.slice(0, 2).map((cert, idx) => (
+                          <Badge key={idx} variant="outline" className="text-xs">{cert}</Badge>
+                        ))}
+                        {member.certifications && member.certifications.length > 2 && (
+                          <Badge variant="outline" className="text-xs">+{member.certifications.length - 2}</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className="bg-primary">{member.status === 'active' ? 'Activo' : 'Inactivo'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="sm">
+                          <Mail className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleStatus(member)}
+                          title={member.status === 'active' ? "Inactivar" : "Reactivar"}
+                        >
+                          {member.status === 'active' ? (
+                            <UserMinus className="h-4 w-4 text-orange-500" />
+                          ) : (
+                            <UserCheck className="h-4 w-4 text-green-500" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteId(member.id)}
+                          title="Eliminar permanentemente"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )))}
             </TableBody>
           </Table>
         </CardContent>

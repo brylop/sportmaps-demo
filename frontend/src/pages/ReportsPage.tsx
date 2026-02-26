@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { TrendingUp, Users, DollarSign, Loader2, AlertCircle } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { bffClient } from '@/lib/api/bffClient';
 import { formatCurrency } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -30,161 +30,30 @@ export default function ReportsPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 1. Fetch Students/Enrollments for Occupancy & Growth
-        const enrollmentsQuery = supabase
-          .from('enrollments')
-          .select('status, created_at, teams(name, capacity)');
+        const branchQuery = activeBranchId ? `?branch_id=${activeBranchId}` : '';
+        const response = await bffClient.get<{
+          summary: {
+            occupancyRate: string;
+            totalStudents: number;
+            totalCapacity: number;
+            totalRevenue: number;
+            netGrowth: number;
+          };
+          charts: {
+            occupancyData: any[];
+            growthData: any[];
+            revenueData: any[];
+          };
+        }>(`/api/v1/reports/school/summary${branchQuery}`);
 
-        // Note: We'd need to filter by school_id, but enrollments link to programs which link to schools.
-        // For simplicity/performance, we might assume the RLS handles filtered view or join programs.
-        // Better: Join programs and filter by school_id
-
-        const { data: enrollments, error: enrollError } = await supabase
-          .from('enrollments')
-          .select(`
-            status, 
-            created_at, 
-            teams!inner (
-              name, 
-              max_students, 
-              school_id,
-              branch_id
-            )
-          `)
-          .eq('teams.school_id', schoolId) as any;
-
-        if (enrollError) throw enrollError;
-
-        // Filter by branch if active
-        const filteredEnrollments = activeBranchId
-          ? enrollments.filter((e: any) => e.teams.branch_id === activeBranchId)
-          : enrollments || [];
-
-        // --- Process Occupancy ---
-        const programMap = new Map<string, { occupied: number, capacity: number }>();
-        let totalStudents = 0;
-        let totalCapacity = 0;
-
-        filteredEnrollments.forEach((e: any) => {
-          if (e.status === 'active') {
-            const pName = e.teams?.name || 'Varios';
-            const pCap = e.teams?.max_students || 20; // Default capacity if missing
-
-            if (!programMap.has(pName)) {
-              programMap.set(pName, { occupied: 0, capacity: pCap });
-              totalCapacity += pCap; // Add capacity only once per program? 
-              // Wait, capacity is per program. 
-              // We should sum capacities of UNIQUE programs.
-            }
-
-            // Increment occupied
-            const current = programMap.get(pName)!;
-            current.occupied += 1;
-            totalStudents++;
-          }
-        });
-
-        // Correction for Total Capacity: fetch all teams to get true capacity sum
-        // (The loop above only counts teams that have at least 1 student)
-        let progsQuery = supabase.from('teams').select('name, max_students').eq('school_id', schoolId);
-        if (activeBranchId) progsQuery = progsQuery.eq('branch_id', activeBranchId);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: allPrograms } = await progsQuery as any;
-
-        let realTotalCapacity = 0;
-        const finalOccupancyData: any[] = [];
-
-        if (allPrograms) {
-          allPrograms.forEach(p => {
-            realTotalCapacity += (p.max_students || 0);
-            // Verify if we counted detailed students
-            const foundObserved = programMap.get(p.name);
-            finalOccupancyData.push({
-              name: p.name,
-              occupied: foundObserved ? foundObserved.occupied : 0,
-              vacant: (p.max_students || 0) - (foundObserved ? foundObserved.occupied : 0)
-            });
-          });
-        }
-
-        setOccupancyData(finalOccupancyData.slice(0, 10)); // Top 10
-
-        // --- Process Growth (Last 6 Months) ---
-        const growthMap = new Map<string, { nuevos: number, retiros: number }>();
-        const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-        const now = new Date();
-
-        // Init last 6 months
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const mKey = `${months[d.getMonth()]}`;
-          growthMap.set(mKey, { nuevos: 0, retiros: 0 });
-        }
-
-        filteredEnrollments.forEach((e: any) => {
-          const d = new Date(e.created_at);
-          const mKey = `${months[d.getMonth()]}`;
-          if (growthMap.has(mKey)) {
-            if (e.status === 'active') growthMap.get(mKey)!.nuevos++;
-            else if (e.status === 'inactive' || e.status === 'dropped') growthMap.get(mKey)!.retiros++;
-          }
-        });
-
-        const finalGrowthData = Array.from(growthMap.entries()).map(([month, data]) => ({
-          month,
-          ...data
-        }));
-        setGrowthData(finalGrowthData);
-
-        // --- Process Revenue ---
-        let paymentsQuery = supabase
-          .from('payments')
-          .select('amount, status, created_at, concept')
-          .eq('school_id', schoolId)
-          .eq('status', 'paid');
-
-        if (activeBranchId) paymentsQuery = paymentsQuery.eq('branch_id', activeBranchId); // Assuming column exists or we rely on RLS/inference
-
-        const { data: payments, error: payError } = await paymentsQuery;
-        if (payError) {
-          console.warn("Could not load payments details:", payError);
-          // Don't crash, just show 0
-        }
-
-        const validPayments = payments || [];
-        let revenueSum = 0;
-        const revenueByConcept = new Map<string, number>();
-
-        validPayments.forEach((p: any) => {
-          const amt = Number(p.amount) || 0;
-          revenueSum += amt;
-
-          // Simple grouping by concept words (e.g. "Mensualidad X")
-          // Improve: link to program_id if possible
-          const conceptShort = p.concept?.split('-')[0]?.trim() || 'General';
-          revenueByConcept.set(conceptShort, (revenueByConcept.get(conceptShort) || 0) + amt);
-        });
-
-        const finalRevenueData = Array.from(revenueByConcept.entries())
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, 5);
-
-        setRevenueData(finalRevenueData);
-
-        setSummary({
-          occupancyRate: realTotalCapacity > 0 ? ((totalStudents / realTotalCapacity) * 100).toFixed(1) : '0',
-          totalStudents,
-          totalCapacity: realTotalCapacity,
-          totalRevenue: revenueSum,
-          netGrowth: filteredEnrollments.filter((e: any) =>
-            new Date(e.created_at).getMonth() === new Date().getMonth() && e.status === 'active'
-          ).length
-        });
+        setSummary(response.summary);
+        setOccupancyData(response.charts.occupancyData);
+        setGrowthData(response.charts.growthData);
+        setRevenueData(response.charts.revenueData);
 
       } catch (err: any) {
         console.error("Error fetching reports:", err);
-        setError("Error cargando los datos. Asegúrate de ejecutar el script de corrección de Pagos.");
+        setError("Error cargando los reportes del servidor BFF.");
       } finally {
         setLoading(false);
       }

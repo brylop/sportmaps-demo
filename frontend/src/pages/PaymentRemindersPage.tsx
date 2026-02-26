@@ -125,12 +125,12 @@ export default function PaymentRemindersPage() {
                         <Bell className="h-8 w-8 text-primary" />
                         Recordatorios de Cobro
                     </h1>
-                    <p className="text-muted-foreground mt-1">
+                    <div className="text-muted-foreground mt-1">
                         Gestiona y envía recordatorios a padres con pagos pendientes
                         {activeBranchName && activeBranchName !== 'General' && (
                             <Badge variant="outline" className="ml-2 text-[10px]">{activeBranchName}</Badge>
                         )}
-                    </p>
+                    </div>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={loadReminders}>

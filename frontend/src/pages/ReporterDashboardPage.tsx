@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -127,7 +128,7 @@ function MiniTable({ headers, rows }: { headers: string[]; rows: (string | numbe
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ReporterDashboardPage() {
-    const { schoolId, schoolName } = useSchoolContext();
+    const { schoolId, schoolName, activeBranchId } = useSchoolContext();
     const [dateRange, setDateRange] = useState('30');
     const [loading, setLoading] = useState(true);
     const printRef = useRef<HTMLDivElement>(null);
@@ -143,184 +144,57 @@ export default function ReporterDashboardPage() {
     useEffect(() => {
         if (!schoolId) return;
         fetchAll();
-    }, [schoolId, dateRange]);
+    }, [schoolId, activeBranchId, dateRange]);
 
     async function fetchAll() {
         setLoading(true);
         try {
-            await Promise.all([
-                fetchStudents(),
-                fetchPayments(),
-                fetchCoaches(),
-                fetchSedes(),
-                fetchPrograms(),
+            const queryParams = new URLSearchParams({ days: dateRange });
+            if (activeBranchId) {
+                queryParams.append('branch_id', activeBranchId);
+            }
+
+            const res = await bffClient.get<{
+                students: StudentRow[];
+                payments: PaymentRow[];
+                coaches: CoachRow[];
+                sedes: SedeRow[];
+                programs: ProgramRow[];
+            }>(`/api/v1/reports/reporter/dashboard?${queryParams.toString()}`);
+
+            // Process students for KPIs
+            setStudents(res.students);
+            const totalRevenuePotential = res.students.reduce((s, r) => s + r.fee, 0);
+            const active = res.students.filter(r => r.status === 'active').length;
+
+            // Process payments for KPIs
+            setPayments(res.payments);
+            const collected = res.payments.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0);
+            const pending = res.payments.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
+            const overdue = res.payments.filter(r => r.status === 'overdue').length;
+
+            // Process coaches and sedes
+            setCoaches(res.coaches);
+            setSedes(res.sedes);
+            setPrograms(res.programs);
+
+            // Set all KPIs at once
+            setKpis([
+                { label: 'Estudiantes Activos', value: active, sub: `${res.students.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
+                { label: 'Ingreso Potencial Mes', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
+                { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${res.payments.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
+                { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
+                { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
+                { label: 'Entrenadores', value: res.coaches.length, sub: 'Activos', color: 'bg-purple-500' },
+                { label: 'Sedes', value: res.sedes.length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }
             ]);
+
+        } catch (err: any) {
+            console.error("Error fetching reporter dashboard:", err);
+            // Ignore for now, dashboard will show empty states
         } finally {
             setLoading(false);
         }
-    }
-
-    async function fetchStudents() {
-        if (!schoolId) return;
-        const { data } = await (supabase as any)
-            .from('children')
-            .select(`
-        id, full_name, status, created_at,
-        teams!program_id (name, monthly_fee),
-        school_branches:branch_id (name)
-      `)
-            .eq('school_id', schoolId)
-            .order('created_at', { ascending: false });
-
-        const rows: StudentRow[] = (data || []).map((s: any) => ({
-            id: s.id,
-            full_name: s.full_name || 'Sin nombre',
-            program: s.teams?.name || '—',
-            sede: s.school_branches?.name || 'Principal',
-            status: s.status || 'active',
-            fee: s.teams?.monthly_fee || 0,
-            joined: s.created_at ? format(new Date(s.created_at), 'dd/MM/yyyy') : '—',
-        }));
-        setStudents(rows);
-
-        const totalRevenuePotential = rows.reduce((s, r) => s + r.fee, 0);
-        const active = rows.filter(r => r.status === 'active').length;
-
-        setKpis(prev => {
-            const next = prev.filter(k => !['Estudiantes Activos', 'Ingreso Potencial Mensual'].includes(k.label));
-            return [
-                ...next,
-                { label: 'Estudiantes Activos', value: active, sub: `${rows.length} total`, trend: 'up', trendValue: 'Ver listado', color: 'bg-blue-500' },
-                { label: 'Ingreso Potencial Mensual', value: currency(totalRevenuePotential), sub: 'Si todos pagan', trend: 'neutral', color: 'bg-green-500' },
-            ];
-        });
-    }
-
-    async function fetchPayments() {
-        if (!schoolId) return;
-        const since = format(subMonths(new Date(), parseInt(dateRange) / 30), 'yyyy-MM-dd');
-        const { data } = await (supabase as any)
-            .from('payments')
-            .select(`
-        id, amount, status, payment_month, created_at,
-        children:student_id (full_name),
-        teams (name)
-      `)
-            .eq('school_id', schoolId)
-            .gte('created_at', since)
-            .order('created_at', { ascending: false });
-
-        const rows: PaymentRow[] = (data || []).map((p: any) => ({
-            id: p.id,
-            student: p.children?.full_name || 'Desconocido',
-            amount: p.amount || 0,
-            status: p.status || 'pending',
-            month: p.payment_month || '—',
-            program: p.teams?.name || '—',
-        }));
-        setPayments(rows);
-
-        const collected = rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0);
-        const pending = rows.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
-        const overdue = rows.filter(r => r.status === 'overdue').length;
-
-        setKpis(prev => {
-            const next = prev.filter(k => !['Recaudado', 'Por Cobrar', 'Morosos'].includes(k.label));
-            return [
-                ...next,
-                { label: 'Recaudado', value: currency(collected), sub: `Últimos ${dateRange} días`, trend: 'up', trendValue: `${rows.filter(r => r.status === 'paid').length} pagos`, color: 'bg-emerald-500' },
-                { label: 'Por Cobrar', value: currency(pending), sub: 'Pendiente de pago', trend: 'neutral', color: 'bg-yellow-500' },
-                { label: 'Morosos', value: overdue, sub: 'Con deuda vencida', trend: overdue > 0 ? 'down' : 'neutral', trendValue: overdue > 0 ? 'Requiere atención' : 'Al día', color: 'bg-red-500' },
-            ];
-        });
-    }
-
-    async function fetchCoaches() {
-        if (!schoolId) return;
-        const { data } = await (supabase as any)
-            .from('school_members')
-            .select(`
-        id, role,
-        profiles:user_id (full_name, email),
-        teams (name),
-        school_branches:branch_id (name)
-      `)
-            .eq('school_id', schoolId)
-            .in('role', ['coach', 'staff']);
-
-        const rows: CoachRow[] = (data || []).map((m: any) => ({
-            id: m.id,
-            name: m.profiles?.full_name || 'Sin nombre',
-            email: m.profiles?.email || '—',
-            program: m.teams?.name || '—',
-            sede: m.school_branches?.name || 'Principal',
-            students: 0,
-        }));
-        setCoaches(rows);
-
-        setKpis(prev => {
-            const next = prev.filter(k => !['Entrenadores'].includes(k.label));
-            return [...next, { label: 'Entrenadores', value: rows.length, sub: 'Activos en la escuela', color: 'bg-purple-500' }];
-        });
-    }
-
-    async function fetchSedes() {
-        if (!schoolId) return;
-        const { data: sedesData } = await (supabase as any)
-            .from('school_branches')
-            .select('id, name')
-            .eq('school_id', schoolId);
-
-        if (!sedesData) return;
-
-        const rows: SedeRow[] = await Promise.all(
-            sedesData.map(async (sede: any) => {
-                const [studRes, coachRes, payRes] = await Promise.all([
-                    (supabase as any).from('children').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id),
-                    (supabase as any).from('school_members').select('id', { count: 'exact', head: true }).eq('branch_id', sede.id).in('role', ['coach', 'staff']),
-                    (supabase as any).from('payments').select('amount').eq('branch_id', sede.id).eq('status', 'paid'),
-                ]);
-                const income = (payRes.data || []).reduce((s: number, p: any) => s + (p.amount || 0), 0);
-                return {
-                    id: sede.id,
-                    name: sede.name,
-                    students: studRes.count || 0,
-                    coaches: coachRes.count || 0,
-                    income,
-                };
-            })
-        );
-        setSedes(rows);
-
-        setKpis(prev => {
-            const next = prev.filter(k => !['Sedes'].includes(k.label));
-            return [...next, { label: 'Sedes', value: rows.length, sub: 'Ubicaciones activas', color: 'bg-orange-500' }];
-        });
-    }
-
-    async function fetchPrograms() {
-        if (!schoolId) return;
-        const { data } = await (supabase as any)
-            .from('teams')
-            .select('id, name, monthly_fee, description')
-            .eq('school_id', schoolId);
-
-        const rows: ProgramRow[] = await Promise.all(
-            (data || []).map(async (p: any) => {
-                const { count } = await (supabase as any)
-                    .from('children')
-                    .select('id', { count: 'exact', head: true })
-                    .eq('program_id', p.id);
-                return {
-                    id: p.id,
-                    name: p.name,
-                    students: count || 0,
-                    monthly_fee: p.monthly_fee || 0,
-                    revenue: (count || 0) * (p.monthly_fee || 0),
-                };
-            })
-        );
-        setPrograms(rows);
     }
 
     // ─── PDF Print ───────────────────────────────────────────────────────────────

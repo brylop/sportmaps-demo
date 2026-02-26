@@ -14,8 +14,15 @@ const StudentSchema = z.object({
         .regex(/^[0-9A-Za-z\-]+$/, 'Documento inválido'),
     grade: z.string().max(20).optional(),
     medical_info: z.string().max(1000).optional(),
+    branch: z.string().max(100).optional(),
     team: z.string().max(100).optional(),
     sport: z.string().max(100).optional(),
+    date_of_birth: z.string().optional(),
+    gender: z.string().optional(),
+    parent_name: z.string().optional(),
+    parent_email: z.string().email('Email inválido').optional().or(z.literal('')),
+    parent_phone: z.string().optional(),
+    monthly_fee: z.number().optional(),
 });
 
 const BulkUploadSchema = z.object({
@@ -32,7 +39,7 @@ const BulkUploadSchema = z.object({
 router.post(
     '/bulk',
     requireAuth,
-    requireRole('admin', 'staff'),
+    requireRole('owner', 'admin', 'school_admin', 'coach'),
     async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { schoolId } = req;
@@ -86,6 +93,136 @@ router.post(
                 }
             }
 
+            // 4.5. Auto-crear sedes (branches) ───────────────────────────
+            let branchesCreated = 0;
+            const branchNameToId = new Map<string, string>(); // lowercase name → id
+
+            // Collect unique branch names
+            const branchNamesSet = new Set<string>();
+            const branchOriginalNames = new Map<string, string>();
+            for (const student of students) {
+                if (student.branch) {
+                    const key = student.branch.trim().toLowerCase();
+                    branchNamesSet.add(key);
+                    if (!branchOriginalNames.has(key)) {
+                        branchOriginalNames.set(key, student.branch.trim());
+                    }
+                }
+            }
+
+            if (branchNamesSet.size > 0) {
+                const branchNames = [...branchOriginalNames.values()];
+                const { data: existingBranches } = await supabase
+                    .from('branches')
+                    .select('id, name')
+                    .eq('school_id', schoolId)
+                    .in('name', branchNames);
+
+                for (const b of existingBranches ?? []) {
+                    branchNameToId.set(b.name.toLowerCase(), b.id);
+                }
+
+                // Create missing branches
+                const branchesToCreate = [...branchNamesSet]
+                    .filter(key => !branchNameToId.has(key))
+                    .map(key => ({
+                        name: branchOriginalNames.get(key) || key,
+                        school_id: schoolId,
+                        status: 'active',
+                        created_at: new Date().toISOString(),
+                    }));
+
+                if (branchesToCreate.length > 0) {
+                    const { data: createdBranches, error: branchError } = await supabase
+                        .from('branches')
+                        .insert(branchesToCreate)
+                        .select('id, name');
+
+                    if (branchError) {
+                        req.log?.error({ err: branchError }, 'Error creando sedes');
+                    } else {
+                        branchesCreated = createdBranches?.length ?? 0;
+                        for (const b of createdBranches ?? []) {
+                            branchNameToId.set(b.name.toLowerCase(), b.id);
+                        }
+                    }
+                }
+            }
+
+            // Helper: resolve branch_id for a student
+            const resolveBranchId = (student: { branch?: string }) => {
+                if (!student.branch) return null;
+                return branchNameToId.get(student.branch.trim().toLowerCase()) || null;
+            };
+
+            // 4.75. Auto-crear equipos (teams) ─────────────────────────────
+            let teamsCreated = 0;
+            const existingTeamMap = new Map<string, string>(); // lowercase name → id
+
+            // Collect unique team names from all students
+            const teamStudentMap = new Map<string, { sport: string; branch?: string }>();
+            const teamOriginalNames = new Map<string, string>();
+
+            for (const student of students) {
+                if (student.team) {
+                    const teamKey = student.team.trim().toLowerCase();
+                    if (!teamStudentMap.has(teamKey)) {
+                        teamStudentMap.set(teamKey, {
+                            sport: student.sport || 'General',
+                            branch: student.branch,
+                        });
+                        teamOriginalNames.set(teamKey, student.team.trim());
+                    }
+                }
+            }
+
+            if (teamStudentMap.size > 0) {
+                const teamNames = [...teamOriginalNames.values()];
+                const { data: existingTeams } = await supabase
+                    .from('teams')
+                    .select('id, name')
+                    .eq('school_id', schoolId)
+                    .in('name', teamNames);
+
+                for (const t of existingTeams ?? []) {
+                    existingTeamMap.set(t.name.toLowerCase(), t.id);
+                }
+
+                // Create missing teams
+                const teamsToCreate = [...teamStudentMap.entries()]
+                    .filter(([key]) => !existingTeamMap.has(key))
+                    .map(([key, val]) => ({
+                        name: teamOriginalNames.get(key) || key,
+                        sport: val.sport,
+                        school_id: schoolId,
+                        branch_id: val.branch ? resolveBranchId({ branch: val.branch }) : null,
+                        status: 'active',
+                        current_students: 0,
+                        created_at: new Date().toISOString(),
+                    }));
+
+                if (teamsToCreate.length > 0) {
+                    const { data: createdTeams, error: teamError } = await supabase
+                        .from('teams')
+                        .insert(teamsToCreate)
+                        .select('id, name');
+
+                    if (teamError) {
+                        req.log?.error({ err: teamError }, 'Error creando equipos');
+                    } else {
+                        teamsCreated = createdTeams?.length ?? 0;
+                        for (const t of createdTeams ?? []) {
+                            existingTeamMap.set(t.name.toLowerCase(), t.id);
+                        }
+                    }
+                }
+            }
+
+            const resolveTeamId = (student: { team?: string }) => {
+                if (!student.team) return null;
+                return existingTeamMap.get(student.team.trim().toLowerCase()) || null;
+            };
+
             // 5. Ejecutar inserts
             let inserted = 0;
             const insertedChildMap = new Map<string, string>(); // doc_number → child_id
@@ -97,6 +234,13 @@ router.post(
                     grade: s.grade,
                     medical_info: s.medical_info,
                     school_id: schoolId,
+                    branch_id: resolveBranchId(s),
+                    program_id: resolveTeamId(s),
+                    date_of_birth: s.date_of_birth || null,
+                    gender: s.gender || null,
+                    parent_name_temp: s.parent_name || null,
+                    parent_email_temp: s.parent_email || null,
+                    parent_phone_temp: s.parent_phone || null,
                     is_demo: false, // Por defecto
                     created_at: new Date().toISOString(),
                 }));
@@ -128,6 +272,13 @@ router.post(
                         doc_number: s.document_id,
                         grade: s.grade,
                         medical_info: s.medical_info,
+                        branch_id: resolveBranchId(s),
+                        program_id: resolveTeamId(s),
+                        date_of_birth: s.date_of_birth || null,
+                        gender: s.gender || null,
+                        parent_name_temp: s.parent_name || null,
+                        parent_email_temp: s.parent_email || null,
+                        parent_phone_temp: s.parent_phone || null,
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', id)
@@ -136,79 +287,13 @@ router.post(
                 if (!error) updated++;
             }
 
-            // 7. Auto-crear equipos y enrollments ─────────────────────────────
-            let teamsCreated = 0;
+            // 7. Auto-crear enrollments y pagos ─────────────────────────────
             let enrollmentsCreated = 0;
+            let paymentsCreated = 0;
 
-            // Collect unique team names from all students (inserted + updated)
-            const teamStudentMap = new Map<string, { sport: string; docIds: string[] }>();
-            for (const student of students) {
-                if (student.team) {
-                    const teamKey = student.team.trim().toLowerCase();
-                    if (!teamStudentMap.has(teamKey)) {
-                        teamStudentMap.set(teamKey, {
-                            sport: student.sport || 'General',
-                            docIds: [],
-                        });
-                    }
-                    teamStudentMap.get(teamKey)!.docIds.push(student.document_id);
-                }
-            }
-
-            if (teamStudentMap.size > 0) {
-                // Get all original team names (preserve casing from first occurrence)
-                const teamOriginalNames = new Map<string, string>();
-                for (const student of students) {
-                    if (student.team) {
-                        const key = student.team.trim().toLowerCase();
-                        if (!teamOriginalNames.has(key)) {
-                            teamOriginalNames.set(key, student.team.trim());
-                        }
-                    }
-                }
-
-                // Check which teams already exist for this school
-                const teamNames = [...teamOriginalNames.values()];
-                const { data: existingTeams } = await supabase
-                    .from('teams')
-                    .select('id, name')
-                    .eq('school_id', schoolId)
-                    .in('name', teamNames);
-
-                const existingTeamMap = new Map(
-                    (existingTeams ?? []).map(t => [t.name.toLowerCase(), t.id])
-                );
-
-                // Create missing teams
-                const teamsToCreate = [...teamStudentMap.entries()]
-                    .filter(([key]) => !existingTeamMap.has(key))
-                    .map(([key, val]) => ({
-                        name: teamOriginalNames.get(key) || key,
-                        sport: val.sport,
-                        school_id: schoolId,
-                        status: 'active',
-                        current_students: 0,
-                        created_at: new Date().toISOString(),
-                    }));
-
-                if (teamsToCreate.length > 0) {
-                    const { data: createdTeams, error: teamError } = await supabase
-                        .from('teams')
-                        .insert(teamsToCreate)
-                        .select('id, name');
-
-                    if (teamError) {
-                        req.log?.error({ err: teamError }, 'Error creando equipos');
-                    } else {
-                        teamsCreated = createdTeams?.length ?? 0;
-                        for (const t of createdTeams ?? []) {
-                            existingTeamMap.set(t.name.toLowerCase(), t.id);
-                        }
-                    }
-                }
-
+            if (insertedChildMap.size > 0 || toUpdate.length > 0) {
                 // Build a doc_number → child_id map for ALL students (inserted + updated)
-                const allDocIds = [...teamStudentMap.values()].flatMap(v => v.docIds);
+                const allDocIds = students.map(s => s.document_id);
                 const { data: childRows } = await supabase
                     .from('children')
                     .select('id, doc_number')
@@ -219,23 +304,54 @@ router.post(
                     (childRows ?? []).map(c => [c.doc_number, c.id])
                 );
 
-                // Create enrollments (skip if already exists)
+                // Create enrollments & payments
                 const enrollmentRecords: Array<{ child_id: string; program_id: string; status: string; start_date: string }> = [];
+                const paymentRecords: Array<any> = [];
 
-                for (const [teamKey, teamData] of teamStudentMap.entries()) {
-                    const teamId = existingTeamMap.get(teamKey);
-                    if (!teamId) continue;
+                const dueDate = new Date();
+                dueDate.setMonth(dueDate.getMonth() + 1);
 
-                    for (const docId of teamData.docIds) {
-                        const childId = docToChildId.get(docId);
-                        if (!childId) continue;
+                for (const student of students) {
+                    const childId = docToChildId.get(student.document_id);
+                    if (!childId) continue;
 
+                    const teamId = resolveTeamId(student);
+                    if (teamId) {
                         enrollmentRecords.push({
                             child_id: childId,
                             program_id: teamId,
                             status: 'active',
                             start_date: new Date().toISOString().split('T')[0],
                         });
+                    }
+
+                    // Solo crear pago para los recién insertados para evitar duplicar cobros en upsert
+                    const isNewChild = [...insertedChildMap.values()].includes(childId);
+                    if (isNewChild) {
+                        paymentRecords.push({
+                            parent_id: null,
+                            child_id: childId,
+                            school_id: schoolId,
+                            branch_id: resolveBranchId(student),
+                            amount: student.monthly_fee || 150000,
+                            concept: `Mensualidad ${student.team || 'Programa'} - ${student.first_name} ${student.last_name}`.trim(),
+                            due_date: dueDate.toISOString().split('T')[0],
+                            status: 'pending',
+                            payment_type: 'monthly',
+                        });
+                    }
+                }
+
+                if (paymentRecords.length > 0) {
+                    const { data: paymentsData, error: paymentsError } = await supabase
+                        .from('payments')
+                        .insert(paymentRecords)
+                        .select('id');
+
+                    if (paymentsError) {
+                        req.log?.error({ err: paymentsError }, 'Error creando pagos');
+                    } else {
+                        paymentsCreated = paymentsData?.length ?? 0;
                     }
                 }
 
@@ -279,12 +395,13 @@ router.post(
 
             return res.status(statusCode).json({
                 success: totalFailed === 0,
-                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${teamsCreated} equipos creados, ${enrollmentsCreated} inscripciones.`,
+                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${branchesCreated} sedes creadas, ${teamsCreated} equipos creados, ${enrollmentsCreated} inscripciones, ${paymentsCreated} pagos generados.`,
                 summary: {
                     total: students.length,
                     inserted,
                     updated,
                     skipped: totalFailed,
+                    branches_created: branchesCreated,
                     teams_created: teamsCreated,
                     enrollments_created: enrollmentsCreated,
                 },
@@ -298,7 +415,7 @@ router.post(
 );
 
 // ── GET /api/v1/students ──────────────────────────────────────────────────────
-router.get('/', requireAuth, requireRole('admin', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { data, error } = await supabase
             .from('students')

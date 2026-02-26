@@ -8,6 +8,7 @@ dotenv.config();
 
 import studentsRouter from './routes/students';
 import enrollmentsRouter from './routes/enrollments';
+import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 
 const app = express();
@@ -52,6 +53,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.use('/api/v1/students', studentsRouter);
 app.use('/api/v1/enrollments', enrollmentsRouter);
+app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ const EnrollmentSchema = z.object({
 });
 
 // ── POST /api/v1/enrollments ──────────────────────────────────────────────────
-router.post('/', requireAuth, requireRole('admin', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         // 1. Validar request
         const parsed = EnrollmentSchema.safeParse(req.body);
@@ -26,23 +26,33 @@ router.post('/', requireAuth, requireRole('admin', 'staff'), async (req: Authent
 
         const { student_id, class_id, program_id } = parsed.data;
 
-        // 2. Ejecutar transacción atómica vía RPC en Supabase
+        // 2. Comprobar si ya está inscrito
+        const { data: existing, error: findError } = await supabase
+            .from('enrollments')
+            .select('id')
+            .eq('child_id', student_id)
+            .eq('program_id', class_id)
+            .eq('school_id', req.schoolId)
+            .maybeSingle();
+
+        if (existing) {
+            return res.status(400).json({ error: 'El estudiante ya está inscrito en esta clase/equipo.' });
+        }
+
+        // 3. Ejecutar inserción en enrollments
         // req.schoolId asegura que no matriculemos en otra escuela
-        const { data, error } = await supabase.rpc('enroll_student', {
-            p_student_id: student_id,
-            p_class_id: class_id,
-            p_school_id: req.schoolId,
-            p_program_id: program_id || null
-        });
+        const { data, error } = await supabase.from('enrollments').insert({
+            child_id: student_id,
+            program_id: class_id,
+            school_id: req.schoolId,
+            status: 'active',
+            start_date: new Date().toISOString().split('T')[0]
+        }).select().single();
 
         if (error) {
-            req.log?.error({ err: error }, 'RPC enroll_student falló');
+            req.log?.error({ err: error }, 'Inscripción falló en la BD');
 
-            // Mapear errores de negocio comunes
-            if (error.message.includes('No hay cupos disponibles')) {
-                return res.status(409).json({ error: 'La clase está llena.' });
-            }
-            if (error.message.includes('ya está inscrito')) {
+            if (error.code === '23505') {
                 return res.status(400).json({ error: 'El estudiante ya está inscrito en esta clase.' });
             }
 

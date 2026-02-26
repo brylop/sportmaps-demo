@@ -99,11 +99,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             await classesAPI.enrollStudent(team.id, student.id, student.full_name);
 
             // Fetch current stats to update current_students count in teams table
-            const newCount = enrolledStudentIds.length + 1;
-            await supabase
-                .from('teams')
-                .update({ current_students: newCount })
-                .eq('id', team.id);
+            // This is now handled automatically by the Supabase database trigger:
+            // sync_enrollment_participant_count on the enrollments table.
 
             toast({
                 title: '¡Estudiante inscrito!',
@@ -131,11 +128,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             await classesAPI.unenrollStudent(team.id, student.id);
 
             // Update team count
-            const newCount = Math.max(0, enrolledStudentIds.length - 1);
-            await supabase
-                .from('teams')
-                .update({ current_students: newCount })
-                .eq('id', team.id);
+            // This is handled automatically by the Supabase trigger.
 
             toast({
                 title: 'Estudiante removido',

@@ -11,9 +11,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -45,8 +47,11 @@ export default function SchoolStudentsManagementPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [viewingStudent, setViewingStudent] = useState<any | null>(null);
+  const [editingStudent, setEditingStudent] = useState<any | null>(null);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
   // Resolve school context (school_id, programs, fees)
   const { schoolId, schoolName, programs, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
@@ -111,8 +116,168 @@ export default function SchoolStudentsManagementPage() {
     },
   });
 
+  const updateStudentMutation = useMutation({
+    mutationFn: async (data: StudentFormData) => {
+      if (!editingStudent) return data;
+      const selectedProgram = programs.find(p => p.id === data.program_id);
+
+      await studentsAPI.updateStudent(editingStudent.id, {
+        full_name: data.full_name,
+        date_of_birth: data.date_of_birth,
+        medical_info: data.medical_info,
+        program_id: data.program_id,
+        branch_id: selectedProgram?.branch_id || activeBranchId || undefined,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      setDialogOpen(false);
+      setEditingStudent(null);
+      toast({ title: '✅ Estudiante actualizado' });
+    }
+  });
+
   const onSubmit = (data: StudentFormData) => {
-    createStudentMutation.mutate(data);
+    if (editingStudent) {
+      updateStudentMutation.mutate(data);
+    } else {
+      createStudentMutation.mutate(data);
+    }
+  };
+
+  const handleCreateStudent = () => {
+    setEditingStudent(null);
+    form.reset({
+      full_name: '',
+      date_of_birth: '',
+      parent_email: '',
+      parent_phone: '',
+      program_id: '',
+      monthly_fee: Number(defaultMonthlyFee) || 0,
+      medical_info: '',
+      notes: '',
+    });
+    setDialogOpen(true);
+  };
+
+  const handleEditStudent = (student: any) => {
+    setEditingStudent(student);
+    form.reset({
+      full_name: student.full_name,
+      date_of_birth: student.date_of_birth || '',
+      parent_email: student.parent_email || '',
+      parent_phone: student.parent_phone || '',
+      program_id: student.program_id || '',
+      monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
+      medical_info: student.medical_info || '',
+      notes: student.notes || '',
+    });
+    setDialogOpen(true);
+  };
+
+  const bulkInviteMutation = useMutation({
+    mutationFn: async (studentIds: string[]) => {
+      const selectedStudents = students.filter(s => studentIds.includes(s.id));
+      const results = { success: 0, failed: 0, skipped: 0 };
+
+      for (const student of selectedStudents) {
+        if (!student.parent_email) {
+          results.skipped++;
+          continue;
+        }
+
+        try {
+          // 1. Create invitation via RPC
+          const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
+            p_email: student.parent_email,
+            p_role: 'parent',
+            p_child_name: student.full_name,
+            p_program_id: student.program_id || null,
+            p_monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
+            p_parent_phone: student.parent_phone || null,
+            p_branch_id: student.branch_id || activeBranchId || null
+          });
+
+          if (error) throw error;
+
+          // 2. Send email via Edge Function (non-blocking)
+          const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
+
+          const selectedProgram = programs.find(p => p.id === student.program_id);
+
+          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+            },
+            body: JSON.stringify({
+              to: student.parent_email,
+              parentName: student.parent_name || student.parent_email.split('@')[0],
+              childName: student.full_name,
+              schoolName,
+              programName: selectedProgram?.name || 'Programa',
+              monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0,
+              invitationLink: registration_link,
+            })
+          }).catch(e => console.error('Error sending bulk email:', e));
+
+          results.success++;
+        } catch (err) {
+          console.error(`Error inviting ${student.full_name}:`, err);
+          results.failed++;
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      setSelectedStudentIds([]);
+      toast({
+        title: '✅ Proceso de invitación completado',
+        description: `Enviadas: ${results.success}, Fallidas: ${results.failed}, Saltadas (sin email): ${results.skipped}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: '❌ Error en envío masivo',
+        description: error instanceof Error ? error.message : 'Ocurrió un error inesperado',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedStudentIds.length === filteredStudents.length && filteredStudents.length > 0) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(filteredStudents.map(s => s.id));
+    }
+  };
+
+  const toggleSelectStudent = (id: string) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string, status: 'active' | 'inactive' }) => {
+      await studentsAPI.updateStudent(id, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['school-students'] });
+      toast({ title: '✅ Estado actualizado' });
+    }
+  });
+
+  const handleToggleStatus = (student: any) => {
+    toggleStatusMutation.mutate({
+      id: student.id,
+      status: student.status === 'inactive' ? 'active' : 'inactive'
+    });
   };
 
   // Update monthly_fee when program changes
@@ -127,8 +292,9 @@ export default function SchoolStudentsManagementPage() {
 
 
   const filteredStudents = students.filter(student =>
-    student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (student.parent_name && student.parent_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    (activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')) &&
+    (student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (student.parent_name && student.parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
   );
 
   const formatCurrency = (amount: number) =>
@@ -147,15 +313,18 @@ export default function SchoolStudentsManagementPage() {
     }
   };
 
-  const calculateAge = (dateOfBirth: string) => {
-    const today = new Date();
+  const calculateAge = (dateOfBirth?: string | null) => {
+    if (!dateOfBirth) return '-';
     const birthDate = new Date(dateOfBirth);
+    if (isNaN(birthDate.getTime())) return '-';
+
+    const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
     const m = today.getMonth() - birthDate.getMonth();
     if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
       age--;
     }
-    return age;
+    return `${age} años`;
   };
 
   if (isLoading || schoolLoading) {
@@ -176,12 +345,20 @@ export default function SchoolStudentsManagementPage() {
             <FileUp className="mr-2 h-4 w-4" />
             Importar CSV
           </Button>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={handleCreateStudent}>
             <UserPlus className="w-4 h-4 mr-2" />
             Agregar Estudiante
           </Button>
         </div>
       </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="active">Activos</TabsTrigger>
+          <TabsTrigger value="inactive">Inactivos</TabsTrigger>
+          <TabsTrigger value="todos">Todos</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <Card>
         <CardHeader>
@@ -196,6 +373,38 @@ export default function SchoolStudentsManagementPage() {
               />
             </div>
           </div>
+
+          {selectedStudentIds.length > 0 && (
+            <div className="mt-4 flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                <CheckSquare className="h-4 w-4" />
+                {selectedStudentIds.length} estudiante{selectedStudentIds.length !== 1 ? 's' : ''} seleccionado{selectedStudentIds.length !== 1 ? 's' : ''}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => bulkInviteMutation.mutate(selectedStudentIds)}
+                  disabled={bulkInviteMutation.isPending}
+                >
+                  {bulkInviteMutation.isPending ? (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  ) : (
+                    <Send className="mr-2 h-3 w-3" />
+                  )}
+                  Invitar Seleccionados
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedStudentIds([])}
+                  disabled={bulkInviteMutation.isPending}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {filteredStudents.length === 0 ? (
@@ -204,12 +413,18 @@ export default function SchoolStudentsManagementPage() {
               title="No hay estudiantes"
               description="Agrega estudiantes manualmente o importa desde un archivo CSV"
               actionLabel="+ Agregar Estudiante"
-              onAction={() => setDialogOpen(true)}
+              onAction={handleCreateStudent}
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[50px]">
+                    <Checkbox
+                      checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
+                      onCheckedChange={() => toggleSelectAll()}
+                    />
+                  </TableHead>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Edad</TableHead>
                   <TableHead>Programa</TableHead>
@@ -222,14 +437,20 @@ export default function SchoolStudentsManagementPage() {
               </TableHeader>
               <TableBody>
                 {filteredStudents.map((student) => (
-                  <TableRow key={student.id}>
+                  <TableRow key={student.id} className={selectedStudentIds.includes(student.id) ? "bg-primary/5" : ""}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedStudentIds.includes(student.id)}
+                        onCheckedChange={() => toggleSelectStudent(student.id)}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{student.full_name}</span>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
                     </TableCell>
-                    <TableCell>{calculateAge(student.date_of_birth)} años</TableCell>
+                    <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{student.program_name || 'Sin programa'}</Badge>
                     </TableCell>
@@ -249,6 +470,26 @@ export default function SchoolStudentsManagementPage() {
                           onClick={() => setViewingStudent(student)}
                         >
                           Ver Perfil
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditStudent(student)}
+                          title="Editar programa o información"
+                        >
+                          <Edit className="h-4 w-4 text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleStatus(student)}
+                          title={student.status === 'inactive' ? "Reactivar" : "Inactivar"}
+                        >
+                          {student.status === 'inactive' ? (
+                            <UserCheck className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <UserMinus className="h-4 w-4 text-orange-500" />
+                          )}
                         </Button>
                         <Button
                           variant="outline"
@@ -281,9 +522,12 @@ export default function SchoolStudentsManagementPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Agregar Nuevo Estudiante</DialogTitle>
+            <DialogTitle>{editingStudent ? 'Editar Estudiante' : 'Agregar Nuevo Estudiante'}</DialogTitle>
             <DialogDescription>
-              Registra la información del estudiante. Quedará asociado a <strong>{schoolName}</strong>.
+              {editingStudent
+                ? `Actualiza la información de ${editingStudent.full_name}.`
+                : <>Registra la información del estudiante. Quedará asociado a <strong>{schoolName}</strong>.</>
+              }
             </DialogDescription>
           </DialogHeader>
 
@@ -470,9 +714,9 @@ export default function SchoolStudentsManagementPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={createStudentMutation.isPending}
+                disabled={createStudentMutation.isPending || updateStudentMutation.isPending}
               >
-                {createStudentMutation.isPending ? 'Guardando...' : 'Agregar Estudiante'}
+                {createStudentMutation.isPending || updateStudentMutation.isPending ? 'Guardando...' : (editingStudent ? 'Guardar Cambios' : 'Agregar Estudiante')}
               </Button>
             </DialogFooter>
           </form>

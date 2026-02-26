@@ -35,6 +35,7 @@ interface StaffInput {
   phone?: string;
   specialty?: string;
   certifications?: string[];
+  status?: string;
 }
 
 interface FacilityInput {
@@ -119,6 +120,7 @@ export function useSchoolStaff() {
           phone: input.phone || null,
           specialty: input.specialty || null,
           certifications: input.certifications || [],
+          ...(input.status ? { status: input.status } : {}),
         })
         .eq('id', id)
         .select()
