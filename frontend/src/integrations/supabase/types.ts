@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -446,6 +446,41 @@ export type Database = {
           },
           {
             foreignKeyName: "audit_logs_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      branches: {
+        Row: {
+          address: string | null
+          created_at: string | null
+          id: string
+          is_main: boolean | null
+          name: string
+          school_id: string | null
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string | null
+          id?: string
+          is_main?: boolean | null
+          name: string
+          school_id?: string | null
+        }
+        Update: {
+          address?: string | null
+          created_at?: string | null
+          id?: string
+          is_main?: boolean | null
+          name?: string
+          school_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "branches_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"
@@ -2438,13 +2473,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "school_members_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "school_members_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
@@ -2697,6 +2725,42 @@ export type Database = {
           },
         ]
       }
+      spm_users: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          metadata: Json | null
+          phone: string | null
+          role: string
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email: string
+          full_name?: string | null
+          id: string
+          metadata?: Json | null
+          phone?: string | null
+          role?: string
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          metadata?: Json | null
+          phone?: string | null
+          role?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       sports_categories: {
         Row: {
           created_at: string | null
@@ -2803,147 +2867,6 @@ export type Database = {
           source?: string
         }
         Relationships: []
-      }
-      team_branches: {
-        Row: {
-          branch_id: string | null
-          created_at: string | null
-          id: string
-          school_id: string | null
-          team_id: string | null
-        }
-        Insert: {
-          branch_id?: string | null
-          created_at?: string | null
-          id?: string
-          school_id?: string | null
-          team_id?: string | null
-        }
-        Update: {
-          branch_id?: string | null
-          created_at?: string | null
-          id?: string
-          school_id?: string | null
-          team_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_branches_branch_id_fkey"
-            columns: ["branch_id"]
-            isOneToOne: false
-            referencedRelation: "school_branches"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_branches_school_id_fkey"
-            columns: ["school_id"]
-            isOneToOne: false
-            referencedRelation: "schools"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_branches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "team_capacity"
-            referencedColumns: ["team_id"]
-          },
-          {
-            foreignKeyName: "team_branches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_branches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams_full_view"
-            referencedColumns: ["program_id"]
-          },
-          {
-            foreignKeyName: "team_branches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams_full_view"
-            referencedColumns: ["team_id"]
-          },
-        ]
-      }
-      team_coaches: {
-        Row: {
-          coach_id: string | null
-          created_at: string | null
-          id: string
-          school_id: string | null
-          team_id: string | null
-        }
-        Insert: {
-          coach_id?: string | null
-          created_at?: string | null
-          id?: string
-          school_id?: string | null
-          team_id?: string | null
-        }
-        Update: {
-          coach_id?: string | null
-          created_at?: string | null
-          id?: string
-          school_id?: string | null
-          team_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_coaches_coach_id_fkey"
-            columns: ["coach_id"]
-            isOneToOne: false
-            referencedRelation: "public_staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_coaches_coach_id_fkey"
-            columns: ["coach_id"]
-            isOneToOne: false
-            referencedRelation: "school_staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_coaches_school_id_fkey"
-            columns: ["school_id"]
-            isOneToOne: false
-            referencedRelation: "schools"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_coaches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "team_capacity"
-            referencedColumns: ["team_id"]
-          },
-          {
-            foreignKeyName: "team_coaches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_coaches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams_full_view"
-            referencedColumns: ["program_id"]
-          },
-          {
-            foreignKeyName: "team_coaches_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams_full_view"
-            referencedColumns: ["team_id"]
-          },
-        ]
       }
       team_members: {
         Row: {
@@ -3843,7 +3766,6 @@ export type Database = {
     }
     Functions: {
       accept_invitation: { Args: { p_invite_id: string }; Returns: boolean }
-      accept_invitation_pro: { Args: { p_invite_id: string }; Returns: boolean }
       admin_create_staff_direct: {
         Args: { p_branch_id: string; p_email: string; p_role: string }
         Returns: undefined
@@ -3880,15 +3802,6 @@ export type Database = {
         }
         Returns: string
       }
-      enroll_student: {
-        Args: {
-          p_class_id: string
-          p_program_id?: string
-          p_school_id: string
-          p_student_id: string
-        }
-        Returns: Json
-      }
       fn_is_admin_of_school: {
         Args: { lookup_school_id: string }
         Returns: boolean
@@ -3922,43 +3835,41 @@ export type Database = {
         }[]
       }
       get_my_schools: { Args: never; Returns: string[] }
-      get_onboarding_status:
-        | { Args: never; Returns: Json }
-        | { Args: { v_user_id: string }; Returns: Json }
+      get_onboarding_status: { Args: never; Returns: Json }
       get_user_admin_school_ids: {
         Args: { _user_id: string }
         Returns: string[]
       }
       get_user_school_ids: { Args: { _user_id: string }; Returns: string[] }
       has_role:
-        | { Args: { req_role: string }; Returns: boolean }
-        | { Args: { required_role: string; user_id: string }; Returns: boolean }
+      | { Args: { req_role: string }; Returns: boolean }
+      | { Args: { required_role: string; user_id: string }; Returns: boolean }
       has_school_role: {
         Args: { _role: string; _school_id: string; _user_id: string }
         Returns: boolean
       }
       invite_parent_to_school:
-        | { Args: { p_parent_email: string }; Returns: string }
-        | {
-            Args: {
-              p_child_name?: string
-              p_monthly_fee?: number
-              p_parent_email: string
-              p_program_id?: string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              p_branch_id?: string
-              p_child_name?: string
-              p_monthly_fee?: number
-              p_parent_email: string
-              p_parent_phone?: string
-              p_program_id?: string
-            }
-            Returns: string
-          }
+      | { Args: { p_parent_email: string }; Returns: string }
+      | {
+        Args: {
+          p_child_name?: string
+          p_monthly_fee?: number
+          p_parent_email: string
+          p_program_id?: string
+        }
+        Returns: string
+      }
+      | {
+        Args: {
+          p_branch_id?: string
+          p_child_name?: string
+          p_monthly_fee?: number
+          p_parent_email: string
+          p_parent_phone?: string
+          p_program_id?: string
+        }
+        Returns: string
+      }
       is_admin: { Args: never; Returns: boolean }
       is_branch_admin: {
         Args: { target_branch_id: string; user_id: string }
@@ -3977,78 +3888,76 @@ export type Database = {
         Returns: boolean
       }
       is_school_owner: { Args: { lookup_school_id: string }; Returns: boolean }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+      user_school_ids: { Args: never; Returns: string[] }
+      user_school_role: { Args: { p_school_id: string }; Returns: string }
       notify_user: {
         Args: {
-          p_link?: string
-          p_message: string
-          p_title: string
-          p_type?: string
           p_user_id: string
+          p_title: string
+          p_message: string
+          p_type: string
+          p_link: string
         }
         Returns: undefined
       }
       send_notification: {
         Args: {
-          p_link?: string
-          p_message: string
           p_title: string
-          p_type?: string
-          p_user_id?: string
+          p_message: string
+          p_type: string
+          p_link: string
         }
         Returns: undefined
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
-      user_school_ids: { Args: never; Returns: string[] }
-      user_school_role: { Args: { p_school_id: string }; Returns: string }
     }
     Enums: {
       activity_status: "scheduled" | "in_progress" | "completed" | "cancelled"
       attend_status: "present" | "absent" | "late" | "excused" | "justified"
       enroll_status: "active" | "cancelled" | "completed" | "pending"
       event_kind:
-        | "tournament"
-        | "clinic"
-        | "tryout"
-        | "camp"
-        | "match"
-        | "training"
-        | "other"
+      | "tournament"
+      | "clinic"
+      | "tryout"
+      | "camp"
+      | "match"
+      | "training"
+      | "other"
       event_status: "draft" | "active" | "closed" | "cancelled" | "completed"
       exp_level: "beginner" | "intermediate" | "advanced" | "professional"
       member_role:
-        | "owner"
-        | "admin"
-        | "coach"
-        | "staff"
-        | "parent"
-        | "athlete"
-        | "viewer"
+      | "owner"
+      | "admin"
+      | "coach"
+      | "staff"
+      | "parent"
+      | "athlete"
+      | "viewer"
       member_status: "active" | "inactive" | "pending" | "suspended"
       pay_method: "pse" | "card" | "transfer" | "cash" | "other"
       pay_status: "pending" | "paid" | "overdue" | "failed" | "cancelled"
       pay_type: "one_time" | "subscription"
       program_level:
-        | "iniciacion"
-        | "intermedio"
-        | "avanzado"
-        | "alto_rendimiento"
+      | "iniciacion"
+      | "intermedio"
+      | "avanzado"
+      | "alto_rendimiento"
       resv_status: "pending" | "confirmed" | "cancelled" | "completed"
       sub_tier: "free" | "basic" | "premium"
       subscription_tier: "free" | "basic" | "premium" | "enterprise"
       train_intensity: "low" | "medium" | "high" | "max"
       user_role:
-        | "athlete"
-        | "parent"
-        | "coach"
-        | "school"
-        | "wellness_professional"
-        | "store_owner"
-        | "admin"
-        | "organizer"
-        | "super_admin"
-        | "school_admin"
-        | "reporter"
+      | "athlete"
+      | "parent"
+      | "coach"
+      | "school"
+      | "wellness_professional"
+      | "store_owner"
+      | "admin"
+      | "organizer"
+      | "super_admin"
+      | "school_admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4062,116 +3971,116 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-    ? R
-    : never
+  ? R
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
+    DefaultSchema["Views"])
+  ? (DefaultSchema["Tables"] &
+    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+      Row: infer R
+    }
+  ? R
+  : never
+  : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
+    Insert: infer I
+  }
+  ? I
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Insert: infer I
+  }
+  ? I
+  : never
+  : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
+    Update: infer U
+  }
+  ? U
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Update: infer U
+  }
+  ? U
+  : never
+  : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Enums"]
+  | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+  : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+  : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["CompositeTypes"]
+  | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+  : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+  : never
 
 export const Constants = {
   public: {
@@ -4224,8 +4133,8 @@ export const Constants = {
         "organizer",
         "super_admin",
         "school_admin",
-        "reporter",
       ],
     },
   },
 } as const
+

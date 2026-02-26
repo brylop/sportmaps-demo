@@ -217,7 +217,7 @@ export default function RegisterPage() {
     if (!inviteId) return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.rpc('accept_invitation_pro', {
+      const { data, error } = await (supabase.rpc as any)('accept_invitation_pro', {
         p_invite_id: inviteId
       });
 

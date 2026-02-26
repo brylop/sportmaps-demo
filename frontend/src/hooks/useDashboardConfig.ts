@@ -175,15 +175,15 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Gestiona tus equipos y estudiantes',
           stats: [
             {
-              title: 'Equipos',
-              value: stats.teams,
-              description: stats.teams === 0 ? 'Aún no tienes equipos' : 'Asignados',
+              title: 'Estudiantes Total',
+              value: stats.totalStudents || 0,
+              description: 'En todos los equipos',
               icon: Users
             },
             {
-              title: 'Estudiantes Total',
-              value: stats.totalStudents || 0, // Assuming totalStudents maps to players for coach context if needed, or 0
-              description: 'En todos los equipos',
+              title: 'Equipos',
+              value: stats.teams,
+              description: stats.teams === 0 ? 'Aún no tienes equipos' : 'Asignados',
               icon: Users
             },
             {

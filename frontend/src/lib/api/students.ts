@@ -449,17 +449,16 @@ class StudentsAPI {
       }
 
       if (coachId) {
-        // Enrolled students for this coach
-        const { data: coachStudents } = await supabase
-          .from('enrollments')
-          .select('child_id, teams!inner(coach_id)')
-          .eq('teams.coach_id', coachId);
+        // Fetch teams for this coach
+        const { data: coachTeams } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('coach_id', coachId);
 
-        const studentIds = (coachStudents || []).map(s => s.child_id);
-        if (studentIds.length > 0) {
-          query = query.in('id', studentIds);
+        const teamIds = (coachTeams || []).map(t => t.id);
+        if (teamIds.length > 0) {
+          query = query.or(`team_id.in.(${teamIds.join(',')})`);
         } else {
-          // No students found for this coach
           return { total: 0, active: 0, inactive: 0, by_grade: {} };
         }
       }

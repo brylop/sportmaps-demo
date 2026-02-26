@@ -13,7 +13,7 @@ const EnrollmentSchema = z.object({
 });
 
 // ── POST /api/v1/enrollments ──────────────────────────────────────────────────
-router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         // 1. Validar request
         const parsed = EnrollmentSchema.safeParse(req.body);

@@ -324,18 +324,25 @@ class ClassesAPI {
   /**
    * Get class/program statistics for a school
    */
-  async getStats(schoolId: string, branchId?: string | null): Promise<ClassStats> {
-    if (!schoolId || !isValidUUID(schoolId)) {
+  async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<ClassStats> {
+    if ((!schoolId || !isValidUUID(schoolId)) && !coachId) {
       return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
     }
     try {
       let query = supabase
         .from('teams')
-        .select('*')
-        .eq('school_id', schoolId);
+        .select('*');
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      }
 
       if (branchId) {
         query = query.eq('branch_id', branchId);
+      }
+
+      if (coachId) {
+        query = query.eq('coach_id', coachId);
       }
 
       const { data: teams } = await query;

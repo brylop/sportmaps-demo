@@ -10,7 +10,7 @@ declare global {
             user: { id: string; email: string };
             schoolId: string;
             branchId: string | null;
-            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'coach' | 'parent' | 'athlete';
+            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'coach' | 'parent' | 'athlete' | 'staff';
         }
     }
 }

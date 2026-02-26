@@ -227,20 +227,31 @@ export default function DashboardPage() {
           };
         }
         if (index === 2) {
-          // Coaches or third card
-          const count = realStats.activeTeams || 0;
+          // Coaches relative or third card
+          const count = profile.role === 'coach' ? (realStats.upcomingEvents || 0) : (realStats.activeTeams || 0);
           return {
             ...stat,
             value: count,
-            description: profile.role === 'coach' ? 'Actividades próximas' : 'Entrenadores activos'
+            description: profile.role === 'coach' ? 'Próximos eventos' : 'Entrenadores activos'
           };
         }
         if (index === 3) {
-          // Revenue or notifications
+          // Revenue, notifications or attendance
+          let value: string | number = 0;
+          let description = stat.description;
+
+          if (profile.role === 'coach') {
+            value = `${realStats.attendanceRate || 0}%`;
+            description = 'Promedio general';
+          } else {
+            value = formatCurrency(realStats.monthly_revenue || 0);
+            description = 'Ingresos confirmados este mes';
+          }
+
           return {
             ...stat,
-            value: profile.role === 'coach' ? (realStats.notifications || 0) : formatCurrency(realStats.monthly_revenue || 0),
-            description: profile.role === 'coach' ? 'Mensajes nuevos' : 'Ingresos confirmados este mes'
+            value,
+            description
           };
         }
       }

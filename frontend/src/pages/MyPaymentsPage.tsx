@@ -13,15 +13,20 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, Loader2 } from 'lucide-react';
 
-interface Child {
+interface Enrollment {
   id: string;
-  full_name: string;
-  monthly_fee: number;
+  child_id: string;
   program_id: string;
   school_id: string;
-  programs: {
+  children: {
+    full_name: string;
+  } | null;
+  teams: {
     name: string;
     price_monthly: number;
+  } | null;
+  schools: {
+    name: string;
   } | null;
 }
 
@@ -78,7 +83,7 @@ export default function MyPaymentsPage() {
     schoolId: '',
   });
 
-  const [children, setChildren] = useState<Child[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [viewingProof, setViewingProof] = useState<ViewingProof>({
     open: false,
     url: '',
@@ -119,24 +124,77 @@ export default function MyPaymentsPage() {
         setTransactions(txns);
       }
 
-      // Fetch children with their programs
+      // Fetch children with their enrollments and teams
       const { data: childrenData, error: childrenError } = await supabase
         .from('children')
         .select(`
           id,
           full_name,
           monthly_fee,
-          program_id,
+          parent_id,
           school_id,
-          programs:teams!program_id (
-            name,
-            price_monthly
+          program_id,
+          enrollments (
+            id,
+            program_id,
+            school_id,
+            teams:teams!program_id (
+              name,
+              price_monthly
+            ),
+            schools (
+              name
+            )
           )
         `)
         .eq('parent_id', user?.id || '');
 
       if (!childrenError && childrenData) {
-        setChildren(childrenData);
+        const flattened: Enrollment[] = [];
+        childrenData.forEach((child: any) => {
+          if (child.enrollments && child.enrollments.length > 0) {
+            child.enrollments.forEach((enroll: any) => {
+              flattened.push({
+                id: enroll.id,
+                child_id: child.id,
+                program_id: enroll.program_id,
+                school_id: enroll.school_id,
+                children: { full_name: child.full_name },
+                teams: enroll.teams,
+                schools: enroll.schools
+              });
+            });
+          } else if (child.monthly_fee > 0) {
+            // Fallback for children with direct monthly fee but no enrollment record
+            flattened.push({
+              id: `child-${child.id}`,
+              child_id: child.id,
+              program_id: child.program_id || child.id,
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: 'Mensualidad Estudiante',
+                price_monthly: child.monthly_fee
+              },
+              schools: null
+            });
+          } else {
+            // Even if no fee, show the child so they can still initiate a payment (maybe amount will be 0 or they edit it later)
+            flattened.push({
+              id: `empty-${child.id}`,
+              child_id: child.id,
+              program_id: child.program_id || 'none',
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: 'Sin programa asignado',
+                price_monthly: 0
+              },
+              schools: null
+            });
+          }
+        });
+        setEnrollments(flattened);
       }
 
       // No mock subscriptions anymore
@@ -445,19 +503,19 @@ export default function MyPaymentsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            {children.length > 0 ? (
-              children.map((child) => (
+            {enrollments.length > 0 ? (
+              enrollments.map((enroll) => (
                 <button
-                  key={child.id}
+                  key={enroll.id}
                   className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
                   onClick={() => {
                     setSelectedPayment({
-                      childId: child.id,
-                      childName: child.full_name,
-                      programId: child.program_id,
-                      programName: child.programs?.name || 'Programa de Formación',
-                      amount: child.programs?.price_monthly || child.monthly_fee || 0,
-                      schoolId: child.school_id,
+                      childId: enroll.child_id,
+                      childName: enroll.children?.full_name || 'Estudiante',
+                      programId: enroll.program_id,
+                      programName: enroll.teams?.name || 'Programa de Formación',
+                      amount: enroll.teams?.price_monthly || 0,
+                      schoolId: enroll.school_id,
                     });
                     setShowChildPicker(false);
                     setShowCheckout(true);
@@ -465,15 +523,22 @@ export default function MyPaymentsPage() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                      {child.full_name.charAt(0)}
+                      {(enroll.children?.full_name || 'E').charAt(0)}
                     </div>
-                    <div>
-                      <p className="font-semibold">{child.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{child.programs?.name || 'Sin programa asignado'}</p>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{enroll.children?.full_name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {enroll.teams?.name || 'Sin curso asignado'}
+                      </p>
+                      {enroll.schools?.name && (
+                        <p className="text-[10px] text-muted-foreground italic truncate">
+                          Escuela: {enroll.schools.name}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-primary">{formatCurrency(child.programs?.price_monthly || child.monthly_fee || 0)}</p>
+                  <div className="text-right ml-2 shrink-0">
+                    <p className="font-bold text-primary">{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
                     <p className="text-xs text-muted-foreground">/mes</p>
                   </div>
                 </button>

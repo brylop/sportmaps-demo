@@ -28,6 +28,8 @@ export interface DashboardStats {
   notifications?: number;
   messages?: number;
   activeTeams?: number;
+  upcomingEvents?: number;
+  attendanceRate?: number;
 }
 
 export function useDashboardStatsReal() {
@@ -119,12 +121,29 @@ export function useDashboardStatsReal() {
             ? studentsAPI.getStats(schoolId || '', activeBranchId, coachIdFilter)
             : Promise.resolve({ total: 0, active: 0, inactive: 0, by_grade: {} }),
           schoolId || coachIdFilter
-            ? classesAPI.getStats(schoolId || '', activeBranchId)
+            ? classesAPI.getStats(schoolId || '', activeBranchId, coachIdFilter)
             : Promise.resolve({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }),
         ]).catch((err) => {
           console.error("Error fetching dashboard stats:", err);
           return [{ total: 0, active: 0, inactive: 0, by_grade: {} }, { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }];
         });
+
+        // Fetch upcoming events for coach
+        let upcomingEventsCount = 0;
+        if (coachIdFilter) {
+          const today = new Date().toISOString().split('T')[0];
+          const { data: teams } = await supabase.from('teams').select('id').eq('coach_id', coachIdFilter);
+          const teamIds = teams?.map(t => t.id) || [];
+
+          if (teamIds.length > 0) {
+            const { count: sessionCount } = await supabase
+              .from('training_sessions')
+              .select('id', { count: 'exact', head: true })
+              .in('team_id', teamIds)
+              .gte('session_date', today);
+            upcomingEventsCount = sessionCount || 0;
+          }
+        }
 
         setStats({
           students_count: studentStats.total,
@@ -134,6 +153,10 @@ export function useDashboardStatsReal() {
           total_enrolled: classStats.total_enrolled,
           monthly_revenue: monthlyRevenue,
           pending_payments: pendingCount || 0,
+          activeTeams: classStats.active, // Map active classes to activeTeams for coaches
+          notifications: 0, // Fallback for now
+          upcomingEvents: upcomingEventsCount,
+          attendanceRate: 0, // Placeholder
         });
       } else if (profile.role === 'parent') {
         // Load parent-specific stats

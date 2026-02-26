@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { ArrowLeft, Inbox } from 'lucide-react';
+import { ArrowLeft, Inbox, Send, Loader2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { useToast } from '@/hooks/use-toast';
 
 interface Message {
   id: string;
@@ -21,7 +23,10 @@ export default function MessagesDetailPage() {
   const { conversationId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [newMessage, setNewMessage] = useState('');
 
   // Fetch real messages from the conversation
   const { data: messages, isLoading } = useQuery({
@@ -57,6 +62,43 @@ export default function MessagesDetailPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Send message mutation
+  const sendMessageMutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!user?.id || !conversationId) throw new Error('Faltan datos de usuario o conversación');
+
+      const { error } = await supabase
+        .from('messages')
+        .insert({
+          sender_id: user.id,
+          recipient_id: conversationId,
+          content: content.trim(),
+          subject: 'Nuevo Mensaje' // Optional depending on schema, providing default
+        });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setNewMessage('');
+      queryClient.invalidateQueries({ queryKey: ['conversation-messages', conversationId] });
+      queryClient.invalidateQueries({ queryKey: ['messages', user?.id] });
+    },
+    onError: (error: any) => {
+      console.error('Error sending message:', error);
+      toast({
+        title: 'Error al enviar',
+        description: 'No pudimos enviar tu mensaje. Por favor, intenta de nuevo.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || sendMessageMutation.isPending) return;
+    sendMessageMutation.mutate(newMessage);
+  };
 
   return (
     <div className="container mx-auto p-6 max-w-4xl">
@@ -109,8 +151,8 @@ export default function MessagesDetailPage() {
               >
                 <div
                   className={`max-w-[70%] rounded-lg p-3 ${isOwn
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted'
                     }`}
                 >
                   {!isOwn && (
@@ -131,6 +173,30 @@ export default function MessagesDetailPage() {
           })}
           <div ref={messagesEndRef} />
         </CardContent>
+
+        <CardFooter className="border-t p-4">
+          <form onSubmit={handleSendMessage} className="flex w-full items-center gap-2">
+            <Input
+              placeholder="Escribe un mensaje..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              disabled={sendMessageMutation.isPending}
+              className="flex-1"
+              autoComplete="off"
+            />
+            <Button
+              type="submit"
+              disabled={!newMessage.trim() || sendMessageMutation.isPending}
+              size="icon"
+            >
+              {sendMessageMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </form>
+        </CardFooter>
       </Card>
     </div>
   );
