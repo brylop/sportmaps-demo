@@ -75,11 +75,11 @@ class CheckoutAPI {
             if (paymentError) console.warn('Payment record failed (non-critical for demo):', paymentError);
 
             // 3. Send Notification
-            await supabase.from('notifications').insert({
-                user_id: payload.parent_id,
-                title: 'Inscripción Exitosa',
-                message: 'El pago ha sido procesado y la inscripción está activa.',
-                type: 'payment_success'
+            await supabase.rpc('notify_user', {
+                p_user_id: payload.parent_id,
+                p_title: 'Inscripción Exitosa',
+                p_message: 'El pago ha sido procesado y la inscripción está activa.',
+                p_type: 'payment_success'
             });
 
             return { success: true, enrollment_id: enrollment.id };

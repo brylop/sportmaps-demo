@@ -3,6 +3,8 @@ import { Mail, Check, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 interface Invitation {
     id: string;
     school_name: string;
@@ -16,6 +18,7 @@ interface InvitationBannerProps {
 
 export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, onAction }) => {
     const { toast } = useToast();
+    const queryClient = useQueryClient();
     const [isAccepting, setIsAccepting] = React.useState(false);
 
     const handleAccept = async () => {
@@ -38,6 +41,13 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
                 title: "¡Invitación aceptada!",
                 description: `Ahora eres parte de ${invitation.school_name}.`,
             });
+
+            // Invalidate relevant queries to refresh UI
+            queryClient.invalidateQueries({ queryKey: ['teams'] });
+            queryClient.invalidateQueries({ queryKey: ['school-staff'] });
+            queryClient.invalidateQueries({ queryKey: ['school-students'] });
+            queryClient.invalidateQueries({ queryKey: ['invitations'] });
+            queryClient.invalidateQueries({ queryKey: ['user-school'] });
 
             onAction();
         } catch (error: any) {

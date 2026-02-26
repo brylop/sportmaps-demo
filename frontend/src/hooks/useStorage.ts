@@ -38,8 +38,16 @@ export function useStorage() {
         throw uploadError;
       }
 
+      // Define private buckets that should not use public URLs
+      const privateBuckets: BucketName[] = [
+        'identity-documents',
+        'coach-certificates',
+        'medical-documents',
+        'payment-receipts'
+      ];
+
       // For private buckets, we return the filePath to store in DB
-      if (bucket === 'payment-receipts') {
+      if (privateBuckets.includes(bucket)) {
         return filePath;
       }
 

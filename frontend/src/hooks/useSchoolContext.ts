@@ -227,7 +227,7 @@ export function useSchoolContext(): SchoolContext {
 
         // Fetch branch count
         const { count } = await supabase
-            .from('branches')
+            .from('school_branches')
             .select('*', { count: 'exact', head: true })
             .eq('school_id', school.schoolId);
 
@@ -235,7 +235,7 @@ export function useSchoolContext(): SchoolContext {
 
         if (school.branchId) {
             const { data: branch } = await supabase
-                .from('branches')
+                .from('school_branches')
                 .select('name')
                 .eq('id', school.branchId)
                 .maybeSingle();

@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -446,41 +446,6 @@ export type Database = {
           },
           {
             foreignKeyName: "audit_logs_school_id_fkey"
-            columns: ["school_id"]
-            isOneToOne: false
-            referencedRelation: "schools"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      branches: {
-        Row: {
-          address: string | null
-          created_at: string | null
-          id: string
-          is_main: boolean | null
-          name: string
-          school_id: string | null
-        }
-        Insert: {
-          address?: string | null
-          created_at?: string | null
-          id?: string
-          is_main?: boolean | null
-          name: string
-          school_id?: string | null
-        }
-        Update: {
-          address?: string | null
-          created_at?: string | null
-          id?: string
-          is_main?: boolean | null
-          name?: string
-          school_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "branches_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
             referencedRelation: "schools"
@@ -2473,6 +2438,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "school_members_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "school_members_school_id_fkey"
             columns: ["school_id"]
             isOneToOne: false
@@ -2725,42 +2697,6 @@ export type Database = {
           },
         ]
       }
-      spm_users: {
-        Row: {
-          avatar_url: string | null
-          created_at: string | null
-          email: string
-          full_name: string | null
-          id: string
-          metadata: Json | null
-          phone: string | null
-          role: string
-          updated_at: string | null
-        }
-        Insert: {
-          avatar_url?: string | null
-          created_at?: string | null
-          email: string
-          full_name?: string | null
-          id: string
-          metadata?: Json | null
-          phone?: string | null
-          role?: string
-          updated_at?: string | null
-        }
-        Update: {
-          avatar_url?: string | null
-          created_at?: string | null
-          email?: string
-          full_name?: string | null
-          id?: string
-          metadata?: Json | null
-          phone?: string | null
-          role?: string
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       sports_categories: {
         Row: {
           created_at: string | null
@@ -2867,6 +2803,147 @@ export type Database = {
           source?: string
         }
         Relationships: []
+      }
+      team_branches: {
+        Row: {
+          branch_id: string | null
+          created_at: string | null
+          id: string
+          school_id: string | null
+          team_id: string | null
+        }
+        Insert: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          school_id?: string | null
+          team_id?: string | null
+        }
+        Update: {
+          branch_id?: string | null
+          created_at?: string | null
+          id?: string
+          school_id?: string | null
+          team_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_branches_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "school_branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_branches_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_branches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_capacity"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_branches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_branches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["program_id"]
+          },
+          {
+            foreignKeyName: "team_branches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["team_id"]
+          },
+        ]
+      }
+      team_coaches: {
+        Row: {
+          coach_id: string | null
+          created_at: string | null
+          id: string
+          school_id: string | null
+          team_id: string | null
+        }
+        Insert: {
+          coach_id?: string | null
+          created_at?: string | null
+          id?: string
+          school_id?: string | null
+          team_id?: string | null
+        }
+        Update: {
+          coach_id?: string | null
+          created_at?: string | null
+          id?: string
+          school_id?: string | null
+          team_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_coaches_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "public_staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_coaches_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "school_staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_coaches_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_coaches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "team_capacity"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "team_coaches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_coaches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["program_id"]
+          },
+          {
+            foreignKeyName: "team_coaches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams_full_view"
+            referencedColumns: ["team_id"]
+          },
+        ]
       }
       team_members: {
         Row: {
@@ -3766,6 +3843,7 @@ export type Database = {
     }
     Functions: {
       accept_invitation: { Args: { p_invite_id: string }; Returns: boolean }
+      accept_invitation_pro: { Args: { p_invite_id: string }; Returns: boolean }
       admin_create_staff_direct: {
         Args: { p_branch_id: string; p_email: string; p_role: string }
         Returns: undefined
@@ -3802,6 +3880,15 @@ export type Database = {
         }
         Returns: string
       }
+      enroll_student: {
+        Args: {
+          p_class_id: string
+          p_program_id?: string
+          p_school_id: string
+          p_student_id: string
+        }
+        Returns: Json
+      }
       fn_is_admin_of_school: {
         Args: { lookup_school_id: string }
         Returns: boolean
@@ -3835,7 +3922,9 @@ export type Database = {
         }[]
       }
       get_my_schools: { Args: never; Returns: string[] }
-      get_onboarding_status: { Args: never; Returns: Json }
+      get_onboarding_status:
+        | { Args: never; Returns: Json }
+        | { Args: { v_user_id: string }; Returns: Json }
       get_user_admin_school_ids: {
         Args: { _user_id: string }
         Returns: string[]
@@ -3888,6 +3977,26 @@ export type Database = {
         Returns: boolean
       }
       is_school_owner: { Args: { lookup_school_id: string }; Returns: boolean }
+      notify_user: {
+        Args: {
+          p_link?: string
+          p_message: string
+          p_title: string
+          p_type?: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      send_notification: {
+        Args: {
+          p_link?: string
+          p_message: string
+          p_title: string
+          p_type?: string
+          p_user_id?: string
+        }
+        Returns: undefined
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       user_school_ids: { Args: never; Returns: string[] }
@@ -3939,6 +4048,7 @@ export type Database = {
         | "organizer"
         | "super_admin"
         | "school_admin"
+        | "reporter"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4114,8 +4224,8 @@ export const Constants = {
         "organizer",
         "super_admin",
         "school_admin",
+        "reporter",
       ],
     },
   },
 } as const
-

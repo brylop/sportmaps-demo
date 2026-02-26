@@ -95,12 +95,12 @@ export default function CheckoutPage() {
         }
 
         if (item.metadata.vendorId) {
-          await supabase.from('notifications').insert({
-            user_id: item.metadata.vendorId,
-            title: 'Nueva Venta',
-            message: `Vendiste ${item.quantity}x ${item.name}`,
-            type: 'sale',
-            link: '/orders',
+          await supabase.rpc('notify_user', {
+            p_user_id: item.metadata.vendorId,
+            p_title: 'Nueva Venta',
+            p_message: `Vendiste ${item.quantity}x ${item.name}`,
+            p_type: 'sale',
+            p_link: '/orders',
           });
         }
       }
@@ -112,22 +112,23 @@ export default function CheckoutPage() {
           appointment_time: item.metadata.appointmentTime || '10:00',
           service_type: item.metadata.serviceType || item.name, status: 'confirmed',
         });
-        await supabase.from('notifications').insert({
-          user_id: item.metadata.professionalId, title: 'Nueva Cita',
-          message: `Nueva cita para ${item.name} el ${item.metadata.appointmentDate}`,
-          type: 'appointment', link: '/wellness/schedule',
+        await supabase.rpc('notify_user', {
+          p_user_id: item.metadata.professionalId,
+          p_title: 'Nueva Cita',
+          p_message: `Nueva cita para ${item.name} el ${item.metadata.appointmentDate}`,
+          p_type: 'appointment',
+          p_link: '/wellness/schedule',
         });
       }
     }
 
     // Notify user with traceability summary
     const itemSummary = items.map(i => `${i.name} (${i.metadata?.schoolName || 'SportMaps'})`).join(', ');
-    await supabase.from('notifications').insert({
-      user_id: user!.id,
-      title: 'Compra Exitosa',
-      message: `Pedido #${reference} confirmado: ${itemSummary}`,
-      type: 'payment',
-      link: '/my-payments',
+    await supabase.rpc('send_notification', {
+      p_title: 'Compra Exitosa',
+      p_message: `Pedido #${reference} confirmado: ${itemSummary}`,
+      p_type: 'payment',
+      p_link: '/my-payments',
     });
   };
 

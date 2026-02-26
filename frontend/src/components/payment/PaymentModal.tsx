@@ -203,25 +203,24 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
         // Notify school owner
         const { data: school } = await supabase.from('schools').select('owner_id').eq('id', item.schoolId).single();
         if (school?.owner_id) {
-          await supabase.from('notifications').insert({
-            user_id: school.owner_id,
-            title: paymentStatus === 'paid' ? '¡Nuevo pago recibido!' : 'Nuevo pago por revisar',
-            message: `${profile?.full_name || 'Usuario'} ha ${paymentStatus === 'paid' ? 'pagado' : 'reportado pago de'} ${formatCurrency(item.amount)} por ${item.name}.`,
-            type: 'payment',
-            link: '/payments-automation'
+          await supabase.rpc('notify_user', {
+            p_user_id: school.owner_id,
+            p_title: paymentStatus === 'paid' ? '¡Nuevo pago recibido!' : 'Nuevo pago por revisar',
+            p_message: `${profile?.full_name || 'Usuario'} ha ${paymentStatus === 'paid' ? 'pagado' : 'reportado pago de'} ${formatCurrency(item.amount)} por ${item.name}.`,
+            p_type: 'payment',
+            p_link: '/payments-automation'
           });
         }
       }
 
       // Notify User
-      await supabase.from('notifications').insert({
-        user_id: user.id,
-        title: paymentStatus === 'paid' ? '¡Pago exitoso!' : 'Pago enviado a revisión',
-        message: paymentStatus === 'paid'
+      await supabase.rpc('send_notification', {
+        p_title: paymentStatus === 'paid' ? '¡Pago exitoso!' : 'Pago enviado a revisión',
+        p_message: paymentStatus === 'paid'
           ? `Tu pago de ${formatCurrency(item.amount)} por ${item.name} ha sido procesado.`
           : `Hemos recibido tu comprobante por ${formatCurrency(item.amount)}. Te notificaremos cuando la escuela lo apruebe.`,
-        type: 'success',
-        link: item.type === 'enrollment' ? '/calendar' : '/my-payments',
+        p_type: 'success',
+        p_link: item.type === 'enrollment' ? '/calendar' : '/my-payments',
       });
 
       // 5. Success UI

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { announcementsApi } from '@/lib/api/announcements';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -81,15 +82,7 @@ export default function AnnouncementsPage() {
 
   const { data: announcementsData, isLoading, refetch } = useQuery({
     queryKey: ['announcements', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*, teams(name)')
-        .eq('coach_id', user?.id)
-        .order('sent_at', { ascending: false });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => announcementsApi.getAnnouncements(user!.id),
     enabled: !!user?.id,
   });
 
@@ -97,12 +90,12 @@ export default function AnnouncementsPage() {
 
   const handleSend = async () => {
     try {
-      const { error } = await supabase.from('announcements').insert({
-        coach_id: user?.id,
+      await announcementsApi.createAnnouncement({
+        coach_id: user!.id,
         team_id: selectedTeamId || null,
         subject,
         message,
-        audience,
+        audience: audience as any,
       });
 
       if (error) throw error;

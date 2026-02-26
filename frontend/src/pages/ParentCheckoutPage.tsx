@@ -84,21 +84,26 @@ export default function ParentCheckoutPage() {
   const recordPaymentWithTraceability = async (reference: string) => {
     // Resolve School ID (Robustly)
     let schoolId = null;
+    let ownerId = null;
     const { data: demoSchool } = await supabase
       .from('schools')
-      .select('id')
+      .select('id, owner_id')
       .eq('email', 'spoortmaps+school@gmail.com')
       .maybeSingle();
 
     if (demoSchool) {
       schoolId = demoSchool.id;
+      ownerId = demoSchool.owner_id;
     } else {
       const { data: anySchool } = await supabase
         .from('schools')
-        .select('id')
+        .select('id, owner_id')
         .limit(1)
         .maybeSingle();
-      if (anySchool) schoolId = anySchool.id;
+      if (anySchool) {
+        schoolId = anySchool.id;
+        ownerId = anySchool.owner_id;
+      }
     }
 
     if (!schoolId) {
@@ -115,10 +120,17 @@ export default function ParentCheckoutPage() {
     });
 
     const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
-    await supabase.from('notifications').insert({
-      user_id: user!.id, title: 'Pago Recibido',
-      message: traceMsg, type: 'payment', link: '/finances',
-    });
+
+    if (ownerId) {
+      await supabase.rpc('notify_user', {
+        p_user_id: ownerId,
+        p_title: 'Pago Recibido',
+        p_message: traceMsg,
+        p_type: 'payment',
+        p_link: '/finances',
+      });
+    }
+
   };
 
   const handleWompiPayment = async () => {

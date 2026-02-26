@@ -175,9 +175,10 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
 
       let finalPdfUrl = '';
       if (pdfFile) {
-        const uploadedPdfUrl = await uploadFile(pdfFile, 'identity-documents', `children/${user.id}/docs`);
-        if (uploadedPdfUrl) {
-          finalPdfUrl = uploadedPdfUrl;
+        const uploadedPdfPath = await uploadFile(pdfFile, 'identity-documents', `children/${user.id}/docs`);
+        if (uploadedPdfPath) {
+          // Since useStorage now returns the path for identity-documents, we store the path
+          finalPdfUrl = uploadedPdfPath;
         }
       }
 

@@ -332,12 +332,12 @@ export default function PaymentsAutomationPage() {
             }
 
             // In-App Notification
-            await supabase.from('notifications').insert({
-              user_id: fullPayment.parent_id,
-              title: '✅ Pago Aprobado',
-              message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado exitosamente.`,
-              type: 'success',
-              link: '/history'
+            await supabase.rpc('notify_user', {
+              p_user_id: fullPayment.parent_id,
+              p_title: '✅ Pago Aprobado',
+              p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado exitosamente.`,
+              p_type: 'success',
+              p_link: '/history'
             });
           }
         }

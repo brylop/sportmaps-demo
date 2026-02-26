@@ -31,6 +31,23 @@ import {
 import { Users, Plus, Mail, Building, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
+// --- AUDIT REPORT FINDINGS ---
+// This section contains findings from an audit report.
+// It is commented out to maintain the syntactic correctness of the TypeScript file.
+
+/*
+### 🟡 MEDIUM: Brittle Payment Verification
+- The payment approval flow in `PaymentsAutomationPage.tsx` relies on frontend-driven `rpc('notify_user')`. If the user closes the browser mid-process, the notification might never reach the recipient, leading to "ghost" payments.
+- **Observation:** `checkout.ts` returns `success: true` even when the payment record fails or the catch block is triggered, masking real errors.
+
+---
+
+### 🔴 CRITICAL: Type Safety (The "as any" Epidemic)
+- **Finding:** Se confirmaron **122 instancias** de `as any` en el frontend.
+- **Impacto:** Esto anula los tipos generados de Supabase y hace que la aplicación sea extremadamente vulnerable a errores en tiempo de ejecución durante migraciones de DB.
+- **Ubicación Crítica:** `lib/api/checkout.ts`, `SchoolSettingsPage.tsx`, `RegisterPage.tsx`.
+*/
+
 interface SchoolMember {
     id: string;
     profile_id: string;
@@ -137,7 +154,7 @@ export default function AdminUsersPage() {
 
     const fetchBranches = async () => {
         const { data } = await supabase
-            .from('branches')
+            .from('school_branches')
             .select('id, name')
             .eq('school_id', schoolId!);
         setBranches(data || []);
