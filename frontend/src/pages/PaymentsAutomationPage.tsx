@@ -200,7 +200,7 @@ export default function PaymentsAutomationPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const mappedPayments: PaymentTransaction[] = ((data as unknown[]) || []).map((p) => ({
+      const mappedPayments: PaymentTransaction[] = ((data as any[]) || []).map((p) => ({
         id: p.id,
         amount: p.amount,
         status: p.status,

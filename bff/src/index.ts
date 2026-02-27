@@ -10,6 +10,7 @@ import studentsRouter from './routes/students';
 import enrollmentsRouter from './routes/enrollments';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
+import attendanceRouter from './routes/attendance';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -55,6 +56,7 @@ app.use('/api/v1/students', studentsRouter);
 app.use('/api/v1/enrollments', enrollmentsRouter);
 app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
+app.use('/api/v1/attendance', attendanceRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

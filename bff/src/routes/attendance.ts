@@ -1,0 +1,178 @@
+import { Router, Response, NextFunction } from 'express';
+import { supabase } from '../config/supabase';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+
+const router = Router();
+
+// ── GET /api/v1/attendance/session/:teamId ────────────────────────────────────
+// Consulta si ya existe una sesión de asistencia hoy para el equipo.
+// Retorna la sesión con sus registros si existe, o null si no.
+router.get(
+    '/session/:teamId',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            const { teamId } = req.params;
+            const today = new Date().toISOString().split('T')[0];
+
+            // 1. Buscar sesión de hoy para este equipo
+            const { data: session, error: sessionErr } = await supabase
+                .from('attendance_sessions')
+                .select('id, team_id, session_date, finalized, finalized_at, created_by, created_at')
+                .eq('team_id', teamId)
+                .eq('session_date', today)
+                .maybeSingle();
+
+            if (sessionErr) throw sessionErr;
+
+            if (!session) {
+                return res.json({ session: null, records: [] });
+            }
+
+            // 2. Si existe la sesión, traer los registros asociados
+            const { data: records, error: recordsErr } = await supabase
+                .from('attendance_records')
+                .select('child_id, status')
+                .eq('program_id', teamId)
+                .eq('attendance_date', today);
+
+            if (recordsErr) throw recordsErr;
+
+            return res.json({ session, records: records || [] });
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error consultando sesión de asistencia');
+            return res.status(500).json({ error: 'Error interno consultando la sesión.' });
+        }
+    }
+);
+
+// ── POST /api/v1/attendance/session ──────────────────────────────────────────
+// Crea la sesión (si no existe) y guarda/actualiza los registros de asistencia.
+// Solo permitido si la sesión no está finalizada.
+router.post(
+    '/session',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            const { schoolId } = req;
+            const { teamId, records } = req.body as {
+                teamId: string;
+                records: { childId: string; status: string }[];
+            };
+
+            if (!teamId || !Array.isArray(records) || records.length === 0) {
+                return res.status(400).json({ error: 'teamId y records son requeridos.' });
+            }
+
+            const today = new Date().toISOString().split('T')[0];
+
+            // 1. Verificar si ya existe sesión hoy
+            const { data: existing, error: existingErr } = await supabase
+                .from('attendance_sessions')
+                .select('id, finalized')
+                .eq('team_id', teamId)
+                .eq('session_date', today)
+                .maybeSingle();
+
+            if (existingErr) throw existingErr;
+
+            // Bloquear si ya está finalizada
+            if (existing?.finalized) {
+                return res.status(409).json({
+                    error: 'La sesión de hoy ya fue finalizada y no puede modificarse.',
+                    finalized: true,
+                });
+            }
+
+            // 2. Crear sesión si no existe (upsert seguro con el UNIQUE constraint)
+            const { data: session, error: sessionErr } = await supabase
+                .from('attendance_sessions')
+                .upsert(
+                    {
+                        school_id: schoolId,
+                        team_id: teamId,
+                        session_date: today,
+                        created_by: req.user?.id,
+                    },
+                    { onConflict: 'team_id,session_date', ignoreDuplicates: false }
+                )
+                .select('id, finalized')
+                .single();
+
+            if (sessionErr) throw sessionErr;
+
+            // 3. Guardar registros de asistencia (upsert — permite edición antes de finalizar)
+            const attendanceRecords = records.map(({ childId, status }) => ({
+                school_id: schoolId,
+                program_id: teamId,
+                child_id: childId,
+                attendance_date: today,
+                status,
+                marked_by: req.user?.id,
+            }));
+
+            const { error: recordsErr } = await supabase
+                .from('attendance_records')
+                .upsert(attendanceRecords, {
+                    onConflict: 'child_id,program_id,attendance_date',
+                    ignoreDuplicates: false,
+                });
+
+            if (recordsErr) throw recordsErr;
+
+            return res.json({ success: true, sessionId: session.id });
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error guardando sesión de asistencia');
+            return res.status(500).json({ error: 'Error interno guardando la asistencia.' });
+        }
+    }
+);
+
+// ── PATCH /api/v1/attendance/session/:sessionId/finalize ──────────────────────
+// Finaliza la sesión. Una vez finalizada, los registros son de solo lectura.
+router.patch(
+    '/session/:sessionId/finalize',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            const { sessionId } = req.params;
+
+            // Verificar que la sesión existe y no está ya finalizada
+            const { data: session, error: fetchErr } = await supabase
+                .from('attendance_sessions')
+                .select('id, finalized, team_id')
+                .eq('id', sessionId)
+                .single();
+
+            if (fetchErr || !session) {
+                return res.status(404).json({ error: 'Sesión no encontrada.' });
+            }
+
+            if (session.finalized) {
+                return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
+            }
+
+            // Finalizar
+            const { error: updateErr } = await supabase
+                .from('attendance_sessions')
+                .update({
+                    finalized: true,
+                    finalized_at: new Date().toISOString(),
+                    finalized_by: req.user?.id,
+                })
+                .eq('id', sessionId);
+
+            if (updateErr) throw updateErr;
+
+            return res.json({ success: true, message: 'Sesión finalizada correctamente.' });
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error finalizando sesión de asistencia');
+            return res.status(500).json({ error: 'Error interno finalizando la sesión.' });
+        }
+    }
+);
+
+export default router;

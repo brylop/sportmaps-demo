@@ -15,20 +15,42 @@ export default function CoachReportsPage() {
   const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  const { data: teamsData } = useQuery({
+  const { data: teamsResult = [] } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!user?.id) return [];
+
+      // 1. Obtener staffId si existe
+      let staffId = null;
+      if (user.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
+        if (staffData) staffId = staffData.id;
+      }
+
+      // 2. Traer todos los equipos donde el usuario es coach (directo o via tabla de relación)
+      const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('*')
-        .eq('coach_id', user?.id);
+        .select('id, name, coach_id, age_group, team_coaches(coach_id)') as any);
+
       if (error) throw error;
-      return data;
+
+      // 3. Filtrar
+      return (teamsData || []).filter((team: any) => {
+        const isDirectCoach = team.coach_id === user.id || (staffId && team.coach_id === staffId);
+        const isAssignedInTable = team.team_coaches?.some(
+          (tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)
+        );
+        return isDirectCoach || isAssignedInTable;
+      }).sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
     enabled: !!user?.id,
   });
 
-  const teams = teamsData || [];
+  const teams = teamsResult || [];
 
   const { data: report, isLoading } = useQuery({
     queryKey: ['team-report', selectedTeamId],

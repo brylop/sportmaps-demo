@@ -1,175 +1,141 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Calendar, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
 
+// ── Tipos ─────────────────────────────────────────────────────────────────────
+interface ChildItem {
+  id: string;
+  full_name: string;
+}
+
+interface AttendanceRecord {
+  id: string;
+  child_id: string;
+  attendance_date: string;
+  status: string;
+  program_id: string;
+  teamName?: string;
+  sessionFinalized?: boolean;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive'; icon: JSX.Element }> = {
+  present: {
+    label: 'Asistió',
+    variant: 'default',
+    icon: <CheckCircle className="w-5 h-5 text-green-500" />,
+  },
+  late: {
+    label: 'Tarde',
+    variant: 'secondary',
+    icon: <Clock className="w-5 h-5 text-yellow-500" />,
+  },
+  excused: {
+    label: 'Excusado',
+    variant: 'secondary',
+    icon: <AlertCircle className="w-5 h-5 text-blue-500" />,
+  },
+  absent: {
+    label: 'Faltó',
+    variant: 'destructive',
+    icon: <XCircle className="w-5 h-5 text-red-500" />,
+  },
+};
+
+// ── Componente ────────────────────────────────────────────────────────────────
 export default function AttendancePage() {
   const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
   const [selectedChildId, setSelectedChildId] = useState<string>('');
-  const [justifyDialogOpen, setJustifyDialogOpen] = useState(false);
-  const [selectedAttendance, setSelectedAttendance] = useState<any>(null);
-  const [justificationReason, setJustificationReason] = useState('');
 
-  // Check if user is demo account
-  const isDemoUser = user?.email?.endsWith('@demo.sportmaps.com');
-
-  // Demo children only for demo users
-  const demoChildren = isDemoUser ? [
-    { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
-    { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
-  ] : [];
-
-  const { data: childrenData } = useQuery({
-    queryKey: ['children', user?.id],
+  // ── 1. Hijos del padre ──────────────────────────────────────────────────
+  const { data: children = [], isLoading: loadingChildren } = useQuery<ChildItem[]>({
+    queryKey: ['parent-children', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*')
-        .eq('parent_id', user?.id);
+        .select('id, full_name')
+        .eq('parent_id', user?.id)
+        .order('full_name');
       if (error) throw error;
-      return data;
+      return data as ChildItem[];
     },
     enabled: !!user?.id,
   });
 
-  const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
-
-  // Demo attendance data only for demo users
-  const demoAttendance = isDemoUser ? [
-    {
-      id: 'att-1',
-      child_id: selectedChildId,
-      class_date: '2024-10-28',
-      status: 'attended',
-      justification_reason: null,
-      children: { full_name: 'Mateo Pérez' },
-    },
-    {
-      id: 'att-2',
-      child_id: selectedChildId,
-      class_date: '2024-10-25',
-      status: 'attended',
-      justification_reason: null,
-      children: { full_name: 'Mateo Pérez' },
-    },
-    {
-      id: 'att-3',
-      child_id: selectedChildId,
-      class_date: '2024-10-23',
-      status: 'absent',
-      justification_reason: null,
-      children: { full_name: 'Mateo Pérez' },
-    },
-    {
-      id: 'att-4',
-      child_id: selectedChildId,
-      class_date: '2024-10-21',
-      status: 'justified',
-      justification_reason: 'Cita médica',
-      children: { full_name: 'Mateo Pérez' },
-    },
-  ] : [];
-
-  const { data: attendanceData, isLoading, error, refetch } = useQuery({
-    queryKey: ['attendance', selectedChildId],
+  // ── 2. Registros de asistencia del hijo seleccionado ────────────────────
+  const {
+    data: records = [],
+    isLoading: loadingRecords,
+    error,
+    refetch,
+  } = useQuery<AttendanceRecord[]>({
+    queryKey: ['parent-attendance', selectedChildId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('attendance')
-        .select('*, children(full_name)')
+      if (!selectedChildId) return [];
+
+      // Traer registros de attendance_records
+      const { data: attendanceData, error: attErr } = await supabase
+        .from('attendance_records')
+        .select('child_id, attendance_date, status, program_id')
         .eq('child_id', selectedChildId)
-        .order('class_date', { ascending: false });
-      if (error) throw error;
-      return data;
+        .order('attendance_date', { ascending: false });
+
+      if (attErr) throw attErr;
+      if (!attendanceData || attendanceData.length === 0) return [];
+
+      // Resolver nombres de equipos
+      const teamIds = [...new Set(attendanceData.map((r: any) => r.program_id))] as string[];
+      const { data: teamsData } = await supabase
+        .from('teams')
+        .select('id, name')
+        .in('id', teamIds);
+      const teamMap = Object.fromEntries((teamsData || []).map((t: any) => [t.id, t.name]));
+
+      // Resolver estado de sesión (finalizada o no) para cada registro
+      const dates = [...new Set(attendanceData.map((r: any) => r.attendance_date))] as string[];
+      const { data: sessionsData } = await (supabase
+        .from('attendance_sessions' as any)
+        .select('team_id, session_date, finalized')
+        .in('team_id', teamIds)
+        .in('session_date', dates) as any);
+
+      // Mapa: `${team_id}_${session_date}` → finalized
+      const sessionMap = Object.fromEntries(
+        (sessionsData || []).map((s: any) => [`${s.team_id}_${s.session_date}`, s.finalized])
+      );
+
+      return attendanceData.map((r: any, i: number) => ({
+        id: `${r.child_id}_${r.attendance_date}_${r.program_id}_${i}`,
+        child_id: r.child_id,
+        attendance_date: r.attendance_date,
+        status: r.status,
+        program_id: r.program_id,
+        teamName: teamMap[r.program_id] ?? '—',
+        sessionFinalized: sessionMap[`${r.program_id}_${r.attendance_date}`] ?? false,
+      }));
     },
-    enabled: !!selectedChildId && !selectedChildId.startsWith('demo-'),
+    enabled: !!selectedChildId,
   });
 
-  const attendance = (attendanceData && attendanceData.length > 0) || !selectedChildId.startsWith('demo-')
-    ? attendanceData
-    : demoAttendance;
-
-  const justifyMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await supabase
-        .from('attendance')
-        .update({
-          status: 'justified',
-          justification_reason: reason,
-          justified_by: user?.id,
-        })
-        .eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance', selectedChildId] });
-      toast({
-        title: 'Ausencia justificada',
-        description: 'La ausencia ha sido registrada correctamente',
-      });
-      setJustifyDialogOpen(false);
-      setJustificationReason('');
-    },
-    onError: () => {
-      toast({
-        title: 'Error',
-        description: 'No se pudo justificar la ausencia',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'attended':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'justified':
-        return <AlertCircle className="w-5 h-5 text-blue-500" />;
-      case 'absent':
-        return <XCircle className="w-5 h-5 text-red-500" />;
-      default:
-        return null;
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'attended':
-        return 'Asistió';
-      case 'justified':
-        return 'Justificada';
-      case 'absent':
-        return 'Faltó';
-      default:
-        return status;
-    }
-  };
-
-  const stats = attendance
+  // ── Stats ────────────────────────────────────────────────────────────────
+  const stats = records.length > 0
     ? {
-        total: attendance.length,
-        attended: attendance.filter((a) => a.status === 'attended').length,
-        justified: attendance.filter((a) => a.status === 'justified').length,
-        absent: attendance.filter((a) => a.status === 'absent').length,
-      }
+      total: records.length,
+      present: records.filter((r) => r.status === 'present').length,
+      late: records.filter((r) => r.status === 'late').length,
+      excused: records.filter((r) => r.status === 'excused').length,
+      absent: records.filter((r) => r.status === 'absent').length,
+    }
     : null;
 
-  if (isLoading && selectedChildId) {
-    return <LoadingSpinner fullScreen text="Cargando asistencias..." />;
-  }
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <div>
@@ -179,129 +145,142 @@ export default function AttendancePage() {
         </p>
       </div>
 
+      {/* Selector de hijo */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">Seleccionar Hijo</CardTitle>
         </CardHeader>
         <CardContent>
-          <Select value={selectedChildId} onValueChange={setSelectedChildId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecciona un hijo para ver sus asistencias" />
-            </SelectTrigger>
-            <SelectContent>
-              {children?.map((child) => (
-                <SelectItem key={child.id} value={child.id}>
-                  {child.full_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {loadingChildren ? (
+            <LoadingSpinner text="Cargando..." />
+          ) : (
+            <Select value={selectedChildId} onValueChange={setSelectedChildId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un hijo para ver sus asistencias" />
+              </SelectTrigger>
+              <SelectContent>
+                {children.map((child) => (
+                  <SelectItem key={child.id} value={child.id}>
+                    {child.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </CardContent>
       </Card>
 
-      {selectedChildId && stats && (
+      {/* Contenido */}
+      {selectedChildId && (
         <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold">{stats.total}</p>
-                  <p className="text-sm text-muted-foreground">Clases Totales</p>
+          {loadingRecords ? (
+            <LoadingSpinner text="Cargando asistencias..." />
+          ) : error ? (
+            <ErrorState
+              title="Error al cargar"
+              message="No pudimos cargar las asistencias"
+              onRetry={refetch}
+            />
+          ) : (
+            <>
+              {/* Stats */}
+              {stats && (
+                <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-3xl font-bold">{stats.total}</p>
+                      <p className="text-sm text-muted-foreground">Clases Totales</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-3xl font-bold text-green-500">{stats.present}</p>
+                      <p className="text-sm text-muted-foreground">Asistencias</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-3xl font-bold text-yellow-500">{stats.late}</p>
+                      <p className="text-sm text-muted-foreground">Tardanzas</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-3xl font-bold text-blue-500">{stats.excused}</p>
+                      <p className="text-sm text-muted-foreground">Excusadas</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <p className="text-3xl font-bold text-red-500">{stats.absent}</p>
+                      <p className="text-sm text-muted-foreground">Ausencias</p>
+                    </CardContent>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-green-500">{stats.attended}</p>
-                  <p className="text-sm text-muted-foreground">Asistencias</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-blue-500">{stats.justified}</p>
-                  <p className="text-sm text-muted-foreground">Justificadas</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-red-500">{stats.absent}</p>
-                  <p className="text-sm text-muted-foreground">Ausencias</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              )}
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-primary" />
-                <CardTitle>Historial de Asistencias</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {attendance?.map((record) => (
-                  <div
-                    key={record.id}
-                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      {getStatusIcon(record.status)}
-                      <div>
-                        <p className="font-medium">
-                          {new Date(record.class_date).toLocaleDateString('es-CO', {
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })}
-                        </p>
-                        {record.justification_reason && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Motivo: {record.justification_reason}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        variant={
-                          record.status === 'attended'
-                            ? 'default'
-                            : record.status === 'justified'
-                            ? 'secondary'
-                            : 'destructive'
-                        }
-                      >
-                        {getStatusLabel(record.status)}
-                      </Badge>
-                      {record.status === 'absent' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedAttendance(record);
-                            setJustifyDialogOpen(true);
-                          }}
-                        >
-                          Justificar
-                        </Button>
-                      )}
-                    </div>
+              {/* Historial */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-primary" />
+                    <CardTitle>Historial de Asistencias</CardTitle>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent>
+                  {records.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">
+                      No hay registros de asistencia aún.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {records.map((record) => {
+                        const s = statusMap[record.status] ?? {
+                          label: record.status,
+                          variant: 'secondary' as const,
+                          icon: <AlertCircle className="w-5 h-5" />,
+                        };
+                        return (
+                          <div
+                            key={record.id}
+                            className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-4">
+                              {s.icon}
+                              <div>
+                                <p className="font-medium">
+                                  {new Date(record.attendance_date + 'T12:00:00').toLocaleDateString('es-CO', {
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric',
+                                  })}
+                                </p>
+                                <p className="text-sm text-muted-foreground">{record.teamName}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={s.variant}>{s.label}</Badge>
+                              {!record.sessionFinalized && (
+                                <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                                  En revisión
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
         </>
       )}
 
-      {!selectedChildId && children && children.length > 0 && (
+      {/* Estado vacío */}
+      {!selectedChildId && !loadingChildren && children.length > 0 && (
         <Card>
           <CardContent className="pt-6 text-center">
             <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -313,59 +292,13 @@ export default function AttendancePage() {
         </Card>
       )}
 
-      {error && (
-        <ErrorState
-          title="Error al cargar"
-          message="No pudimos cargar las asistencias"
-          onRetry={refetch}
-        />
+      {!loadingChildren && children.length === 0 && (
+        <Card>
+          <CardContent className="pt-6 text-center text-muted-foreground">
+            No tienes hijos registrados en la plataforma.
+          </CardContent>
+        </Card>
       )}
-
-      <Dialog open={justifyDialogOpen} onOpenChange={setJustifyDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Justificar Ausencia</DialogTitle>
-            <DialogDescription>
-              Indica el motivo de la ausencia para notificar a la academia
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Motivo</Label>
-              <Textarea
-                value={justificationReason}
-                onChange={(e) => setJustificationReason(e.target.value)}
-                placeholder="Ej: Cita médica, Viaje familiar, Enfermedad..."
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setJustifyDialogOpen(false);
-                setJustificationReason('');
-              }}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => {
-                if (selectedAttendance) {
-                  justifyMutation.mutate({
-                    id: selectedAttendance.id,
-                    reason: justificationReason,
-                  });
-                }
-              }}
-              disabled={!justificationReason.trim()}
-            >
-              Justificar Ausencia
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

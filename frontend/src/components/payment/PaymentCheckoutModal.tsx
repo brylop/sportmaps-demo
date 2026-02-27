@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, UploadCloud, Clock } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -49,6 +49,12 @@ export function PaymentCheckoutModal({
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
+
+  // ── Estados para la validación temprana al abrir el modal ─────────────────
+  const [checkingPending, setCheckingPending] = useState(false);
+  const [pendingPaymentDate, setPendingPaymentDate] = useState<string | null>(null);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -82,6 +88,66 @@ export function PaymentCheckoutModal({
       checkProfile();
     }
   }, [open, user?.id]);
+
+  // ── Consulta al abrir: ¿ya existe un pago awaiting_approval? ─────────────
+  useEffect(() => {
+    if (!open || !studentId) return;
+
+    const checkPendingPayment = async () => {
+      setCheckingPending(true);
+      setPendingPaymentDate(null);
+
+      try {
+        const query = supabase
+          .from('payments')
+          .select('id, payment_date, created_at')
+          .eq('child_id', studentId)
+          .eq('status', 'awaiting_approval')
+          .limit(1);
+
+        // En modo update excluir el propio registro
+        if (mode === 'update' && paymentId) {
+          query.neq('id', paymentId);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('[PaymentCheckoutModal] Error al verificar pagos pendientes:', error);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const pending = data[0];
+          // Usar payment_date si existe, si no created_at como fallback
+          const rawDate = pending.payment_date || pending.created_at;
+          const formattedDate = rawDate
+            ? new Date(rawDate).toLocaleDateString('es-CO', {
+              day: '2-digit',
+              month: 'long',
+              year: 'numeric',
+            })
+            : null;
+          setPendingPaymentDate(formattedDate);
+        }
+      } finally {
+        setCheckingPending(false);
+      }
+    };
+
+    checkPendingPayment();
+  }, [open, studentId, paymentId, mode]);
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Resetear estados internos al cerrar
+  useEffect(() => {
+    if (!open) {
+      setPaymentStatus('idle');
+      setSelectedMethod(null);
+      setProofUrl(null);
+      setPendingPaymentDate(null);
+    }
+  }, [open]);
 
   const paymentMethods = [
     {
@@ -117,21 +183,42 @@ export function PaymentCheckoutModal({
     setSelectedMethod(method);
   };
 
-
-
   const processPayment = async () => {
     setProcessing(true);
     setPaymentStatus('processing');
 
     try {
-      // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuario no autenticado');
 
+      // ── VALIDACIÓN DE SEGURIDAD (segunda línea de defensa) ────────────────
+      // Aunque el modal ya verificó al abrirse, se vuelve a consultar aquí
+      // para cubrir condiciones de carrera (p.ej. el padre tiene dos pestañas abiertas).
+      const duplicateQuery = supabase
+        .from('payments')
+        .select('id')
+        .eq('child_id', studentId)
+        .eq('status', 'awaiting_approval')
+        .limit(1);
 
-      // 1. Resolve context based on mode
       if (mode === 'update' && paymentId) {
-        // Fetch existing payment to verify ownership and status
+        duplicateQuery.neq('id', paymentId);
+      }
+
+      const { data: pendingPayments, error: pendingError } = await duplicateQuery;
+
+      if (pendingError) throw pendingError;
+
+      if (pendingPayments && pendingPayments.length > 0) {
+        throw new Error(
+          'Ya existe un pago pendiente de aprobación para este estudiante. ' +
+          'Por favor espera a que la escuela lo valide antes de registrar uno nuevo.'
+        );
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      // 1. Validar estado del pago existente en modo update
+      if (mode === 'update' && paymentId) {
         const { data: existingPayment, error: fetchError } = await supabase
           .from('payments')
           .select('school_id, status')
@@ -158,7 +245,6 @@ export function PaymentCheckoutModal({
             .eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
-          // Create mode - Insert new payment with awaiting_approval
           const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
 
           const { error: insertError } = await supabase.from('payments').insert({
@@ -166,7 +252,7 @@ export function PaymentCheckoutModal({
             child_id: studentId,
             program_id: programId,
             school_id: schoolId,
-            branch_id: studentData?.branch_id || null, // Auto-associate with student's branch
+            branch_id: studentData?.branch_id || null,
             amount: amount,
             concept: concept,
             status: 'awaiting_approval',
@@ -193,14 +279,13 @@ export function PaymentCheckoutModal({
       // PSE / Card flow (Simulation)
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-
       let error = null;
 
       if (mode === 'update' && paymentId) {
         const { error: updateError } = await supabase
           .from('payments')
           .update({
-            status: 'paid', // Auto-approved for demo/simulation
+            status: 'paid',
             payment_method: selectedMethod,
             payment_date: new Date().toISOString(),
             receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
@@ -209,7 +294,6 @@ export function PaymentCheckoutModal({
           .eq('id', paymentId);
         error = updateError;
       } else {
-        // Create mode
         const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
 
         const { error: insertError } = await supabase.from('payments').insert({
@@ -265,8 +349,6 @@ export function PaymentCheckoutModal({
   const handleClose = () => {
     if (!processing) {
       onOpenChange(false);
-      setPaymentStatus('idle');
-      setSelectedMethod(null);
     }
   };
 
@@ -280,7 +362,40 @@ export function PaymentCheckoutModal({
           </DialogDescription>
         </DialogHeader>
 
-        {paymentStatus === 'idle' && (
+        {/* ── Estado 1: Verificando si hay un pago pendiente ── */}
+        {checkingPending && (
+          <div className="py-12 text-center space-y-4">
+            <Loader2 className="h-10 w-10 mx-auto text-muted-foreground animate-spin" />
+            <p className="text-sm text-muted-foreground">Verificando pagos pendientes...</p>
+          </div>
+        )}
+
+        {/* ── Estado 2: Pago bloqueado — ya existe uno en awaiting_approval ── */}
+        {!checkingPending && pendingPaymentDate !== null && paymentStatus === 'idle' && (
+          <div className="py-10 text-center space-y-5">
+            <div className="w-16 h-16 mx-auto bg-amber-100 rounded-full flex items-center justify-center">
+              <AlertTriangle className="h-9 w-9 text-amber-500" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-amber-600">Pago en espera de validación</h3>
+              <p className="text-sm text-muted-foreground px-4">
+                Ya existe un comprobante enviado el{' '}
+                <span className="font-medium text-foreground">{pendingPaymentDate}</span>{' '}
+                que está pendiente de aprobación por parte de la escuela.
+              </p>
+              <p className="text-xs text-muted-foreground px-6">
+                No puedes registrar un nuevo pago hasta que ese comprobante sea aprobado o rechazado.
+                Puedes revisar el estado en tu historial de pagos.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Entendido
+            </Button>
+          </div>
+        )}
+
+        {/* ── Estado 3: Formulario normal — sin pendientes ── */}
+        {!checkingPending && pendingPaymentDate === null && paymentStatus === 'idle' && (
           <div className="space-y-6 py-4">
             {/* Payment Summary */}
             <div className="bg-primary/5 rounded-lg p-4 space-y-2">
@@ -433,6 +548,7 @@ export function PaymentCheckoutModal({
           </div>
         )}
 
+        {/* ── Estados del proceso de pago ── */}
         {paymentStatus === 'processing' && (
           <div className="py-12 text-center space-y-4">
             <Loader2 className="h-16 w-16 mx-auto text-primary animate-spin" />

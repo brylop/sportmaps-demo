@@ -21,37 +21,46 @@ export function useStorage() {
         throw new Error('No se ha seleccionado ningún archivo válido');
       }
 
-      // Generate unique filename
+      // Generar nombre único
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = path ? `${path}/${fileName}` : fileName;
 
-      // Upload file
-      const { error: uploadError, data } = await supabase.storage
+      // Para payment-receipts guardar en subcarpeta con UID del padre
+      // Esto permite que la política RLS de storage filtre por foldername[1] = auth.uid()
+      // Estructura: payment-receipts/{uid}/{filename}
+      let filePath: string;
+      if (bucket === 'payment-receipts') {
+        const { data: { user } } = await supabase.auth.getUser();
+        filePath = user ? `${user.id}/${fileName}` : fileName;
+      } else if (path) {
+        filePath = `${path}/${fileName}`;
+      } else {
+        filePath = fileName;
+      }
+
+      // Subir archivo
+      const { error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: false,
         });
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
-      // Define private buckets that should not use public URLs
+      // Buckets privados — retornar el filePath para guardar en BD
       const privateBuckets: BucketName[] = [
         'identity-documents',
         'coach-certificates',
         'medical-documents',
-        'payment-receipts'
+        'payment-receipts',
       ];
 
-      // For private buckets, we return the filePath to store in DB
       if (privateBuckets.includes(bucket)) {
         return filePath;
       }
 
-      // For public buckets, we return the publicUrl
+      // Buckets públicos — retornar URL pública
       const { data: urlData } = supabase.storage
         .from(bucket)
         .getPublicUrl(filePath);
@@ -105,7 +114,11 @@ export function useStorage() {
     return data.publicUrl;
   };
 
-  const createSignedPathUrl = async (bucket: BucketName, filePath: string, expiresIn = 3600): Promise<string | null> => {
+  const createSignedPathUrl = async (
+    bucket: BucketName,
+    filePath: string,
+    expiresIn = 3600
+  ): Promise<string | null> => {
     try {
       const cleanPath = getStoragePath(filePath);
       const { data, error } = await supabase.storage
@@ -125,6 +138,6 @@ export function useStorage() {
     deleteFile,
     getFileUrl,
     createSignedPathUrl,
-    uploading
+    uploading,
   };
 }
