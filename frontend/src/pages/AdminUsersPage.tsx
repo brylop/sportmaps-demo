@@ -1,3 +1,5 @@
+// frontend/src/pages/AdminUsersPage.tsx
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -30,23 +32,6 @@ import {
 } from '@/components/ui/table';
 import { Users, Plus, Mail, Building, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-
-// --- AUDIT REPORT FINDINGS ---
-// This section contains findings from an audit report.
-// It is commented out to maintain the syntactic correctness of the TypeScript file.
-
-/*
-### 🟡 MEDIUM: Brittle Payment Verification
-- The payment approval flow in `PaymentsAutomationPage.tsx` relies on frontend-driven `rpc('notify_user')`. If the user closes the browser mid-process, the notification might never reach the recipient, leading to "ghost" payments.
-- **Observation:** `checkout.ts` returns `success: true` even when the payment record fails or the catch block is triggered, masking real errors.
-
----
-
-### 🔴 CRITICAL: Type Safety (The "as any" Epidemic)
-- **Finding:** Se confirmaron **122 instancias** de `as any` en el frontend.
-- **Impacto:** Esto anula los tipos generados de Supabase y hace que la aplicación sea extremadamente vulnerable a errores en tiempo de ejecución durante migraciones de DB.
-- **Ubicación Crítica:** `lib/api/checkout.ts`, `SchoolSettingsPage.tsx`, `RegisterPage.tsx`.
-*/
 
 interface SchoolMember {
     id: string;
@@ -88,7 +73,14 @@ const ROLE_COLORS: Record<string, string> = {
     parent: 'bg-orange-100 text-orange-800',
     athlete: 'bg-yellow-100 text-yellow-800',
     reporter: 'bg-teal-100 text-teal-800',
+    viewer: 'bg-slate-100 text-slate-600',
 };
+
+// FIX 4 — roleGroups ahora incluye staff y viewer (roles válidos en DB)
+const roleGroups = [
+    'owner', 'admin', 'super_admin', 'school_admin',
+    'coach', 'parent', 'athlete', 'reporter', 'staff', 'viewer',
+];
 
 export default function AdminUsersPage() {
     const { schoolId } = useSchoolContext();
@@ -118,16 +110,19 @@ export default function AdminUsersPage() {
             const { data, error } = await supabase
                 .from('school_members')
                 .select(`
-          id,
-          profile_id,
-          role,
-          branch_id,
-          status,
-          created_at,
-          branches(name),
-          profiles(full_name, email)
-        `)
+                    id,
+                    profile_id,
+                    role,
+                    branch_id,
+                    status,
+                    created_at,
+                    school_branches(name),
+                    profiles(full_name, email)
+                `)
+                // FIX 2 — filtrar por status activo para aprovechar el índice parcial
+                // que creamos: idx_school_members_profile_school WHERE status = 'active'
                 .eq('school_id', schoolId!)
+                .eq('status', 'active')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -139,7 +134,8 @@ export default function AdminUsersPage() {
                 branch_id: m.branch_id,
                 status: m.status,
                 created_at: m.created_at,
-                branch_name: m.branches?.name,
+                // FIX 1 — el join correcto es school_branches, no branches
+                branch_name: m.school_branches?.name,
                 full_name: m.profiles?.full_name || 'Sin nombre',
                 email: m.profiles?.email || '',
             }));
@@ -147,6 +143,11 @@ export default function AdminUsersPage() {
             setMembers(mapped);
         } catch (err) {
             console.error('Error fetching members:', err);
+            toast({
+                title: 'Error al cargar usuarios',
+                description: 'No se pudieron obtener los miembros de la escuela.',
+                variant: 'destructive',
+            });
         } finally {
             setLoading(false);
         }
@@ -168,22 +169,26 @@ export default function AdminUsersPage() {
 
         setInviting(true);
         try {
-            const { error } = await supabase.rpc('invite_school_admin', {
+            const { error } = await supabase.rpc('create_invitation', {
                 p_email: inviteForm.email.toLowerCase().trim(),
-                p_full_name: inviteForm.full_name,
                 p_role: inviteForm.role,
-                p_school_id: schoolId!,
-                p_branch_id: inviteForm.branch_id || null,
+                p_branch_id: inviteForm.branch_id || undefined,
             });
 
             if (error) {
-                // Fallback: direct insert into school_invitations
-                const { error: invErr } = await supabase.from('school_invitations').insert({
+                // FIX 3 — fallback corregido:
+                // - tabla correcta: 'invitations' (no 'school_invitations')
+                // - columna correcta: 'role_to_assign' (no 'role')
+                // - agregar invited_by con el usuario actual
+                const { data: { user } } = await supabase.auth.getUser();
+
+                const { error: invErr } = await supabase.from('invitations').insert({
                     school_id: schoolId!,
                     email: inviteForm.email.toLowerCase().trim(),
-                    role: inviteForm.role,
+                    role_to_assign: inviteForm.role,
                     branch_id: inviteForm.branch_id || null,
                     status: 'pending',
+                    invited_by: user?.id ?? null,
                 });
 
                 if (invErr) throw invErr;
@@ -216,7 +221,6 @@ export default function AdminUsersPage() {
         return matchSearch && matchRole;
     });
 
-    const roleGroups = ['owner', 'admin', 'super_admin', 'school_admin', 'coach', 'parent', 'athlete', 'reporter'];
     const roleCounts = roleGroups.reduce((acc, role) => {
         acc[role] = members.filter(m => m.role === role).length;
         return acc;
@@ -282,7 +286,7 @@ export default function AdminUsersPage() {
                                     </SelectContent>
                                 </Select>
                             </div>
-                            {(inviteForm.role === 'school_admin') && branches.length > 0 && (
+                            {inviteForm.role === 'school_admin' && branches.length > 0 && (
                                 <div className="space-y-2">
                                     <Label>Asignar a Sede</Label>
                                     <Select
@@ -352,6 +356,7 @@ export default function AdminUsersPage() {
                     onChange={e => setSearch(e.target.value)}
                     className="max-w-xs"
                 />
+                {/* FIX 4 — filtro de roles ahora incluye staff y viewer */}
                 <Select value={roleFilter} onValueChange={setRoleFilter}>
                     <SelectTrigger className="w-48">
                         <SelectValue />
@@ -363,6 +368,8 @@ export default function AdminUsersPage() {
                         <SelectItem value="parent">Padres</SelectItem>
                         <SelectItem value="athlete">Atletas</SelectItem>
                         <SelectItem value="reporter">Auditores</SelectItem>
+                        <SelectItem value="staff">Staff</SelectItem>
+                        <SelectItem value="viewer">Visitantes</SelectItem>
                     </SelectContent>
                 </Select>
             </div>

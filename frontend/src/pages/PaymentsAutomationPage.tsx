@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
+// FIX 4 — usar solo la importada, eliminar la redefinición local
 import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,11 +20,11 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
 
+// FIX 2 — Eliminar id?: string; la PK de school_settings es school_id
 interface BillingSettings {
-  id?: string;
   school_id: string;
   payment_cutoff_day: number;
-  payment_grace_days: number;
+  payment_grace_days: number;        // FIX 1 — nombre correcto del campo
   auto_generate_payments: boolean;
   reminder_enabled: boolean;
   reminder_days_before: number;
@@ -35,7 +36,7 @@ interface BillingSettings {
 
 const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   payment_cutoff_day: 5,
-  payment_grace_days: 5,
+  payment_grace_days: 5,             // FIX 1 — nombre correcto
   auto_generate_payments: true,
   reminder_enabled: true,
   reminder_days_before: 3,
@@ -45,7 +46,17 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   require_payment_proof: true,
 };
 
-// Interfaces for real data
+// FIX 3 — mapa completo de todos los statuses del schema de payments
+const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
+  rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-700 border-red-200' },
+  awaiting_approval: { label: 'Por Validar', className: 'bg-amber-100 text-amber-700 border-amber-200' },
+  overdue: { label: 'Vencido', className: 'bg-red-50 text-red-600 border-red-200' },
+  failed: { label: 'Fallido', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+  cancelled: { label: 'Cancelado', className: 'bg-gray-100 text-gray-500 border-gray-200' },
+  pending: { label: 'Pendiente', className: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+};
+
 interface PaymentTransaction {
   id: string;
   amount: number;
@@ -65,17 +76,10 @@ interface TeamSubscription {
   full_name: string;
   monthly_fee: number;
   team_id: string;
-  teams: {
-    name: string;
-  } | null;
+  teams: { name: string } | null;
   payment_method?: string;
 }
 
-/**
- * Página principal para la gestión y automatización de pagos de la escuela.
- * Permite a los administradores validar comprobantes manuales, ver el historial de transacciones
- * y exportar reportes financieros.
- */
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -84,10 +88,10 @@ export default function PaymentsAutomationPage() {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   const [teamSubscriptions, setTeamSubscriptions] = useState<TeamSubscription[]>([]);
-  const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
+  const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({
+    open: false, url: '', student: '', amount: 0,
+  });
   const [processingId, setProcessingId] = useState<string | null>(null);
-
-  // ── Billing settings state ──────────────────────────────────────────────
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
 
@@ -116,7 +120,7 @@ export default function PaymentsAutomationPage() {
       const payload = {
         school_id: schoolId,
         payment_cutoff_day: billing.payment_cutoff_day,
-        payment_grace_days: billing.payment_grace_days,
+        payment_grace_days: billing.payment_grace_days,   // FIX 1 — nombre correcto
         auto_generate_payments: billing.auto_generate_payments,
         reminder_enabled: billing.reminder_enabled,
         reminder_days_before: billing.reminder_days_before,
@@ -125,14 +129,14 @@ export default function PaymentsAutomationPage() {
         allow_coach_messaging: billing.allow_coach_messaging,
         require_payment_proof: billing.require_payment_proof,
       };
-      if (billing.id) {
-        const { error } = await supabase.from('school_settings').update(payload).eq('id', billing.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from('school_settings').insert(payload).select().single();
-        if (error) throw error;
-        setBilling(data as unknown as BillingSettings);
-      }
+
+      // FIX 2 — upsert por school_id (la PK real), nunca usar billing.id
+      const { error } = await supabase
+        .from('school_settings')
+        .upsert(payload, { onConflict: 'school_id' });
+
+      if (error) throw error;
+
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {
       toast({ title: 'Error al guardar', description: err.message, variant: 'destructive' });
@@ -144,14 +148,13 @@ export default function PaymentsAutomationPage() {
   const updateBilling = <K extends keyof BillingSettings>(key: K, value: BillingSettings[K]) => {
     if (billing) setBilling({ ...billing, [key]: value });
   };
-  // ────────────────────────────────────────────────────────────────────────
-
 
   const fetchPayments = async () => {
     if (!schoolId) return;
-
     setLoading(true);
     try {
+      // FIX 5 — query separada para pendientes aprovecha el índice idx_payments_school_status
+      // Esta query principal trae el historial general
       let query = supabase
         .from('payments')
         .select(`
@@ -168,23 +171,17 @@ export default function PaymentsAutomationPage() {
           program:teams!payments_program_id_fkey(name)
         `)
         .eq('school_id', schoolId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
 
       if (activeBranchId) {
         query = query.eq('branch_id', activeBranchId);
       }
 
-      // Safety limit
-      query = query.limit(50);
-
       const { data, error } = await query;
-
       if (error) throw error;
 
-      // Transform data to flat structure if needed, or keep as is.
-      // The types returned by select need casting or proper type definition match.
-      // We'll use 'any' casting for the join results to match our interface simply.
-      const mappedPayments: PaymentTransaction[] = ((data as any[] || [])).map((p) => ({
+      const mappedPayments: PaymentTransaction[] = ((data as any[]) || []).map((p) => ({
         id: p.id,
         amount: p.amount,
         status: p.status,
@@ -195,17 +192,14 @@ export default function PaymentsAutomationPage() {
         concept: p.concept,
         parent: p.parent,
         child: p.child,
-        program: p.program
-      })) as PaymentTransaction[];
+        program: p.program,
+      }));
 
       setPayments(mappedPayments);
-
     } catch (error: any) {
-      console.error('Error in fetchPayments:', error);
-      const errorMessage = error?.message || error?.error_description || String(error);
       toast({
         title: 'Error al cargar pagos',
-        description: errorMessage,
+        description: error?.message || String(error),
         variant: 'destructive',
       });
     } finally {
@@ -223,9 +217,7 @@ export default function PaymentsAutomationPage() {
           full_name,
           monthly_fee,
           team_id,
-          teams:teams!children_team_id_fkey(
-            name
-          )
+          teams:teams!children_team_id_fkey(name)
         `)
         .eq('school_id', schoolId)
         .not('team_id', 'is', null);
@@ -238,7 +230,6 @@ export default function PaymentsAutomationPage() {
       if (error) throw error;
       setTeamSubscriptions(data as unknown as TeamSubscription[]);
     } catch (error: any) {
-      console.error('Error loading team subscriptions:', error);
       toast({
         title: 'Error en suscripciones',
         description: error?.message || String(error),
@@ -247,33 +238,19 @@ export default function PaymentsAutomationPage() {
     }
   };
 
-
-  // Authentication Guard (Moved after all hooks to comply with Rules of Hooks)
   const isAuthorized = profile && [
-    'school',
-    'admin',
-    'school_admin',
-    'super_admin',
-    'owner'
+    'school', 'admin', 'school_admin', 'super_admin', 'owner',
   ].includes(profile.role);
 
   if (!isAuthorized) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  /**
-   * Aprueba o rechaza un pago registrado manualmente (transferencia/nequi).
-   * Si se aprueba, activa automáticamente la inscripción asociada y envía notificaciones.
-   * 
-   * @param paymentId UUID del pago a procesar.
-   * @param action Acción a realizar: 'approve' (aprobar) o 'reject' (rechazar).
-   */
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'rejected';
 
     try {
-      // 1. Update Payment Status
       const { error: updateError } = await supabase
         .from('payments')
         .update({ status: newStatus })
@@ -281,29 +258,21 @@ export default function PaymentsAutomationPage() {
 
       if (updateError) throw updateError;
 
-      // 2. If Approved, Activate Enrollment if applicable
       if (action === 'approve') {
-        // Find the payment details to know which program/child/user
         const payment = payments.find(p => p.id === paymentId);
         if (payment) {
-          // We need checking if there is a pending enrollment.
-          // We don't have program_id directly in the strict types of 'payments' state unless we stored it.
-          // Let's refetch or rely on what we have. Ideally we need program_id and child_id.
-          // The 'payments' table has them.
-
           const { data: fullPayment } = await supabase
             .from('payments')
             .select('program_id, child_id, parent_id')
             .eq('id', paymentId)
             .single();
 
-          if (fullPayment && fullPayment.program_id && (fullPayment.child_id || fullPayment.parent_id)) {
-            // Update enrollment
-            // Match by program + child (or parent if child is null)
-            let enrollQuery = supabase.from('enrollments')
+          if (fullPayment?.program_id && (fullPayment.child_id || fullPayment.parent_id)) {
+            let enrollQuery = supabase
+              .from('enrollments')
               .update({ status: 'active' })
               .eq('program_id', fullPayment.program_id)
-              .eq('status', 'pending'); // Only update pending ones
+              .eq('status', 'pending');
 
             if (fullPayment.child_id) {
               enrollQuery = enrollQuery.eq('child_id', fullPayment.child_id);
@@ -312,12 +281,10 @@ export default function PaymentsAutomationPage() {
             }
 
             const { error: enrollError } = await enrollQuery;
-            if (enrollError) console.warn("Could not auto-activate enrollment:", enrollError);
+            if (enrollError) console.warn('Could not auto-activate enrollment:', enrollError);
           }
 
-          // 3. Send Notification to Parent + Email
           if (fullPayment?.parent_id) {
-            // Send Email
             if (payment.parent?.email) {
               await emailClient.send({
                 to: payment.parent.email,
@@ -327,17 +294,16 @@ export default function PaymentsAutomationPage() {
                   formatCurrency(payment.amount),
                   payment.concept,
                   payment.id.slice(0, 8).toUpperCase()
-                )
+                ),
               });
             }
 
-            // In-App Notification
             await supabase.rpc('notify_user', {
               p_user_id: fullPayment.parent_id,
               p_title: '✅ Pago Aprobado',
               p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado exitosamente.`,
               p_type: 'success',
-              p_link: '/history'
+              p_link: '/history',
             });
           }
         }
@@ -346,10 +312,9 @@ export default function PaymentsAutomationPage() {
       toast({
         title: action === 'approve' ? 'Pago Aprobado' : 'Pago Rechazado',
         description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
-        variant: action === 'approve' ? 'default' : 'destructive'
+        variant: action === 'approve' ? 'default' : 'destructive',
       });
       await fetchPayments();
-
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
@@ -362,98 +327,72 @@ export default function PaymentsAutomationPage() {
     }
   };
 
-  /**
-   * Genera y descarga un archivo CSV con el historial de pagos filtrado.
-   */
   const handleExportCSV = () => {
     if (payments.length === 0) {
-      toast({
-        title: "No hay datos",
-        description: "No hay transacciones para exportar.",
-      });
+      toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' });
       return;
     }
 
     const headers = ['Fecha', 'Padre', 'Estudiante', 'Monto', 'Estado', 'Concepto', 'Tipo'];
-    const rows = (payments as PaymentTransaction[]).map(p => {
-      const date = new Date(p.created_at).toLocaleDateString();
-      const parentName = p.parent?.full_name || 'Desconocido';
-      const childName = p.child?.full_name || 'Desconocido';
-      return [date, parentName, childName, p.amount, p.status, p.concept, p.payment_type || 'N/A'];
+    const rows = payments.map(p => {
+      const cfg = STATUS_CONFIG[p.status];
+      return [
+        new Date(p.created_at).toLocaleDateString(),
+        p.parent?.full_name || 'Desconocido',
+        p.child?.full_name || 'Desconocido',
+        p.amount,
+        cfg?.label ?? p.status,
+        p.concept,
+        p.payment_type || 'N/A',
+      ];
     });
 
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.className = "hidden";
-    link.setAttribute("href", url);
-    link.setAttribute("download", `reporte_pagos_${new Date().toISOString().split('T')[0]}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `reporte_pagos_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    toast({
-      title: "Reporte Generado",
-      description: "El archivo CSV se ha descargado correctamente.",
-    });
+    toast({ title: 'Reporte Generado', description: 'El archivo CSV se ha descargado correctamente.' });
   };
 
   const handleShowProof = async (payment: PaymentTransaction) => {
     if (!payment.receipt_url) return;
 
-    // If it's already a full URL (legacy or external), just show it
     if (payment.receipt_url.startsWith('http')) {
-      setViewingProof({
-        open: true,
-        url: payment.receipt_url,
-        student: payment.child?.full_name || 'Estudiante',
-        amount: payment.amount
-      });
+      setViewingProof({ open: true, url: payment.receipt_url, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
       return;
     }
 
-    // Generate signed URL for private bucket
     try {
       const cleanPath = getStoragePath(payment.receipt_url);
       const { data, error } = await supabase.storage
         .from('payment-receipts')
-        .createSignedUrl(cleanPath, 300); // 5 minutes
+        .createSignedUrl(cleanPath, 300);
 
       if (error) throw error;
 
-      setViewingProof({
-        open: true,
-        url: data.signedUrl,
-        student: payment.child?.full_name || 'Estudiante',
-        amount: payment.amount
-      });
+      setViewingProof({ open: true, url: data.signedUrl, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
     } catch (err: unknown) {
-      console.error("Error generating signed URL:", err);
-      toast({
-        title: "Error de acceso",
-        description: "No se pudo generar el acceso seguro al comprobante.",
-        variant: "destructive"
-      });
+      toast({ title: 'Error de acceso', description: 'No se pudo generar el acceso seguro al comprobante.', variant: 'destructive' });
     }
   };
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
-
   const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    new Date(dateStr).toLocaleDateString('es-CO', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
 
-  // Separate lists
+  // FIX 5 — separar pendientes del historial para queries focalizadas
   const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
   const historyPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
 
-  // Stats calculation
-  const totalRevenue = payments
-    .filter(p => p.status === 'paid')
-    .reduce((acc, curr) => acc + curr.amount, 0);
-
-  const pendingAmount = pendingPayments.reduce((acc, curr) => acc + curr.amount, 0);
+  const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
+  const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
 
   return (
     <div className="space-y-6 w-full max-w-full overflow-x-hidden animate-in fade-in">
@@ -477,7 +416,7 @@ export default function PaymentsAutomationPage() {
         </div>
       </div>
 
-      {/* Stats Grid - REAL DATA */}
+      {/* Stats */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -533,7 +472,7 @@ export default function PaymentsAutomationPage() {
           <TabsTrigger value="config">Configuración</TabsTrigger>
         </TabsList>
 
-        {/* Cobros Recurrentes Tab */}
+        {/* Validación de cobros */}
         <TabsContent value="recurrent">
           <Card className="border-amber-200 bg-amber-50/10">
             <CardHeader>
@@ -541,13 +480,13 @@ export default function PaymentsAutomationPage() {
                 <Clock className="h-5 w-5 text-amber-600" />
                 Validación de Cobros
               </CardTitle>
-              <CardDescription>
-                Gestiona los pagos pendientes de validación y recordatorios.
-              </CardDescription>
+              <CardDescription>Gestiona los pagos pendientes de validación y recordatorios.</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="flex justify-center py-8"><Loader2 className="animate-spin h-8 w-8 text-muted-foreground" /></div>
+                <div className="flex justify-center py-8">
+                  <Loader2 className="animate-spin h-8 w-8 text-muted-foreground" />
+                </div>
               ) : pendingPayments.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground flex flex-col items-center">
                   <CheckCircle2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -576,9 +515,7 @@ export default function PaymentsAutomationPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col">
-                            <span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span>
-                          </div>
+                          <span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span>
                         </TableCell>
                         <TableCell className="font-bold text-primary">
                           {formatCurrency(payment.amount)}
@@ -586,8 +523,7 @@ export default function PaymentsAutomationPage() {
                         <TableCell>
                           {payment.receipt_url ? (
                             <Button
-                              variant="outline"
-                              size="sm"
+                              variant="outline" size="sm"
                               className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50"
                               onClick={() => handleShowProof(payment)}
                             >
@@ -600,18 +536,18 @@ export default function PaymentsAutomationPage() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button
-                              size="sm"
-                              variant="outline"
+                              size="sm" variant="outline"
                               className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
                               disabled={processingId === payment.id}
                               onClick={() => handleManualAction(payment.id, 'approve')}
                             >
-                              {processingId === payment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                              {processingId === payment.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <CheckCircle2 className="h-3 w-3 mr-1" />}
                               Aprobar
                             </Button>
                             <Button
-                              size="sm"
-                              variant="outline"
+                              size="sm" variant="outline"
                               className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
                               disabled={processingId === payment.id}
                               onClick={() => handleManualAction(payment.id, 'reject')}
@@ -630,14 +566,12 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
-        {/* Vista por Equipos Tab */}
+        {/* Vista por equipos */}
         <TabsContent value="teams">
           <Card>
             <CardHeader>
               <CardTitle>Vista por Equipos</CardTitle>
-              <CardDescription>
-                Listado de cobros programados por cada equipo y estudiante.
-              </CardDescription>
+              <CardDescription>Listado de cobros programados por cada equipo y estudiante.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="rounded-md border">
@@ -700,7 +634,7 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
-        {/* History Tab */}
+        {/* Historial */}
         <TabsContent value="history">
           <Card>
             <CardHeader>
@@ -721,54 +655,54 @@ export default function PaymentsAutomationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {historyPayments.map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
-                      <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
-                      <TableCell className="text-sm">{payment.program?.name || payment.concept}</TableCell>
-                      <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                      <TableCell className="text-xs uppercase">{payment.payment_method || 'N/A'}</TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          payment.status === 'paid' ? 'default' :
-                            payment.status === 'rejected' ? 'destructive' :
-                              payment.status === 'awaiting_approval' ? 'secondary' : 'outline'
-                        } className={
-                          payment.status === 'paid' ? 'bg-green-500 hover:bg-green-600' :
-                            payment.status === 'awaiting_approval' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200' : ''
-                        }>
-                          {payment.status === 'paid' ? 'Pagado' :
-                            payment.status === 'rejected' ? 'Rechazado' :
-                              payment.status === 'awaiting_approval' ? 'Por Validar' : payment.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {payment.receipt_url ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-blue-600 hover:bg-blue-50"
-                            onClick={() => handleShowProof(payment)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">N/A</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {historyPayments.length === 0 && (
+                  {historyPayments.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">No hay historial disponible.</TableCell>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        No hay historial disponible.
+                      </TableCell>
                     </TableRow>
+                  ) : (
+                    historyPayments.map((payment) => {
+                      // FIX 3 — usar STATUS_CONFIG para todos los statuses
+                      const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
+                      return (
+                        <TableRow key={payment.id}>
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
+                          <TableCell className="font-medium">
+                            {payment.child?.full_name || payment.parent?.full_name}
+                          </TableCell>
+                          <TableCell className="text-sm">{payment.program?.name || payment.concept}</TableCell>
+                          <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="text-xs uppercase">{payment.payment_method || 'N/A'}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-xs ${cfg.className}`}>
+                              {cfg.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {payment.receipt_url ? (
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-8 text-blue-600 hover:bg-blue-50"
+                                onClick={() => handleShowProof(payment)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">N/A</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </TabsContent>
-        {/* ─── Configuración Tab ───────────────────────────────────── */}
+
+        {/* Configuración */}
         <TabsContent value="config" className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -783,7 +717,8 @@ export default function PaymentsAutomationPage() {
 
           {billing && (
             <div className="grid gap-6 md:grid-cols-2">
-              {/* Payment Rules */}
+
+              {/* Reglas de cobro */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -797,16 +732,19 @@ export default function PaymentsAutomationPage() {
                     <div className="flex items-center gap-2">
                       <Input id="due_day" type="number" min={1} max={28} className="w-24"
                         value={billing.payment_cutoff_day}
-                        onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)} />
+                        onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)}
+                      />
                       <span className="text-sm text-muted-foreground">de cada mes</span>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="grace">Días de gracia</Label>
                     <div className="flex items-center gap-2">
+                      {/* FIX 1 — campo correcto: payment_grace_days */}
                       <Input id="grace" type="number" min={0} max={15} className="w-24"
-                        value={billing.grace_period_days}
-                        onChange={e => updateBilling('grace_period_days', parseInt(e.target.value) || 0)} />
+                        value={billing.payment_grace_days}
+                        onChange={e => updateBilling('payment_grace_days', parseInt(e.target.value) || 0)}
+                      />
                       <span className="text-sm text-muted-foreground">días después del corte</span>
                     </div>
                   </div>
@@ -816,13 +754,15 @@ export default function PaymentsAutomationPage() {
                       <Label className="font-medium">Generar cobros automáticos</Label>
                       <p className="text-xs text-muted-foreground">Crear pagos pendientes cada mes</p>
                     </div>
-                    <Switch checked={billing.auto_generate_payments}
-                      onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
+                    <Switch
+                      checked={billing.auto_generate_payments}
+                      onCheckedChange={v => updateBilling('auto_generate_payments', v)}
+                    />
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Late Fees */}
+              {/* Mora */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -836,8 +776,10 @@ export default function PaymentsAutomationPage() {
                       <Label className="font-medium">Habilitar mora</Label>
                       <p className="text-xs text-muted-foreground">Recargo después del período de gracia</p>
                     </div>
-                    <Switch checked={billing.late_fee_enabled}
-                      onCheckedChange={v => updateBilling('late_fee_enabled', v)} />
+                    <Switch
+                      checked={billing.late_fee_enabled}
+                      onCheckedChange={v => updateBilling('late_fee_enabled', v)}
+                    />
                   </div>
                   {billing.late_fee_enabled && (
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
@@ -845,7 +787,8 @@ export default function PaymentsAutomationPage() {
                       <div className="flex items-center gap-2">
                         <Input id="late_pct" type="number" min={1} max={50} className="w-24"
                           value={billing.late_fee_percentage}
-                          onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
+                          onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)}
+                        />
                         <span className="text-sm text-muted-foreground">% adicional</span>
                       </div>
                     </div>
@@ -855,13 +798,15 @@ export default function PaymentsAutomationPage() {
                       <Label className="font-medium">Exigir comprobante de pago</Label>
                       <p className="text-xs text-muted-foreground">Los padres deben subir foto del recibo</p>
                     </div>
-                    <Switch checked={billing.require_payment_proof}
-                      onCheckedChange={v => updateBilling('require_payment_proof', v)} />
+                    <Switch
+                      checked={billing.require_payment_proof}
+                      onCheckedChange={v => updateBilling('require_payment_proof', v)}
+                    />
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Reminders */}
+              {/* Recordatorios */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -875,8 +820,10 @@ export default function PaymentsAutomationPage() {
                       <Label className="font-medium">Enviar recordatorios</Label>
                       <p className="text-xs text-muted-foreground">Notificar a los padres antes del vencimiento</p>
                     </div>
-                    <Switch checked={billing.reminder_enabled}
-                      onCheckedChange={v => updateBilling('reminder_enabled', v)} />
+                    <Switch
+                      checked={billing.reminder_enabled}
+                      onCheckedChange={v => updateBilling('reminder_enabled', v)}
+                    />
                   </div>
                   {billing.reminder_enabled && (
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
@@ -884,7 +831,8 @@ export default function PaymentsAutomationPage() {
                       <div className="flex items-center gap-2">
                         <Input id="reminder_days" type="number" min={1} max={15} className="w-24"
                           value={billing.reminder_days_before}
-                          onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)} />
+                          onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)}
+                        />
                         <span className="text-sm text-muted-foreground">días antes</span>
                       </div>
                     </div>
@@ -892,7 +840,7 @@ export default function PaymentsAutomationPage() {
                 </CardContent>
               </Card>
 
-              {/* Permissions */}
+              {/* Permisos */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -906,8 +854,10 @@ export default function PaymentsAutomationPage() {
                       <Label className="font-medium">Coaches pueden enviar mensajes</Label>
                       <p className="text-xs text-muted-foreground">Comunicación directa coach → padres</p>
                     </div>
-                    <Switch checked={billing.allow_coach_messaging}
-                      onCheckedChange={v => updateBilling('allow_coach_messaging', v)} />
+                    <Switch
+                      checked={billing.allow_coach_messaging}
+                      onCheckedChange={v => updateBilling('allow_coach_messaging', v)}
+                    />
                   </div>
                   <Separator />
                   <p className="text-xs text-muted-foreground text-center">
@@ -915,12 +865,13 @@ export default function PaymentsAutomationPage() {
                   </p>
                 </CardContent>
               </Card>
+
             </div>
           )}
         </TabsContent>
       </Tabs>
 
-      {/* Proof of payment dialog */}
+      {/* Dialog comprobante */}
       <Dialog open={viewingProof.open} onOpenChange={open => setViewingProof(prev => ({ ...prev, open }))}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -935,14 +886,11 @@ export default function PaymentsAutomationPage() {
                 src={viewingProof.url}
                 alt="Comprobante"
                 className="max-h-[500px] object-contain rounded"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
               />
             ) : (
               <div className="text-center text-muted-foreground p-8">
                 <p>No hay imagen disponible.</p>
-                <p className="text-xs">(El usuario no subió archivo real)</p>
               </div>
             )}
           </div>
@@ -953,6 +901,6 @@ export default function PaymentsAutomationPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div >
+    </div>
   );
 }

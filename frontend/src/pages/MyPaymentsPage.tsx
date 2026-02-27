@@ -88,7 +88,7 @@ export default function MyPaymentsPage() {
     open: false,
     url: '',
     concept: '',
-    amount: 0
+    amount: 0,
   });
 
   useEffect(() => {
@@ -109,7 +109,6 @@ export default function MyPaymentsPage() {
         .order('created_at', { ascending: false });
 
       if (!error && payments && payments.length > 0) {
-        // Map Supabase payments to Transaction format
         const txns: Transaction[] = payments.map((p) => ({
           id: p.id,
           amount: p.amount,
@@ -124,7 +123,8 @@ export default function MyPaymentsPage() {
         setTransactions(txns);
       }
 
-      // Fetch children with their enrollments and teams
+      // FIX 1 — Usar FK explícita children_team_id_fkey para el join de teams.
+      //          Eliminado program_id del select para no mezclar fuentes.
       const { data: childrenData, error: childrenError } = await supabase
         .from('children')
         .select(`
@@ -133,12 +133,16 @@ export default function MyPaymentsPage() {
           monthly_fee,
           parent_id,
           school_id,
-          program_id,
+          team_id,
+          teams:teams!children_team_id_fkey (
+            name,
+            price_monthly
+          ),
           enrollments (
             id,
             program_id,
             school_id,
-            teams:teams!program_id (
+            teams:teams!enrollments_program_id_fkey (
               name,
               price_monthly
             ),
@@ -152,6 +156,7 @@ export default function MyPaymentsPage() {
       if (!childrenError && childrenData) {
         const flattened: Enrollment[] = [];
         childrenData.forEach((child: any) => {
+          // 1. Check formal enrollments first
           if (child.enrollments && child.enrollments.length > 0) {
             child.enrollments.forEach((enroll: any) => {
               flattened.push({
@@ -161,43 +166,60 @@ export default function MyPaymentsPage() {
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
                 teams: enroll.teams,
-                schools: enroll.schools
+                schools: enroll.schools,
               });
             });
-          } else if (child.monthly_fee > 0) {
-            // Fallback for children with direct monthly fee but no enrollment record
+          }
+          // 2. FIX 2 — Asignación directa por team_id.
+          //    program_id del enrollment = child.team_id (sin mezclar con program_id).
+          else if (child.teams) {
+            flattened.push({
+              id: `direct-team-${child.id}`,
+              child_id: child.id,
+              program_id: child.team_id,
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: child.teams.name,
+                price_monthly: child.teams.price_monthly,
+              },
+              schools: null,
+            });
+          }
+          // 3. Fallback a mensualidad directa
+          else if (child.monthly_fee > 0) {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: child.program_id || child.id,
+              program_id: child.team_id || child.id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
                 name: 'Mensualidad Estudiante',
-                price_monthly: child.monthly_fee
+                price_monthly: child.monthly_fee,
               },
-              schools: null
+              schools: null,
             });
-          } else {
-            // Even if no fee, show the child so they can still initiate a payment (maybe amount will be 0 or they edit it later)
+          }
+          // 4. Ultimate fallback — sin programa
+          else {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: child.program_id || 'none',
+              program_id: 'none',
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
                 name: 'Sin programa asignado',
-                price_monthly: 0
+                price_monthly: 0,
               },
-              schools: null
+              schools: null,
             });
           }
         });
         setEnrollments(flattened);
       }
 
-      // No mock subscriptions anymore
       setSubscriptions([]);
     } catch (error) {
       console.error('Error fetching payment data:', error);
@@ -221,22 +243,22 @@ export default function MyPaymentsPage() {
         open: true,
         url: data.signedUrl,
         concept,
-        amount
+        amount,
       });
     } catch (err: unknown) {
-      console.error("Error generating signed URL:", err);
+      console.error('Error generating signed URL:', err);
       toast({
-        title: "Error de acceso",
-        description: "No se pudo generar el acceso seguro al comprobante.",
-        variant: "destructive"
+        title: 'Error de acceso',
+        description: 'No se pudo generar el acceso seguro al comprobante.',
+        variant: 'destructive',
       });
     }
   };
 
   const handleCancelSubscription = async (subscriptionId: string) => {
     toast({
-      title: "Suscripción cancelada",
-      description: "Tu suscripción ha sido cancelada exitosamente"
+      title: 'Suscripción cancelada',
+      description: 'Tu suscripción ha sido cancelada exitosamente',
     });
     setSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
   };
@@ -376,7 +398,7 @@ export default function MyPaymentsPage() {
                             {new Date(txn.transaction_date).toLocaleDateString('es-CO', {
                               day: '2-digit',
                               month: 'short',
-                              year: 'numeric'
+                              year: 'numeric',
                             })}
                           </TableCell>
                           <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
@@ -386,7 +408,9 @@ export default function MyPaymentsPage() {
                               <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
                             </span>
                           </TableCell>
-                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">{formatCurrency(txn.amount)}</TableCell>
+                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
+                            {formatCurrency(txn.amount)}
+                          </TableCell>
                           <TableCell>{getStatusBadge(txn.status)}</TableCell>
                           <TableCell>
                             {txn.status === 'approved' && (
@@ -582,7 +606,6 @@ export default function MyPaymentsPage() {
               <span className="font-semibold">{viewingProof.concept}</span>
               <span className="font-bold text-lg">{formatCurrency(viewingProof.amount)}</span>
             </div>
-
             <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
               {viewingProof.url ? (
                 <img
@@ -596,7 +619,6 @@ export default function MyPaymentsPage() {
                 </div>
               )}
             </div>
-
             <div className="flex justify-end">
               <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
                 Cerrar
