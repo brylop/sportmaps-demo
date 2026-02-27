@@ -115,6 +115,43 @@ export default function TeamsPage() {
       if (teamsError) throw teamsError;
       let allTeams = (teamsData || []) as unknown as TeamWithRelations[];
 
+      // ── Resolver nombre del coach desde profiles cuando team_coaches está vacío ──
+      // Ocurre cuando el entrenador asignado tiene rol owner/school_admin y no tiene
+      // registro en school_staff, por lo que el join team_coaches → school_staff devuelve [].
+      const teamsWithoutCoachName = allTeams.filter(
+        (t) => (!t.team_coaches || t.team_coaches.length === 0) && t.coach_id
+      );
+
+      if (teamsWithoutCoachName.length > 0) {
+        const coachIds = [...new Set(teamsWithoutCoachName.map((t) => t.coach_id as string))];
+
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', coachIds);
+
+        if (profilesData && profilesData.length > 0) {
+          const profileMap = Object.fromEntries(profilesData.map((p: any) => [p.id, p.full_name]));
+
+          allTeams = allTeams.map((team) => {
+            if ((!team.team_coaches || team.team_coaches.length === 0) && team.coach_id && profileMap[team.coach_id]) {
+              return {
+                ...team,
+                // Inyectar como team_coaches sintético para que el render existente lo lea igual
+                team_coaches: [{
+                  coach: {
+                    id: team.coach_id,
+                    full_name: profileMap[team.coach_id],
+                  },
+                }],
+              };
+            }
+            return team;
+          });
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────────
+
       const isAdminRole = (currentUserRole as string) === 'owner' ||
         (currentUserRole as string) === 'school' ||
         (currentUserRole as string) === 'admin' ||
