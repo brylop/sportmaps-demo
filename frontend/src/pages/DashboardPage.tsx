@@ -27,7 +27,7 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 export default function DashboardPage() {
   const { profile, user, updateProfile } = useAuth();
   const { toast } = useToast();
-  const { activeBranchId, activeBranchName } = useSchoolContext();
+  const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const pendingInviteId = localStorage.getItem('pending_invite_id');
@@ -60,21 +60,22 @@ export default function DashboardPage() {
   const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
 
   // Unify stats: only use generic stats hook for non-school/coach roles
-  const isMultitenantRole = profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'coach' || profile?.role === 'parent';
+  const isMultitenantRole = profile?.role === 'school' || (profile?.role as string) === 'school_admin' || profile?.role === 'coach' || profile?.role === 'parent';
   const { data: statsData } = useDashboardStats(isMultitenantRole ? undefined : ((profile?.role as UserRole) || 'athlete'));
 
   // Usar la misma lógica que AppSidebar para definir el navigationRole
   let dashboardRole: UserRole = (profile?.role as UserRole) || 'athlete';
 
-  if (profile?.role === 'owner' || profile?.role === 'super_admin') {
+  const role = profile?.role as unknown as string;
+
+  if (role === 'owner' || role === 'super_admin') {
     // Si tiene multiples sedes y está en Todas las sedes (global) es admin, sino es school (operativo)
-    const { totalBranches } = useSchoolContext();
     dashboardRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
-  } else if (profile?.role === 'school_admin') {
+  } else if (role === 'school_admin') {
     dashboardRole = 'school_admin';
-  } else if (profile?.role === 'school') {
+  } else if (role === 'school') {
     dashboardRole = 'school';
-  } else if (profile?.role === 'staff') {
+  } else if (role === 'staff') {
     dashboardRole = 'coach';
   }
 
@@ -301,9 +302,7 @@ export default function DashboardPage() {
   });
 
   // Transform notifications for display (Demo vs Real)
-  let displayNotifications;
-
-  displayNotifications = notifications?.slice(0, 5).map(n => ({
+  const displayNotifications = notifications?.slice(0, 5).map(n => ({
     id: n.id,
     title: n.title,
     message: n.message,

@@ -17,6 +17,7 @@ import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
 
@@ -32,6 +33,16 @@ interface BillingSettings {
   late_fee_percentage: number;
   allow_coach_messaging: boolean;
   require_payment_proof: boolean;
+
+  // Dynamic Bank Settings
+  bank_name?: string | null;
+  bank_account_type?: string | null;
+  bank_account_number?: string | null;
+  nequi_number?: string | null;
+  daviplata_number?: string | null;
+  bank_titular_name?: string | null;
+  bank_titular_id?: string | null;
+  payment_qr_url?: string | null;
 }
 
 const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
@@ -128,6 +139,14 @@ export default function PaymentsAutomationPage() {
         late_fee_percentage: billing.late_fee_percentage,
         allow_coach_messaging: billing.allow_coach_messaging,
         require_payment_proof: billing.require_payment_proof,
+        bank_name: billing.bank_name,
+        bank_account_type: billing.bank_account_type,
+        bank_account_number: billing.bank_account_number,
+        nequi_number: billing.nequi_number,
+        daviplata_number: billing.daviplata_number,
+        bank_titular_name: billing.bank_titular_name,
+        bank_titular_id: billing.bank_titular_id,
+        payment_qr_url: billing.payment_qr_url,
       };
 
       // FIX 2 — upsert por school_id (la PK real), nunca usar billing.id
@@ -181,7 +200,7 @@ export default function PaymentsAutomationPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const mappedPayments: PaymentTransaction[] = ((data as any[]) || []).map((p) => ({
+      const mappedPayments: PaymentTransaction[] = ((data as unknown[]) || []).map((p) => ({
         id: p.id,
         amount: p.amount,
         status: p.status,
@@ -196,10 +215,11 @@ export default function PaymentsAutomationPage() {
       }));
 
       setPayments(mappedPayments);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       toast({
         title: 'Error al cargar pagos',
-        description: error?.message || String(error),
+        description: err.message || 'Error desconocido',
         variant: 'destructive',
       });
     } finally {
@@ -229,10 +249,11 @@ export default function PaymentsAutomationPage() {
       const { data, error } = await query;
       if (error) throw error;
       setTeamSubscriptions(data as unknown as TeamSubscription[]);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       toast({
         title: 'Error en suscripciones',
-        description: error?.message || String(error),
+        description: err.message || String(err),
         variant: 'destructive',
       });
     }
@@ -863,6 +884,118 @@ export default function PaymentsAutomationPage() {
                   <p className="text-xs text-muted-foreground text-center">
                     Más opciones de permisos estarán disponibles próximamente.
                   </p>
+                </CardContent>
+              </Card>
+
+              {/* Datos de Pago (Transferencia / Cuentas) */}
+              <Card className="col-span-1 md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-indigo-500" /> Datos de Pago para Transferencia
+                  </CardTitle>
+                  <CardDescription>
+                    Esta información la verán los acudientes cuando elijan pago manual o transferencia.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_name">Nombre del Banco</Label>
+                      <Input id="bank_name" placeholder="Ej: Bancolombia"
+                        value={billing.bank_name || ''}
+                        onChange={e => updateBilling('bank_name', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_account_type">Tipo de Cuenta</Label>
+                      <select
+                        id="bank_account_type"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        value={billing.bank_account_type || ''}
+                        onChange={e => updateBilling('bank_account_type', e.target.value)}
+                      >
+                        <option value="">Selecciona tipo</option>
+                        <option value="ahorros">Ahorros</option>
+                        <option value="corriente">Corriente</option>
+                        <option value="billetera_digital">Billetera Digital</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_account_number">Número de Cuenta Principal</Label>
+                      <Input id="bank_account_number" placeholder="Ej: 123-456789-01"
+                        value={billing.bank_account_number || ''}
+                        onChange={e => updateBilling('bank_account_number', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nequi_number">Número Nequi (Opcional)</Label>
+                      <Input id="nequi_number" placeholder="Celular"
+                        value={billing.nequi_number || ''}
+                        onChange={e => updateBilling('nequi_number', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="daviplata_number">Número Daviplata (Opcional)</Label>
+                      <Input id="daviplata_number" placeholder="Celular"
+                        value={billing.daviplata_number || ''}
+                        onChange={e => updateBilling('daviplata_number', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_titular_name">Nombre del Titular o Razón Social</Label>
+                      <Input id="bank_titular_name" placeholder="Titular de la cuenta"
+                        value={billing.bank_titular_name || ''}
+                        onChange={e => updateBilling('bank_titular_name', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_titular_id">NIT o Cédula del Titular</Label>
+                      <Input id="bank_titular_id" placeholder="Documento"
+                        value={billing.bank_titular_id || ''}
+                        onChange={e => updateBilling('bank_titular_id', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Código QR para Transferencia / Billetera Digital</Label>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Este código QR se mostrará junto con los datos bancarios.
+                      </p>
+                    </div>
+                    {billing.payment_qr_url ? (
+                      <div className="flex flex-col items-start gap-4 p-4 border rounded-lg bg-muted/30">
+                        <img
+                          src={billing.payment_qr_url}
+                          alt="QR de Pago"
+                          className="w-32 h-32 object-cover rounded-md border bg-white"
+                        />
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => updateBilling('payment_qr_url', null)}
+                        >
+                          Eliminar QR
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="p-4 border rounded-lg border-dashed">
+                        <FileUpload
+                          bucket="school-assets"
+                          accept="image/*"
+                          onUploadComplete={(url) => updateBilling('payment_qr_url', url)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 

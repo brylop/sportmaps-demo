@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -51,6 +52,36 @@ export function PaymentCheckoutModal({
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
+  const [checkingDian, setCheckingDian] = useState<boolean>(true);
+  const [bankDetails, setBankDetails] = useState<any>(null);
+
+  useEffect(() => {
+    if (open && schoolId) {
+      supabase.from('school_settings')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+        .eq('school_id', schoolId)
+        .single()
+        .then(({ data }) => setBankDetails(data));
+    }
+  }, [open, schoolId]);
+
+  useEffect(() => {
+    if (open && user?.id) {
+      const checkProfile = async () => {
+        setCheckingDian(true);
+        const { data } = await supabase.from('profiles').select('document_type, document_number, billing_address, billing_city_dane').eq('id', user.id).single();
+        if (data && data.document_type && data.document_number && data.billing_address && data.billing_city_dane) {
+          setHasCompleteDianData(true);
+        } else {
+          setHasCompleteDianData(false);
+        }
+        setCheckingDian(false);
+      };
+      checkProfile();
+    }
+  }, [open, user?.id]);
 
   const paymentMethods = [
     {
@@ -213,12 +244,13 @@ export function PaymentCheckoutModal({
         setSelectedMethod(null);
       }, 2000);
 
-    } catch (error: any) {
-      console.error('Payment error:', error);
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      console.error('Payment error:', err);
       setPaymentStatus('error');
       toast({
         title: "Error en el pago",
-        description: error.message || "No se pudo procesar tu pago. Inténtalo de nuevo.",
+        description: err.message || "No se pudo procesar tu pago. Inténtalo de nuevo.",
         variant: "destructive"
       });
 
@@ -307,21 +339,41 @@ export function PaymentCheckoutModal({
               })}
             </div>
 
+            {/* Interception Form if Missing DIAN Data */}
+            {selectedMethod && !checkingDian && !hasCompleteDianData && (
+              <div className="pt-4 border-t mt-4">
+                <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
+              </div>
+            )}
+
             {/* Bank Info for Transfer */}
-            {selectedMethod === 'transfer' && (
+            {selectedMethod === 'transfer' && hasCompleteDianData && (
               <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
                 <Alert variant="default" className="bg-primary/5 border-primary/20">
                   <Info className="h-4 w-4 text-primary" />
                   <AlertTitle className="text-primary font-bold">Información de Transferencia</AlertTitle>
                   <AlertDescription className="space-y-2 mt-2">
                     <p className="text-sm">Realiza tu transferencia a la siguiente cuenta:</p>
-                    <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs">
-                      <p><strong>Banco:</strong> Bancolombia (Ahorros)</p>
-                      <p><strong>Número:</strong> 123-456789-01</p>
-                      <p><strong>Nequi:</strong> 300 123 4567</p>
-                      <p><strong>Titular:</strong> SportMaps Academia</p>
-                      <p><strong>NIT:</strong> 900.123.456-7</p>
-                    </div>
+
+                    {bankDetails ? (
+                      <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs">
+                        {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
+                        {bankDetails.bank_account_number && <p><strong>Número:</strong> {bankDetails.bank_account_number}</p>}
+                        {bankDetails.nequi_number && <p><strong>Nequi:</strong> {bankDetails.nequi_number}</p>}
+                        {bankDetails.daviplata_number && <p><strong>Daviplata:</strong> {bankDetails.daviplata_number}</p>}
+                        {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
+                        {bankDetails.bank_titular_id && <p><strong>NIT/CC:</strong> {bankDetails.bank_titular_id}</p>}
+                      </div>
+                    ) : (
+                      <p className="text-xs italic text-muted-foreground">La escuela no ha configurado sus datos bancarios aún.</p>
+                    )}
+
+                    {bankDetails?.payment_qr_url && (
+                      <div className="mt-3 text-center flex flex-col items-center">
+                        <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
+                        <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-32 h-32 rounded-lg object-cover shadow-sm border" />
+                      </div>
+                    )}
                   </AlertDescription>
                 </Alert>
 
@@ -343,31 +395,33 @@ export function PaymentCheckoutModal({
             )}
 
             {/* Action Buttons */}
-            <div className="space-y-2">
-              <Button
-                className="w-full"
-                size="lg"
-                disabled={!selectedMethod || processing}
-                onClick={processPayment}
-              >
-                {processing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Procesando...
-                  </>
-                ) : (
-                  `Pagar ${formatCurrency(amount)}`
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleClose}
-                disabled={processing}
-              >
-                Cancelar
-              </Button>
-            </div>
+            {hasCompleteDianData && (
+              <div className="space-y-2">
+                <Button
+                  className="w-full"
+                  size="lg"
+                  disabled={!selectedMethod || processing}
+                  onClick={processPayment}
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    `Pagar ${formatCurrency(amount)}`
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleClose}
+                  disabled={processing}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            )}
 
             <p className="text-xs text-center text-muted-foreground">
               {selectedMethod === 'transfer' ? (

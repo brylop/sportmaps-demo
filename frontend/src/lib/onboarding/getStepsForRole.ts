@@ -23,7 +23,7 @@ export const getStepsForRole = (role: string, status: any) => {
                 { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
             ];
 
-        case USER_ROLES.PARENT:
+        case USER_ROLES.PARENT: {
             const parentSteps = [];
 
             // Only show accept_invite if there's a pending invitation or it was already accepted
@@ -36,6 +36,7 @@ export const getStepsForRole = (role: string, status: any) => {
                 { id: 'medical_info', title: 'Ficha Médica', description: 'Sube EPS y datos de salud.', completed: status.has_medical_records, href: '/children', icon: Heart }
             );
             return parentSteps;
+        }
 
         case USER_ROLES.COACH:
             return [

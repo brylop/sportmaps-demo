@@ -75,7 +75,7 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
-    const dateRegex = /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})\b/g;
+    const dateRegex = /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}[/-]\d{2}[/-]\d{2})\b/g;
     const matches = text.match(dateRegex);
     const humanDateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\s+(?:de\s+)?(\d{4})\b/gi;
     const humanMatch = humanDateRegex.exec(text);

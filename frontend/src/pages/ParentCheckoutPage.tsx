@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -38,6 +39,28 @@ export default function ParentCheckoutPage() {
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
 
+  const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
+  const [checkingDian, setCheckingDian] = useState<boolean>(true);
+
+  // Fetch DIAN Profile Data
+  useEffect(() => {
+    if (user?.id) {
+      const checkProfile = async () => {
+        setCheckingDian(true);
+        const { data } = await supabase.from('profiles').select('document_type, document_number, billing_address, billing_city_dane').eq('id', user.id).single();
+        if (data && data.document_type && data.document_number && data.billing_address && data.billing_city_dane) {
+          setHasCompleteDianData(true);
+        } else {
+          setHasCompleteDianData(false);
+        }
+        setCheckingDian(false);
+      };
+      checkProfile();
+    }
+  }, [user?.id]);
+
+  const [bankDetails, setBankDetails] = useState<any>(null);
+
   // Fetch School Settings (Feature Flag)
   useEffect(() => {
     const fetchSchoolSettings = async () => {
@@ -60,6 +83,16 @@ export default function ParentCheckoutPage() {
         setPaymentSettings({ allow_online: false, allow_manual: true });
         setPaymentFlow('manual');
       }
+
+      // Fetch Bank Details if a school was found
+      if (data?.id) {
+        const { data: bankData } = await supabase.from('school_settings')
+          .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+          .eq('school_id', data.id)
+          .single();
+        setBankDetails(bankData);
+      }
+
       setLoadingSettings(false);
     };
 
@@ -272,33 +305,62 @@ export default function ParentCheckoutPage() {
         <Card className="mb-6">
           <CardHeader><CardTitle className="text-lg">Método de Pago</CardTitle></CardHeader>
           <CardContent>
-            {(!canPayOnline && !canPayManual) ? (
-              <div className="p-4 bg-destructive/10 text-destructive rounded-lg">Esth escuela no acepta pagos por este medio.</div>
+            {!checkingDian && !hasCompleteDianData ? (
+              <div className="pt-2">
+                <BillingDetailsForm onComplete={() => setHasCompleteDianData(true)} />
+              </div>
+            ) : (!canPayOnline && !canPayManual) ? (
+              <div className="p-4 bg-destructive/10 text-destructive rounded-lg">Esta escuela no acepta pagos por este medio.</div>
             ) : (
-              <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'manual')}>
-                {canPayOnline && (
-                  <div className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer ${paymentFlow === 'wompi' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('wompi')}>
-                    <RadioGroupItem value="wompi" id="wompi" />
-                    <Label htmlFor="wompi" className="cursor-pointer flex-1">
-                      <div className="font-medium flex items-center gap-2"><CreditCard className="h-4 w-4" /> Wompi (Online)</div>
-                    </Label>
-                  </div>
-                )}
+              <>
+                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'manual')}>
+                  {canPayOnline && (
+                    <div className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer ${paymentFlow === 'wompi' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('wompi')}>
+                      <RadioGroupItem value="wompi" id="wompi" />
+                      <Label htmlFor="wompi" className="cursor-pointer flex-1">
+                        <div className="font-medium flex items-center gap-2"><CreditCard className="h-4 w-4" /> Wompi (Online)</div>
+                      </Label>
+                    </div>
+                  )}
 
-                {canPayManual && (
-                  <div className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer mt-3 ${paymentFlow === 'manual' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('manual')}>
-                    <RadioGroupItem value="manual" id="manual" />
-                    <Label htmlFor="manual" className="cursor-pointer flex-1">
-                      <div className="font-medium flex items-center gap-2"><Upload className="h-4 w-4" /> Transferencia Manual</div>
-                    </Label>
-                  </div>
-                )}
-              </RadioGroup>
+                  {canPayManual && (
+                    <div className={`flex flex-col space-y-3 p-4 border rounded-lg cursor-pointer mt-3 ${paymentFlow === 'manual' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('manual')}>
+                      <div className="flex items-center space-x-3">
+                        <RadioGroupItem value="manual" id="manual" />
+                        <Label htmlFor="manual" className="cursor-pointer flex-1">
+                          <div className="font-medium flex items-center gap-2"><Upload className="h-4 w-4" /> Transferencia Manual</div>
+                        </Label>
+                      </div>
+
+                      {paymentFlow === 'manual' && bankDetails && (
+                        <div className="pl-7 pt-2 animate-in fade-in slide-in-from-top-2">
+                          <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs mb-3">
+                            <p className="text-muted-foreground font-sans mb-2 font-semibold">Datos de Transferencia:</p>
+                            {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
+                            {bankDetails.bank_account_number && <p><strong>Número:</strong> {bankDetails.bank_account_number}</p>}
+                            {bankDetails.nequi_number && <p><strong>Nequi:</strong> {bankDetails.nequi_number}</p>}
+                            {bankDetails.daviplata_number && <p><strong>Daviplata:</strong> {bankDetails.daviplata_number}</p>}
+                            {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
+                            {bankDetails.bank_titular_id && <p><strong>NIT/CC:</strong> {bankDetails.bank_titular_id}</p>}
+                          </div>
+
+                          {bankDetails.payment_qr_url && (
+                            <div className="mt-3 text-center flex flex-col items-center">
+                              <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
+                              <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-24 h-24 rounded-lg object-cover shadow-sm border" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </RadioGroup>
+
+                <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
+                  {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
+                </Button>
+              </>
             )}
-
-            <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
-              {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
-            </Button>
           </CardContent>
         </Card>
       </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
@@ -222,7 +222,7 @@ export function useSchoolContext(): SchoolContext {
         }
     }, [activeSchoolId, activeBranchId]);
 
-    const selectSchool = async (school: SchoolRole) => {
+    const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
@@ -251,7 +251,7 @@ export function useSchoolContext(): SchoolContext {
 
         setOnboardingStatus(school.onboardingStatus || 'completed');
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
-    };
+    }, []);
 
     const switchSchool = (schoolId: string, branchId: string | null = null) => {
         const target = availableSchools.find(s => s.schoolId === schoolId && s.branchId === branchId);
@@ -264,7 +264,7 @@ export function useSchoolContext(): SchoolContext {
         }
     };
 
-    const fetchPrograms = async (id: string, branchId: string | null = null) => {
+    const fetchPrograms = useCallback(async (id: string, branchId: string | null = null) => {
         if (!id || id === "") return;
         setLoading(true);
         try {
@@ -297,9 +297,9 @@ export function useSchoolContext(): SchoolContext {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const fetchSettings = async (id: string) => {
+    const fetchSettings = useCallback(async (id: string) => {
         if (!id || id === "") return;
         const { data } = await supabase
             .from('school_settings')
@@ -307,7 +307,7 @@ export function useSchoolContext(): SchoolContext {
             .eq('school_id', id)
             .maybeSingle();
         setSchoolSettings(data);
-    };
+    }, []);
 
     const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed'): Promise<boolean> => {
         if (!activeSchoolId) {

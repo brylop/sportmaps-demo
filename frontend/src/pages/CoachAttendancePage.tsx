@@ -94,10 +94,18 @@ export default function CoachAttendancePage() {
       }
 
       // Flatten structure
-      return data.map((item: any) => ({
-        id: item.enrollments.students.id,
-        full_name: item.enrollments.students.full_name,
-        photo_url: item.enrollments.students.avatar_url,
+      return (data || []).map((item: {
+        enrollments: {
+          students: {
+            id: string;
+            full_name: string;
+            avatar_url: string | null
+          }
+        }
+      }) => ({
+        id: item.enrollments?.students?.id,
+        full_name: item.enrollments?.students?.full_name,
+        photo_url: item.enrollments?.students?.avatar_url,
       })) as StudentItem[];
     },
     enabled: !!selectedClassId,
@@ -135,7 +143,7 @@ export default function CoachAttendancePage() {
 
       const { error } = await supabase
         .from('attendance_records')
-        .insert(recordsWithProgram as any); // Cast as any if TS still complains about complex insert structure
+        .insert(recordsWithProgram);
 
       if (error) throw error;
     },
@@ -179,20 +187,6 @@ export default function CoachAttendancePage() {
     return attendanceState[studentId] === status ? 'default' : 'outline';
   };
 
-  const getStatusIcon = (status?: AttendanceStatus) => {
-    switch (status) {
-      case 'present':
-        return <CheckCircle2 className="w-5 h-5 text-green-500" />;
-      case 'absent':
-        return <XCircle className="w-5 h-5 text-red-500" />;
-      case 'late':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
-      case 'excused':
-        return <AlertCircle className="w-5 h-5 text-blue-500" />;
-      default:
-        return null;
-    }
-  };
 
   return (
     <div className="space-y-6">

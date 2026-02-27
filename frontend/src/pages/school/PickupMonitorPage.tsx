@@ -115,16 +115,6 @@ export default function PickupMonitorPage() {
         setStudents(prev => prev.map(s => s.id === id ? { ...s, status: newStatus, eta_mins: newStatus === 'at_gate' ? 0 : s.eta_mins } : s));
     };
 
-    const getStatusColor = (status: PickupStatus) => {
-        switch (status) {
-            case 'in_class': return 'bg-slate-100 text-slate-600';
-            case 'approaching': return 'bg-blue-100 text-blue-700 border-blue-200';
-            case 'at_gate': return 'bg-orange-100 text-orange-700 border-orange-200 animate-pulse';
-            case 'picked_up': return 'bg-green-100 text-green-700';
-            default: return '';
-        }
-    };
-
     return (
         <div className="space-y-6 h-full flex flex-col">
             {/* Header & Controls */}

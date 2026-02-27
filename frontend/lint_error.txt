@@ -1,0 +1,14 @@
+﻿
+C:\Users\Usuario\Documents\demo\sportmaps-demo\frontend\src\pages\school\PickupMonitorPage.tsx
+    2:29  warning  'CardHeader' is defined but never used               @typescript-eslint/no-unused-vars
+    2:41  warning  'CardTitle' is defined but never used                @typescript-eslint/no-unused-vars
+    2:52  warning  'CardDescription' is defined but never used          @typescript-eslint/no-unused-vars
+    6:10  warning  'Tabs' is defined but never used                     @typescript-eslint/no-unused-vars
+    6:16  warning  'TabsContent' is defined but never used              @typescript-eslint/no-unused-vars
+    6:29  warning  'TabsList' is defined but never used                 @typescript-eslint/no-unused-vars
+    6:39  warning  'TabsTrigger' is defined but never used              @typescript-eslint/no-unused-vars
+   13:5   warning  'AlertCircle' is defined but never used              @typescript-eslint/no-unused-vars
+  118:11  warning  'getStatusColor' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+Ô£û 9 problems (0 errors, 9 warnings)
+

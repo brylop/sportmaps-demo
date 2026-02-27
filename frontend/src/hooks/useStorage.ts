@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { getStoragePath } from '@/lib/utils';
 
-export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates';
+export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates' | 'school-assets';
 
 export function useStorage() {
   const [uploading, setUploading] = useState(false);
