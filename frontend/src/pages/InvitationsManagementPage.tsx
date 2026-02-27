@@ -39,6 +39,7 @@ interface Invitation {
   monthly_fee: number;
   status: string;
   created_at: string;
+  expires_at?: string;
   parent_phone?: string;
   registration_link?: string;
   role_to_assign?: string;
@@ -185,6 +186,7 @@ export default function InvitationsManagementPage() {
         monthly_fee: inv.monthly_fee || 0,
         status: inv.status,
         created_at: inv.created_at,
+        expires_at: inv.expires_at || null,
         role_to_assign: inv.role_to_assign,
         branch_name: inv.school_branches?.name || 'Sede Principal'
       })) as Invitation[];
@@ -365,28 +367,17 @@ export default function InvitationsManagementPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'accepted':
-        return (
-          <Badge className="bg-green-500">
-            <Check className="w-3 h-3 mr-1" />
-            Aceptada
-          </Badge>
-        );
+        return <Badge className="bg-green-500"><Check className="w-3 h-3 mr-1" />Aceptada</Badge>;
       case 'pending':
-        return (
-          <Badge variant="secondary">
-            <Clock className="w-3 h-3 mr-1" />
-            Pendiente
-          </Badge>
-        );
+        return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
       case 'rejected':
-        return (
-          <Badge variant="destructive">
-            <XIcon className="w-3 h-3 mr-1" />
-            Rechazada
-          </Badge>
-        );
+        return <Badge variant="destructive"><XIcon className="w-3 h-3 mr-1" />Rechazada</Badge>;
+      case 'expired':
+        return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirada</Badge>;
+      case 'cancelled':
+        return <Badge variant="outline" className="text-gray-400 border-gray-300"><XIcon className="w-3 h-3 mr-1" />Cancelada</Badge>;
       default:
-        return null;
+        return <Badge variant="outline" className="text-gray-400">{status}</Badge>;
     }
   };
 
@@ -394,7 +385,8 @@ export default function InvitationsManagementPage() {
     total: invitations.length,
     accepted: invitations.filter(i => i.status === 'accepted').length,
     pending: invitations.filter(i => i.status === 'pending').length,
-    rejected: invitations.filter(i => i.status === 'rejected').length
+    rejected: invitations.filter(i => i.status === 'rejected').length,
+    expired: invitations.filter(i => i.status === 'expired').length,
   };
 
   return (
@@ -452,7 +444,7 @@ export default function InvitationsManagementPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card
           className={`cursor-pointer transition-all hover:ring-2 hover:ring-primary/20 ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter('all')}
@@ -508,6 +500,19 @@ export default function InvitationsManagementPage() {
             <div className="text-2xl font-bold text-red-500">{stats.rejected}</div>
           </CardContent>
         </Card>
+
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-orange-500/20 ${statusFilter === 'expired' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'
+            }`}
+          onClick={() => setStatusFilter('expired')}
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Expiradas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-500">{stats.expired}</div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Invitations Table */}
@@ -537,8 +542,15 @@ export default function InvitationsManagementPage() {
                         <Mail className="w-3 h-3 text-muted-foreground" />
                         <span className="text-sm">{invitation.invited_email}</span>
                       </div>
+                      <Badge variant="secondary" className="w-fit text-[10px] capitalize font-normal">
+                        {invitation.role_to_assign === 'parent' ? 'Padre' :
+                          invitation.role_to_assign === 'coach' ? 'Entrenador' :
+                            invitation.role_to_assign === 'athlete' ? 'Atleta' :
+                              invitation.role_to_assign === 'school_admin' ? 'Admin Sede' :
+                                invitation.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
+                      </Badge>
                       {invitation.parent_phone && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-1">
                           <MessageCircle className="w-3 h-3 text-green-500" />
                           <span className="text-xs text-muted-foreground">{invitation.parent_phone}</span>
                         </div>
@@ -551,33 +563,26 @@ export default function InvitationsManagementPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="capitalize">
-                      {invitation.role_to_assign === 'parent' ? 'Padre' :
-                        invitation.role_to_assign === 'coach' ? 'Entrenador' :
-                          invitation.role_to_assign === 'athlete' ? 'Atleta' :
-                            invitation.role_to_assign === 'school_admin' ? 'Admin Sede' :
-                              invitation.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium text-xs">
-                    {invitation.child_name || '—'}
-                  </TableCell>
-                  <TableCell>
-                    {invitation.program_name !== '—' ? (
-                      <Badge variant="outline" className="text-xs">{invitation.program_name}</Badge>
-                    ) : '—'}
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium text-xs">
+                        {invitation.child_name || '—'}
+                      </span>
+                      {invitation.program_name !== '—' && (
+                        <Badge variant="outline" className="w-fit text-[10px] font-normal">{invitation.program_name}</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="font-semibold text-primary">
                     {invitation.role_to_assign === 'parent' ? formatCurrency(invitation.monthly_fee) : '—'}
                   </TableCell>
-                  <TableCell className="text-xs">
-                    {format(new Date(invitation.created_at), 'PPP', { locale: es })}
-                  </TableCell>
                   <TableCell>
                     {getStatusBadge(invitation.status)}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
+                  <TableCell className="text-xs">
+                    {format(new Date(invitation.created_at), 'PPP', { locale: es })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
