@@ -7,6 +7,7 @@ interface ImportMetaEnv {
     readonly VITE_SENTRY_DSN?: string
     readonly VITE_SENTRY_ENVIRONMENT?: string
     readonly VITE_DEMO_SCHOOL_EMAIL?: string
+    readonly VITE_VAPID_PUBLIC_KEY?: string
 }
 
 interface ImportMeta {

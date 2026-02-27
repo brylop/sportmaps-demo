@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useStorage } from '@/hooks/useStorage';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,8 +93,11 @@ export default function ProfilePage() {
 
   // Notification settings
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [smsNotifications, setSmsNotifications] = useState(false);
+  const { subscribe, status: pushStatus, checkStatus } = usePushSubscription();
+
+  useEffect(() => {
+    checkStatus();
+  }, [checkStatus]);
   const [weeklyReport, setWeeklyReport] = useState(true);
 
   // Privacy settings
@@ -531,15 +535,21 @@ export default function ProfilePage() {
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Notificaciones Push</Label>
+                    <Label>Notificaciones Push (PWA)</Label>
                     <p className="text-sm text-muted-foreground">
-                      Recibe notificaciones en tu dispositivo
+                      Recibe notificaciones en tu dispositivo cuando la app está en segundo plano
                     </p>
                   </div>
                   <Switch
-                    checked={pushNotifications}
-                    onCheckedChange={setPushNotifications}
+                    checked={pushStatus === 'granted'}
+                    onCheckedChange={(checked) => checked && subscribe()}
+                    disabled={pushStatus === 'loading' || pushStatus === 'unsupported'}
                   />
+                  {pushStatus === 'denied' && (
+                    <p className="text-xs text-muted-foreground col-span-2">
+                      Activa las notificaciones en la configuración del navegador
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between">

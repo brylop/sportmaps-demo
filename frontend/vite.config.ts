@@ -37,6 +37,9 @@ export default defineConfig(({ mode }) => ({
     react(),
     mode === "development" && componentTagger(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'public',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'sportmaps-logo.png'],
       manifest: {
@@ -120,6 +123,9 @@ export default defineConfig(({ mode }) => ({
             }
           }
         ]
+      },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       }
     })
   ].filter(Boolean),

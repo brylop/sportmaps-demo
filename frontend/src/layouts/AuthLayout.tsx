@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { RealtimeNotificationsProvider } from "@/components/RealtimeNotificationsProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSchoolContext } from "@/hooks/useSchoolContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -33,6 +34,7 @@ export default function AuthLayout() {
 
   return (
     <SidebarProvider>
+      <RealtimeNotificationsProvider />
       <div className="min-h-screen flex w-full overflow-x-hidden">
         <AppSidebar />
 
