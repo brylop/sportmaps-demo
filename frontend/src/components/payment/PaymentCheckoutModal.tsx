@@ -277,10 +277,10 @@ export function PaymentCheckoutModal({
                     onClick={() => !isDisabled && handlePaymentMethod(method.id)}
                     disabled={isDisabled}
                     className={`w-full flex items-center gap-4 p-4 border-2 rounded-lg transition-all ${isDisabled
-                        ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
-                        : isSelected
-                          ? 'border-primary bg-primary/5 hover:border-primary'
-                          : 'border-border hover:border-primary'
+                      ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
+                      : isSelected
+                        ? 'border-primary bg-primary/5 hover:border-primary'
+                        : 'border-border hover:border-primary'
                       }`}
                   >
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'
@@ -329,7 +329,8 @@ export function PaymentCheckoutModal({
                   <p className="font-medium text-sm">Sube tu comprobante:</p>
                   <FileUpload
                     bucket="payment-receipts"
-                    accept="image/*"
+                    accept="image/*,application/pdf"
+                    validateReceipt={true}
                     onUploadComplete={(url) => setProofUrl(url)}
                   />
                   {proofUrl && (
@@ -369,7 +370,11 @@ export function PaymentCheckoutModal({
             </div>
 
             <p className="text-xs text-center text-muted-foreground">
-              🔒 Pago 100% seguro. Tus datos están protegidos.
+              {selectedMethod === 'transfer' ? (
+                "Señor usuario, recuerde que el soporte de pago enviado será revisado previamente por la administración para su validación definitiva."
+              ) : (
+                "🔒 Pago 100% seguro. Tus datos están protegidos."
+              )}
             </p>
           </div>
         )}

@@ -123,8 +123,7 @@ export default function MyPaymentsPage() {
         setTransactions(txns);
       }
 
-      // FIX 1 — Usar FK explícita children_team_id_fkey para el join de teams.
-      //          Eliminado program_id del select para no mezclar fuentes.
+      // ── Query A: hijos del padre ─────────────────────────────────────────
       const { data: childrenData, error: childrenError } = await supabase
         .from('children')
         .select(`
@@ -137,35 +136,61 @@ export default function MyPaymentsPage() {
           teams:teams!children_team_id_fkey (
             name,
             price_monthly
-          ),
-          enrollments (
-            id,
-            program_id,
-            school_id,
-            teams:teams!enrollments_program_id_fkey (
-              name,
-              price_monthly
-            ),
-            schools (
-              name
-            )
           )
         `)
         .eq('parent_id', user?.id || '');
 
+      if (childrenError || !childrenData || childrenData.length === 0) {
+        setEnrollments([]);
+        return;
+      }
+
+      const childIds = childrenData.map((c: any) => c.id);
+
+      // ── Query B: enrollments activos con join a teams ────────────────────
+      const { data: enrollData, error: enrollError } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          child_id,
+          team_id,
+          program_id,
+          school_id,
+          status,
+          team:teams!enrollments_team_id_fkey (
+            name,
+            price_monthly
+          ),
+          schools (
+            name
+          )
+        `)
+        .in('child_id', childIds)
+        .eq('status', 'active');
+
+      const enrollsByChild: Record<string, any[]> = {};
+      if (!enrollError && enrollData) {
+        enrollData.forEach((e: any) => {
+          if (!enrollsByChild[e.child_id]) enrollsByChild[e.child_id] = [];
+          enrollsByChild[e.child_id].push(e);
+        });
+      }
+
       if (!childrenError && childrenData) {
         const flattened: Enrollment[] = [];
         childrenData.forEach((child: any) => {
+          const activeEnrollments = enrollsByChild[child.id] || [];
+
           // 1. Check formal enrollments first
-          if (child.enrollments && child.enrollments.length > 0) {
-            child.enrollments.forEach((enroll: any) => {
+          if (activeEnrollments.length > 0) {
+            activeEnrollments.forEach((enroll: any) => {
               flattened.push({
                 id: enroll.id,
                 child_id: child.id,
                 program_id: enroll.program_id,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
-                teams: enroll.teams,
+                teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
                 schools: enroll.schools,
               });
             });

@@ -247,34 +247,80 @@ class ClassesAPI {
   }
 
   /**
-   * Enroll a student in a program via BFF
+   * Enroll a student in a program — inserción directa en Supabase
+   * Reemplaza la llamada al BFF para evitar falsos positivos de duplicado
+   * con enrollments en status 'cancelled' o 'completed'.
    */
   async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
-    try {
-      const response = await bffClient.post<{ success: boolean; data: any }>('/api/v1/enrollments', {
-        student_id: studentId,
-        class_id: classId,
-      });
+    // Verificar si existe enrollment activo
+    const { data: existing } = await supabase
+      .from('enrollments')
+      .select('id, status')
+      .eq('program_id', classId)
+      .eq('child_id', studentId)
+      .eq('status', 'active')
+      .maybeSingle();
 
-      return {
-        id: response.data.id,
-        class_id: classId,
-        student_id: studentId,
-        student_name: studentName,
-        enrollment_date: response.data.created_at,
-        status: 'active',
-      };
-    } catch (error: any) {
-      console.error('Error enrolling student via BFF:', error.body || error.message);
-
-      let msg = error.message || 'Failed to enroll student';
-      if (error.status === 409) msg = 'La clase ya está llena.';
-      if (error.body?.details) {
-        msg += ": " + JSON.stringify(error.body.details);
-      }
-
-      throw new Error(msg);
+    if (existing) {
+      throw new Error('El estudiante ya está inscrito en esta clase/equipo.');
     }
+
+    // Verificar si existe un enrollment cancelado para reactivar
+    // (evita violar el unique constraint enrollments_child_program_unique)
+    const { data: cancelled } = await supabase
+      .from('enrollments')
+      .select('id')
+      .eq('program_id', classId)
+      .eq('child_id', studentId)
+      .in('status', ['cancelled', 'completed'])
+      .maybeSingle();
+
+    let data, error;
+
+    if (cancelled) {
+      // Reactivar el enrollment existente en lugar de insertar uno nuevo
+      ({ data, error } = await supabase
+        .from('enrollments')
+        .update({
+          status: 'active',
+          team_id: classId,
+          start_date: new Date().toISOString().split('T')[0],
+        })
+        .eq('id', cancelled.id)
+        .select('id, created_at')
+        .single());
+    } else {
+      // Insertar enrollment nuevo
+      const { data: team } = await supabase
+        .from('teams')
+        .select('school_id')
+        .eq('id', classId)
+        .single();
+
+      ({ data, error } = await supabase
+        .from('enrollments')
+        .insert({
+          program_id: classId,
+          team_id: classId,
+          child_id: studentId,
+          school_id: team?.school_id,
+          status: 'active',
+          start_date: new Date().toISOString().split('T')[0],
+        })
+        .select('id, created_at')
+        .single());
+    }
+
+    if (error) throw new Error(error.message || 'Error al inscribir estudiante.');
+
+    return {
+      id: data.id,
+      class_id: classId,
+      student_id: studentId,
+      student_name: studentName,
+      enrollment_date: data.created_at,
+      status: 'active',
+    };
   }
 
   /**
