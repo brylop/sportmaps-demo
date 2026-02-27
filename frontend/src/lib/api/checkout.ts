@@ -28,61 +28,33 @@ class CheckoutAPI {
      */
     async processEnrollment(payload: CheckoutPayload): Promise<CheckoutResult> {
         try {
-            // 0. Resolve Valid School ID (Override payload to ensure Demo works)
-            let validSchoolId = payload.school_id;
-            const { data: demoSchool } = await supabase
-                .from('schools')
-                .select('id')
-                .eq('email', 'spoortmaps+school@gmail.com')
-                .maybeSingle();
-
-            if (demoSchool) {
-                validSchoolId = demoSchool.id;
-            } else {
-                // Fallback: Use any valid school
-                const { data: anySchool } = await supabase.from('schools').select('id').limit(1).maybeSingle();
-                if (anySchool) validSchoolId = anySchool.id;
+            // 1. Validate Target
+            if (!payload.school_id) {
+                throw new Error('School ID is required for checkout');
             }
 
-            // 1. Create Enrollment
-            const enrollmentData: any = {
-                program_id: payload.class_id,
-                school_id: validSchoolId,
-                status: 'active',
-                start_date: new Date().toISOString()
-            };
+            // 2. Execute Atomic Transaction via RPC
+            const { data, error: rpcError } = await supabase.rpc(
+                'process_enrollment_checkout',
+                {
+                    p_program_id: payload.class_id,
+                    p_school_id: payload.school_id,
+                    p_parent_id: payload.parent_id,
+                    p_amount: payload.amount,
+                    p_payment_method: payload.payment_method,
+                    p_student_id: payload.is_child_enrollment ? null : payload.student_id,
+                    p_child_id: payload.is_child_enrollment ? payload.student_id : null
+                }
+            );
+            const result = data as any;
 
-            if (payload.is_child_enrollment) {
-                enrollmentData.child_id = payload.student_id;
-            } else {
-                enrollmentData.user_id = payload.student_id;
+            if (rpcError) {
+                console.error('RPC Error details:', rpcError);
+                throw rpcError;
             }
 
-            const { data: enrollment, error: enrollError } = await supabase
-                .from('enrollments')
-                .insert(enrollmentData)
-                .select()
-                .single();
-
-            if (enrollError) throw enrollError;
-
-            // 2. Record Payment
-            const { error: paymentError } = await supabase
-                .from('payments')
-                .insert({
-                    amount: payload.amount,
-                    status: 'completed',
-                    payment_method: payload.payment_method,
-                    parent_id: payload.parent_id,
-                    school_id: validSchoolId,
-                    concept: 'Enrollment Fee',
-                    due_date: new Date().toISOString()
-                });
-
-            if (paymentError) {
-                console.error('Payment record failed:', paymentError);
-                // We keep going if enrollment succeeded? 
-                // In production this should be a transaction.
+            if (!result || !result.success) {
+                throw new Error('Transaction failed without throwing SQL error');
             }
 
             // 3. Send Notification
@@ -94,7 +66,7 @@ class CheckoutAPI {
                 p_type: 'payment_success'
             });
 
-            return { success: true, enrollment_id: enrollment?.id };
+            return { success: true, enrollment_id: result.enrollment_id };
 
         } catch (error: any) {
             console.error('Checkout failed:', error);

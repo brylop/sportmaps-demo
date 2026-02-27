@@ -332,30 +332,30 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
       case 'admin':
         return {
           role: 'admin',
-          title: 'Panel de Administración',
-          description: 'Gestiona la plataforma SportMaps',
+          title: 'Panel de Administración Global',
+          description: 'Vista general del conglomerado de sedes',
           stats: [
             {
-              title: 'Usuarios Totales',
-              value: 0,
-              description: 'Sin registros aún',
+              title: 'Total Estudiantes',
+              value: stats.totalStudents || 0,
+              description: 'Suma de todas las sedes',
               icon: Users
             },
             {
-              title: 'Clubs Activos',
-              value: 0,
-              description: 'Sin clubs registrados',
+              title: 'Sedes Activas',
+              value: stats.teams || 0, // En Global, admin mapea programs/teams como clubs si no se trae count exacto
+              description: 'En el sistema',
               icon: Building
             },
             {
-              title: 'Eventos Programados',
-              value: 0,
-              description: 'Esta semana',
-              icon: Calendar
+              title: 'Total Entrenadores',
+              value: stats.activeTeams || 0,
+              description: 'Asignados',
+              icon: Users
             },
             {
-              title: 'Ingresos Mensuales',
-              value: '$0',
+              title: 'Ingresos Totales',
+              value: `$${stats.totalRevenue || 0}`,
               description: 'Este mes',
               icon: TrendingUp
             }
@@ -363,8 +363,8 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           activities: [],
           quickActions: [
             { label: 'Gestionar Usuarios', icon: Users, href: '/admin/users', variant: 'default' },
-            { label: 'Gestionar Clubs', icon: Building, href: '/admin/clubs', variant: 'outline' },
-            { label: 'Reportes del Sistema', icon: BarChart3, href: '/admin/system', variant: 'outline' }
+            { label: 'Gestionar Sedes', icon: Building, href: '/admin/clubs', variant: 'outline' },
+            { label: 'Reportes Globales', icon: BarChart3, href: '/admin/system', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.admin
         };

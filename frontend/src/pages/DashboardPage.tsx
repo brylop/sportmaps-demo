@@ -63,9 +63,24 @@ export default function DashboardPage() {
   const isMultitenantRole = profile?.role === 'school' || (profile?.role as any) === 'school_admin' || profile?.role === 'coach' || profile?.role === 'parent';
   const { data: statsData } = useDashboardStats(isMultitenantRole ? undefined : ((profile?.role as UserRole) || 'athlete'));
 
+  // Usar la misma lógica que AppSidebar para definir el navigationRole
+  let dashboardRole: UserRole = (profile?.role as UserRole) || 'athlete';
+
+  if (profile?.role === 'owner' || profile?.role === 'super_admin') {
+    // Si tiene multiples sedes y está en Todas las sedes (global) es admin, sino es school (operativo)
+    const { totalBranches } = useSchoolContext();
+    dashboardRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
+  } else if (profile?.role === 'school_admin') {
+    dashboardRole = 'school_admin';
+  } else if (profile?.role === 'school') {
+    dashboardRole = 'school';
+  } else if (profile?.role === 'staff') {
+    dashboardRole = 'coach';
+  }
+
   // For multitenant roles, we pass empty stats to config so cards show 0/loading instead of different demo data
   const config = useDashboardConfig(
-    (profile?.role as UserRole) || 'athlete',
+    dashboardRole,
     isMultitenantRole ? undefined : statsData
   );
   const { data: notifications } = useNotifications();

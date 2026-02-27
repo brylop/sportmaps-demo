@@ -57,6 +57,8 @@ export interface SchoolContext {
     isGlobalAdmin: boolean;
     /** Total number of branches in the active school. */
     totalBranches: number;
+    /** All branches for the current active school */
+    branches: { id: string; name: string }[];
     /** Switches the active context to another school/branch. */
     switchSchool: (schoolId: string, branchId?: string | null) => void;
     /** Default fee to use if no program price is found. */
@@ -92,6 +94,7 @@ export function useSchoolContext(): SchoolContext {
     const [error, setError] = useState<string | null>(null);
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
+    const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
@@ -153,7 +156,8 @@ export function useSchoolContext(): SchoolContext {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
                             role: m.role as SchoolRole['role'],
-                            branchId: m.branch_id || null,
+                            // Owners and super admins manage the whole school, they shouldn't be tied to a specific branch on load if they have a global role
+                            branchId: isAlwaysGlobal ? null : (m.branch_id || null),
                             isGlobal: isAlwaysGlobal || isScopedAdmin,
                             onboardingStatus: (m.schools?.onboarding_status as SchoolContext['onboardingStatus']) || 'completed'
                         };
@@ -225,13 +229,14 @@ export function useSchoolContext(): SchoolContext {
         setActiveBranchId(school.branchId);
         setIsGlobalAdmin(!!school.isGlobal);
 
-        // Fetch branch count
-        const { count } = await supabase
+        // Fetch branch count and data
+        const { data: branchesData, count } = await supabase
             .from('school_branches')
-            .select('*', { count: 'exact', head: true })
+            .select('id, name', { count: 'exact' })
             .eq('school_id', school.schoolId);
 
         setTotalBranchesCount(count || 0);
+        setBranches(branchesData || []);
 
         if (school.branchId) {
             const { data: branch } = await supabase
@@ -377,6 +382,7 @@ export function useSchoolContext(): SchoolContext {
         switchSchool,
         isGlobalAdmin,
         totalBranches: totalBranchesCount,
+        branches,
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,
         error,

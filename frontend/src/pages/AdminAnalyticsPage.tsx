@@ -10,12 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  Users, 
-  School, 
-  ShoppingBag, 
+import {
+  BarChart3,
+  TrendingUp,
+  Users,
+  School,
+  ShoppingBag,
   Calendar,
   DollarSign,
   MapPin,
@@ -25,13 +25,13 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -93,9 +93,9 @@ export default function AdminAnalyticsPage() {
       // Fetch orders
       const { data: orders } = await supabase
         .from('orders')
-        .select('total, created_at');
+        .select('total_amount, created_at');
 
-      const productSales = orders?.reduce((sum, o) => sum + o.total, 0) || 0;
+      const productSales = orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
 
       // Fetch appointments
       const { count: appointmentsCount } = await supabase
@@ -321,7 +321,7 @@ export default function AdminAnalyticsPage() {
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip 
+                  <Tooltip
                     formatter={(value: number) => formatCurrency(value)}
                   />
                 </PieChart>
@@ -330,8 +330,8 @@ export default function AdminAnalyticsPage() {
             <div className="flex justify-center gap-6 mt-4">
               {data?.revenueByCategory.map((cat) => (
                 <div key={cat.name} className="flex items-center gap-2">
-                  <div 
-                    className="w-3 h-3 rounded-full" 
+                  <div
+                    className="w-3 h-3 rounded-full"
                     style={{ backgroundColor: cat.color }}
                   />
                   <span className="text-sm">{cat.name}</span>
@@ -353,7 +353,7 @@ export default function AdminAnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
                   <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
                       backgroundColor: 'hsl(var(--card))',
                       border: '1px solid hsl(var(--border))',
@@ -361,19 +361,19 @@ export default function AdminAnalyticsPage() {
                     }}
                   />
                   <Legend />
-                  <Area 
-                    type="monotone" 
-                    dataKey="enrollments" 
+                  <Area
+                    type="monotone"
+                    dataKey="enrollments"
                     name="Inscripciones"
-                    stroke={COLORS.green} 
+                    stroke={COLORS.green}
                     fill={COLORS.green}
                     fillOpacity={0.3}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="appointments" 
+                  <Area
+                    type="monotone"
+                    dataKey="appointments"
                     name="Citas"
-                    stroke={COLORS.blue} 
+                    stroke={COLORS.blue}
                     fill={COLORS.blue}
                     fillOpacity={0.3}
                   />
@@ -397,15 +397,15 @@ export default function AdminAnalyticsPage() {
                 <BarChart data={data?.topCities} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis 
-                    type="category" 
-                    dataKey="city" 
+                  <YAxis
+                    type="category"
+                    dataKey="city"
                     stroke="hsl(var(--muted-foreground))"
                     width={100}
                   />
                   <Tooltip />
-                  <Bar 
-                    dataKey="users" 
+                  <Bar
+                    dataKey="users"
                     name="Escuelas"
                     fill={COLORS.green}
                     radius={[0, 4, 4, 0]}

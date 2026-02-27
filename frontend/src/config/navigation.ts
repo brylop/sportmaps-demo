@@ -237,6 +237,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Reportes', href: '/admin/reports', icon: FileText },
+          { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
           { title: 'Logs', href: '/admin/logs', icon: Bell }
         ]
@@ -257,6 +258,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Reportes', href: '/admin/reports', icon: FileText },
+          { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Configuración', href: '/admin/config', icon: Settings },
           { title: 'Logs', href: '/admin/logs', icon: Bell }
         ]

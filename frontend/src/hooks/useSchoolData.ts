@@ -73,7 +73,7 @@ export function useSchoolStaff() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('school_staff')
-        .select('*')
+        .select('id, full_name, email, phone, specialty, certifications, status')
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
       if (error) throw error;

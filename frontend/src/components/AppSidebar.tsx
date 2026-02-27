@@ -25,7 +25,7 @@ import Logo from './Logo';
 
 export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
-  const { currentUserRole, isGlobalAdmin, totalBranches } = useSchoolContext();
+  const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
   const sidebar = useSidebar();
   const { state } = sidebar;
 
@@ -42,9 +42,9 @@ export function AppSidebar() {
     switch (currentUserRole) {
       case 'owner':
       case 'super_admin':
-        // Single-branch owner: uses full school management nav
-        // Multi-branch owner: uses global admin nav with Users/Clubs
-        navigationRole = totalBranches > 1 ? 'admin' : 'school';
+        // Si tiene multiples sedes y está en la vista "Todas las sedes" (activeBranchId nulo), es Global Admin.
+        // Si elige una sede específica, actúa como "school" (Administrador Operativo de esa sede).
+        navigationRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
         break;
       case 'admin':
         navigationRole = 'admin';
@@ -147,8 +147,8 @@ export function AppSidebar() {
           )}
         </div>
 
-        {/* School Switcher Context - Hide if only 1 branch and is global admin */}
-        {!isCollapsed && (totalBranches > 1 || !isGlobalAdmin) && (
+        {/* School Switcher Context - Always show for owners/admins or multibranch */}
+        {!isCollapsed && (currentUserRole === 'owner' || currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'school_admin' || totalBranches > 1 || isGlobalAdmin) && (
           <div className="w-full mb-4">
             <SchoolSwitcher />
           </div>

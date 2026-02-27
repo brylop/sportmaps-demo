@@ -19,7 +19,7 @@ export function useStoreProducts() {
 
       const { data, error } = await supabase
         .from('products')
-        .select('*')
+        .select('id, name, description, price, stock, category, image_url, status')
         .eq('vendor_id', user.id)
         .order('created_at', { ascending: false });
 
