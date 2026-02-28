@@ -35,6 +35,7 @@ const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
 const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -142,6 +143,7 @@ const App = () => (
                     <Route path="/explore" element={<ExplorePage />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
                     <Route path="/login" element={<LoginPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/checkout" element={
                       <ProtectedRoute>
