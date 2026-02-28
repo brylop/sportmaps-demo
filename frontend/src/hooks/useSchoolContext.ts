@@ -254,14 +254,27 @@ export function useSchoolContext(): SchoolContext {
     }, []);
 
     const switchSchool = (schoolId: string, branchId: string | null = null) => {
+        // First try exact match
         const target = availableSchools.find(s => s.schoolId === schoolId && s.branchId === branchId);
         if (target) {
             selectSchool(target);
-        } else {
-            // If branch not found, try to find any branch in that school or the school itself
-            const anyInSchool = availableSchools.find(s => s.schoolId === schoolId);
-            if (anyInSchool) selectSchool(anyInSchool);
+            return;
         }
+
+        // For global admins (owner/super_admin), they have a single entry with branchId=null
+        // When they select a specific branch, we create a synthetic SchoolRole with that branchId
+        const baseEntry = availableSchools.find(s => s.schoolId === schoolId && s.isGlobal);
+        if (baseEntry) {
+            selectSchool({
+                ...baseEntry,
+                branchId: branchId, // null = "Todas las sedes", UUID = specific sede
+            });
+            return;
+        }
+
+        // Last resort: find any entry in that school
+        const anyInSchool = availableSchools.find(s => s.schoolId === schoolId);
+        if (anyInSchool) selectSchool(anyInSchool);
     };
 
     const fetchPrograms = useCallback(async (id: string, branchId: string | null = null) => {
