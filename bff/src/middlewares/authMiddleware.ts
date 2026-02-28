@@ -10,7 +10,7 @@ declare global {
             user: { id: string; email: string };
             schoolId: string;
             branchId: string | null;
-            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'coach' | 'parent' | 'athlete' | 'staff';
+            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff';
         }
     }
 }
@@ -36,12 +36,14 @@ export const requireAuth = async (
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-        const { data: profile, error: profileError } = await supabase
+        const { data: profiles, error: profileError } = await supabase
             .from('school_members')
             .select('school_id, role, branch_id')
             .eq('profile_id', user.id)
             .eq('status', 'active')
-            .single();
+            .limit(1);
+
+        const profile = profiles?.[0];
 
         if (profileError || !profile) {
             return res.status(403).json({ error: 'Perfil de miembro de escuela no encontrado o inactivo.' });

@@ -40,7 +40,7 @@ const BulkUploadSchema = z.object({
 router.post(
     '/bulk',
     requireAuth,
-    requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'),
+    requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'),
     async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { schoolId } = req;
@@ -420,7 +420,7 @@ router.post(
 );
 
 // ── GET /api/v1/students ──────────────────────────────────────────────────────
-router.get('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { data, error } = await supabase
             .from('students')
