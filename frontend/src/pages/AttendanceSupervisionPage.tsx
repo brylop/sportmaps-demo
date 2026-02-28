@@ -88,7 +88,7 @@ export default function AttendanceSupervisionPage() {
 
       // Conteos de asistencia por sesión
       const teamIds = rows.map((r: any) => r.team_id);
-      let recordsMap: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
+      const recordsMap: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
 
       if (teamIds.length > 0) {
         const { data: records } = await supabase

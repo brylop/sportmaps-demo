@@ -1,6 +1,6 @@
 /**
  * useReceiptValidator.ts
- * 
+ *
  * Validador de comprobantes de pago usando OCR en el navegador.
  * Usa Tesseract.js para extraer texto de imágenes y pdfjs-dist para PDFs.
  * 100% gratuito, sin llamadas a APIs externas.
@@ -18,36 +18,112 @@ export interface ReceiptValidationResult {
     rawText?: string;
 }
 
+// ── Tablas de nombres ─────────────────────────────────────────────────────────
+
+const MONTH_NAMES_ES = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+const MONTH_ABBREV_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const MONTH_ABBREV_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const WEEKDAY_ABBREV_ES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
 // ── Helpers de fecha ──────────────────────────────────────────────────────────
+
+/** Día del año (1 = 1 enero). */
+const getDayOfYear = (date: Date): number => {
+    const start = new Date(Date.UTC(date.getFullYear(), 0, 1));
+    const current = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    return Math.floor((current.getTime() - start.getTime()) / 86_400_000) + 1;
+};
+
+/** Semana ISO (week) y día ISO (1=lun … 7=dom). */
+const getISOWeek = (date: Date): { week: number; day: number } => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const isoDow = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - isoDow);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
+    const day = date.getDay() === 0 ? 7 : date.getDay();
+    return { week, day };
+};
 
 const getTodayVariants = () => {
     const today = new Date();
-    const day = today.getDate();
+    const day   = today.getDate();
     const month = today.getMonth() + 1;
-    const year = today.getFullYear();
-    const dd = String(day).padStart(2, '0');
-    const mm = String(month).padStart(2, '0');
+    const year  = today.getFullYear();
+    const dd    = String(day).padStart(2, '0');
+    const mm    = String(month).padStart(2, '0');
+    const yy    = String(year).slice(2);
 
-    const monthNames = [
-        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-    ];
-    const monthName = monthNames[today.getMonth()];
+    const monthName  = MONTH_NAMES_ES[today.getMonth()];
+    const mAbbES     = MONTH_ABBREV_ES[today.getMonth()];
+    const mAbbEN     = MONTH_ABBREV_EN[today.getMonth()];
+    const weekdayName  = WEEKDAY_NAMES_ES[today.getDay()];
+    const weekdayAbbr  = WEEKDAY_ABBREV_ES[today.getDay()];
+
+    const dayOfYear = getDayOfYear(today);
+    const ddd = String(dayOfYear).padStart(3, '0');
+    const { week, day: isoDay } = getISOWeek(today);
+    const ww = String(week).padStart(2, '0');
+
+    // Rango Unix UTC del día actual (para validar @timestamp)
+    const unixStart = Math.floor(Date.UTC(year, today.getMonth(), day,  0,  0,  0) / 1000);
+    const unixEnd   = Math.floor(Date.UTC(year, today.getMonth(), day, 23, 59, 59) / 1000);
 
     return {
-        iso: `${year}-${mm}-${dd}`,
-        slash: `${dd}/${mm}/${year}`,
-        slashShort: `${dd}/${mm}/${String(year).slice(2)}`,
-        dash: `${dd}-${mm}-${year}`,
-        dot: `${dd}.${mm}.${year}`,
-        human: `${day} de ${monthName} de ${year}`,
-        humanShort: `${day} ${monthName} ${year}`,
-        dayMonth: `${dd}/${mm}`,
-        dayMonthDash: `${dd}-${mm}`,
-        day,
-        month,
-        year,
-        monthName,
+        // ── Formatos originales ───────────────────────────────────────────────
+        iso:              `${year}-${mm}-${dd}`,           // AAAA-MM-DD
+        slash:            `${dd}/${mm}/${year}`,            // DD/MM/AAAA
+        slashShort:       `${dd}/${mm}/${yy}`,              // DD/MM/AA
+        dash:             `${dd}-${mm}-${year}`,            // DD-MM-AAAA
+        dot:              `${dd}.${mm}.${year}`,            // DD.MM.AAAA
+        human:            `${day} de ${monthName} de ${year}`,  // D de MMMM de AAAA
+        humanShort:       `${day} ${monthName} ${year}`,   // D MMMM AAAA
+        dayMonth:         `${dd}/${mm}`,                    // DD/MM
+        dayMonthDash:     `${dd}-${mm}`,                    // DD-MM
+
+        // ── ISO extendidos ───────────────────────────────────────────────────
+        compact:          `${year}${mm}${dd}`,              // AAAAMMDD (ISO básico)
+        slashISO:         `${year}/${mm}/${dd}`,            // AAAA/MM/DD
+        julian:           `${year}-${ddd}`,                 // AAAA-DDD (día ordinal)
+        isoWeek:          `${year}-W${ww}-${isoDay}`,       // AAAA-Www-D (semana ISO)
+
+        // ── Formato EE.UU. ───────────────────────────────────────────────────
+        slashUS:          `${mm}/${dd}/${year}`,            // MM/DD/AAAA
+        mSlashDSlashYY:   `${month}/${day}/${yy}`,          // M/D/AA
+
+        // ── Mes abreviado (español) ──────────────────────────────────────────
+        dashMMMes:        `${dd}-${mAbbES}-${year}`,        // DD-mmm-AAAA
+        dashMMMesShort:   `${dd}-${mAbbES}-${yy}`,          // DD-mmm-AA
+        noSepMMes:        `${dd}${mAbbES}${year}`,          // DDmmmAAAA
+        humanAbbr:        `${day} ${mAbbES} ${year}`,       // D mmm AAAA
+        humanAbbrDot:     `${day} ${mAbbES}. ${year}`,      // D mmm. AAAA
+
+        // ── Mes abreviado (inglés) ───────────────────────────────────────────
+        dashMMMen:        `${dd}-${mAbbEN}-${year}`,        // DD-MMM-AAAA
+        dashMMMenuShort:  `${dd}-${mAbbEN}-${yy}`,          // DD-MMM-AA
+        noSepMMen:        `${dd}${mAbbEN}${year}`,          // DDMMMAAAA
+        humanAbbrEN:      `${day} ${mAbbEN} ${year}`,       // D MMM AAAA
+
+        // ── Con coma / día de semana ─────────────────────────────────────────
+        humanComma:         `${day} de ${monthName}, ${year}`,                   // D de MMMM, AAAA
+        humanWeekday:       `${weekdayName}, ${day} de ${monthName} de ${year}`, // EEEE, D de MMMM de AAAA
+        humanWeekdayAbbr:   `${weekdayAbbr}, ${day} ${mAbbES} ${year}`,          // ddd, D mmm AAAA
+
+        // ── Compactos cortos ─────────────────────────────────────────────────
+        ddmmyy:           `${dd}${mm}${yy}`,               // DDMMAA
+        ddmmyydash:       `${dd}-${mm}-${yy}`,             // DD-MM-AA
+        mmddyy:           `${mm}${dd}${yy}`,               // MMDDAA
+        mmddyydash:       `${mm}-${dd}-${yy}`,             // MM-DD-AA
+        yymmdd:           `${yy}${mm}${dd}`,               // AAMMDD
+
+        // ── Metadatos (uso interno) ──────────────────────────────────────────
+        unixStart,
+        unixEnd,
+        day, month, year, monthName, yy,
     };
 };
 
@@ -57,14 +133,46 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
     const today = getTodayVariants();
     const lower = text.toLowerCase();
 
+    // Orden: de más específico/largo a más corto para reducir falsos positivos
     const patterns = [
+        // Con día de semana (más largo → menos ambiguo)
+        today.humanWeekday,
+        today.humanWeekdayAbbr,
+        // Formato largo con mes escrito
+        today.human,
+        today.humanComma,
+        today.humanShort,
+        today.humanAbbr,
+        today.humanAbbrDot,
+        today.humanAbbrEN,
+        // ISO y variantes con año completo
         today.iso,
+        today.slashISO,
+        today.compact,
+        today.julian,
+        today.isoWeek,
+        // DD/MM/AAAA y variantes
         today.slash,
-        today.slashShort,
+        today.slashUS,
         today.dash,
         today.dot,
-        today.human,
-        today.humanShort,
+        // Con mes abreviado
+        today.dashMMMes,
+        today.dashMMMen,
+        today.noSepMMes,
+        today.noSepMMen,
+        // Año corto
+        today.slashShort,
+        today.dashMMMesShort,
+        today.dashMMMenuShort,
+        today.ddmmyydash,
+        today.mmddyydash,
+        today.mSlashDSlashYY,
+        // Compactos sin separador (mayor riesgo de falso positivo — van al final)
+        today.ddmmyy,
+        today.mmddyy,
+        today.yymmdd,
+        // Solo día/mes
         today.dayMonth,
         today.dayMonthDash,
     ];
@@ -75,6 +183,16 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
+    // Unix timestamp: @XXXXXXXXXX o número de 10 dígitos suelto
+    const unixMatch = /@(\d{9,10})\b|\b(\d{10})\b/.exec(text);
+    if (unixMatch) {
+        const ts = parseInt(unixMatch[1] || unixMatch[2], 10);
+        if (ts >= today.unixStart && ts <= today.unixEnd) {
+            return { found: `@${ts}`, isToday: true };
+        }
+    }
+
+    // Fallback: extraer cualquier fecha presente en el texto
     const dateRegex = /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}[/-]\d{2}[/-]\d{2})\b/g;
     const matches = text.match(dateRegex);
     const humanDateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\s+(?:de\s+)?(\d{4})\b/gi;
@@ -107,12 +225,12 @@ const extractAmount = (text: string): string | null => {
 
 const extractReference = (text: string): string | null => {
     const patterns = [
-        /(?:n[uú]mero\s+de\s+operaci[oó]n|no\.?\s*operaci[oó]n)[:\s#]*([A-Z0-9\-]{4,20})/gi,
-        /(?:referencia|ref\.?)[:\s#]*([A-Z0-9\-]{4,20})/gi,
-        /(?:transacci[oó]n|transacci[oó]n\s+n[uú]mero?)[:\s#]*([A-Z0-9\-]{4,20})/gi,
-        /(?:comprobante|n[uú]mero\s+de\s+comprobante)[:\s#]*([A-Z0-9\-]{4,20})/gi,
-        /(?:aprobaci[oó]n|c[oó]digo)[:\s#]*([A-Z0-9\-]{4,20})/gi,
-        /(?:id\s+transacci[oó]n|id)[:\s#]*([A-Z0-9\-]{6,20})/gi,
+        /(?:n[uú]mero\s+de\s+operaci[oó]n|no\.?\s*operaci[oó]n)[:\s#]*([A-Z0-9-]{4,20})/gi,
+        /(?:referencia|ref\.?)[:\s#]*([A-Z0-9-]{4,20})/gi,
+        /(?:transacci[oó]n|transacci[oó]n\s+n[uú]mero?)[:\s#]*([A-Z0-9-]{4,20})/gi,
+        /(?:comprobante|n[uú]mero\s+de\s+comprobante)[:\s#]*([A-Z0-9-]{4,20})/gi,
+        /(?:aprobaci[oó]n|c[oó]digo)[:\s#]*([A-Z0-9-]{4,20})/gi,
+        /(?:id\s+transacci[oó]n|id)[:\s#]*([A-Z0-9-]{6,20})/gi,
     ];
 
     for (const pattern of patterns) {
