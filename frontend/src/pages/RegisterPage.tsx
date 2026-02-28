@@ -76,6 +76,7 @@ export default function RegisterPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [emailForDisplay, setEmailForDisplay] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [userExistsError, setUserExistsError] = useState(false);
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -195,8 +196,12 @@ export default function RegisterPage() {
       // Mapeo de errores de Supabase Auth
       if (error?.status === 429 || error?.message?.includes('rate limit exceeded')) {
         errorMessage = "Has realizado demasiados intentos. Por favor, espera unos minutos o intenta con otro correo.";
-      } else if (error?.message?.includes('User already registered')) {
+      } else if (error?.message?.includes('User already registered') || error?.message?.includes('already exist')) {
         errorMessage = "Este correo electrónico ya está registrado.";
+        setUserExistsError(true);
+        if (inviteId) {
+          localStorage.setItem('pending_invite_id', inviteId);
+        }
       } else if (error?.message) {
         errorMessage = error.message;
       }
@@ -373,7 +378,25 @@ export default function RegisterPage() {
               </div>
             </div>
           )}
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+
+          {userExistsError && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 mb-4 animate-in fade-in zoom-in duration-300">
+              <div className="flex items-center gap-2 text-destructive mb-2">
+                <AlertCircle className="w-5 h-5" />
+                <p className="font-semibold">Cuenta ya registrada</p>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Este correo electrónico ya existe en SportMaps. Por favor, inicia sesión para continuar y aceptar la invitación.
+              </p>
+              <Button asChild className="w-full bg-primary text-white hover:bg-primary/90 shadow-md">
+                <Link to={`/login?email=${encodeURIComponent(watch('email'))}${inviteId ? `&invite=${inviteId}` : ''}`}>
+                  Inicia sesión para continuar
+                </Link>
+              </Button>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSubmit)} className={cn("space-y-4", userExistsError ? "opacity-50 pointer-events-none" : "")}>
             <div className="space-y-2">
               <Label htmlFor="fullName">Nombre Completo</Label>
               <Input

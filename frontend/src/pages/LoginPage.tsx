@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { useEffect } from 'react';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -30,6 +31,16 @@ export default function LoginPage() {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const inviteEmail = searchParams.get('email');
+  const inviteId = searchParams.get('invite');
+
+  useEffect(() => {
+    if (inviteId) {
+      localStorage.setItem('pending_invite_id', inviteId);
+    }
+  }, [inviteId]);
 
   const from = location.state?.from?.pathname || '/dashboard';
 
@@ -38,6 +49,9 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormData>({
+    defaultValues: {
+      email: inviteEmail || '',
+    }
   });
 
   // Redirect if already logged in
