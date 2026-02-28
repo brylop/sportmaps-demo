@@ -136,6 +136,13 @@ export function useSchoolContext(): SchoolContext {
                     return;
                 }
 
+                // Ensure we know the user's base profile role BEFORE mapping memberships
+                const { data: userProfile } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', user.id)
+                    .maybeSingle();
+
                 // Fetch memberships
                 const { data: memberships, error: memberError } = await supabase
                     .from('school_members')
@@ -155,7 +162,9 @@ export function useSchoolContext(): SchoolContext {
                         return {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
-                            role: m.role as SchoolRole['role'],
+                            // Forzamos el rol "parent" si el perfil del usuario es padre, 
+                            // para evitar que membresías erróneas de "athlete" sobrescriban su Dashboard.
+                            role: (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
                             // Owners and super admins manage the whole school, they shouldn't be tied to a specific branch on load if they have a global role
                             branchId: isAlwaysGlobal ? null : (m.branch_id || null),
                             isGlobal: isAlwaysGlobal || isScopedAdmin,
@@ -174,15 +183,8 @@ export function useSchoolContext(): SchoolContext {
                     } else {
                         selectSchool(mappedSchools[0]);
                     }
-                } else {
                     // Authenticated but no memberships
                     // Check if user is explicitly a SCHOOL role
-                    const { data: userProfile } = await supabase
-                        .from('profiles')
-                        .select('role')
-                        .eq('id', user.id)
-                        .maybeSingle();
-
                     const userRole = userProfile?.role as string;
                     if (userRole === 'school' || userRole === 'school_admin' || userRole === 'reporter') {
                         // New School Owner -> Trigger Onboarding
