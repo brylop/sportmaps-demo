@@ -459,6 +459,7 @@ export async function createStudentWithPendingPayment(params: {
             school_id: params.schoolId,
             branch_id: params.branchId || null,
             program_id: params.programId || null,
+            team_id: params.programId || null,
         })
         .select()
         .single();
