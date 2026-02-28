@@ -31,6 +31,8 @@ const BulkUploadSchema = z.object({
     options: z.object({
         // Si true: actualiza si document_id ya existe. Si false: reporta como error.
         upsert: z.boolean().default(false),
+        // Branch ID por defecto para estudiantes sin columna 'sede' en el CSV
+        defaultBranchId: z.string().uuid().nullable().optional(),
     }).default({ upsert: false }),
 });
 
@@ -54,6 +56,7 @@ router.post(
             }
 
             const { students, options } = parsed.data;
+            const defaultBranchId = options.defaultBranchId || null;
 
             // 2. Detectar duplicados DENTRO del mismo payload (document_id repetido)
             const docIds = students.map(s => s.document_id);
@@ -148,10 +151,12 @@ router.post(
                 }
             }
 
-            // Helper: resolve branch_id for a student
+            // Helper: resolve branch_id for a student — falls back to defaultBranchId
             const resolveBranchId = (student: { branch?: string }) => {
-                if (!student.branch) return null;
-                return branchNameToId.get(student.branch.trim().toLowerCase()) || null;
+                if (student.branch) {
+                    return branchNameToId.get(student.branch.trim().toLowerCase()) || defaultBranchId;
+                }
+                return defaultBranchId;
             };
 
             // 4.75. Auto-crear equipos (teams) ─────────────────────────────

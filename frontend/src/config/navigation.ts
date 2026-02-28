@@ -225,28 +225,18 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
 
     admin: [
       {
-        title: 'Vista Consolidada',
+        title: 'Reportes Globales',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Equipos', href: '/teams', icon: Trophy },
-          { title: 'Entrenadores', href: '/staff', icon: Users },
-        ]
-      },
-      {
-        title: 'Análisis y Reportes',
-        items: [
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
         ]
       },
       {
         title: 'Administración',
         items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
           { title: 'Configuración', href: '/school-config', icon: Settings },
         ]
@@ -255,28 +245,18 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
 
     super_admin: [
       {
-        title: 'Vista Consolidada',
+        title: 'Reportes Globales',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Equipos', href: '/teams', icon: Trophy },
-          { title: 'Entrenadores', href: '/staff', icon: Users },
-        ]
-      },
-      {
-        title: 'Análisis y Reportes',
-        items: [
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
         ]
       },
       {
         title: 'Administración',
         items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
           { title: 'Configuración', href: '/school-config', icon: Settings },
         ]

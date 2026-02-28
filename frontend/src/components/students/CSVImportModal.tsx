@@ -163,7 +163,10 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
       // ── MIGRACIÓN BFF ──────────────────────────────────────────────────────
       // Se utiliza el método bulkUpload que ahora internamente usa el BFF.
       // Esto previene N llamadas y asegura consistencia atómica.
-      const bffResponse = await studentsAPI.bulkUpload(file, schoolId, { upsert: true });
+      const bffResponse = await studentsAPI.bulkUpload(file, schoolId, {
+        upsert: true,
+        defaultBranchId: branchId || null
+      });
 
       setUploadProgress(100);
       setResult({

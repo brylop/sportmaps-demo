@@ -92,6 +92,8 @@ export interface BulkUploadResponse {
 export interface BulkUploadOptions {
   /** Si true, actualiza estudiantes con document_id existente. Default: false */
   upsert?: boolean;
+  /** Branch ID por defecto para estudiantes sin columna 'sede' en el CSV */
+  defaultBranchId?: string | null;
 }
 
 export interface StudentViewRow {
@@ -418,7 +420,10 @@ class StudentsAPI {
       skipped: Array<{ document_id: string; reason: string }>;
     }>('/api/v1/students/bulk', {
       students,
-      options: { upsert: options.upsert ?? false },
+      options: {
+        upsert: options.upsert ?? false,
+        defaultBranchId: options.defaultBranchId || null,
+      },
     });
 
     // ── 3. Adaptar respuesta al contrato anterior ─────────────────────────
