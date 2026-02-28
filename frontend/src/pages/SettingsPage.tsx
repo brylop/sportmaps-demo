@@ -71,11 +71,11 @@ export default function ProfilePage() {
       setBio(profile.bio || '');
     }
 
-    // Direct DB fetch to always get the latest phone
+    // Direct DB fetch to always get the latest phone and preferences
     if (user?.id) {
       supabase
         .from('profiles')
-        .select('full_name, phone, bio')
+        .select('full_name, phone, bio, preferences')
         .eq('id', user.id)
         .maybeSingle()
         .then(({ data }) => {
@@ -83,6 +83,14 @@ export default function ProfilePage() {
             setFullName(data.full_name || '');
             setPhone(data.phone || '');
             setBio(data.bio || '');
+
+            const prefs = (data.preferences as Record<string, boolean>) || {};
+            setEmailNotifications(prefs.emailNotifications ?? true);
+            setSmsNotifications(prefs.smsNotifications ?? false);
+            setWeeklyReport(prefs.weeklyReport ?? true);
+            setProfileVisibility(prefs.profileVisibility ?? true);
+            setShowEmail(prefs.showEmail ?? false);
+            setShowPhone(prefs.showPhone ?? false);
           }
         });
     }
@@ -91,20 +99,29 @@ export default function ProfilePage() {
     loadCoachData();
   }, [profile, user?.id]);
 
+  // Initialize default preferences from context before DB confirms it
+  const defaultPrefs = (profile?.preferences as Record<string, boolean>) || {};
+
   // Notification settings
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [smsNotifications, setSmsNotifications] = useState(false);
+  const [emailNotifications, setEmailNotifications] = useState(defaultPrefs.emailNotifications ?? true);
+  const [smsNotifications, setSmsNotifications] = useState(defaultPrefs.smsNotifications ?? false);
   const { subscribe, status: pushStatus, checkStatus } = usePushSubscription();
 
   useEffect(() => {
     checkStatus();
   }, [checkStatus]);
-  const [weeklyReport, setWeeklyReport] = useState(true);
+  const [weeklyReport, setWeeklyReport] = useState(defaultPrefs.weeklyReport ?? true);
 
   // Privacy settings
-  const [profileVisibility, setProfileVisibility] = useState(true);
-  const [showEmail, setShowEmail] = useState(false);
-  const [showPhone, setShowPhone] = useState(false);
+  const [profileVisibility, setProfileVisibility] = useState(defaultPrefs.profileVisibility ?? true);
+  const [showEmail, setShowEmail] = useState(defaultPrefs.showEmail ?? false);
+  const [showPhone, setShowPhone] = useState(defaultPrefs.showPhone ?? false);
+
+  // Security settings
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   /* Avatar Upload Handler */
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -184,6 +201,100 @@ export default function ProfilePage() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePreferencesUpdate = async () => {
+    if (!user) return;
+
+    setSaving(true);
+    try {
+      const preferences = {
+        emailNotifications,
+        smsNotifications,
+        weeklyReport,
+        profileVisibility,
+        showEmail,
+        showPhone
+      };
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          preferences,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      await updateProfile({ preferences });
+
+      toast({
+        title: "Preferencias guardadas",
+        description: "Tus configuraciones han sido actualizadas exitosamente.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error al guardar preferencias",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (!newPassword || !confirmPassword) {
+      toast({
+        title: "Campos incompletos",
+        description: "Por favor, ingresa tu nueva contraseña y confírmala",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Error de verificación",
+        description: "Las contraseñas nuevas no coinciden",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        title: "Contraseña muy corta",
+        description: "La contraseña debe tener al menos 6 caracteres",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+      if (error) throw error;
+
+      toast({
+        title: "Contraseña actualizada",
+        description: "Tu contraseña ha sido cambiada exitosamente.",
+      });
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "No se pudo actualizar la contraseña. Podría ser necesario volver a iniciar sesión.",
+        variant: "destructive"
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -581,9 +692,9 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button className="gap-2">
-                  <Save className="h-4 w-4" />
-                  Guardar Preferencias
+                <Button className="gap-2" onClick={handlePreferencesUpdate} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Guardando...' : 'Guardar Preferencias'}
                 </Button>
               </div>
             </CardContent>
@@ -694,9 +805,9 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button className="gap-2">
-                  <Save className="h-4 w-4" />
-                  Guardar Configuración
+                <Button className="gap-2" onClick={handlePreferencesUpdate} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Guardando...' : 'Guardar Configuración'}
                 </Button>
               </div>
             </CardContent>
@@ -715,25 +826,41 @@ export default function ProfilePage() {
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="current-password">Contraseña Actual</Label>
-                  <Input id="current-password" type="password" />
+                  <Label htmlFor="current-password">Contraseña Actual (opcional)</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Si estás usando un proveedor (Google, Apple), es posible que no necesites esto.</p>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="new-password">Nueva Contraseña</Label>
-                  <Input id="new-password" type="password" />
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="confirm-password">Confirmar Nueva Contraseña</Label>
-                  <Input id="confirm-password" type="password" />
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
                 </div>
               </div>
 
               <div className="flex justify-end">
-                <Button variant="default" className="gap-2">
-                  <Lock className="h-4 w-4" />
-                  Cambiar Contraseña
+                <Button variant="default" className="gap-2" onClick={handlePasswordChange} disabled={changingPassword}>
+                  {changingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                  {changingPassword ? 'Actualizando...' : 'Cambiar Contraseña'}
                 </Button>
               </div>
             </CardContent>
