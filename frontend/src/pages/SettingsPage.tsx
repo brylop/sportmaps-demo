@@ -93,6 +93,7 @@ export default function ProfilePage() {
 
   // Notification settings
   const [emailNotifications, setEmailNotifications] = useState(true);
+  const [smsNotifications, setSmsNotifications] = useState(false);
   const { subscribe, status: pushStatus, checkStatus } = usePushSubscription();
 
   useEffect(() => {
