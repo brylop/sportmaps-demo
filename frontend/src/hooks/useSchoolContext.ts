@@ -226,7 +226,6 @@ export function useSchoolContext(): SchoolContext {
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
-        setActiveBranchId(school.branchId);
         setIsGlobalAdmin(!!school.isGlobal);
 
         // Fetch branch count and data
@@ -238,15 +237,19 @@ export function useSchoolContext(): SchoolContext {
         setTotalBranchesCount(count || 0);
         setBranches(branchesData || []);
 
-        if (school.branchId) {
-            const { data: branch } = await supabase
-                .from('school_branches')
-                .select('name')
-                .eq('id', school.branchId)
-                .maybeSingle();
+        // For global admins without a specific branch, auto-select the first branch
+        // This avoids the "Todas las sedes" state that mixes data from all branches
+        let resolvedBranchId = school.branchId;
+        if (!resolvedBranchId && school.isGlobal && branchesData && branchesData.length > 0) {
+            resolvedBranchId = branchesData[0].id;
+        }
+        setActiveBranchId(resolvedBranchId);
+
+        if (resolvedBranchId) {
+            const branch = branchesData?.find(b => b.id === resolvedBranchId);
             setActiveBranchName(branch?.name || 'Sede');
         } else {
-            setActiveBranchName('Todas las sedes');
+            setActiveBranchName('Sede Principal');
         }
 
         setOnboardingStatus(school.onboardingStatus || 'completed');

@@ -42,9 +42,9 @@ export function AppSidebar() {
     switch (currentUserRole) {
       case 'owner':
       case 'super_admin':
-        // Si tiene multiples sedes y está en la vista "Todas las sedes" (activeBranchId nulo), es Global Admin.
-        // Si elige una sede específica, actúa como "school" (Administrador Operativo de esa sede).
-        navigationRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
+        // Owners/Super Admins siempre operan como 'school' en una sede specific.
+        // Pueden alternar entre sedes con el SchoolSwitcher.
+        navigationRole = 'school';
         break;
       case 'admin':
         navigationRole = 'admin';

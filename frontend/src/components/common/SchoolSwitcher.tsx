@@ -47,43 +47,29 @@ export const SchoolSwitcher = () => {
                         <span className="font-semibold text-sm truncate">
                             {availableSchools.find(s => s.schoolId === schoolId)?.schoolName || "Seleccionar"}
                         </span>
-                        {activeBranchId ? (
+                        {activeBranchId && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                                 <MapPin className="h-2 w-2" />
-                                Vista Sede
+                                Sede activa
                             </span>
-                        ) : (
-                            <span className="text-[10px] text-muted-foreground">Admin General</span>
                         )}
                     </div>
                 </div>
             </SelectTrigger>
             <SelectContent>
                 {availableSchools.map((s) => {
-                    // Si es la escuela actual, es admin global y tiene múltiples sedes
+                    // Para global admins con múltiples sedes: solo mostrar sedes individuales (sin Admin General)
                     if (s.schoolId === schoolId && isGlobalAdmin && totalBranches > 1) {
                         return (
                             <React.Fragment key={s.schoolId}>
-                                <SelectItem value={`${s.schoolId}:all`} className="font-semibold text-primary">
-                                    <div className="flex flex-col items-start py-0.5">
-                                        <span className="font-medium text-sm">{s.schoolName}</span>
-                                        <div className="flex items-center gap-1 text-[10px] uppercase text-muted-foreground font-bold tracking-tight">
-                                            <span>Admin General</span>
-                                            <span>•</span>
-                                            <span className="flex items-center gap-0.5">
-                                                Todas las sedes
-                                            </span>
-                                        </div>
-                                    </div>
-                                </SelectItem>
                                 {branches.map(b => (
-                                    <SelectItem key={`${s.schoolId}:${b.id}`} value={`${s.schoolId}:${b.id}`} className="ml-4 border-l-2 border-border pl-2 rounded-none">
+                                    <SelectItem key={`${s.schoolId}:${b.id}`} value={`${s.schoolId}:${b.id}`}>
                                         <div className="flex flex-col items-start py-0.5">
                                             <span className="font-medium text-sm">{b.name}</span>
                                             <div className="flex items-center gap-1 text-[10px] uppercase text-muted-foreground font-bold tracking-tight">
                                                 <span className="text-primary flex items-center gap-0.5">
                                                     <MapPin className="h-2 w-2" />
-                                                    Vista Sede
+                                                    Sede
                                                 </span>
                                             </div>
                                         </div>

@@ -69,8 +69,8 @@ export default function DashboardPage() {
   const role = profile?.role as unknown as string;
 
   if (role === 'owner' || role === 'super_admin') {
-    // Si tiene multiples sedes y está en Todas las sedes (global) es admin, sino es school (operativo)
-    dashboardRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
+    // Owners siempre operan a nivel de sede
+    dashboardRole = 'school';
   } else if (role === 'school_admin') {
     dashboardRole = 'school_admin';
   } else if (role === 'school') {
