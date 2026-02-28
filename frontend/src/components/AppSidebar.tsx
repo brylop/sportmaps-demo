@@ -1,8 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-// SchoolSwitcher deshabilitado para MVP: cada admin opera en su propia sede.
-// import { SchoolSwitcher } from '@/components/common/SchoolSwitcher';
 import { LogOut } from 'lucide-react';
 import {
   Sidebar,
@@ -28,23 +26,18 @@ export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
   const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
   const sidebar = useSidebar();
-  const { state } = sidebar;
+  const { state, isMobile, setOpenMobile } = sidebar;
 
   if (!profile || !user) return null;
 
-  const isCollapsed = state === 'collapsed';
+  // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
+  const isCollapsed = !isMobile && state === 'collapsed';
 
-  // Determine which role to use for navigation generation
-  // Priority: 1. Context Role (if inside a school) 2. Global Profile Role
   let navigationRole: UserRole = (profile.role as UserRole) || 'athlete';
-
   if (currentUserRole) {
-    // Map school-specific roles to dashboard generic roles
     switch (currentUserRole) {
       case 'owner':
       case 'super_admin':
-        // Owners/Super Admins siempre operan como 'school' en una sede specific.
-        // Pueden alternar entre sedes con el SchoolSwitcher.
         navigationRole = 'school';
         break;
       case 'admin':
@@ -73,46 +66,33 @@ export function AppSidebar() {
 
   const navigationGroups = getNavigationByRole(navigationRole);
 
-  // Get user initials for avatar fallback
   const getUserInitials = () => {
     if (profile.full_name) {
-      return profile.full_name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
+      return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     }
     return user?.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
   const getRoleBadge = () => {
-    // Show the context role if available, otherwise global
     const roleToShow = currentUserRole || profile.role;
-
     if (roleToShow === 'owner') return 'Propietario';
     if (roleToShow === 'reporter') return 'Auditoría';
-
     if (roleToShow === 'school_admin' || roleToShow === 'admin') {
       return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
     }
-
     const roleLabels: Record<string, string> = {
-      athlete: 'Deportista',
-      parent: 'Padre',
-      coach: 'Entrenador',
-      school: 'Escuela',
-      staff: 'Staff',
-      wellness_professional: 'Bienestar',
-      store_owner: 'Tienda',
-      super_admin: 'Super Admin',
-      viewer: 'Visitante'
+      athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
+      school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
+      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante'
     };
     return roleLabels[roleToShow as string] || roleToShow;
   };
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border/40 bg-card/50 backdrop-blur-sm">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-border/40 bg-card/50 backdrop-blur-sm"
+    >
       <SidebarHeader className="h-16 flex items-center px-4 overflow-hidden">
         {!isCollapsed ? (
           <div className="flex items-center gap-2 overflow-hidden">
@@ -127,32 +107,25 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2">
-        <div className="mb-4">
-          {!isCollapsed && (
-            <div className="flex flex-col items-center px-2 mb-4 animate-in fade-in slide-in-from-top-4 duration-500">
-              <Avatar className="h-16 w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
-                <AvatarImage src={profile.avatar_url || ''} />
-                <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
-                  {getUserInitials()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="text-center w-full overflow-hidden">
-                <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
-                <div className="flex justify-center mt-1">
-                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 bg-opacity-10 backdrop-blur-md">
-                    {getRoleBadge()}
-                  </Badge>
-                </div>
+        {/* Avatar — visible siempre en mobile (nunca collapsed), solo en expanded en desktop */}
+        {!isCollapsed && (
+          <div className="flex flex-col items-center px-2 mb-4 mt-2 animate-in fade-in slide-in-from-top-4 duration-500">
+            <Avatar className="h-14 w-14 sm:h-16 sm:w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
+              <AvatarImage src={profile.avatar_url || ''} />
+              <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
+                {getUserInitials()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="text-center w-full overflow-hidden">
+              <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
+              <div className="flex justify-center mt-1">
+                <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 backdrop-blur-md">
+                  {getRoleBadge()}
+                </Badge>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* SchoolSwitcher deshabilitado para MVP.
-           Modelo simplificado: cada admin opera en su propia sede.
-           Owner invita admins → cada admin crea su sede → sin cambio de sede UI.
-           Super admin se crea manualmente en DB para auditoría.
-        */}
+          </div>
+        )}
 
         {navigationGroups.map((group, groupIdx) => (
           <SidebarGroup key={groupIdx}>
@@ -170,6 +143,8 @@ export function AppSidebar() {
                     >
                       <NavLink
                         to={item.href}
+                        // En mobile: cerrar el drawer al navegar
+                        onClick={() => isMobile && setOpenMobile(false)}
                         className={({ isActive }) =>
                           `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
                           }`
@@ -177,8 +152,9 @@ export function AppSidebar() {
                       >
                         {({ isActive }) => (
                           <>
-                            <item.icon className={`h-4 w-4 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
-                            <span className="truncate">{item.title}</span>
+                            <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
+                            {/* Texto: siempre visible en mobile, condicional en desktop */}
+                            <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
                             {item.badge && !isCollapsed && (
                               <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
                                 {item.badge}
@@ -205,8 +181,8 @@ export function AppSidebar() {
           className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-300"
           onClick={() => signOut()}
         >
-          <LogOut className="h-4 w-4 mr-3 group-hover:rotate-12 transition-transform" />
-          {!isCollapsed && <span>Cerrar Sesión</span>}
+          <LogOut className="h-4 w-4 shrink-0 transition-transform" />
+          <span className={`ml-3 ${isCollapsed ? 'sr-only' : ''}`}>Cerrar Sesión</span>
         </Button>
       </SidebarFooter>
     </Sidebar>
