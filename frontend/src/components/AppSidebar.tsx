@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { SchoolSwitcher } from '@/components/common/SchoolSwitcher';
+// SchoolSwitcher deshabilitado para MVP: cada admin opera en su propia sede.
+// import { SchoolSwitcher } from '@/components/common/SchoolSwitcher';
 import { LogOut } from 'lucide-react';
 import {
   Sidebar,
@@ -147,12 +148,11 @@ export function AppSidebar() {
           )}
         </div>
 
-        {/* School Switcher Context - Always show for owners/admins or multibranch */}
-        {!isCollapsed && (currentUserRole === 'owner' || currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'school_admin' || totalBranches > 1 || isGlobalAdmin) && (
-          <div className="w-full mb-4">
-            <SchoolSwitcher />
-          </div>
-        )}
+        {/* SchoolSwitcher deshabilitado para MVP.
+           Modelo simplificado: cada admin opera en su propia sede.
+           Owner invita admins → cada admin crea su sede → sin cambio de sede UI.
+           Super admin se crea manualmente en DB para auditoría.
+        */}
 
         {navigationGroups.map((group, groupIdx) => (
           <SidebarGroup key={groupIdx}>
