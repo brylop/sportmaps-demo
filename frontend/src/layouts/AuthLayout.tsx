@@ -4,6 +4,7 @@ import { RealtimeNotificationsProvider } from "@/components/RealtimeNotification
 import { useAuth } from "@/contexts/AuthContext";
 import { useSchoolContext } from "@/hooks/useSchoolContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { GlobalNotificationBell } from "@/components/GlobalNotificationBell";
 import { Outlet } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useEffect } from "react";
@@ -75,6 +76,7 @@ export default function AuthLayout() {
             <div className="flex items-center gap-4">
               {/* Theme and User Section */}
               <div className="flex items-center gap-2 pr-2 border-r">
+                <GlobalNotificationBell />
                 <ThemeToggle />
               </div>
 
