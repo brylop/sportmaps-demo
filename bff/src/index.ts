@@ -25,13 +25,21 @@ app.use(cors({
 
         const allowedProductionDomain = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
-        // Si el origen coincide exactamente con la URL principal, o termina en .vercel.app (Preview branches)
-        if (origin === allowedProductionDomain || origin.endsWith('.vercel.app')) {
+        // Si el origen coincide exactamente con la URL principal,
+        // termina en .vercel.app (Preview branches),
+        // o es un subdominio de sportmaps.co (dev.sportmaps.co, staging.sportmaps.co, etc.)
+        if (
+            origin === allowedProductionDomain ||
+            origin.endsWith('.vercel.app') ||
+            origin.endsWith('.sportmaps.co') ||
+            origin === 'https://sportmaps.co'
+        ) {
             return callback(null, true);
         }
 
         return callback(new Error('Bloqueado por CORS'));
     },
+    credentials: true,
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use(pinoHttp({
