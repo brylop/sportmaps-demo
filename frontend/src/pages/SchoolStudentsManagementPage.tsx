@@ -54,7 +54,7 @@ export default function SchoolStudentsManagementPage() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
   // Resolve school context (school_id, programs, fees)
-  const { schoolId, schoolName, programs, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
   // Real data from Supabase View
   const { data: students = [], isLoading } = useQuery({
@@ -791,6 +791,9 @@ export default function SchoolStudentsManagementPage() {
         schoolId={schoolId || 'demo-school'}
         schoolName={schoolName}
         branchId={activeBranchId}
+        students={students}
+        programs={programs}
+        branches={branches}
       />
     </div>
   );

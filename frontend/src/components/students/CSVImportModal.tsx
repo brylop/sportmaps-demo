@@ -23,6 +23,9 @@ interface CSVImportModalProps {
   schoolId: string;
   schoolName: string;
   branchId?: string | null;
+  students?: any[];
+  programs?: any[];
+  branches?: any[];
 }
 
 interface ParsedStudent {
@@ -41,7 +44,17 @@ interface ParsedStudent {
   monthly_fee: number;
 }
 
-export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName, branchId }: CSVImportModalProps) {
+export function CSVImportModal({
+  open,
+  onClose,
+  onSuccess,
+  schoolId,
+  schoolName,
+  branchId,
+  students = [],
+  programs = [],
+  branches = []
+}: CSVImportModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -216,22 +229,68 @@ export function CSVImportModal({ open, onClose, onSuccess, schoolId, schoolName,
   };
 
   const downloadTemplate = () => {
-    const template = `full_name,email,phone,date_of_birth,gender,grade,branch,team,sport,parent_name,parent_email,parent_phone,monthly_fee
-Juan Pérez García,juan.perez@email.com,3001234567,2012-05-15,male,6A,Sede Norte,Sub-15,Fútbol,María García,maria.garcia@email.com,3009876543,150000
-Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Sede Sur,Sub-12,Natación,Carlos Martínez,carlos.martinez@email.com,3108765432,180000
-`;
+    // Definimos las cabeceras estándar
+    const headers = [
+      'document_id', 'first_name', 'last_name', 'email', 'phone',
+      'date_of_birth', 'gender', 'grade', 'branch', 'team', 'sport',
+      'parent_name', 'parent_email', 'parent_phone', 'monthly_fee', 'medical_info'
+    ];
 
-    const blob = new Blob([template], { type: 'text/csv' });
+    let csvContent = headers.join(',') + '\n';
+
+    if (students && students.length > 0) {
+      // Si hay estudiantes, exportamos su data real para edición masiva
+      const rows = students.map(s => {
+        const branchName = s.branch_name || (branches ? branches.find((b: any) => b.id === s.branch_id)?.name : '') || '';
+        const escapeCSV = (str: any) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+
+        return [
+          escapeCSV(s.document_id || ''),
+          escapeCSV(s.first_name || s.full_name?.split(' ')[0] || ''),
+          escapeCSV(s.last_name || s.full_name?.split(' ').slice(1).join(' ') || ''),
+          escapeCSV(s.email),
+          escapeCSV(s.phone),
+          escapeCSV(s.date_of_birth),
+          escapeCSV(s.gender),
+          escapeCSV(s.grade),
+          escapeCSV(branchName),
+          escapeCSV(s.team_name),
+          escapeCSV(s.sport),
+          escapeCSV(s.parent_name),
+          escapeCSV(s.parent_email),
+          escapeCSV(s.parent_phone),
+          escapeCSV(s.price_monthly),
+          escapeCSV(s.medical_info)
+        ].join(',');
+      });
+      csvContent += rows.join('\n');
+    } else {
+      // Si no hay estudiantes, generamos un estudiante de ejemplo guiado
+      const sampleBranch = branches && branches.length > 0 ? branches[0].name : 'Sede Principal';
+      const sampleFee = programs && programs.length > 0 ? programs[0].monthly_fee : 150000;
+
+      const sampleRow = [
+        '"1020304050"', '"Juan"', '"Pérez García"', '"juan.perez@email.com"', '"3001234567"',
+        '"2012-05-15"', '"male"', '"6A"', `"${sampleBranch}"`, '"Sub-15"', '"Fútbol"',
+        '"María García"', '"maria.garcia@email.com"', '"3009876543"', `"${sampleFee}"`, '"Ninguna"'
+      ].join(',');
+
+      csvContent += sampleRow + '\n';
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'plantilla_estudiantes.csv';
+    a.download = students && students.length > 0 ? `estudiantes_${new Date().toISOString().split('T')[0]}.csv` : 'plantilla_estudiantes.csv';
     a.click();
     window.URL.revokeObjectURL(url);
 
     toast({
-      title: 'Plantilla descargada',
-      description: 'Edita el archivo y súbelo para importar estudiantes (incluye columna monthly_fee)',
+      title: students && students.length > 0 ? 'Exportación completada' : 'Plantilla descargada',
+      description: students && students.length > 0
+        ? 'Abre el archivo en Excel, edita "sede", "equipo", etc., y vuelve a subirlo marcando la casilla de sobrescribir para importación masiva.'
+        : 'Abre el archivo y llénalo basándote en el ejemplo. Los nombres de sede deben coincidir con tu sistema.',
     });
   };
 
@@ -256,8 +315,9 @@ Ana Martínez López,ana.martinez@email.com,3102345678,2011-08-20,female,7B,Sede
               <span className="text-sm">
                 ¿Primera vez? Descarga la plantilla CSV (incluye columna <code>monthly_fee</code>)
               </span>
-              <Button variant="link" size="sm" onClick={downloadTemplate} className="h-auto p-0">
-                Descargar plantilla
+              <Button type="button" variant="outline" onClick={downloadTemplate} className="w-full">
+                <Download className="mr-2 h-4 w-4" />
+                {students && students.length > 0 ? 'Exportar Mis Estudiantes para Edición Masiva (CSV)' : 'Descargar Plantilla CSV con Ejemplo'}
               </Button>
             </AlertDescription>
           </Alert>
