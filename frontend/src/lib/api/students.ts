@@ -325,12 +325,19 @@ class StudentsAPI {
       };
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const headers = (() => {
+      const firstLine = lines[0];
+      const delimiter = firstLine.includes(';') ? ';' : ',';
+      // Store delimiter for reuse in row parsing
+      (lines as any)._delimiter = delimiter;
+      return firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, '').replace(/^\uFEFF/, ''));
+    })();
+    const delimiter = (lines as any)._delimiter as string;
     const parseErrors: Array<{ row: number; error: string }> = [];
     const students: BFFStudentRow[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
       const row: Record<string, string> = {};
       headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
 

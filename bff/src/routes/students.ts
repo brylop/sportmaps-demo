@@ -8,10 +8,9 @@ const router = Router();
 // ── Schema Zod v4 ─────────────────────────────────────────────────────────────
 // ⚠️  En Zod v4, los errores están en `error.issues`, no en `error.errors`
 const StudentSchema = z.object({
-    first_name: z.string().min(2, 'Nombre muy corto').max(100).trim(),
-    last_name: z.string().min(2, 'Apellido muy corto').max(100).trim(),
-    document_id: z.string().min(5, 'Documento muy corto').max(20)
-        .regex(/^[0-9A-Za-z\-]+$/, 'Documento inválido'),
+    first_name: z.string().min(1, 'Nombre requerido').max(100).trim(),
+    last_name: z.string().min(1, 'Apellido requerido').max(100).trim(),
+    document_id: z.string().min(1, 'Documento requerido').max(30),
     grade: z.string().max(20).optional(),
     medical_info: z.string().max(1000).optional(),
     branch: z.string().max(100).optional(),
