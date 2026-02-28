@@ -36,12 +36,21 @@ export const requireAuth = async (
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-        const { data: profiles, error: profileError } = await supabase
+        const targetSchoolId = req.headers['x-school-id'] as string | undefined;
+
+        let query = supabase
             .from('school_members')
             .select('school_id, role, branch_id')
             .eq('profile_id', user.id)
-            .eq('status', 'active')
-            .limit(1);
+            .eq('status', 'active');
+
+        // Si el cliente envía explícitamente el schoolId que está gestionando, validamos contra esa escuela.
+        // Esto previene que usuarios multi-escuela agarren un "school_members" aleatorio por culpa del .limit(1)
+        if (targetSchoolId) {
+            query = query.eq('school_id', targetSchoolId);
+        }
+
+        const { data: profiles, error: profileError } = await query.limit(1);
 
         const profile = profiles?.[0];
 

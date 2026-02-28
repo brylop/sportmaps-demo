@@ -40,6 +40,7 @@ async function request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
+    customHeaders?: Record<string, string>
 ): Promise<T> {
     const authHeader = await getAuthHeader();
 
@@ -48,6 +49,7 @@ async function request<T>(
         headers: {
             'Content-Type': 'application/json',
             ...authHeader,
+            ...customHeaders,
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -72,11 +74,11 @@ async function request<T>(
 }
 
 export const bffClient = {
-    get: <T>(path: string) => request<T>('GET', path),
-    post: <T>(path: string, body: unknown) => request<T>('POST', path, body),
-    put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
-    patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
-    delete: <T>(path: string) => request<T>('DELETE', path),
+    get: <T>(path: string, headers?: Record<string, string>) => request<T>('GET', path, undefined, headers),
+    post: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('POST', path, body, headers),
+    put: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('PUT', path, body, headers),
+    patch: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('PATCH', path, body, headers),
+    delete: <T>(path: string, headers?: Record<string, string>) => request<T>('DELETE', path, undefined, headers),
 };
 
 export { BFFError };

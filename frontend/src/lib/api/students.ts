@@ -424,6 +424,8 @@ class StudentsAPI {
         upsert: options.upsert ?? false,
         defaultBranchId: options.defaultBranchId || null,
       },
+    }, {
+      'x-school-id': schoolId
     });
 
     // ── 3. Adaptar respuesta al contrato anterior ─────────────────────────
