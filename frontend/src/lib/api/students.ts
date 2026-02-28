@@ -177,11 +177,39 @@ class StudentsAPI {
   /**
    * Get enriched students data for School Management UI (uses 'students' VIEW)
    */
-  async getSchoolView(schoolId: string, branchId?: string | null): Promise<StudentViewRow[]> {
+  async getSchoolView(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentViewRow[]> {
     try {
       if (!schoolId || !isValidUUID(schoolId)) {
         return [];
       }
+
+      // Si se pasa coachId, filtrar por los equipos del coach (legacy + junction table)
+      if (coachId) {
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+        if (teamIds.length === 0) return [];
+
+        let query = supabase
+          .from('students')
+          .select('*')
+          .eq('school_id', schoolId)
+          .in('team_id', teamIds);
+
+        if (branchId) {
+          query = query.eq('branch_id', branchId);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (error) throw error;
+        return data as StudentViewRow[] || [];
+      }
+
       let query = supabase
         .from('students')
         .select('*')
@@ -463,15 +491,17 @@ class StudentsAPI {
       }
 
       if (coachId) {
-        // Fetch teams for this coach
-        const { data: coachTeams } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('coach_id', coachId);
-
-        const teamIds = (coachTeams || []).map(t => t.id);
+        // Fetch teams for this coach via legacy field AND junction table
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
         if (teamIds.length > 0) {
-          query = query.or(`team_id.in.(${teamIds.join(',')})`);
+          query = query.in('team_id', teamIds);
         } else {
           return { total: 0, active: 0, inactive: 0, by_grade: {} };
         }

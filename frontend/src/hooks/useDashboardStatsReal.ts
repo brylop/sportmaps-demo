@@ -103,11 +103,14 @@ export function useDashboardStatsReal() {
         let coachIdFilter = undefined;
 
         if (isCoach && user?.email) {
-          const { data: staffData } = await supabase
+          let staffQuery = supabase
             .from('school_staff')
             .select('id')
-            .eq('email', user.email)
-            .maybeSingle();
+            .eq('email', user.email);
+          if (schoolId) {
+            staffQuery = staffQuery.eq('school_id', schoolId);
+          }
+          const { data: staffData } = await staffQuery.maybeSingle();
 
           if (staffData) {
             coachIdFilter = staffData.id;
@@ -132,8 +135,14 @@ export function useDashboardStatsReal() {
         let upcomingEventsCount = 0;
         if (coachIdFilter) {
           const today = new Date().toISOString().split('T')[0];
-          const { data: teams } = await supabase.from('teams').select('id').eq('coach_id', coachIdFilter);
-          const teamIds = teams?.map(t => t.id) || [];
+          const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+            supabase.from('teams').select('id').eq('coach_id', coachIdFilter),
+            supabase.from('team_coaches').select('team_id').eq('coach_id', coachIdFilter),
+          ]);
+          const teamIds = [...new Set([
+            ...(legacyTeams || []).map(t => t.id),
+            ...(junctionTeams || []).map(t => t.team_id),
+          ])];
 
           if (teamIds.length > 0) {
             const { count: sessionCount } = await supabase

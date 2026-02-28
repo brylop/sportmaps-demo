@@ -11,6 +11,7 @@ import { CreateStudentModal } from '@/components/students/CreateStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { supabase } from '@/integrations/supabase/client';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -42,7 +43,21 @@ export default function StudentsPage() {
         return;
       }
 
-      const data = await studentsAPI.getSchoolView(schoolId);
+      // Para coaches: filtrar por sus equipos (legacy coach_id + junction table)
+      let coachId: string | undefined;
+      if (profile?.role === 'coach' && profile?.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', profile.email)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (staffData) {
+          coachId = staffData.id;
+        }
+      }
+
+      const data = await studentsAPI.getSchoolView(schoolId, null, coachId);
       // Map to Student type if needed or adjust state type
       setStudents(data as any as Student[]);
     } catch (error: any) {

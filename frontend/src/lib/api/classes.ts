@@ -392,7 +392,19 @@ class ClassesAPI {
       }
 
       if (coachId) {
-        query = query.eq('coach_id', coachId);
+        // Obtener equipos via campo legacy Y junction table
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+        if (teamIds.length === 0) {
+          return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+        }
+        query = query.in('id', teamIds);
       }
 
       const { data: teams } = await query;

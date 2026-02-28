@@ -91,12 +91,13 @@ export default function TeamsPage() {
       // Fetch the staff record for this coach if they are a coach
       // This is necessary because programs often link to school_staff.id instead of profiles.id
       let staffId = null;
-      if (currentUserRole === 'coach' && userEmail) {
+      if (currentUserRole === 'coach' && userEmail && schoolId) {
         const { data: staffData } = await supabase
           .from('school_staff')
           .select('id')
           .eq('email', userEmail)
-          .single();
+          .eq('school_id', schoolId)
+          .maybeSingle();
 
         if (staffData) {
           staffId = staffData.id;
@@ -168,13 +169,19 @@ export default function TeamsPage() {
         }
       }
       // Filtering logic based on user role
-      if (currentUserRole === 'coach' && staffId) {
-        // Coach view: filter by team_coaches relation or legacy fields
+      if (currentUserRole === 'coach') {
+        // Coach view: buscar por staffId (school_staff) y también por userId (profiles)
+        // para cubrir coaches invitados cuyo staffId recién se creó o que tienen coach_id = profile.id
         allTeams = allTeams.filter(team => {
-          const isAssigned = team.team_coaches?.some((tc: any) => tc.coach?.id === staffId);
-          const isLegacyCoach = team.coach_id === staffId;
-
-          return isAssigned || isLegacyCoach;
+          if (staffId) {
+            const isAssignedByStaff = team.team_coaches?.some((tc: any) => tc.coach?.id === staffId);
+            if (isAssignedByStaff || team.coach_id === staffId) return true;
+          }
+          if (userId) {
+            const isAssignedByProfile = team.team_coaches?.some((tc: any) => tc.coach?.id === userId);
+            if (isAssignedByProfile || team.coach_id === userId) return true;
+          }
+          return false;
         });
       } else if (activeBranchId) {
         allTeams = allTeams.filter(team => team.branch_id === activeBranchId);
@@ -427,7 +434,9 @@ export default function TeamsPage() {
                   ? 'Aún no hay alumnos inscritos en ningún equipo de esta sede.'
                   : statusFilter === 'with_wins' || statusFilter === 'top_rate'
                     ? 'Aún no se ha registrado información de partidos o victorias para estos equipos.'
-                    : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
+                    : currentUserRole === 'coach'
+                      ? 'Aún no estás asignado a ningún equipo. Pídele al administrador que te asigne a un equipo desde "Editar Equipo".'
+                      : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
             </p>
             <PermissionGate permission="teams:create">
               <Button className="gap-2 scale-110" onClick={() => setIsModalOpen(true)}>

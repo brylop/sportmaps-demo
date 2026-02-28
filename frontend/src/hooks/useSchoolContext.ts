@@ -183,6 +183,7 @@ export function useSchoolContext(): SchoolContext {
                     } else {
                         selectSchool(mappedSchools[0]);
                     }
+                } else {
                     // Authenticated but no memberships
                     // Check if user is explicitly a SCHOOL role
                     const userRole = userProfile?.role as string;
