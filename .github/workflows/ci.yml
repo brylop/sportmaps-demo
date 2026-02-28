@@ -147,72 +147,8 @@ jobs:
           retention-days: 7
 
 # =============================================================================
-# JOB 4: Deploy a Staging (develop → staging)
+# JOB 4: Deploy (Manejado nativamente por Vercel)
 # =============================================================================
-  deploy-staging:
-    name: 🚀 Deploy Staging
-    runs-on: ubuntu-latest
-    needs: [quality, unit-tests]
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    environment:
-      name: staging
-      url: ${{ steps.deploy.outputs.url }}
-
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 🚀 Deploy a Vercel (Staging)
-        id: deploy
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: ./frontend
-          vercel-args: '--env VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL_STAGING }} --env VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_STAGING }}'
-
-      - name: 💬 Comentar en PR con URL de preview
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🚀 **Preview desplegado:** ${{ steps.deploy.outputs.url }}`
-            })
-
-# =============================================================================
-# JOB 5: Deploy a Producción (main → production) con aprobación manual
-# =============================================================================
-  deploy-production:
-    name: 🏭 Deploy Producción
-    runs-on: ubuntu-latest
-    needs: [quality, unit-tests]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: production
-      url: https://sportmaps.app   # Cambiar por URL real
-      # ⚠️ Configurar "Required reviewers" en GitHub → Settings → Environments → production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 🏭 Deploy a Vercel (Producción)
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          working-directory: ./frontend
-          vercel-args: '--prod'
-
-      - name: 🔔 Notificar deploy exitoso
-        uses: actions/github-script@v7
-        if: success()
-        with:
-          script: |
-            // Aquí se puede notificar a Slack, Discord, etc.
-            console.log('✅ Deploy a producción exitoso')
+# Los despliegues ahora son manejados directamente por la integración de Vercel en GitHub.
+# Vercel construirá automáticamente los commits en las ramas configuradas.
+# Ver `vercel.json` y `vercel-ignore-build.sh` para reglas lógicas de despliegues automatizados.
