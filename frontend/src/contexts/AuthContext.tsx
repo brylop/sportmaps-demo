@@ -143,6 +143,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (event, session) => {
         if (!mounted) return;
 
+        // ★ Interceptar el evento PASSWORD_RECOVERY para redirigir al formulario de nueva contraseña
+        if (event === 'PASSWORD_RECOVERY') {
+          // Supabase inicia sesión automáticamente con el token del email,
+          // lo que haría que el ProtectedRoute deje pasar al usuario al Dashboard.
+          // En vez de eso, lo redirigimos al formulario de cambio de contraseña.
+          window.location.href = '/reset-password';
+          return;
+        }
+
         // Synchronous updates only
         setSession(session);
         setUser(session?.user || null);
