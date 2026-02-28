@@ -223,42 +223,75 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       }
     ],
 
+    // ── ADMIN GENERAL (Multi-sede) ───────────────────────────────────────────
+    // Superset de 'school': muestra TODO + items globales de sedes.
+    // Las páginas ya filtran datos por activeBranchId cuando está seteado.
     admin: [
       {
-        title: 'Reportes Globales',
+        title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users }
+        ]
+      },
+      {
+        title: 'Gestión Académica',
+        items: [
+          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
       {
         title: 'Administración',
         items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Configuración', href: '/school-config', icon: Settings },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/school-config', icon: Settings }
         ]
       }
     ],
 
+    // ── SUPER ADMIN ──────────────────────────────────────────────────────────
+    // Idéntico a admin — mismo superset operacional.
     super_admin: [
       {
-        title: 'Reportes Globales',
+        title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users }
+        ]
+      },
+      {
+        title: 'Gestión Académica',
+        items: [
+          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
       {
         title: 'Administración',
         items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Configuración', href: '/school-config', icon: Settings },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/school-config', icon: Settings }
         ]
       }
     ],

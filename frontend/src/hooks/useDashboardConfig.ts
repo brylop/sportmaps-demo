@@ -362,11 +362,11 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           ],
           activities: [],
           quickActions: [
-            { label: 'Gestionar Usuarios', icon: Users, href: '/admin/users', variant: 'default' },
-            { label: 'Gestionar Sedes', icon: Building, href: '/admin/clubs', variant: 'outline' },
-            { label: 'Reportes Globales', icon: BarChart3, href: '/admin/system', variant: 'outline' }
+            { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
+            { label: 'Gestionar Sedes', icon: Building, href: '/branches', variant: 'outline' },
+            { label: 'Reportes Globales', icon: BarChart3, href: '/school-reports', variant: 'outline' }
           ],
-          onboardingSteps: onboardingConfigs.admin
+          onboardingSteps: onboardingConfigs.school
         };
 
       case 'organizer':
