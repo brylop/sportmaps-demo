@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 interface OverdueAccount {
   id: string;
@@ -31,13 +32,14 @@ interface Transaction {
 
 export default function FinancesPage() {
   const { toast } = useToast();
+  const { schoolId, activeBranchId } = useSchoolContext();
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  // Fetch payments from Supabase
+  // Fetch payments from Supabase — filtrado por school_id y branch
   const { data: payments, isLoading } = useQuery({
-    queryKey: ['school-payments-all'],
+    queryKey: ['school-payments-all', schoolId, activeBranchId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('payments')
         .select(`
           id,
@@ -51,9 +53,14 @@ export default function FinancesPage() {
         `)
         .order('due_date', { ascending: false });
 
+      if (schoolId) query = query.eq('school_id', schoolId);
+      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+
+      const { data, error } = await query;
       if (error) throw error;
       return data;
-    }
+    },
+    enabled: !!schoolId,
   });
 
   // Calculate Aggregates
