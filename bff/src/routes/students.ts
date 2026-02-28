@@ -113,7 +113,7 @@ router.post(
             if (branchNamesSet.size > 0) {
                 const branchNames = [...branchOriginalNames.values()];
                 const { data: existingBranches } = await supabase
-                    .from('branches')
+                    .from('school_branches')
                     .select('id, name')
                     .eq('school_id', schoolId)
                     .in('name', branchNames);
@@ -134,7 +134,7 @@ router.post(
 
                 if (branchesToCreate.length > 0) {
                     const { data: createdBranches, error: branchError } = await supabase
-                        .from('branches')
+                        .from('school_branches')
                         .insert(branchesToCreate)
                         .select('id, name');
 
@@ -408,8 +408,9 @@ router.post(
                 skipped,  // detalle fila por fila de los omitidos
             });
 
-        } catch (err) {
-            next(err);
+        } catch (err: any) {
+            req.log?.error?.({ err: err.message || err }, 'Error inesperado en bulk upload');
+            return res.status(500).json({ error: err.message || 'Error interno del servidor al procesar el CSV.' });
         }
     }
 );
@@ -430,7 +431,6 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coac
         return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
-// Necesario para que el catch use next()
-function next(err: unknown) { throw err; }
 
 export default router;
+
