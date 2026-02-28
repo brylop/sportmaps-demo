@@ -225,42 +225,60 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
 
     admin: [
       {
-        title: 'Principal',
+        title: 'Vista Consolidada',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
-          { title: 'Clubs', href: '/admin/clubs', icon: Building }
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Equipos', href: '/teams', icon: Trophy },
+          { title: 'Entrenadores', href: '/staff', icon: Users },
         ]
       },
       {
-        title: 'Sistema',
+        title: 'Análisis y Reportes',
         items: [
           { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Reportes', href: '/admin/reports', icon: FileText },
+          { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+        ]
+      },
+      {
+        title: 'Administración',
+        items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: Bell }
+          { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          { title: 'Configuración', href: '/school-config', icon: Settings },
         ]
       }
     ],
 
     super_admin: [
       {
-        title: 'Principal',
+        title: 'Vista Consolidada',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
-          { title: 'Clubs', href: '/admin/clubs', icon: Building }
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Equipos', href: '/teams', icon: Trophy },
+          { title: 'Entrenadores', href: '/staff', icon: Users },
         ]
       },
       {
-        title: 'Sistema',
+        title: 'Análisis y Reportes',
         items: [
           { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Reportes', href: '/admin/reports', icon: FileText },
+          { title: 'Reportes Gerenciales', href: '/school-reports', icon: FileText },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+        ]
+      },
+      {
+        title: 'Administración',
+        items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: Bell }
+          { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          { title: 'Configuración', href: '/school-config', icon: Settings },
         ]
       }
     ],
