@@ -229,11 +229,11 @@ export function CSVImportModal({
   };
 
   const downloadTemplate = () => {
-    // Definimos las cabeceras estándar
+    // Definimos las cabeceras estándar en Español (soportadas por bff/students.ts)
     const headers = [
-      'document_id', 'first_name', 'last_name', 'email', 'phone',
-      'date_of_birth', 'gender', 'grade', 'branch', 'team', 'sport',
-      'parent_name', 'parent_email', 'parent_phone', 'monthly_fee', 'medical_info'
+      'documento', 'nombre', 'apellido', 'email', 'telefono',
+      'fecha_nacimiento', 'genero', 'grado', 'sede', 'equipo', 'deporte',
+      'acudiente', 'correo_acudiente', 'telefono_acudiente', 'mensualidad', 'notas_medicas'
     ];
 
     let csvContent = headers.join(',') + '\n';
