@@ -47,7 +47,7 @@ if [ -d "backend" ]; then
         fi
     else
         echo "⚠️ Ruff not found in PATH. Skipping Python checks. (Install with 'pip install ruff')"
-    end
+    fi
     cd ..
 fi
 

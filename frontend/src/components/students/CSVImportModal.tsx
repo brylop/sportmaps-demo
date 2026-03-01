@@ -30,6 +30,7 @@ interface CSVImportModalProps {
 
 interface ParsedStudent {
   full_name: string;
+  document_id?: string;
   email?: string;
   phone?: string;
   date_of_birth?: string;
@@ -88,11 +89,13 @@ export function CSVImportModal({
         if (h) row[h] = values[idx] || '';
       });
 
-      const fullName = row.full_name || row.nombre || row.name;
+      const fullName = row.full_name || row.nombre_completo
+        || (`${row.nombre || ''} ${row.apellido || ''}`.trim() || row.name);
       if (!fullName) continue;
 
       students.push({
         full_name: fullName,
+        document_id: row.document_id || row.documento || row.cedula || undefined,
         email: row.email || '',
         phone: row.phone || row.telefono || '',
         date_of_birth: row.date_of_birth || row.fecha_nacimiento || '',
@@ -101,10 +104,10 @@ export function CSVImportModal({
         branch: row.branch || row.sede || '',
         team: row.team || row.equipo || '',
         sport: row.sport || row.deporte || '',
-        parent_name: row.parent_name || row.nombre_acudiente || '',
-        parent_email: row.parent_email || row.email_acudiente || '',
-        parent_phone: row.parent_phone || row.telefono_acudiente || '',
-        monthly_fee: parseInt(row.monthly_fee || row.mensualidad) || DEFAULT_FEE,
+        parent_name: row.parent_name || row.acudiente || row.nombre_acudiente || '',
+        parent_email: row.parent_email || row.correo_acudiente || row.email_acudiente || '',
+        parent_phone: row.parent_phone || row.telefono_acudiente || row.telefono || '',
+        monthly_fee: Number(row.monthly_fee || row.mensualidad) || DEFAULT_FEE,
       });
     }
 
@@ -272,7 +275,7 @@ export function CSVImportModal({
       const sampleRow = [
         '"1020304050"', '"Juan"', '"Pérez García"', '"juan.perez@email.com"', '"3001234567"',
         '"2012-05-15"', '"male"', '"6A"', `"${sampleBranch}"`, '"Sub-15"', '"Fútbol"',
-        '"María García"', '"maria.garcia@email.com"', '"3009876543"', `"${sampleFee}"`, '"Ninguna"'
+        '"María García"', '"maria.garcia@email.com"', '"3009876543"', `"${sampleFee}"`, '"{""has_allergies"": false}"'
       ].join(',');
 
       csvContent += sampleRow + '\n';
@@ -375,6 +378,20 @@ export function CSVImportModal({
               </>
             )}
           </div>
+
+          {/* Advertencia: filas sin documento */}
+          {parsedStudents.length > 0 && !uploading && !result && (() => {
+            const sinDocumento = parsedStudents.filter(s => !s.document_id).length;
+            return sinDocumento > 0 ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>{sinDocumento} {sinDocumento === 1 ? 'fila no tiene' : 'filas no tienen'} documento</strong> y {sinDocumento === 1 ? 'será rechazada' : 'serán rechazadas'} al importar.
+                  Solo {parsedStudents.length - sinDocumento} de {parsedStudents.length} {parsedStudents.length === 1 ? 'fila es válida' : 'filas son válidas'}.
+                </AlertDescription>
+              </Alert>
+            ) : null;
+          })()}
 
           {/* Preview Table */}
           {parsedStudents.length > 0 && !uploading && !result && (
@@ -490,16 +507,18 @@ export function CSVImportModal({
               <div className="text-xs space-y-2">
                 <p><strong>Columnas requeridas:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
-                  <li><code>full_name</code> - Nombre completo del estudiante (requerido)</li>
-                  <li><code>branch</code> - Nombre de la sede (se crea auto si no existe)</li>
-                  <li><code>team</code> - Nombre del equipo (se crea auto si no existe)</li>
-                  <li><code>sport</code> - Deporte del equipo (ej: Fútbol, Natación)</li>
-                  <li><code>parent_name</code> - Nombre del padre/madre</li>
-                  <li><code>parent_email</code> - Email del padre/madre</li>
-                  <li><code>parent_phone</code> - Teléfono del padre/madre</li>
-                  <li><code>monthly_fee</code> - <strong>Mensualidad en COP</strong> (ej: 150000)</li>
-                  <li><code>date_of_birth</code> - Fecha de nacimiento (YYYY-MM-DD)</li>
-                  <li><code>grade</code> - Grado o nivel (opcional)</li>
+                  <li><code>documento</code> — Número de documento (<strong>requerido</strong>)</li>
+                  <li><code>nombre</code> + <code>apellido</code> — Nombre y apellido (<strong>requerido</strong>)</li>
+                  <li><code>acudiente</code> — Nombre del acudiente (<strong>requerido</strong>, mín. 2 caracteres)</li>
+                  <li><code>correo_acudiente</code> — Email del acudiente (<strong>requerido</strong>, formato válido)</li>
+                  <li><code>telefono_acudiente</code> — Teléfono del acudiente (<strong>requerido</strong>, mín. 10 dígitos)</li>
+                  <li><code>mensualidad</code> — Mensualidad en COP (<strong>requerida</strong>, ej: 150000)</li>
+                  <li><code>sede</code> — Nombre de la sede (se crea automáticamente si no existe)</li>
+                  <li><code>equipo</code> — Nombre del equipo (se crea automáticamente si no existe)</li>
+                  <li><code>deporte</code> — Deporte del equipo (ej: Fútbol, Natación)</li>
+                  <li><code>fecha_nacimiento</code> — Fecha de nacimiento YYYY-MM-DD (opcional)</li>
+                  <li><code>grado</code> — Grado escolar (opcional)</li>
+                  <li><code>notas_medicas</code> — JSON médico, ej: <code>{'{"has_allergies": false}'}</code> (opcional)</li>
                 </ul>
               </div>
             </div>

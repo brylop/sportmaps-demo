@@ -12,16 +12,19 @@ const StudentSchema = z.object({
     last_name: z.string().min(1, 'Apellido requerido').max(100).trim(),
     document_id: z.string().min(1, 'Documento requerido').max(30),
     grade: z.string().max(20).optional(),
-    medical_info: z.string().max(1000).optional(),
+    medical_info: z.string().max(1000).refine(
+        val => { try { const p = JSON.parse(val); return typeof p.has_allergies === 'boolean'; } catch { return false; } },
+        { message: 'notas_medicas debe ser JSON válido con campo has_allergies (boolean). Ej: {"has_allergies": false}' }
+    ).optional(),
     branch: z.string().max(100).optional(),
-    team: z.string().max(100).optional(),
-    sport: z.string().max(100).optional(),
-    date_of_birth: z.string().optional(),
+    team: z.string().min(1, 'Equipo requerido').max(100),
+    sport: z.string().min(1, 'Deporte requerido').max(100),
+    date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha de nacimiento debe tener formato YYYY-MM-DD').optional(),
     gender: z.string().optional(),
-    parent_name: z.string().optional(),
-    parent_email: z.string().email('Email inválido').optional().or(z.literal('')),
-    parent_phone: z.string().optional(),
-    monthly_fee: z.number().optional(),
+    parent_name: z.string().min(2, 'Nombre del acudiente requerido (mín. 2 caracteres)'),
+    parent_email: z.string().email('Email del acudiente inválido'),
+    parent_phone: z.string().regex(/^\d{10,}$/, 'Teléfono del acudiente debe tener mínimo 10 dígitos numéricos'),
+    monthly_fee: z.number().min(10000, 'La mensualidad debe ser mínimo $10,000 COP').optional(),
 });
 
 const BulkUploadSchema = z.object({
