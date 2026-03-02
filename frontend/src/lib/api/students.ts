@@ -710,7 +710,7 @@ class StudentsAPI {
       sport: child.sport,
       team_name: child.team_name,
       avatar_url: child.avatar_url || parentProfile?.avatar_url,
-      status: 'active',
+      status: child.is_active !== false ? 'active' : 'inactive',
       created_at: child.created_at,
       updated_at: child.updated_at,
     } as Student;
