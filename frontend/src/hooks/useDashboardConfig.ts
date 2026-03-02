@@ -141,16 +141,16 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               icon: Users
             },
             {
-              title: 'Pagos Pendientes',
-              value: stats.pendingPayments,
-              description: stats.pendingPayments === 0 ? 'Al día' : 'Por pagar',
-              icon: TrendingUp
+              title: 'Asistencia Promedio',
+              value: '0%',
+              description: 'Últimos 30 días',
+              icon: Activity
             },
             {
-              title: 'Suscripciones Activas',
-              value: stats.activeEnrollments, // Using active enrollments as proxy for subscriptions/active kids programs
-              description: 'En curso',
-              icon: Activity
+              title: 'Pagos Pendientes',
+              value: stats.pendingPayments,
+              description: stats.pendingPayments === 0 ? 'Al día' : 'Mensualidades',
+              icon: TrendingUp
             },
             {
               title: 'Notificaciones',

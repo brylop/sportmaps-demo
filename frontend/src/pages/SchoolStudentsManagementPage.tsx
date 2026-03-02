@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -40,7 +40,7 @@ const studentSchema = z.object({
 type StudentFormData = z.infer<typeof studentSchema>;
 
 export default function SchoolStudentsManagementPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -55,10 +55,30 @@ export default function SchoolStudentsManagementPage() {
 
   const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
+  // Para coaches: obtener coachId para filtrar solo sus estudiantes
+  const [coachId, setCoachId] = useState<string | undefined>(undefined);
+  const [coachIdResolved, setCoachIdResolved] = useState(false);
+  useEffect(() => {
+    if (profile?.role === 'coach' && profile?.email && schoolId) {
+      supabase
+        .from('school_staff')
+        .select('id')
+        .eq('email', profile.email)
+        .eq('school_id', schoolId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setCoachId(data.id);
+          setCoachIdResolved(true);
+        });
+    } else {
+      setCoachIdResolved(true);
+    }
+  }, [profile?.role, profile?.email, schoolId]);
+
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ['school-students', schoolId, activeBranchId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId) : Promise.resolve([]),
-    enabled: !!schoolId,
+    queryKey: ['school-students', schoolId, activeBranchId, coachId],
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId, coachId) : Promise.resolve([]),
+    enabled: !!schoolId && coachIdResolved,
   });
 
   const form = useForm<StudentFormData>({

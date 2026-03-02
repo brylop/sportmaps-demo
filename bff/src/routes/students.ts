@@ -241,6 +241,7 @@ router.post(
                     school_id: schoolId,
                     branch_id: resolveBranchId(s),
                     program_id: resolveTeamId(s),
+                    team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                     date_of_birth: s.date_of_birth || null,
                     gender: s.gender || null,
                     parent_name_temp: s.parent_name || null,
@@ -279,6 +280,7 @@ router.post(
                         medical_info: s.medical_info,
                         branch_id: resolveBranchId(s),
                         program_id: resolveTeamId(s),
+                        team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                         date_of_birth: s.date_of_birth || null,
                         gender: s.gender || null,
                         parent_name_temp: s.parent_name || null,
