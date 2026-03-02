@@ -195,19 +195,45 @@ class StudentsAPI {
         ])];
         if (teamIds.length === 0) return [];
 
-        let query = supabase
+        // Obtener child IDs desde enrollments activos Y desde children.team_id.
+        // El BFF asigna program_id y crea enrollments pero no siempre setea team_id,
+        // por lo que ambas fuentes son necesarias para no perder estudiantes.
+        const [{ data: enrolledChildren }, { data: directChildren }] = await Promise.all([
+          supabase.from('enrollments').select('child_id').in('program_id', teamIds).eq('status', 'active'),
+          supabase.from('children').select('id').eq('school_id', schoolId).in('team_id', teamIds),
+        ]);
+
+        const childIds = [...new Set([
+          ...(enrolledChildren || []).map(e => e.child_id).filter(Boolean),
+          ...(directChildren || []).map(c => c.id),
+        ])];
+        if (childIds.length === 0) return [];
+
+        const query = supabase
           .from('students')
           .select('*')
           .eq('school_id', schoolId)
-          .in('team_id', teamIds);
-
-        if (branchId) {
-          query = query.eq('branch_id', branchId);
-        }
+          .in('id', childIds);
 
         const { data, error } = await query.order('created_at', { ascending: false });
         if (error) throw error;
-        return data as StudentViewRow[] || [];
+
+        // Deduplicar: un estudiante con múltiples inscripciones activas genera
+        // múltiples filas en la vista. Se unifica en un registro con los programas concatenados.
+        const byId = new Map<string, StudentViewRow>();
+        for (const row of (data || []) as StudentViewRow[]) {
+          if (!byId.has(row.id)) {
+            byId.set(row.id, { ...row });
+          } else {
+            const existing = byId.get(row.id)!;
+            if (row.program_name && !existing.program_name?.includes(row.program_name)) {
+              existing.program_name = existing.program_name
+                ? `${existing.program_name}, ${row.program_name}`
+                : row.program_name;
+            }
+          }
+        }
+        return Array.from(byId.values());
       }
 
       let query = supabase
@@ -222,7 +248,23 @@ class StudentsAPI {
       const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as StudentViewRow[] || [];
+
+      // Deduplicar: la vista puede retornar múltiples filas por estudiante
+      // cuando tiene más de una inscripción activa. Se unifica en un registro.
+      const byId = new Map<string, StudentViewRow>();
+      for (const row of (data || []) as StudentViewRow[]) {
+        if (!byId.has(row.id)) {
+          byId.set(row.id, { ...row });
+        } else {
+          const existing = byId.get(row.id)!;
+          if (row.program_name && !existing.program_name?.includes(row.program_name)) {
+            existing.program_name = existing.program_name
+              ? `${existing.program_name}, ${row.program_name}`
+              : row.program_name;
+          }
+        }
+      }
+      return Array.from(byId.values());
     } catch (error: any) {
       console.error('Error fetching school students view:', error);
       return [];
@@ -570,6 +612,39 @@ class StudentsAPI {
    * Get student statistics for a school
    */
   async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentStats> {
+    // Para coaches: conteo único via enrollments activos + children.team_id.
+    // Se hace antes del check de schoolId para soportar coaches sin sede activa.
+    if (coachId) {
+      try {
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+        if (teamIds.length === 0) return { total: 0, active: 0, inactive: 0, by_grade: {} };
+
+        const [{ data: enrolledChildren }, { data: directChildren }] = await Promise.all([
+          supabase.from('enrollments').select('child_id').in('program_id', teamIds).eq('status', 'active'),
+          isValidUUID(schoolId)
+            ? supabase.from('children').select('id').eq('school_id', schoolId).in('team_id', teamIds)
+            : Promise.resolve({ data: [] as { id: string }[] }),
+        ]);
+
+        const uniqueCount = new Set([
+          ...(enrolledChildren || []).map(e => e.child_id).filter(Boolean),
+          ...(directChildren || []).map(c => c.id),
+        ]).size;
+
+        return { total: uniqueCount, active: uniqueCount, inactive: 0, by_grade: {} };
+      } catch (error) {
+        console.warn('Error fetching coach student stats:', error);
+        return { total: 0, active: 0, inactive: 0, by_grade: {} };
+      }
+    }
+
     if (!schoolId || !isValidUUID(schoolId)) {
       return { total: 0, active: 0, inactive: 0, by_grade: {} };
     }
@@ -584,23 +659,6 @@ class StudentsAPI {
 
       if (branchId) {
         query = query.eq('branch_id', branchId);
-      }
-
-      if (coachId) {
-        // Fetch teams for this coach via legacy field AND junction table
-        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
-          supabase.from('teams').select('id').eq('coach_id', coachId),
-          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
-        ]);
-        const teamIds = [...new Set([
-          ...(legacyTeams || []).map(t => t.id),
-          ...(junctionTeams || []).map(t => t.team_id),
-        ])];
-        if (teamIds.length > 0) {
-          query = query.in('team_id', teamIds);
-        } else {
-          return { total: 0, active: 0, inactive: 0, by_grade: {} };
-        }
       }
 
       const { data: students, count: total } = await query;

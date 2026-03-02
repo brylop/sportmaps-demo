@@ -244,7 +244,10 @@ export default function DashboardPage() {
         }
         if (index === 2) {
           // Coaches relative or third card
-          const count = profile.role === 'coach' ? (realStats.upcomingEvents || 0) : (realStats.activeTeams || 0);
+          const count = profile.role === 'coach'
+            ? (realStats.upcomingEvents || 0)
+            : ((realStats as any).coaches_count || 0);
+
           return {
             ...stat,
             value: count,
@@ -293,6 +296,13 @@ export default function DashboardPage() {
             ...stat,
             value: realStats.upcoming_payments || 0,
             description: 'Mensualidades pendientes'
+          };
+        }
+        if (index === 3) {
+          return {
+            ...stat,
+            value: realStats.unreadNotifications || 0,
+            description: 'Sin leer'
           };
         }
       }

@@ -265,6 +265,7 @@ export default function StudentsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="whitespace-nowrap">Nombre</TableHead>
+                    <TableHead className="whitespace-nowrap hidden md:table-cell">Equipo(s)</TableHead>
                     <TableHead className="whitespace-nowrap hidden md:table-cell">Email</TableHead>
                     <TableHead className="whitespace-nowrap hidden lg:table-cell">Grado</TableHead>
                     <TableHead className="whitespace-nowrap">Padre/Madre</TableHead>
@@ -280,6 +281,9 @@ export default function StudentsPage() {
                           <span>{student.full_name}</span>
                           <MedicalAlertBadge medicalInfo={student.medical_info} />
                         </div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {(student as any).program_name || (student as any).team_name || '-'}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {student.email ? (

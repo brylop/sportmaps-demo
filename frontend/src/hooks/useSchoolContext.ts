@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { EmailTemplates } from '@/lib/email-templates';
+import { bffClient } from '@/lib/api/bffClient';
 
 /**
  * Represents a sports program offered by a school.
@@ -224,6 +225,10 @@ export function useSchoolContext(): SchoolContext {
             fetchSettings(activeSchoolId);
         }
     }, [activeSchoolId, activeBranchId]);
+    // 3. Effect: Link Active School to bffClient for header injection
+    useEffect(() => {
+        bffClient.setSchoolId(activeSchoolId ?? null);
+    }, [activeSchoolId]);
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
