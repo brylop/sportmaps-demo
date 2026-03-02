@@ -4,6 +4,7 @@
   "installCommand": "cd frontend && npm install",
   "ignoreCommand": "bash vercel-ignore-build.sh",
   "framework": "vite",
+  "cleanUrls": true,
   "headers": [
     {
       "source": "/manifest.webmanifest",
@@ -21,11 +22,7 @@
   ],
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/((?!assets|manifest\\.webmanifest|favicon\\.png|sportmaps-logo\\.png|sw\\.js|workbox-.*).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

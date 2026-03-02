@@ -305,7 +305,8 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
-    "husky": "^9.1.7"
+    "husky": "^9.1.7",
+    "vercel": "^50.25.4"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

@@ -49,8 +49,8 @@ export default function SchoolStudentsManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [viewingStudent, setViewingStudent] = useState<any | null>(null);
-  const [editingStudent, setEditingStudent] = useState<any | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<StudentViewRow | null>(null);
+  const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
   const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
@@ -62,7 +62,7 @@ export default function SchoolStudentsManagementPage() {
   });
 
   const form = useForm<StudentFormData>({
-    resolver: zodResolver(studentSchema) as any,
+    resolver: zodResolver(studentSchema),
     defaultValues: {
       full_name: '',
       date_of_birth: '',

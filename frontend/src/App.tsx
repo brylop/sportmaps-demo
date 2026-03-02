@@ -125,6 +125,25 @@ const queryClient = new QueryClient({
   },
 });
 
+const EnvironmentBanner = () => {
+  const env = import.meta.env.VITE_APP_ENV;
+  if (!env || env === 'production') return null;
+
+  const colors: Record<string, string> = {
+    staging: 'bg-amber-500',
+    development: 'bg-blue-500',
+    demo: 'bg-purple-600',
+  };
+
+  const bgColor = colors[env] || 'bg-slate-700';
+
+  return (
+    <div className={`${bgColor} text-white text-center text-[10px] py-1 font-bold uppercase tracking-widest sticky top-0 z-[9999] shadow-md border-b border-white/10`}>
+      Ambiente de {env === 'demo' ? 'Demostración' : env}
+    </div>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -135,6 +154,7 @@ const App = () => (
               <Toaster />
               <Sonner />
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <EnvironmentBanner />
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     {/* Public routes */}

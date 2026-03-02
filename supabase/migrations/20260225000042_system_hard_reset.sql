@@ -1,0 +1,6 @@
+-- ============================================================
+-- SYSTEM HARD RESET (NEUTRALIZED)
+-- This migration was designed to clean demo data from the old database.
+-- Since the production DB is new and empty, this migration is a no-op.
+-- ============================================================
+-- No operations needed.
