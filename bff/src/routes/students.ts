@@ -116,14 +116,13 @@ router.post(
             }
 
             if (branchNamesSet.size > 0) {
-                const branchNames = [...branchOriginalNames.values()];
-                const { data: existingBranches } = await supabase
+                // Fetch ALL branches for this school to do case-insensitive matching locally
+                const { data: allExistingBranches } = await supabase
                     .from('school_branches')
                     .select('id, name')
-                    .eq('school_id', schoolId)
-                    .in('name', branchNames);
+                    .eq('school_id', schoolId);
 
-                for (const b of existingBranches ?? []) {
+                for (const b of allExistingBranches ?? []) {
                     branchNameToId.set(b.name.toLowerCase(), b.id);
                 }
 
@@ -184,14 +183,13 @@ router.post(
             }
 
             if (teamStudentMap.size > 0) {
-                const teamNames = [...teamOriginalNames.values()];
-                const { data: existingTeams } = await supabase
+                // Fetch ALL teams for this school to do case-insensitive matching locally
+                const { data: allExistingTeams } = await supabase
                     .from('teams')
                     .select('id, name')
-                    .eq('school_id', schoolId)
-                    .in('name', teamNames);
+                    .eq('school_id', schoolId);
 
-                for (const t of existingTeams ?? []) {
+                for (const t of allExistingTeams ?? []) {
                     existingTeamMap.set(t.name.toLowerCase(), t.id);
                 }
 
@@ -396,13 +394,109 @@ router.post(
                 }
             }
 
-            // 8. Respuesta con reporte detallado
+            // 8. Auto-crear Invitaciones para correos de padres
+            let invitationsCreated = 0;
+
+            // Recolectar correos únicos de padres con la info del primer hijo que encontremos para la plantilla
+            const parentEmailMap = new Map<string, { childName: string; programId: string | null; fee: number; parentName: string }>();
+
+            for (const s of students) {
+                if (s.parent_email && s.parent_email.trim() !== '') {
+                    const emailKey = s.parent_email.trim().toLowerCase();
+                    if (!parentEmailMap.has(emailKey)) {
+                        parentEmailMap.set(emailKey, {
+                            childName: `${s.first_name} ${s.last_name}`.trim(),
+                            programId: existingTeamMap.get(s.team?.trim()?.toLowerCase() || '') || null,
+                            fee: s.monthly_fee || 150000,
+                            parentName: s.parent_name || emailKey.split('@')[0]
+                        });
+                    }
+                }
+            }
+
+            if (parentEmailMap.size > 0) {
+                // Verificar cuáles invitaciones ya existen para esta escuela y rol
+                const emailList = Array.from(parentEmailMap.keys());
+                const { data: existingInvites } = await supabase
+                    .from('invitations')
+                    .select('email, status')
+                    .eq('school_id', schoolId)
+                    .eq('role_to_assign', 'parent')
+                    .in('email', emailList);
+
+                const existingInviteSet = new Set((existingInvites || []).filter(i => i.status === 'pending' || i.status === 'accepted').map(i => i.email));
+
+                const newInvites = [];
+                const emailsToSend = [];
+
+                // Obtener nombre de la escuela para el correo
+                const { data: schoolData } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+                const schoolName = schoolData?.name || 'la Academia';
+                const senderId = req.user?.id || null;
+
+                for (const [email, info] of parentEmailMap.entries()) {
+                    if (!existingInviteSet.has(email)) {
+                        newInvites.push({
+                            email,
+                            school_id: schoolId,
+                            role_to_assign: 'parent',
+                            invited_by: senderId,
+                            status: 'pending',
+                            child_name: info.childName,
+                            program_id: info.programId,
+                            monthly_fee: info.fee
+                        });
+                        emailsToSend.push({ ...info, email });
+                    }
+                }
+
+                if (newInvites.length > 0) {
+                    const { data: insertedInvites, error: inviteError } = await supabase
+                        .from('invitations')
+                        .insert(newInvites)
+                        .select('id, email');
+
+                    if (inviteError) {
+                        req.log?.error({ err: inviteError }, 'Error insertando invitaciones masivas');
+                    } else {
+                        invitationsCreated = insertedInvites?.length || 0;
+
+                        // Enviar correos en background saltando los awaits largos (fire and forget)
+                        if (insertedInvites && insertedInvites.length > 0) {
+                            const { emailClient } = await import('../utils/emailClient');
+                            const { EmailTemplates } = await import('../utils/emailTemplates');
+
+                            const origin = process.env.CORS_ORIGIN || 'https://app.sportmaps.com';
+
+                            insertedInvites.forEach(inviteRow => {
+                                const info = parentEmailMap.get(inviteRow.email);
+                                if (info) {
+                                    const inviteLink = `${origin}/register?email=${encodeURIComponent(inviteRow.email)}&role=parent&invite=${inviteRow.id}`;
+
+                                    emailClient.send({
+                                        to: inviteRow.email,
+                                        subject: `Invitación a SportMaps - ${schoolName}`,
+                                        html: EmailTemplates.invitation(
+                                            info.parentName,
+                                            info.childName,
+                                            schoolName,
+                                            inviteLink
+                                        )
+                                    }).catch((e: any) => req.log?.error({ email: inviteRow.email, err: e }, 'Fallo al enviar correo masivo'));
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 9. Respuesta con reporte detallado
             const totalFailed = skipped.length;
             const statusCode = totalFailed === 0 ? 200 : inserted + updated > 0 ? 207 : 422;
 
             return res.status(statusCode).json({
                 success: totalFailed === 0,
-                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${branchesCreated} sedes creadas, ${teamsCreated} equipos creados, ${enrollmentsCreated} inscripciones, ${paymentsCreated} pagos generados.`,
+                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${branchesCreated} sedes creadas, ${teamsCreated} equipos creados, ${enrollmentsCreated} insc., ${paymentsCreated} pagos, ${invitationsCreated} invitaciones.`,
                 summary: {
                     total: students.length,
                     inserted,
@@ -411,6 +505,7 @@ router.post(
                     branches_created: branchesCreated,
                     teams_created: teamsCreated,
                     enrollments_created: enrollmentsCreated,
+                    invitations_created: invitationsCreated,
                 },
                 skipped,  // detalle fila por fila de los omitidos
             });
