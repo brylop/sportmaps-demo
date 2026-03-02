@@ -11,13 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Save, User, GraduationCap, TrendingUp, Calendar } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
+
 import { Badge } from '@/components/ui/badge';
 
 export default function CoachEvaluationsPage() {
     const { user } = useAuth();
     const { toast } = useToast();
-    const isDemo = isDemoUser(user);
+    const isDemo = false;
 
     const [selectedTeamId, setSelectedTeamId] = useState<string>('');
     const [selectedPlayerId, setSelectedPlayerId] = useState<string>('');
@@ -26,30 +26,43 @@ export default function CoachEvaluationsPage() {
     const [comments, setComments] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Demo Teams
-    const demoTeams = isDemo ? [
-        { id: 'demo-team-1', name: 'Firesquad (Senior L3)', age_group: 'Senior' }
-    ] : [];
-
     // Fetch Teams
-    const { data: teamsData } = useQuery({
+    const { data: teamsResult = [] } = useQuery({
         queryKey: ['coach-teams', user?.id],
         queryFn: async () => {
-            const { data, error } = await supabase.from('teams').select('*').eq('coach_id', user?.id);
+            if (!user?.id) return [];
+
+            // 1. Obtener staffId si existe
+            let staffId = null;
+            if (user.email) {
+                const { data: staffData } = await supabase
+                    .from('school_staff')
+                    .select('id')
+                    .eq('email', user.email)
+                    .maybeSingle();
+                if (staffData) staffId = staffData.id;
+            }
+
+            // 2. Traer todos los equipos donde el usuario es coach (directo o via tabla de relación)
+            const { data: teamsData, error } = await (supabase
+                .from('teams')
+                .select('id, name, coach_id, team_coaches(coach_id)') as any);
+
             if (error) throw error;
-            return data;
+
+            // 3. Filtrar
+            return (teamsData || []).filter((team: any) => {
+                const isDirectCoach = team.coach_id === user.id || (staffId && team.coach_id === staffId);
+                const isAssignedInTable = team.team_coaches?.some(
+                    (tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)
+                );
+                return isDirectCoach || isAssignedInTable;
+            }).sort((a: any, b: any) => a.name.localeCompare(b.name));
         },
         enabled: !!user?.id,
     });
 
-    const teams = teamsData && teamsData.length > 0 ? teamsData : demoTeams;
-
-    // Demo Roster
-    const demoRoster = isDemo ? [
-        { id: 'player-1', player_name: 'Mateo Pérez', player_number: 10 },
-        { id: 'player-2', player_name: 'Juan Vargas', player_number: 7 },
-        { id: 'player-3', player_name: 'Camila Torres', player_number: 5 },
-    ] : [];
+    const teams = teamsResult || [];
 
     // Fetch Roster
     const { data: rosterData } = useQuery({
@@ -62,7 +75,7 @@ export default function CoachEvaluationsPage() {
         enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
     });
 
-    const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-') ? rosterData : demoRoster;
+    const roster = rosterData || [];
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -74,24 +87,18 @@ export default function CoachEvaluationsPage() {
         setIsSubmitting(true);
 
         try {
-            if (isDemo) {
-                // Mock save
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                toast({ title: "Evaluación guardada", description: "El progreso ha sido registrado (Demo Mode)." });
-            } else {
-                // Real save
-                // Note: This assumes team_member.player_id maps to academic_progress.child_id or similar.
-                // Adjust logic based on actual schema relation.
-                const { error } = await supabase.from('academic_progress').insert({
-                    child_id: selectedPlayerId, // Assuming player_contact_id or linked child id
-                    skill_name: skillName,
-                    skill_level: skillLevel[0],
-                    comments: comments,
-                    evaluation_date: new Date().toISOString()
-                });
-                if (error) throw error;
-                toast({ title: "Exito", description: "Evaluación guardada correctamente." });
-            }
+            // Real save
+            // Note: This assumes team_member.player_id maps to academic_progress.child_id or similar.
+            // Adjust logic based on actual schema relation.
+            const { error } = await supabase.from('academic_progress').insert({
+                child_id: selectedPlayerId, // Assuming player_contact_id or linked child id
+                skill_name: skillName,
+                skill_level: skillLevel[0],
+                comments: comments,
+                evaluation_date: new Date().toISOString()
+            });
+            if (error) throw error;
+            toast({ title: "Exito", description: "Evaluación guardada correctamente." });
 
             // Reset form
             setSkillName('');

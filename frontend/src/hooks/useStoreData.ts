@@ -16,13 +16,13 @@ export function useStoreProducts() {
     queryKey: ['store-products', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      
+
       const { data, error } = await supabase
         .from('products')
-        .select('*')
+        .select('id, name, description, price, stock, category, image_url, status')
         .eq('vendor_id', user.id)
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Product[];
     },
@@ -32,13 +32,13 @@ export function useStoreProducts() {
   const createProduct = useMutation({
     mutationFn: async (product: Omit<ProductInsert, 'vendor_id'>) => {
       if (!user) throw new Error('Usuario no autenticado');
-      
+
       const { data, error } = await supabase
         .from('products')
         .insert({ ...product, vendor_id: user.id })
         .select()
         .single();
-      
+
       if (error) throw error;
       return data;
     },
@@ -59,7 +59,7 @@ export function useStoreProducts() {
         .eq('id', id)
         .select()
         .single();
-      
+
       if (error) throw error;
       return data;
     },
@@ -78,7 +78,7 @@ export function useStoreProducts() {
         .from('products')
         .delete()
         .eq('id', id);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -107,13 +107,13 @@ export function useStoreOrders() {
     queryKey: ['store-orders', user?.id],
     queryFn: async () => {
       if (!user) return [];
-      
+
       // Get orders where user is the vendor (products.vendor_id)
       const { data, error } = await supabase
         .from('orders')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data;
     },
@@ -124,16 +124,22 @@ export function useStoreOrders() {
 export function useStoreStats() {
   const { products } = useStoreProducts();
   const ordersQuery = useStoreOrders();
-  
+
+
+  const orders = ordersQuery.data || [];
   const totalProducts = products.length;
   const lowStock = products.filter(p => p.stock < 20).length;
   const totalStock = products.reduce((acc, p) => acc + p.stock, 0);
-  
+  const totalSales = orders.length;
+  const totalRevenue = orders.reduce((acc, order) => acc + (Number(order.total_amount) || 0), 0);
+
   return {
     totalProducts,
     lowStock,
     totalStock,
-    pendingOrders: ordersQuery.data?.filter(o => o.status === 'pending').length ?? 0,
+    pendingOrders: orders.filter(o => o.status === 'pending').length ?? 0,
+    totalSales,
+    totalRevenue,
     isLoading: ordersQuery.isLoading,
   };
 }

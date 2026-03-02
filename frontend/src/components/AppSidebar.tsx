@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { LogOut } from 'lucide-react';
 import {
   Sidebar,
@@ -23,69 +24,102 @@ import Logo from './Logo';
 
 export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
-  const { state } = useSidebar();
-  
-  if (!profile) return null;
+  const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
+  const sidebar = useSidebar();
+  const { state, isMobile, setOpenMobile } = sidebar;
 
-  const isCollapsed = state === 'collapsed';
-  const navigationGroups = getNavigationByRole(profile.role as UserRole);
+  if (!profile || !user) return null;
 
-  // Get user initials for avatar fallback
+  // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
+  const isCollapsed = !isMobile && state === 'collapsed';
+
+  let navigationRole: UserRole = (profile.role as UserRole) || 'athlete';
+  if (currentUserRole) {
+    switch (currentUserRole) {
+      case 'owner':
+      case 'super_admin':
+        navigationRole = 'school';
+        break;
+      case 'admin':
+        navigationRole = 'admin';
+        break;
+      case 'school_admin':
+        navigationRole = 'school_admin';
+        break;
+      case 'reporter':
+        navigationRole = 'reporter';
+        break;
+      case 'coach':
+      case 'staff':
+        navigationRole = 'coach';
+        break;
+      case 'parent':
+        navigationRole = 'parent';
+        break;
+      case 'athlete':
+        navigationRole = 'athlete';
+        break;
+      default:
+        break;
+    }
+  }
+
+  const navigationGroups = getNavigationByRole(navigationRole);
+
   const getUserInitials = () => {
     if (profile.full_name) {
-      return profile.full_name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
+      return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     }
     return user?.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
   const getRoleBadge = () => {
+    const roleToShow = currentUserRole || profile.role;
+    if (roleToShow === 'owner') return 'Propietario';
+    if (roleToShow === 'reporter') return 'Auditoría';
+    if (roleToShow === 'school_admin' || roleToShow === 'admin') {
+      return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
+    }
     const roleLabels: Record<string, string> = {
-      athlete: 'Deportista',
-      parent: 'Padre',
-      coach: 'Entrenador',
-      school: 'Escuela',
-      wellness_professional: 'Bienestar',
-      store_owner: 'Tienda',
-      admin: 'Admin'
+      athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
+      school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
+      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante'
     };
-    return roleLabels[profile.role] || profile.role;
+    return roleLabels[roleToShow as string] || roleToShow;
   };
 
   return (
-    <Sidebar collapsible="icon" className={isCollapsed ? 'w-14' : 'w-60'}>
-      {/* Header with Logo */}
-      <SidebarHeader className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Logo size="sm" />
-          {!isCollapsed && (
-            <span className="font-bold text-lg bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-              SportMaps
-            </span>
-          )}
-        </div>
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-border/40 bg-card/50 backdrop-blur-sm"
+    >
+      <SidebarHeader className="h-16 flex items-center px-4 overflow-hidden">
+        {!isCollapsed ? (
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Logo size="sm" />
+            <span className="font-bold text-lg tracking-tight truncate">SportMaps</span>
+          </div>
+        ) : (
+          <div className="flex justify-center w-full">
+            <Logo size="sm" />
+          </div>
+        )}
       </SidebarHeader>
 
-      <SidebarContent>
-        {/* User Profile Section */}
+      <SidebarContent className="px-2">
+        {/* Avatar — visible siempre en mobile (nunca collapsed), solo en expanded en desktop */}
         {!isCollapsed && (
-          <div className="px-4 py-3 border-b">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10">
-                <AvatarImage src={profile.avatar_url || undefined} />
-                <AvatarFallback className="bg-primary text-primary-foreground">
-                  {getUserInitials()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {profile.full_name || user?.email}
-                </p>
-                <Badge variant="secondary" className="text-xs">
+          <div className="flex flex-col items-center px-2 mb-4 mt-2 animate-in fade-in slide-in-from-top-4 duration-500">
+            <Avatar className="h-14 w-14 sm:h-16 sm:w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
+              <AvatarImage src={profile.avatar_url || ''} />
+              <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
+                {getUserInitials()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="text-center w-full overflow-hidden">
+              <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
+              <div className="flex justify-center mt-1">
+                <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 backdrop-blur-md">
                   {getRoleBadge()}
                 </Badge>
               </div>
@@ -93,60 +127,62 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Navigation Groups */}
-        {navigationGroups.map((group, groupIndex) => (
-          <SidebarGroup key={groupIndex}>
-            {!isCollapsed && <SidebarGroupLabel>{group.title}</SidebarGroupLabel>}
+        {navigationGroups.map((group, groupIdx) => (
+          <SidebarGroup key={groupIdx}>
+            <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
+              {!isCollapsed ? group.title : ''}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild tooltip={item.title}>
-                        <NavLink
-                          to={item.href}
-                          end
-                          className={({ isActive }) =>
-                            `flex items-center gap-3 transition-colors ${
-                              isActive
-                                ? 'bg-primary/10 text-primary font-medium border-r-2 border-primary'
-                                : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'
-                            }`
-                          }
-                        >
-                          <Icon className="h-4 w-4" />
-                          {!isCollapsed && (
-                            <>
-                              <span className="flex-1">{item.title}</span>
-                              {item.badge && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {item.badge}
-                                </Badge>
-                              )}
-                            </>
-                          )}
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
+                {group.items.map((item, itemIdx) => (
+                  <SidebarMenuItem key={itemIdx}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.title}
+                      className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
+                    >
+                      <NavLink
+                        to={item.href}
+                        // En mobile: cerrar el drawer al navegar
+                        onClick={() => isMobile && setOpenMobile(false)}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                          }`
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
+                            {/* Texto: siempre visible en mobile, condicional en desktop */}
+                            <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
+                            {item.badge && !isCollapsed && (
+                              <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
+                                {item.badge}
+                              </Badge>
+                            )}
+                            {isActive && !isCollapsed && (
+                              <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                            )}
+                          </>
+                        )}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         ))}
       </SidebarContent>
 
-      {/* Footer with Sign Out */}
-      <SidebarFooter className="border-t p-2">
+      <SidebarFooter className="p-4 border-t border-border/40">
         <Button
           variant="ghost"
-          size="sm"
+          className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-300"
           onClick={() => signOut()}
-          className="w-full justify-start text-muted-foreground hover:text-foreground"
         >
-          <LogOut className="h-4 w-4" />
-          {!isCollapsed && <span className="ml-2">Cerrar Sesión</span>}
+          <LogOut className="h-4 w-4 shrink-0 transition-transform" />
+          <span className={`ml-3 ${isCollapsed ? 'sr-only' : ''}`}>Cerrar Sesión</span>
         </Button>
       </SidebarFooter>
     </Sidebar>

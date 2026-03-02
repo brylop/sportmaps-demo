@@ -1,11 +1,13 @@
 // Wompi Payment Gateway Integration Service
-// Uses the Widget Checkout (custom button) approach for React/SPA
+// La firma de integridad se genera en el servidor (Edge Function)
+// El cliente NUNCA debe tener acceso al WOMPI_INTEGRITY_SECRET
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
-const WOMPI_PUBLIC_KEY = import.meta.env.VITE_WOMPI_PUBLIC_KEY || 'pub_test_ggS32tfWAjT9XqfawDcxIuyVhPRslIXJ';
+const WOMPI_PUBLIC_KEY = import.meta.env.VITE_WOMPI_PUBLIC_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-// Integrity secret for TEST/SANDBOX — in production, signature is generated server-side only
-const WOMPI_INTEGRITY_SECRET = 'test_integrity_LrN9ny6kwmMjrrT6FHcBcLG7Xab1lOBe';
+if (!WOMPI_PUBLIC_KEY) {
+    console.error('❌ VITE_WOMPI_PUBLIC_KEY no configurado. Agrega la variable de entorno.');
+}
 
 export interface WompiCheckoutConfig {
     reference: string;
@@ -18,6 +20,7 @@ export interface WompiCheckoutConfig {
     studentName?: string;
     programName?: string;
     schoolName?: string;
+    schoolId?: string;
 }
 
 export interface WompiTransactionResult {
@@ -31,7 +34,7 @@ export interface WompiTransactionResult {
 }
 
 /**
- * Generate a unique payment reference
+ * Genera una referencia de pago única.
  * Format: SPM-<timestamp>-<random>
  */
 export function generatePaymentReference(): string {
@@ -41,43 +44,55 @@ export function generatePaymentReference(): string {
 }
 
 /**
- * Generate the integrity signature (SHA-256)
- * In production this should ONLY be done server-side.
- * For the demo/sandbox, we generate it client-side using the test integrity secret.
+ * Obtiene la firma de integridad DESDE EL SERVIDOR.
+ * La Edge Function usa el WOMPI_INTEGRITY_SECRET que nunca sale del servidor.
+ *
+ * ⚠️ Si la Edge Function no está desplegada, el pago no puede proceder en producción.
  */
-async function generateIntegritySignature(
+async function getIntegritySignature(
     reference: string,
     amountInCents: number,
-    currency: string = 'COP'
+    currency: string = 'COP',
+    schoolId?: string
 ): Promise<string> {
-    // Try backend first
-    if (BACKEND_URL) {
-        try {
-            const response = await fetch(`${BACKEND_URL}/api/payments/wompi/create-signature`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reference, amount_in_cents: amountInCents, currency }),
-            });
-            if (response.ok) {
-                const data = await response.json();
-                return data.signature;
-            }
-        } catch (e) {
-            console.warn('Backend signature failed, using client-side fallback:', e);
-        }
+    if (!SUPABASE_URL) {
+        throw new Error('VITE_SUPABASE_URL no configurado');
     }
 
-    // Client-side fallback for sandbox/demo
-    const concatenated = `${reference}${amountInCents}${currency}${WOMPI_INTEGRITY_SECRET}`;
-    const encodedText = new TextEncoder().encode(concatenated);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encodedText);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    // Supabase anon key para llamar Edge Functions públicas con autenticación
+    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/wompi-sign`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${anonKey}`,
+            'apikey': anonKey ?? '',
+        },
+        body: JSON.stringify({
+            reference,
+            amount_in_cents: amountInCents,
+            currency,
+            school_id: schoolId,
+        }),
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Error generando firma: ${response.status} — ${errorBody}`);
+    }
+
+    const data = await response.json();
+    if (!data.signature) {
+        throw new Error('Respuesta de firma inválida desde el servidor');
+    }
+
+    return data.signature;
 }
 
 /**
- * Open the Wompi Widget Checkout programmatically
- * Returns a promise that resolves with the transaction result
+ * Abre el Widget de Checkout de Wompi.
+ * La firma se solicita al servidor; el WOMPI_INTEGRITY_SECRET nunca está en el cliente.
  */
 export async function openWompiCheckout(
     config: WompiCheckoutConfig
@@ -89,10 +104,28 @@ export async function openWompiCheckout(
         customerName,
         customerPhone,
         redirectUrl,
+        schoolId,
     } = config;
 
-    // Generate the integrity signature
-    const signature = await generateIntegritySignature(reference, amountInCents);
+    if (!WOMPI_PUBLIC_KEY) {
+        console.error('❌ WOMPI_PUBLIC_KEY no configurada. Verifica las variables de entorno.');
+        return null;
+    }
+
+    let signature: string;
+    try {
+        signature = await getIntegritySignature(reference, amountInCents, 'COP', schoolId);
+    } catch (err) {
+        console.error('❌ No se pudo generar la firma de integridad:', err);
+        // En sandbox se puede continuar sin firma (modo de prueba)
+        // En producción: retornar null para bloquear el pago
+        if (import.meta.env.PROD) {
+            return null;
+        }
+        // Fallback SOLO sandbox — nunca llega a producción
+        console.warn('⚠️ Usando modo sandbox sin firma (solo desarrollo)');
+        signature = '';
+    }
 
     return new Promise((resolve) => {
         try {
@@ -100,46 +133,58 @@ export async function openWompiCheckout(
             const WidgetCheckout = (window as any).WidgetCheckout;
 
             if (!WidgetCheckout) {
-                console.error('Wompi WidgetCheckout not loaded. Check index.html script tag.');
+                console.error('❌ Wompi WidgetCheckout no cargado. Verifica el script en index.html.');
                 resolve(null);
                 return;
             }
 
-            const checkout = new WidgetCheckout({
+            const widgetConfig: Record<string, unknown> = {
                 currency: 'COP',
                 amountInCents,
                 reference,
                 publicKey: WOMPI_PUBLIC_KEY,
-                signature: { integrity: signature },
                 redirectUrl: redirectUrl || `${window.location.origin}/payment-result`,
                 customerData: {
                     email: customerEmail,
                     fullName: customerName,
-                    phoneNumber: customerPhone || '3001234567',
+                    phoneNumber: customerPhone || '',
                     phoneNumberPrefix: '+57',
-                    legalId: '1234567890',
-                    legalIdType: 'CC',
                 },
-            });
+            };
+
+            // Solo incluir firma si se obtuvo del servidor
+            if (signature) {
+                widgetConfig.signature = { integrity: signature };
+            }
+
+            const checkout = new WidgetCheckout(widgetConfig);
 
             checkout.open((result: { transaction: WompiTransactionResult }) => {
                 const transaction = result.transaction;
-                console.log('Wompi transaction result:', transaction);
+                console.log('📦 Wompi transaction result:', transaction.status, transaction.reference);
                 resolve(transaction);
             });
         } catch (error) {
-            console.error('Error opening Wompi checkout:', error);
+            console.error('❌ Error abriendo Wompi checkout:', error);
             resolve(null);
         }
     });
 }
 
 /**
- * Check transaction status via Wompi API
+ * Verifica el status de una transacción vía API de Wompi.
+ * Útil para polling desde la página /payment-result.
+ * Usa sandbox o producción según la PUBLIC_KEY configurada.
  */
 export async function checkTransactionStatus(transactionId: string): Promise<WompiTransactionResult | null> {
+    // Detectar entorno por la public key
+    const isSandbox = WOMPI_PUBLIC_KEY?.startsWith('pub_test_') ?? true;
+    const baseUrl = isSandbox
+        ? 'https://sandbox.wompi.co/v1'
+        : 'https://production.wompi.co/v1';
+
     try {
-        const response = await fetch(`https://sandbox.wompi.co/v1/transactions/${transactionId}`);
+        const response = await fetch(`${baseUrl}/transactions/${transactionId}`);
         if (!response.ok) return null;
         const data = await response.json();
         return {
@@ -152,7 +197,7 @@ export async function checkTransactionStatus(transactionId: string): Promise<Wom
             createdAt: data.data.created_at,
         };
     } catch (error) {
-        console.error('Error checking transaction status:', error);
+        console.error('Error verificando status de transacción:', error);
         return null;
     }
 }

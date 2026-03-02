@@ -20,13 +20,26 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     host: "0.0.0.0",
-    port: 3000,
-    allowedHosts: true
+    port: 3001,
+    allowedHosts: true,
+    proxy: {
+      '/api/nominatim': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/nominatim/, ''),
+        headers: {
+          'User-Agent': 'SportMaps/1.0 (sportmaps-demo)',
+        },
+      },
+    },
   },
   plugins: [
     react(),
     mode === "development" && componentTagger(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'public',
+      filename: 'sw.js',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'sportmaps-logo.png'],
       manifest: {
@@ -110,11 +123,14 @@ export default defineConfig(({ mode }) => ({
             }
           }
         ]
+      },
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       }
     })
   ].filter(Boolean),
   optimizeDeps: {
-    include: ["react", "react-dom", "@tanstack/react-query"],
+    include: ["react", "react-dom", "@tanstack/react-query", "@radix-ui/react-slider"],
   },
   resolve: {
     alias: {

@@ -20,84 +20,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-// Demo facilities for Spirit All Stars
-const DEMO_FACILITIES = [
-  {
-    id: 'fac-1',
-    school_id: 'demo-school',
-    name: 'Gimnasio de Acrobatics — Sede Norte',
-    type: 'Gimnasio de Porras',
-    capacity: 30,
-    description: 'Spring floor profesional de 12x12m con paneles de seguridad perimetrales. Ideal para rutinas de stunts y tumbling.',
-    status: 'available' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'fac-2',
-    school_id: 'demo-school',
-    name: 'Pista de Spring Floor — Fontibón',
-    type: 'Pista de Tumbling',
-    capacity: 15,
-    description: 'Pista de tumbling profesional de 25m con camas elásticas dobles y foso de espuma para aterrizajes seguros.',
-    status: 'available' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'fac-3',
-    school_id: 'demo-school',
-    name: 'Sala de Estiramientos — La Granja',
-    type: 'Sala de Preparación Física',
-    capacity: 20,
-    description: 'Espacio amplio con espejos, colchonetas y equipos de flexibilidad. Se usa para calentamiento y enfriamiento.',
-    status: 'occupied' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'fac-4',
-    school_id: 'demo-school',
-    name: 'Área de Camas Elásticas — Sede Norte',
-    type: 'Zona de Trampolines',
-    capacity: 10,
-    description: 'Dos camas elásticas de competencia y una mini-tramp para desarrollo de habilidades aéreas.',
-    status: 'available' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
-// Helper to get dates relative to today
-const getRelativeDate = (daysOffset: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + daysOffset);
-  return d.toISOString().slice(0, 10);
-};
-
-// Demo reservations
-const DEMO_RESERVATIONS = [
-  { id: 'res-1', facility: 'Gimnasio de Acrobatics — Sede Norte', user: 'Equipo Firesquad', coach: 'Carlos Mendoza', date: getRelativeDate(0), time: '16:00 — 18:00', status: 'confirmed', players: 14, notes: 'Ensayo general para competencia Nationals. Requiere sonido.' },
-  { id: 'res-2', facility: 'Pista de Spring Floor — Fontibón', user: 'Equipo Bombsquad', coach: 'Ana María López', date: getRelativeDate(1), time: '09:00 — 11:00', status: 'pending', players: 12, notes: 'Entrenamiento de tumbling. Solicitan colchonetas extra.' },
-  { id: 'res-3', facility: 'Sala de Estiramientos — La Granja', user: 'Equipo Butterfly', coach: 'Paola Ríos', date: getRelativeDate(2), time: '14:00 — 15:30', status: 'confirmed', players: 16, notes: 'Sesión de flexibilidad y calentamiento pre-competencia.' },
-  { id: 'res-4', facility: 'Área de Camas Elásticas — Sede Norte', user: 'Equipo Legends', coach: 'Diego Vargas', date: getRelativeDate(0), time: '10:00 — 12:00', status: 'confirmed', players: 8, notes: 'Práctica de saltos dobles y triples. Solo atletas avanzados.' },
-  { id: 'res-5', facility: 'Gimnasio de Acrobatics — Sede Norte', user: 'Equipo Butterfly', coach: 'Paola Ríos', date: getRelativeDate(3), time: '08:00 — 10:00', status: 'pending', players: 16, notes: 'Rutina grupal completa. Necesitan usar equipo de sonido.' },
-  { id: 'res-6', facility: 'Pista de Spring Floor — Fontibón', user: 'Equipo Firesquad', coach: 'Carlos Mendoza', date: getRelativeDate(4), time: '15:00 — 17:00', status: 'confirmed', players: 14, notes: 'Entrenamiento libre de tumbling y stunts.' },
-  { id: 'res-7', facility: 'Sala de Estiramientos — La Granja', user: 'Equipo Bombsquad', coach: 'Ana María López', date: getRelativeDate(1), time: '16:00 — 17:00', status: 'confirmed', players: 12, notes: 'Recuperación post-entrenamiento.' },
-  { id: 'res-8', facility: 'Área de Camas Elásticas — Sede Norte', user: 'Equipo Firesquad', coach: 'Carlos Mendoza', date: getRelativeDate(5), time: '11:00 — 13:00', status: 'pending', players: 6, notes: 'Práctica individual de gimnasia aérea.' },
-];
-
-// Schedule slots for the calendar view
-const SCHEDULE_SLOTS = [
-  { time: '08:00 AM', occupancy: ['Butterfly', '', '', 'Libre'] },
-  { time: '09:00 AM', occupancy: ['Libre', 'Bombsquad', 'Libre', 'Libre'] },
-  { time: '10:00 AM', occupancy: ['Libre', 'Bombsquad', 'Libre', 'Legends'] },
-  { time: '02:00 PM', occupancy: ['Libre', 'Libre', 'Butterfly', 'Libre'] },
-  { time: '03:00 PM', occupancy: ['Libre', 'Libre', 'Butterfly', 'Libre'] },
-  { time: '04:00 PM', occupancy: ['Firesquad', 'Libre', 'Bombsquad', 'Libre'] },
-  { time: '05:00 PM', occupancy: ['Firesquad', 'Libre', 'Libre', 'Libre'] },
-  { time: '06:00 PM', occupancy: ['Libre', 'Libre', 'Libre', 'Libre'] },
-];
+// Demo data removed.
+const DEMO_FACILITIES: any[] = [];
+const DEMO_RESERVATIONS: any[] = [];
+const SCHEDULE_SLOTS: any[] = [];
 
 export default function SchoolFacilitiesPage() {
   const { facilities: supaFacilities, isLoading, createFacility, deleteFacility, isCreating } = useSchoolFacilities();
@@ -105,8 +31,8 @@ export default function SchoolFacilitiesPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedRes, setSelectedRes] = useState<typeof DEMO_RESERVATIONS[0] | null>(null);
 
-  // Use Supabase facilities if available, otherwise demo
-  const facilities = supaFacilities && supaFacilities.length > 0 ? supaFacilities : DEMO_FACILITIES;
+  // Use Supabase facilities or empty
+  const facilities = supaFacilities || [];
 
   const handleDelete = () => {
     if (deleteId) {
@@ -117,6 +43,33 @@ export default function SchoolFacilitiesPage() {
 
   if (isLoading) {
     return <LoadingSpinner text="Cargando instalaciones..." />;
+  }
+
+  // EMPTY STATE FOR FACILITIES
+  if (facilities.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center space-y-6 min-h-[60vh]">
+        <div className="bg-primary/10 p-4 rounded-full">
+          <Building2 className="w-12 h-12 text-primary" />
+        </div>
+        <div className="max-w-md space-y-2">
+          <h1 className="text-2xl font-bold">Configura tus Instalaciones</h1>
+          <p className="text-muted-foreground">
+            Aún no has registrado ninguna sede, cancha o gimnasio. Crea tu primera instalación para empezar a gestionar reservas.
+          </p>
+        </div>
+        <Button size="lg" onClick={() => setDialogOpen(true)}>
+          <Building2 className="w-4 h-4 mr-2" />
+          Agregar Primera Instalación
+        </Button>
+        <FacilityFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSubmit={createFacility}
+          isLoading={isCreating}
+        />
+      </div>
+    );
   }
 
   return (

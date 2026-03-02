@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,11 @@ import { useToast } from '@/hooks/use-toast';
 import { classesAPI, Class } from '@/lib/api/classes';
 import { CreateClassModal } from '@/components/classes/CreateClassModal';
 import { EnrollStudentModal } from '@/components/classes/EnrollStudentModal';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 export default function ProgramsManagementPage() {
   const { profile } = useAuth();
+  const { schoolId, schoolName } = useSchoolContext();
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -21,29 +23,32 @@ export default function ProgramsManagementPage() {
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadClasses();
-  }, [profile]);
-
-  const loadClasses = async () => {
+  const loadClasses = useCallback(async () => {
     try {
       setLoading(true);
       const data = await classesAPI.getClasses({
-        school_id: profile?.id || 'demo-school',
+        school_id: schoolId || 'demo-school',
         limit: 500
       });
       setClasses(data);
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido';
       console.error('Error loading classes:', error);
       toast({
         title: 'Error al cargar clases',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [schoolId, toast]);
+
+  useEffect(() => {
+    if (schoolId) {
+      loadClasses();
+    }
+  }, [schoolId, loadClasses]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -65,10 +70,11 @@ export default function ProgramsManagementPage() {
         description: 'La clase se eliminó correctamente',
       });
       await loadClasses();
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido';
       toast({
         title: 'Error al eliminar',
-        description: error.message,
+        description: message,
         variant: 'destructive',
       });
     }
@@ -335,7 +341,7 @@ export default function ProgramsManagementPage() {
           setShowCreateModal(false);
           loadClasses();
         }}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
       />
 
       {/* Enroll Modal */}

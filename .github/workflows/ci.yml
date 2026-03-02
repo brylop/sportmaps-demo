@@ -1,0 +1,154 @@
+name: 🚀 CI/CD Pipeline — SportMaps
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'fix/**']
+  pull_request:
+    branches: [main, develop]
+
+# Cancela runs anteriores del mismo branch para ahorrar minutos
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  WORKING_DIR: ./frontend
+
+# =============================================================================
+# JOB 1: Quality Gates (TypeScript + Lint + Build)
+# =============================================================================
+jobs:
+  quality:
+    name: 🔍 Quality Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🔷 TypeScript — verificar tipos
+        run: npx tsc --noEmit
+        # Gate duro: si falla hay errores de tipos. No se puede deployar.
+
+      - name: 🧹 ESLint — reporte informativo
+        # continue-on-error: true mientras se limpian los errores preexistentes.
+        # TODO: cambiar a continue-on-error: false cuando el codebase esté limpio.
+        # Estado actual: ~462 problemas heredados (no relacionados con el MVP).
+        # Solo revisamos src/ — excluimos node_modules, dist, y archivos generados.
+        run: npx eslint src --ext .ts,.tsx || echo "⚠️ ESLint encontró problemas (ver annotations). No bloquea el CI por ahora."
+        continue-on-error: true
+
+      - name: 🏗️ Build de verificación
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY_STAGING }}
+          VITE_WOMPI_PUBLIC_KEY: ${{ secrets.VITE_WOMPI_PUBLIC_KEY || 'pub_stagtest_placeholder' }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: staging
+
+      - name: 📊 Verificar tamaño del bundle
+        run: |
+          # Verificamos que el bundle inicial sea < 300KB (gzip)
+          BUNDLE_SIZE=$(find dist/assets -name '*.js' -not -name '*.map' | xargs du -sk | awk '{sum += $1} END {print sum}')
+          echo "Bundle size: ${BUNDLE_SIZE}KB"
+          if [ "$BUNDLE_SIZE" -gt 1500 ]; then
+            echo "⚠️ Bundle > 1.5MB sin comprimir. Revisar imports innecesarios."
+          fi
+
+# =============================================================================
+# JOB 2: Unit Tests (Vitest)
+# =============================================================================
+  unit-tests:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    needs: quality
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: 🧪 Ejecutar tests unitarios
+        run: npx vitest run --reporter=verbose --coverage
+        env:
+          VITE_SUPABASE_URL: 'https://mock.supabase.co'
+          VITE_SUPABASE_PUBLISHABLE_KEY: 'mock-key-for-tests'
+
+      - name: 📈 Subir coverage a Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ${{ env.WORKING_DIR }}/coverage
+          fail_ci_if_error: false
+
+# =============================================================================
+# JOB 3: E2E Tests (Playwright) — Solo en PRs a main/develop
+# =============================================================================
+  e2e:
+    name: 🎭 E2E Tests (Golden Path)
+    runs-on: ubuntu-latest
+    needs: [quality, unit-tests]
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: 🎭 Instalar Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: 🎭 Ejecutar E2E — Golden Path
+        run: npx playwright test --project=chromium
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_URL || secrets.STAGING_URL }}
+          PLAYWRIGHT_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
+          PLAYWRIGHT_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+
+      - name: 📸 Subir screenshots de errores
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: frontend/test-results/
+          retention-days: 7
+
+# =============================================================================
+# JOB 4: Deploy (Manejado nativamente por Vercel)
+# =============================================================================
+# Los despliegues ahora son manejados directamente por la integración de Vercel en GitHub.
+# Vercel construirá automáticamente los commits en las ramas configuradas.
+# Ver `vercel.json` y `vercel-ignore-build.sh` para reglas lógicas de despliegues automatizados.

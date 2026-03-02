@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEvents, useEventRegistrations } from '@/hooks/useEvents';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,6 @@ import {
   MapPin,
   Clock,
   Users,
-  DollarSign,
   Phone,
   Mail,
   ArrowLeft,
@@ -41,6 +40,13 @@ import {
 } from 'lucide-react';
 import type { Event } from '@/types/events';
 import { EVENT_TYPE_OPTIONS } from '@/types/events';
+import { supabase } from '@/integrations/supabase/client';
+
+interface RoleOption {
+  id: string;
+  name: string;
+  display_name: string;
+}
 
 export default function EventPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -52,18 +58,38 @@ export default function EventPublicPage() {
   const [event, setEvent] = useState<Event | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
   const [formData, setFormData] = useState({
     participant_name: '',
     participant_email: '',
     participant_phone: '',
-    participant_role: 'athlete' as const,
+    participant_role: 'athlete',
     participant_age: '',
     notes: ''
   });
 
   useEffect(() => {
     if (slug) loadEvent();
+    fetchRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  const fetchRoles = async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('roles')
+        .select('id, name, display_name')
+        .eq('is_visible', true)
+        .order('display_name');
+
+      if (data) {
+        setRoles(data);
+      }
+    } catch {
+      console.error("Error fetching roles");
+    }
+  };
 
   const loadEvent = async () => {
     const data = await getEventBySlug(slug!);
@@ -330,16 +356,27 @@ export default function EventPublicPage() {
                               <Label htmlFor="role">Soy...</Label>
                               <Select
                                 value={formData.participant_role}
-                                onValueChange={(v) => setFormData({ ...formData, participant_role: v as any })}
+                                onValueChange={(v) => setFormData({ ...formData, participant_role: v })}
                               >
                                 <SelectTrigger>
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="athlete">Atleta</SelectItem>
-                                  <SelectItem value="parent">Padre/Madre</SelectItem>
-                                  <SelectItem value="coach">Entrenador</SelectItem>
-                                  <SelectItem value="other">Otro</SelectItem>
+                                  {roles.length > 0 ? (
+                                    roles.map((role) => (
+                                      <SelectItem key={role.id} value={role.name}>
+                                        {role.display_name}
+                                      </SelectItem>
+                                    ))
+                                  ) : (
+                                    // Fallback options
+                                    <>
+                                      <SelectItem value="athlete">Atleta</SelectItem>
+                                      <SelectItem value="parent">Padre/Madre</SelectItem>
+                                      <SelectItem value="coach">Entrenador</SelectItem>
+                                      <SelectItem value="other">Otro</SelectItem>
+                                    </>
+                                  )}
                                 </SelectContent>
                               </Select>
                             </div>

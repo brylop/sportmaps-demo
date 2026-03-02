@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
+import { NumberStepper } from '../ui/number-stepper';
 
 interface ProductFormData {
   name: string;
   description: string;
-  price: number;
-  stock: number;
+  price: number | '';
+  stock: number | '';
   category: string;
   image_url: string;
 }
@@ -26,23 +27,23 @@ interface ProductFormDialogProps {
 }
 
 const categories = [
-  'Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Running', 
+  'Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Running',
   'Fitness', 'Boxeo', 'Ciclismo', 'Ropa', 'Accesorios', 'Nutrición'
 ];
 
-export function ProductFormDialog({ 
-  open, 
-  onOpenChange, 
-  onSubmit, 
+export function ProductFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
   initialData,
   isLoading,
-  mode 
+  mode
 }: ProductFormDialogProps) {
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     description: '',
-    price: 0,
-    stock: 0,
+    price: 0 as number | '',
+    stock: 0 as number | '',
     category: '',
     image_url: '',
   });
@@ -71,7 +72,11 @@ export function ProductFormDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      price: Number(formData.price) || 0,
+      stock: Number(formData.stock) || 0,
+    } as ProductFormData);
   };
 
   return (
@@ -93,7 +98,7 @@ export function ProductFormDialog({
               required
             />
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="description">Descripción *</Label>
             <Textarea
@@ -107,26 +112,21 @@ export function ProductFormDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="price">Precio ($) *</Label>
-              <Input
-                id="price"
-                type="number"
-                min="0"
-                step="0.01"
+              <Label htmlFor="price">Precio *</Label>
+              <NumberStepper
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                required
+                onChange={(val) => setFormData({ ...formData, price: val })}
+                min={0}
+                step={1000}
+                unit="$"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="stock">Stock *</Label>
-              <Input
-                id="stock"
-                type="number"
-                min="0"
+              <NumberStepper
                 value={formData.stock}
-                onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) || 0 })}
-                required
+                onChange={(val) => setFormData({ ...formData, stock: val })}
+                min={0}
               />
             </div>
           </div>

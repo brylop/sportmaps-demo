@@ -1,0 +1,11 @@
+-- Agregar notifications a la publicación Realtime para que postgres_changes funcione
+-- Requerido para useRealtimeNotifications (Supabase Realtime)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'notifications'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+END $$;

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -6,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 interface OverdueAccount {
   id: string;
@@ -29,68 +32,89 @@ interface Transaction {
 
 export default function FinancesPage() {
   const { toast } = useToast();
+  const { schoolId, activeBranchId } = useSchoolContext();
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  
+
+  // Fetch payments from Supabase — filtrado por school_id y branch
+  const { data: payments, isLoading } = useQuery({
+    queryKey: ['school-payments-all', schoolId, activeBranchId],
+    queryFn: async () => {
+      let query = supabase
+        .from('payments')
+        .select(`
+          id,
+          amount,
+          status,
+          due_date,
+          payment_date,
+          concept,
+          student:children(full_name),
+          parent:profiles!payments_parent_id_fkey(full_name) 
+        `)
+        .order('due_date', { ascending: false });
+
+      if (schoolId) query = query.eq('school_id', schoolId);
+      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!schoolId,
+  });
+
+  // Calculate Aggregates
   const financialSummary = {
-    totalIncome: 3200000,
-    totalOverdue: 290000,
-    pendingPayments: 140000,
+    totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    pendingPayments: payments?.filter(p => p.status === 'pending' && new Date(p.due_date) >= new Date()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
   };
 
-  const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([
-    {
-      id: '1',
-      parent: 'Carlos Vargas',
-      student: 'Juan Vargas',
-      concept: 'Mensualidad Oct',
-      amount: 150000,
-      daysOverdue: 5,
-      status: 'overdue',
-    },
-    {
-      id: '2',
-      parent: 'Elena Torres',
-      student: 'Camila Torres',
-      concept: 'Mensualidad Oct',
-      amount: 140000,
-      daysOverdue: 2,
-      status: 'overdue',
-    },
-  ]);
+  // Map Overdue Accounts
+  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())) || [];
 
-  const [recentTransactions] = useState<Transaction[]>([
-    {
-      id: '1',
-      date: '2024-10-28',
-      parent: 'María González',
-      concept: 'Mensualidad Oct',
-      amount: 300000,
-      method: 'Transferencia',
-    },
-    {
-      id: '2',
-      date: '2024-10-27',
-      parent: 'Pedro Sánchez',
-      concept: 'Matrícula',
-      amount: 200000,
-      method: 'Efectivo',
-    },
-  ]);
+  const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
+
+  // Update effect to sync state
+  useEffect(() => {
+    if (accountsData) {
+      setOverdueAccounts(accountsData.map(p => ({
+        id: p.id,
+        parent: p.parent?.full_name || 'Desconocido',
+        student: p.student?.full_name || 'Estudiante',
+        concept: p.concept,
+        amount: Number(p.amount),
+        daysOverdue: Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 3600 * 24)),
+        status: 'overdue'
+      })));
+    }
+  }, [payments]);
+
+
+  // Map Recent Transactions
+  const recentTransactions = payments?.filter(p => p.status === 'paid').slice(0, 5).map(p => ({
+    id: p.id,
+    date: p.payment_date || p.due_date,
+    parent: p.parent?.full_name || 'Desconocido',
+    concept: p.concept,
+    amount: Number(p.amount),
+    method: 'Transferencia' // Default as method might not be in query yet
+  })) || [];
 
   const [reminderHistory, setReminderHistory] = useState<ReminderRecord[]>([]);
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
 
   const handleSendReminder = async (accountId: string) => {
     setSendingReminder(accountId);
-    
+
     // Simulate WhatsApp notification
     await new Promise(resolve => setTimeout(resolve, 1500));
-    
+
     const account = overdueAccounts.find(a => a.id === accountId);
     if (!account) return;
 
     const now = new Date().toISOString();
-    
+
     // Add to reminder history
     const newReminder: ReminderRecord = {
       id: `reminder-${Date.now()}`,
@@ -101,10 +125,10 @@ export default function FinancesPage() {
       channel: 'whatsapp',
     };
     setReminderHistory(prev => [newReminder, ...prev]);
-    
+
     // Update account status
-    setOverdueAccounts(prev => prev.map(a => 
-      a.id === accountId 
+    setOverdueAccounts(prev => prev.map(a =>
+      a.id === accountId
         ? { ...a, status: 'reminder_sent' as const, lastContactDate: now }
         : a
     ));
@@ -220,8 +244,8 @@ export default function FinancesPage() {
                     {getStatusBadge(account)}
                   </TableCell>
                   <TableCell>
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant={account.status === 'reminder_sent' ? 'ghost' : 'outline'}
                       onClick={() => handleSendReminder(account.id)}
                       disabled={sendingReminder === account.id}

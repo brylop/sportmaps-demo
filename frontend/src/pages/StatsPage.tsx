@@ -14,7 +14,6 @@ import {
   Clock,
   Flame
 } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
 
 export default function StatsPage() {
   const { user } = useAuth();
@@ -22,7 +21,6 @@ export default function StatsPage() {
   const { data: athleteStats, isLoading: statsLoading } = useAthleteStats();
   const aggregates = useTrainingAggregates();
 
-  const isDemo = isDemoUser(user);
   const isLoading = logsLoading || statsLoading;
 
   // Calculate stats from real data or use defaults

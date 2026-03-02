@@ -2,608 +2,806 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle2, AlertCircle, Clock, CreditCard, TrendingUp, Download, Eye } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
+import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { getDemoSchoolData, formatCurrency } from '@/lib/demo-data';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { FileUpload } from '@/components/common/FileUpload';
+import { emailClient } from '@/lib/email-client';
+import { EmailTemplates } from '@/lib/email-templates';
+
+interface BillingSettings {
+  school_id: string;
+  payment_cutoff_day: number;
+  payment_grace_days: number;
+  auto_generate_payments: boolean;
+  reminder_enabled: boolean;
+  reminder_days_before: number;
+  late_fee_enabled: boolean;
+  late_fee_percentage: number;
+  allow_coach_messaging: boolean;
+  require_payment_proof: boolean;
+  bank_name?: string | null;
+  bank_account_type?: string | null;
+  bank_account_number?: string | null;
+  nequi_number?: string | null;
+  daviplata_number?: string | null;
+  bank_titular_name?: string | null;
+  bank_titular_id?: string | null;
+  payment_qr_url?: string | null;
+}
+
+const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
+  payment_cutoff_day: 5,
+  payment_grace_days: 5,
+  auto_generate_payments: true,
+  reminder_enabled: true,
+  reminder_days_before: 3,
+  late_fee_enabled: false,
+  late_fee_percentage: 5,
+  allow_coach_messaging: true,
+  require_payment_proof: true,
+};
+
+const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
+  rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-700 border-red-200' },
+  awaiting_approval: { label: 'Por Validar', className: 'bg-amber-100 text-amber-700 border-amber-200' },
+  overdue: { label: 'Vencido', className: 'bg-red-50 text-red-600 border-red-200' },
+  failed: { label: 'Fallido', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+  cancelled: { label: 'Cancelado', className: 'bg-gray-100 text-gray-500 border-gray-200' },
+  pending: { label: 'Pendiente', className: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+};
+
+interface PaymentTransaction {
+  id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  payment_method: string | null;
+  payment_type: string | null;
+  receipt_url: string | null;
+  concept: string;
+  parent: { full_name: string | null; email: string | null } | null;
+  child: { full_name: string } | null;
+  program: { name: string } | null;
+}
+
+interface TeamSubscription {
+  id: string;
+  full_name: string;
+  monthly_fee: number;
+  team_id: string;
+  teams: { name: string } | null;
+  payment_method?: string;
+}
 
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
-  const demoData = getDemoSchoolData();
-  const [selectedTeam, setSelectedTeam] = useState<string>('all');
-  const [report, setReport] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [manualPayments, setManualPayments] = useState<any[]>([]);
-  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
-  const [recurringPayments, setRecurringPayments] = useState<any[]>([]);
-  const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({ open: false, url: '', student: '', amount: 0 });
+  const { schoolId, activeBranchId } = useSchoolContext();
+  const [loading, setLoading] = useState(true);
+  const [payments, setPayments] = useState<PaymentTransaction[]>([]);
+  const [teamSubscriptions, setTeamSubscriptions] = useState<TeamSubscription[]>([]);
+  const [viewingProof, setViewingProof] = useState<{ open: boolean; url: string; student: string; amount: number }>({
+    open: false, url: '', student: '', amount: 0,
+  });
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [billing, setBilling] = useState<BillingSettings | null>(null);
+  const [billingSaving, setBillingSaving] = useState(false);
 
-  // Demo proof image for payments without a real uploaded image
-  const DEMO_PROOF_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Receipt_sample.jpg/220px-Receipt_sample.jpg';
+  useEffect(() => {
+    if (schoolId) {
+      loadBillingSettings();
+      fetchPayments();
+      loadTeamSubscriptions();
+    }
+  }, [schoolId, activeBranchId]);
 
-  // Only schools can access this page
-  if (profile?.role !== 'school') {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  const stats = [
-    {
-      label: 'Cobrado este mes',
-      value: formatCurrency(demoData.monthly_revenue),
-      change: '+24%',
-      icon: TrendingUp
-    },
-    {
-      label: 'Tasa de éxito',
-      value: '98.5%',
-      change: '+2.1%',
-      icon: CheckCircle2
-    },
-    {
-      label: 'Pagos pendientes',
-      value: `${demoData.pending_payments}`,
-      change: formatCurrency(560000),
-      icon: Clock
-    },
-    {
-      label: 'Próximo cobro',
-      value: '15 Feb',
-      change: formatCurrency(3200000),
-      icon: CreditCard
-    },
-  ];
-
-  const handleExport = () => {
-    const headers = ['ID', 'Estudiante', 'Monto', 'Fecha', 'Estado'];
-
-    const rows = recentTransactions.map(t => [
-      t.id,
-      t.student,
-      t.amount,
-      t.date,
-      t.status === 'success' ? 'Exitoso' : 'Fallido'
-    ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `transacciones_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const loadBillingSettings = async () => {
+    if (!schoolId) return;
+    const { data } = await supabase.from('school_settings').select('*').eq('school_id', schoolId).maybeSingle();
+    setBilling(data ? (data as unknown as BillingSettings) : { ...DEFAULT_BILLING, school_id: schoolId });
   };
 
-  const fetchTransactions = async () => {
-    const { data: txData } = await supabase
-      .from('payments')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (txData) {
-      setRecentTransactions(txData.map(t => ({
-        id: t.id,
-        student: 'Estudiante Demo',
-        amount: t.amount,
-        date: new Date(t.created_at).toLocaleDateString(),
-        status: t.status === 'paid' ? 'success' : t.status === 'pending' ? 'pending' : 'failed'
-      })));
+  const handleSaveBilling = async () => {
+    if (!billing || !schoolId) return;
+    setBillingSaving(true);
+    try {
+      const payload = {
+        school_id: schoolId,
+        payment_cutoff_day: billing.payment_cutoff_day,
+        payment_grace_days: billing.payment_grace_days,
+        auto_generate_payments: billing.auto_generate_payments,
+        reminder_enabled: billing.reminder_enabled,
+        reminder_days_before: billing.reminder_days_before,
+        late_fee_enabled: billing.late_fee_enabled,
+        late_fee_percentage: billing.late_fee_percentage,
+        allow_coach_messaging: billing.allow_coach_messaging,
+        require_payment_proof: billing.require_payment_proof,
+        bank_name: billing.bank_name,
+        bank_account_type: billing.bank_account_type,
+        bank_account_number: billing.bank_account_number,
+        nequi_number: billing.nequi_number,
+        daviplata_number: billing.daviplata_number,
+        bank_titular_name: billing.bank_titular_name,
+        bank_titular_id: billing.bank_titular_id,
+        payment_qr_url: billing.payment_qr_url,
+      };
+      const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
+      if (error) throw error;
+      toast({ title: '✅ Configuración de pagos guardada' });
+    } catch (err: any) {
+      toast({ title: 'Error al guardar', description: err.message, variant: 'destructive' });
+    } finally {
+      setBillingSaving(false);
     }
   };
 
-  // Fetch data from Supabase
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch manual payments (pending)
-        // We utilize RLS (assuming school can only see own payments) or explicit filter
-        const { data: pendingData, error: pendingError } = await supabase
-          .from('payments')
-          .select('*')
-          .eq('status', 'pending')
-          // .eq('payment_method', 'transfer') // Optional: if we want to show all pending
-          .order('created_at', { ascending: false });
+  const updateBilling = <K extends keyof BillingSettings>(key: K, value: BillingSettings[K]) => {
+    if (billing) setBilling({ ...billing, [key]: value });
+  };
 
-        if (pendingData) {
-          setManualPayments(pendingData.map(p => ({
-            id: p.id,
-            student: 'Estudiante Demo', // In real app, join with profiles/children
-            team: 'Firesquad', // Mock for now
-            amount: p.amount,
-            file: 'Ver Comprobante',
-            proof_url: p.receipt_url,
-            payment_method: p.payment_method || p.payment_type // Handle both
-          })));
-        }
+  const fetchPayments = async () => {
+    if (!schoolId) return;
+    setLoading(true);
+    try {
+      let query = supabase
+        .from('payments')
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept,
+          parent:profiles!payments_parent_id_fkey(full_name, email),
+          child:children!payments_child_id_fkey(full_name),
+          program:teams!payments_program_id_fkey(name)`)
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+      const { data, error } = await query;
+      if (error) throw error;
+      setPayments(((data as any[]) || []).map((p) => ({
+        id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
+        payment_method: p.payment_method, payment_type: p.payment_type,
+        receipt_url: p.receipt_url, concept: p.concept,
+        parent: p.parent, child: p.child, program: p.program,
+      })));
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      toast({ title: 'Error al cargar pagos', description: err.message || 'Error desconocido', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // Fetch recent transactions (all)
-        await fetchTransactions();
+  const loadTeamSubscriptions = async () => {
+    if (!schoolId) return;
+    try {
+      let query = supabase
+        .from('children')
+        .select(`id, full_name, monthly_fee, team_id, teams:teams!children_team_id_fkey(name)`)
+        .eq('school_id', schoolId)
+        .not('team_id', 'is', null);
+      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+      const { data, error } = await query;
+      if (error) throw error;
+      setTeamSubscriptions(data as unknown as TeamSubscription[]);
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      toast({ title: 'Error en suscripciones', description: err.message || String(err), variant: 'destructive' });
+    }
+  };
 
-        // Mock report data and recurring payments for now
-        setReport({
-          by_teams: {
-            Butterfly: { paid: 12, pending: 3, overdue: 1 },
-            Firesquad: { paid: 15, pending: 2, overdue: 0 },
-            Bombsquad: { paid: 8, pending: 4, overdue: 2 },
-            Legends: { paid: 10, pending: 1, overdue: 0 },
-          }
-        });
+  const isAuthorized = profile && ['school', 'admin', 'school_admin', 'super_admin', 'owner'].includes(profile.role);
+  if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
-        setRecurringPayments([
-          {
-            id: 1,
-            student: 'Sofía Ramírez',
-            program: 'Butterfly (Junior Prep)',
-            amount: 240000,
-            nextCharge: '15 Feb 2025',
-            status: 'active',
-            method: 'Tarjeta **** 1234'
-          },
-          {
-            id: 2,
-            student: 'Mateo Torres',
-            program: 'Firesquad (Senior L3)',
-            amount: 280000,
-            nextCharge: '20 Feb 2025',
-            status: 'active',
-            method: 'PSE - Bancolombia'
-          }
-        ]);
-
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  const handleManualAction = async (id: string, action: 'approve' | 'reject') => {
-    // Update Supabase
+  const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
+    setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'rejected';
-
-    const { error } = await supabase
-      .from('payments')
-      .update({ status: newStatus })
-      .eq('id', id);
-
-    if (!error) {
+    try {
+      const { error: updateError } = await supabase.from('payments').update({ status: newStatus }).eq('id', paymentId);
+      if (updateError) throw updateError;
       if (action === 'approve') {
-        const payment = manualPayments.find(p => p.id === id);
+        const payment = payments.find(p => p.id === paymentId);
         if (payment) {
-          // Send email confirmation
-          // 1. Fetch parent details (email, name)
-          // We need to fetch from 'profiles' using parent_id from the payment record
-          // But we don't have parent_id in 'manualPayments' state right now, let's fetch payment first
-
-          const { data: fullPayment } = await supabase
-            .from('payments')
-            .select('*, profiles:parent_id(email, full_name)')
-            .eq('id', id)
-            .single();
-
-          if (fullPayment && fullPayment.profiles) {
-            const parentProfile = fullPayment.profiles as any; // Type assertion for brevity
-
-            // Invoke Edge Function
-            supabase.functions.invoke('send-payment-confirmation', {
-              body: {
-                userEmail: parentProfile.email,
-                userName: parentProfile.full_name,
-                amount: formatCurrency(fullPayment.amount),
-                concept: fullPayment.concept,
-                schoolName: 'Spirit All Stars', // Should be dynamic
-                reference: fullPayment.receipt_number || `REF-${fullPayment.id.slice(0, 8)}`
-              }
-            }).then(({ error }) => {
-              if (error) console.error("Error sending email:", error);
-              else console.log("Email sent successfully");
+          const { data: fullPayment } = await supabase.from('payments').select('program_id, child_id, parent_id').eq('id', paymentId).single();
+          if (fullPayment?.program_id && (fullPayment.child_id || fullPayment.parent_id)) {
+            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', fullPayment.program_id).eq('status', 'pending');
+            if (fullPayment.child_id) enrollQuery = enrollQuery.eq('child_id', fullPayment.child_id);
+            else enrollQuery = enrollQuery.eq('user_id', fullPayment.parent_id);
+            const { error: enrollError } = await enrollQuery;
+            if (enrollError) console.warn('Could not auto-activate enrollment:', enrollError);
+          }
+          if (fullPayment?.parent_id) {
+            if (payment.parent?.email) {
+              await emailClient.send({
+                to: payment.parent.email,
+                subject: '¡Pago Aprobado - SportMaps!',
+                html: EmailTemplates.paymentConfirmation(payment.parent.full_name || 'Usuario', formatCurrency(payment.amount), payment.concept, payment.id.slice(0, 8).toUpperCase()),
+              });
+            }
+            await supabase.rpc('notify_user', {
+              p_user_id: fullPayment.parent_id, p_title: '✅ Pago Aprobado',
+              p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
+              p_type: 'success', p_link: '/history',
             });
           }
         }
       }
-
-      setManualPayments(prev => prev.filter(p => p.id !== id));
       toast({
-        title: action === 'approve' ? '✅ Pago Aprobado' : '❌ Pago Rechazado',
-        description: `El pago ha sido ${action === 'approve' ? 'validado' : 'rechazado'} correctamente. ${action === 'approve' ? 'Se ha notificado al padre por correo.' : ''}`,
+        title: action === 'approve' ? 'Pago Aprobado' : 'Pago Rechazado',
+        description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,
         variant: action === 'approve' ? 'default' : 'destructive',
       });
-
-      // Refresh transactions
-      const { data: txData } = await supabase
-        .from('payments')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (txData) {
-        setRecentTransactions(txData.map(t => ({
-          id: t.id,
-          student: 'Estudiante Demo',
-          amount: t.amount,
-          date: new Date(t.created_at).toLocaleDateString(),
-          status: t.status === 'paid' ? 'success' : t.status === 'pending' ? 'pending' : 'failed'
-        })));
-      }
-    } else {
-      toast({
-        title: "Error",
-        description: "No se pudo actualizar el pago",
-        variant: "destructive"
-      });
+      await fetchPayments();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({ title: 'Error', description: `No se pudo procesar la acción: ${message}`, variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
-  const teams = ["Butterfly", "Firesquad", "Bombsquad", "Legends"];
+  const handleExportCSV = () => {
+    if (payments.length === 0) { toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' }); return; }
+    const headers = ['Fecha', 'Padre', 'Estudiante', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    const rows = payments.map(p => {
+      const cfg = STATUS_CONFIG[p.status];
+      return [new Date(p.created_at).toLocaleDateString(), p.parent?.full_name || 'Desconocido', p.child?.full_name || 'Desconocido', p.amount, cfg?.label ?? p.status, p.concept, p.payment_type || 'N/A'];
+    });
+    const csvContent = [headers, ...rows].map(e => e.join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `reporte_pagos_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    toast({ title: 'Reporte Generado', description: 'El archivo CSV se ha descargado correctamente.' });
+  };
+
+  const handleShowProof = async (payment: PaymentTransaction) => {
+    if (!payment.receipt_url) return;
+    if (payment.receipt_url.startsWith('http')) {
+      setViewingProof({ open: true, url: payment.receipt_url, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
+      return;
+    }
+    try {
+      const cleanPath = getStoragePath(payment.receipt_url);
+      const { data, error } = await supabase.storage.from('payment-receipts').createSignedUrl(cleanPath, 300);
+      if (error) throw error;
+      setViewingProof({ open: true, url: data.signedUrl, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
+    } catch {
+      toast({ title: 'Error de acceso', description: 'No se pudo generar el acceso al comprobante.', variant: 'destructive' });
+    }
+  };
+
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const historyPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+  const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
+  const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
 
   return (
-    <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Cobros Automáticos</h1>
-          <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona los pagos recurrentes de tus estudiantes</p>
+    <div className="space-y-6 w-full max-w-full overflow-x-hidden animate-in fade-in">
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Gestión de Pagos</h1>
+          <p className="text-muted-foreground text-sm">
+            Administra cobros, validaciones y el historial financiero{activeBranchId ? ' de la sede actual.' : '.'}
+          </p>
         </div>
-        <Badge variant="default" className="text-xs md:text-sm w-fit">
-          ✅ Plan Pro Activo
-        </Badge>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={fetchPayments} disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4 mr-2" />}
+            <span className="hidden sm:inline">Actualizar</span>
+          </Button>
+          <Button variant="default" size="sm" onClick={handleExportCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Exportar Reporte</span>
+            <span className="sm:hidden">Exportar</span>
+          </Button>
+        </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={index}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs md:text-sm font-medium truncate">{stat.label}</CardTitle>
-                <Icon className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground flex-shrink-0" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl md:text-2xl font-bold truncate">{stat.value}</div>
-                <p className="text-xs text-muted-foreground truncate">{stat.change}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
+      {/* ── Stats: 2 cols en mobile, 4 en lg ─────────────────────────────── */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        {[
+          { title: 'Ingresos Totales', value: formatCurrency(totalRevenue), sub: 'Histórico acumulado', icon: TrendingUp, color: 'text-emerald-500' },
+          { title: 'Por Validar', value: pendingPayments.length, sub: `${formatCurrency(pendingAmount)} pendientes`, icon: Clock, color: 'text-amber-500' },
+          { title: 'Transacciones', value: payments.length, sub: 'Total registradas', icon: CreditCard, color: 'text-blue-500' },
+          { title: 'Tasa Aprobación', value: `${payments.length > 0 ? Math.round((payments.filter(p => p.status === 'paid').length / payments.length) * 100) : 0}%`, sub: 'Pagos exitosos', icon: CheckCircle2, color: 'text-primary' },
+        ].map(({ title, value, sub, icon: Icon, color }) => (
+          <Card key={title}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium line-clamp-1">{title}</CardTitle>
+              <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+            </CardHeader>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-lg sm:text-2xl font-bold truncate">{value}</div>
+              <p className="text-xs text-muted-foreground line-clamp-1">{sub}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Main Content */}
-      <Tabs defaultValue="recurring" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="recurring">Cobros Recurrentes</TabsTrigger>
-          <TabsTrigger value="by-team">Vista por Equipos</TabsTrigger>
-          <TabsTrigger value="transactions">Transacciones</TabsTrigger>
-          <TabsTrigger value="settings">Configuración</TabsTrigger>
-        </TabsList>
+      {/* ── Tabs: scroll horizontal en mobile ────────────────────────────── */}
+      <Tabs defaultValue="recurrent" className="space-y-4">
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="w-max min-w-full sm:w-auto">
+            <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
+            <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos</TabsTrigger>
+            <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
+            <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
+          </TabsList>
+        </div>
 
-        <TabsContent value="recurring" className="space-y-4">
-          <Card>
+        {/* ── Tab: Validación de cobros ────────────────────────────────── */}
+        <TabsContent value="recurrent">
+          <Card className="border-amber-200 bg-amber-50/10">
             <CardHeader>
-              <CardTitle>Suscripciones Activas</CardTitle>
-              <CardDescription>
-                {recurringPayments.length} estudiantes con cobro automático activo
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Estudiante</TableHead>
-                    <TableHead>Programa</TableHead>
-                    <TableHead>Monto Mensual</TableHead>
-                    <TableHead>Próximo Cobro</TableHead>
-                    <TableHead>Método</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recurringPayments.map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="font-medium">{payment.student}</TableCell>
-                      <TableCell>{payment.program}</TableCell>
-                      <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                      <TableCell>{payment.nextCharge}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{payment.method}</TableCell>
-                      <TableCell>
-                        {payment.status === 'active' ? (
-                          <Badge variant="default" className="bg-green-500">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Activo
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            Tarjeta vence pronto
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* Payment Methods */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Métodos de Pago Integrados</CardTitle>
-              <CardDescription>Acepta pagos con todos estos métodos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="border rounded-lg p-4 text-center">
-                  <CreditCard className="h-8 w-8 mx-auto mb-2 text-primary" />
-                  <p className="font-medium">PSE</p>
-                  <p className="text-xs text-muted-foreground">Todos los bancos</p>
-                </div>
-                <div className="border rounded-lg p-4 text-center">
-                  <CreditCard className="h-8 w-8 mx-auto mb-2 text-primary" />
-                  <p className="font-medium">Tarjetas</p>
-                  <p className="text-xs text-muted-foreground">Visa / Mastercard</p>
-                </div>
-                <div className="border rounded-lg p-4 text-center">
-                  <CreditCard className="h-8 w-8 mx-auto mb-2 text-primary" />
-                  <p className="font-medium">Nequi</p>
-                  <p className="text-xs text-muted-foreground">Pago instantáneo</p>
-                </div>
-                <div className="border rounded-lg p-4 text-center">
-                  <CreditCard className="h-8 w-8 mx-auto mb-2 text-primary" />
-                  <p className="font-medium">Daviplata</p>
-                  <p className="text-xs text-muted-foreground">Billetera digital</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="by-team" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {teams.map((team) => {
-              const teamData = report?.by_teams[team] || { paid: 0, pending: 0, overdue: 0 };
-              return (
-                <Card key={team}>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg">{team}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Pagados</span>
-                      <Badge variant="default" className="bg-green-500">{teamData.paid}</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Pendientes</span>
-                      <Badge variant="secondary">{teamData.pending}</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">Vencidos</span>
-                      <Badge variant="destructive">{teamData.overdue}</Badge>
-                    </div>
-                    <Button
-                      variant="outline"
-                      className="w-full text-xs"
-                      size="sm"
-                      onClick={() => toast({ title: `👥 Atletas de ${team}`, description: 'Navegando a la lista de atletas del equipo...' })}
-                    >
-                      Ver Atletas
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-
-          {/* Manual Payments Review */}
-          <Card className="mt-6 border-blue-200 bg-blue-50/20">
-            <CardHeader>
-              <CardTitle className="text-blue-700 flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Validación de Pagos Manuales
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                Validación de Cobros
               </CardTitle>
-              <CardDescription>
-                Pagos recibidos por transferencia que requieren aprobación manual
-              </CardDescription>
+              <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Estudiante</TableHead>
-                    <TableHead>Equipo</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Comprobante</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {manualPayments.map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell className="font-medium">{payment.student}</TableCell>
-                      <TableCell>{payment.team}</TableCell>
-                      <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="p-0 text-blue-600 flex items-center gap-1"
-                          onClick={() => setViewingProof({
-                            open: true,
-                            url: payment.proof_url || DEMO_PROOF_URL,
-                            student: payment.student,
-                            amount: payment.amount,
-                          })}
-                        >
-                          <Eye className="h-3 w-3" />
-                          Ver Comprobante
-                        </Button>
-                      </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                          onClick={() => handleManualAction(payment.id, 'approve')}
-                        >
-                          Aprobar
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                          onClick={() => handleManualAction(payment.id, 'reject')}
-                        >
-                          Rechazar
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {manualPayments.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
-                        No hay pagos pendientes por validar
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* Proof Viewer Dialog */}
-          <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Comprobante de Pago</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-3">
-                  <div>
-                    <p className="font-semibold">{viewingProof.student}</p>
-                    <p className="text-sm text-muted-foreground">Transferencia bancaria</p>
+            <CardContent className="p-0 sm:p-6">
+              {loading ? (
+                <div className="flex justify-center py-8"><Loader2 className="animate-spin h-8 w-8 text-muted-foreground" /></div>
+              ) : pendingPayments.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground flex flex-col items-center p-6">
+                  <CheckCircle2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                  <p>No hay pagos pendientes por validar.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Mobile cards */}
+                  <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
+                    {pendingPayments.map((payment) => (
+                      <div key={payment.id} className="border rounded-lg p-4 space-y-3 bg-card">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm truncate">{payment.child?.full_name || 'Sin estudiante'}</p>
+                            <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.concept}</p>
+                            <p className="text-xs text-muted-foreground">{payment.parent?.full_name || 'Desconocido'}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
+                            <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {payment.receipt_url && (
+                            <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
+                              <Eye className="h-3 w-3" /> Comprobante
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" className="h-8 text-green-600 border-green-200 hover:bg-green-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'approve')}>
+                            {processingId === payment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                            Aprobar
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Rechazar
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <p className="text-lg font-bold text-primary">{formatCurrency(viewingProof.amount)}</p>
-                </div>
-                <div className="border rounded-lg overflow-hidden bg-white">
-                  <img
-                    src={viewingProof.url}
-                    alt={`Comprobante de pago - ${viewingProof.student}`}
-                    className="w-full h-auto max-h-[60vh] object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = DEMO_PROOF_URL;
-                    }}
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (viewingProof.url) window.open(viewingProof.url, '_blank');
-                    }}
-                  >
-                    <Download className="h-4 w-4 mr-1" />
-                    Descargar
-                  </Button>
-                  <Button size="sm" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
-                    Cerrar
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </TabsContent>
-        <TabsContent value="transactions" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Historial de Transacciones</CardTitle>
-                <CardDescription>Todas las transacciones de los últimos 30 días</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Estudiante</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentTransactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell className="font-medium">{transaction.student}</TableCell>
-                      <TableCell>{formatCurrency(transaction.amount)}</TableCell>
-                      <TableCell className="text-muted-foreground">{transaction.date}</TableCell>
-                      <TableCell>
-                        {transaction.status === 'success' ? (
-                          <Badge variant="default" className="bg-green-500">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Exitoso
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            Fallido
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  {/* Desktop table */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Fecha</TableHead>
+                          <TableHead>Estudiante / Programa</TableHead>
+                          <TableHead>Padre</TableHead>
+                          <TableHead>Monto</TableHead>
+                          <TableHead>Comprobante</TableHead>
+                          <TableHead className="text-right">Acciones</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingPayments.map((payment) => (
+                          <TableRow key={payment.id}>
+                            <TableCell className="font-mono text-xs">{formatDate(payment.created_at)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span className="font-bold">{payment.child?.full_name || 'Sin estudiante'}</span>
+                                <span className="text-xs text-muted-foreground">{payment.program?.name || payment.concept}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell><span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span></TableCell>
+                            <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
+                            <TableCell>
+                              {payment.receipt_url ? (
+                                <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>
+                                  <Eye className="h-3 w-3" /> Ver
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic">Sin comprobante</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'approve')}>
+                                  {processingId === payment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                                  Aprobar
+                                </Button>
+                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
+                                  <XCircle className="h-3 w-3 mr-1" /> Rechazar
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="settings" className="space-y-4">
+        {/* ── Tab: Equipos ─────────────────────────────────────────────── */}
+        <TabsContent value="teams">
           <Card>
             <CardHeader>
-              <CardTitle>Configuración de Cobros</CardTitle>
-              <CardDescription>Personaliza cómo y cuándo se cobran los pagos</CardDescription>
+              <CardTitle className="text-base sm:text-lg">Vista por Equipos</CardTitle>
+              <CardDescription>Cobros programados por equipo y estudiante.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <h4 className="font-medium">Día de cobro mensual</h4>
-                <p className="text-sm text-muted-foreground">Los cobros se procesaran automáticamente el día 15 de cada mes</p>
-                <Button variant="outline">Cambiar fecha</Button>
+            <CardContent className="p-0 sm:p-6">
+              {/* Mobile cards */}
+              <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
+                {loading ? (
+                  <div className="flex justify-center py-8"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>
+                ) : teamSubscriptions.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No hay estudiantes asignados a equipos.</p>
+                ) : teamSubscriptions.map((sub) => (
+                  <div key={sub.id} className="border rounded-lg p-4 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-blue-600 truncate">{sub.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{sub.teams?.name || 'Sin equipo'}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-sm">{formatCurrency(sub.monthly_fee || 0)}</p>
+                      <p className="text-xs text-muted-foreground">Día {billing?.payment_cutoff_day || 5}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="space-y-2">
-                <h4 className="font-medium">Reintentos automáticos</h4>
-                <p className="text-sm text-muted-foreground">Si un pago falla, se reintentará automáticamente después de 3 días</p>
-                <Button variant="outline">Configurar</Button>
-              </div>
-              <div className="space-y-2">
-                <h4 className="font-medium">Notificaciones</h4>
-                <p className="text-sm text-muted-foreground">Recibe notificaciones por email y WhatsApp de pagos exitosos y fallidos</p>
-                <Button variant="outline">Gestionar notificaciones</Button>
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Alumno</TableHead>
+                      <TableHead>Equipo</TableHead>
+                      <TableHead>Monto Mensual</TableHead>
+                      <TableHead>Próximo Cobro</TableHead>
+                      <TableHead>Método</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" /></TableCell></TableRow>
+                    ) : teamSubscriptions.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No hay estudiantes asignados a equipos.</TableCell></TableRow>
+                    ) : teamSubscriptions.map((sub) => (
+                      <TableRow key={sub.id}>
+                        <TableCell className="font-medium text-blue-600">{sub.full_name}</TableCell>
+                        <TableCell><Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">{sub.teams?.name || 'Sin equipo'}</Badge></TableCell>
+                        <TableCell className="font-bold">{formatCurrency(sub.monthly_fee || 0)}</TableCell>
+                        <TableCell><span className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-amber-500" />Día {billing?.payment_cutoff_day || 5} (Prox. Mes)</span></TableCell>
+                        <TableCell><Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700"><CreditCard className="h-3.5 w-3.5" />Cobro Automático</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Tab: Historial ───────────────────────────────────────────── */}
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
+              <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 sm:p-6">
+              {/* Mobile cards */}
+              <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
+                {historyPayments.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No hay historial disponible.</p>
+                ) : historyPayments.map((payment) => {
+                  const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
+                  return (
+                    <div key={payment.id} className="border rounded-lg p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{payment.child?.full_name || payment.parent?.full_name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.concept}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
+                          <Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                        {payment.receipt_url && (
+                          <Button variant="ghost" size="sm" className="h-7 text-blue-600 hover:bg-blue-50" onClick={() => handleShowProof(payment)}>
+                            <Eye className="h-3.5 w-3.5 mr-1" /> Ver
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Estudiante</TableHead>
+                      <TableHead>Concepto</TableHead>
+                      <TableHead>Monto</TableHead>
+                      <TableHead>Método</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Soporte</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {historyPayments.length === 0 ? (
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No hay historial disponible.</TableCell></TableRow>
+                    ) : historyPayments.map((payment) => {
+                      const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
+                      return (
+                        <TableRow key={payment.id}>
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
+                          <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
+                          <TableCell className="text-sm">{payment.program?.name || payment.concept}</TableCell>
+                          <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="text-xs uppercase">{payment.payment_method || 'N/A'}</TableCell>
+                          <TableCell><Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge></TableCell>
+                          <TableCell>
+                            {payment.receipt_url ? (
+                              <Button variant="ghost" size="sm" className="h-8 text-blue-600 hover:bg-blue-50" onClick={() => handleShowProof(payment)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            ) : <span className="text-xs text-muted-foreground">N/A</span>}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Configuración (sin cambios de lógica, solo responsive) ── */}
+        <TabsContent value="config" className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Configuración</h2>
+              <p className="text-sm text-muted-foreground">Reglas de facturación, mora y notificaciones.</p>
+            </div>
+            <Button onClick={handleSaveBilling} disabled={billingSaving} className="gap-2 w-full sm:w-auto">
+              {billingSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Guardar Cambios
+            </Button>
+          </div>
+          {billing && (
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><DollarSign className="h-5 w-5 text-emerald-500" />Reglas de Cobro</CardTitle>
+                  <CardDescription>Cuándo y cómo se generan los cobros mensuales.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="due_day">Día de corte del mes</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="due_day" type="number" min={1} max={28} className="w-24" value={billing.payment_cutoff_day} onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)} />
+                      <span className="text-sm text-muted-foreground">de cada mes</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="grace">Días de gracia</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="grace" type="number" min={0} max={15} className="w-24" value={billing.payment_grace_days} onChange={e => updateBilling('payment_grace_days', parseInt(e.target.value) || 0)} />
+                      <span className="text-sm text-muted-foreground">días después del corte</span>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Generar cobros automáticos</Label>
+                      <p className="text-xs text-muted-foreground">Crear pagos pendientes cada mes</p>
+                    </div>
+                    <Switch checked={billing.auto_generate_payments} onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-5 w-5 text-amber-500" />Mora y Penalización</CardTitle>
+                  <CardDescription>Recargos por pago tardío.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Habilitar mora</Label>
+                      <p className="text-xs text-muted-foreground">Recargo después del período de gracia</p>
+                    </div>
+                    <Switch checked={billing.late_fee_enabled} onCheckedChange={v => updateBilling('late_fee_enabled', v)} />
+                  </div>
+                  {billing.late_fee_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="late_pct">Porcentaje de recargo</Label>
+                      <div className="flex items-center gap-2">
+                        <Input id="late_pct" type="number" min={1} max={50} className="w-24" value={billing.late_fee_percentage} onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
+                        <span className="text-sm text-muted-foreground">% adicional</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-2">
+                    <div>
+                      <Label className="font-medium">Exigir comprobante</Label>
+                      <p className="text-xs text-muted-foreground">Los padres deben subir foto del recibo</p>
+                    </div>
+                    <Switch checked={billing.require_payment_proof} onCheckedChange={v => updateBilling('require_payment_proof', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-5 w-5 text-blue-500" />Recordatorios</CardTitle>
+                  <CardDescription>Notificaciones automáticas de pago.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Enviar recordatorios</Label>
+                      <p className="text-xs text-muted-foreground">Notificar antes del vencimiento</p>
+                    </div>
+                    <Switch checked={billing.reminder_enabled} onCheckedChange={v => updateBilling('reminder_enabled', v)} />
+                  </div>
+                  {billing.reminder_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="reminder_days">Días antes del vencimiento</Label>
+                      <div className="flex items-center gap-2">
+                        <Input id="reminder_days" type="number" min={1} max={15} className="w-24" value={billing.reminder_days_before} onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)} />
+                        <span className="text-sm text-muted-foreground">días antes</span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><Shield className="h-5 w-5 text-purple-500" />Permisos</CardTitle>
+                  <CardDescription>Qué pueden hacer los coaches y el staff.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Coaches pueden enviar mensajes</Label>
+                      <p className="text-xs text-muted-foreground">Comunicación directa coach → padres</p>
+                    </div>
+                    <Switch checked={billing.allow_coach_messaging} onCheckedChange={v => updateBilling('allow_coach_messaging', v)} />
+                  </div>
+                  <Separator />
+                  <p className="text-xs text-muted-foreground text-center">Más opciones de permisos próximamente.</p>
+                </CardContent>
+              </Card>
+              {/* Datos de Pago — full width */}
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-5 w-5 text-indigo-500" />Datos de Pago para Transferencia</CardTitle>
+                  <CardDescription>Esta información la verán los acudientes al elegir pago manual.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_name">Nombre del Banco</Label>
+                      <Input id="bank_name" placeholder="Ej: Bancolombia" value={billing.bank_name || ''} onChange={e => updateBilling('bank_name', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_account_type">Tipo de Cuenta</Label>
+                      <select id="bank_account_type" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={billing.bank_account_type || ''} onChange={e => updateBilling('bank_account_type', e.target.value)}>
+                        <option value="">Selecciona tipo</option>
+                        <option value="ahorros">Ahorros</option>
+                        <option value="corriente">Corriente</option>
+                        <option value="billetera_digital">Billetera Digital</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_account_number">Número de Cuenta</Label>
+                      <Input id="bank_account_number" placeholder="Ej: 123-456789-01" value={billing.bank_account_number || ''} onChange={e => updateBilling('bank_account_number', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nequi_number">Número Nequi (Opcional)</Label>
+                      <Input id="nequi_number" placeholder="Celular" value={billing.nequi_number || ''} onChange={e => updateBilling('nequi_number', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="daviplata_number">Número Daviplata (Opcional)</Label>
+                      <Input id="daviplata_number" placeholder="Celular" value={billing.daviplata_number || ''} onChange={e => updateBilling('daviplata_number', e.target.value)} />
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_titular_name">Nombre del Titular</Label>
+                      <Input id="bank_titular_name" placeholder="Titular de la cuenta" value={billing.bank_titular_name || ''} onChange={e => updateBilling('bank_titular_name', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bank_titular_id">NIT o Cédula del Titular</Label>
+                      <Input id="bank_titular_id" placeholder="Documento" value={billing.bank_titular_id || ''} onChange={e => updateBilling('bank_titular_id', e.target.value)} />
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Código QR para Transferencia</Label>
+                      <p className="text-xs text-muted-foreground mb-4">Este QR se mostrará con los datos bancarios.</p>
+                    </div>
+                    {billing.payment_qr_url ? (
+                      <div className="flex flex-col sm:flex-row items-start gap-4 p-4 border rounded-lg bg-muted/30">
+                        <img src={billing.payment_qr_url} alt="QR de Pago" className="w-32 h-32 object-cover rounded-md border bg-white" />
+                        <Button variant="destructive" size="sm" onClick={() => updateBilling('payment_qr_url', null)}>Eliminar QR</Button>
+                      </div>
+                    ) : (
+                      <div className="p-4 border rounded-lg border-dashed">
+                        <FileUpload bucket="school-assets" accept="image/*" onUploadComplete={(url) => updateBilling('payment_qr_url', url)} />
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
+
+      {/* Dialog comprobante */}
+      <Dialog open={viewingProof.open} onOpenChange={open => setViewingProof(prev => ({ ...prev, open }))}>
+        <DialogContent className="w-[95vw] max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Comprobante de Pago</DialogTitle>
+            <DialogDescription>{viewingProof.student} — {formatCurrency(viewingProof.amount)}</DialogDescription>
+          </DialogHeader>
+          <div className="p-4 flex items-center justify-center bg-muted rounded-lg min-h-[200px] sm:min-h-[300px]">
+            {viewingProof.url ? (
+              <img src={viewingProof.url} alt="Comprobante" className="max-h-[400px] sm:max-h-[500px] object-contain rounded w-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ) : (
+              <div className="text-center text-muted-foreground p-8"><p>No hay imagen disponible.</p></div>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>Cerrar</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -8,17 +8,20 @@ export interface Program {
   name: string;
   description: string | null;
   sport: string;
-  schedule: string | null;
-  price_monthly: number;
+  schedule: Json | null;
+  price_monthly: number | null;
   age_min: number | null;
   age_max: number | null;
-  max_participants: number | null;
-  current_participants: number;
-  active: boolean;
+  max_students: number | null;
+  current_students: number | null;
+  active: boolean | null;
   image_url: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
+
+// Support Json type for schedule
+type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 /**
  * Custom hook for fetching programs by school
@@ -43,14 +46,18 @@ export function usePrograms(schoolId: string | undefined) {
       setLoading(true);
       setError(null);
 
+      // Unified: now we fetch from 'teams' table
       const { data, error: fetchError } = await supabase
-        .from('programs')
+        .from('teams')
         .select('*')
         .eq('school_id', schoolId)
         .eq('active', true)
         .order('name');
 
       if (fetchError) throw fetchError;
+
+      // Map to the internal Program interface if necessary
+      // Note: the column names in teams now match most of these
       setPrograms(data || []);
     } catch (err: any) {
       console.error('Error fetching programs:', err);
@@ -104,8 +111,8 @@ export function usePrograms(schoolId: string | undefined) {
   };
 
   const getAvailability = (program: Program) => {
-    if (!program.max_participants) return { text: 'Cupos ilimitados', available: true };
-    const available = program.max_participants - program.current_participants;
+    if (!program.max_students) return { text: 'Cupos ilimitados', available: true };
+    const available = program.max_students - (program.current_students || 0);
     return {
       text: available > 0 ? `${available} cupos disponibles` : 'Lleno',
       available: available > 0,

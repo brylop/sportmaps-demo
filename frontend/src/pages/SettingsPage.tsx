@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useStorage } from '@/hooks/useStorage';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,12 +25,17 @@ import {
   Plus,
   Trash2,
   ClipboardCopy,
-  Loader2
+  Loader2,
+  FileText,
+  Award,
+  Trophy
 } from 'lucide-react';
 import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
+import { coachesAPI, CoachProfile, CoachCertification } from '@/lib/api/coaches';
+import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 
 export default function ProfilePage() {
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const { toast } = useToast();
   const { uploadFile, uploading } = useStorage();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,16 +46,82 @@ export default function ProfilePage() {
   const [bio, setBio] = useState(profile?.bio || '');
   const [saving, setSaving] = useState(false);
 
+  // Coach-specific state
+  const [coachProfile, setCoachProfile] = useState<CoachProfile | null>(null);
+  const [coachCerts, setCoachCerts] = useState<CoachCertification[]>([]);
+  const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const [coachWizardStep, setCoachWizardStep] = useState(1);
+
+  // Sync state when profile loads asynchronously
+  // Also fetch directly from DB to ensure phone is loaded (may not be in context cache)
+  const loadCoachData = async () => {
+    if (!user?.id || profile?.role !== 'coach') return;
+    const [cp, certs] = await Promise.all([
+      coachesAPI.getCoachProfile(user.id),
+      coachesAPI.getCertifications(user.id)
+    ]);
+    setCoachProfile(cp);
+    setCoachCerts(certs);
+  };
+
+  useEffect(() => {
+    if (profile) {
+      setFullName(profile.full_name || '');
+      setPhone(profile.phone || '');
+      setBio(profile.bio || '');
+    }
+
+    // Direct DB fetch to always get the latest phone and preferences
+    if (user?.id) {
+      supabase
+        .from('profiles')
+        .select('full_name, phone, bio, preferences')
+        .eq('id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setFullName(data.full_name || '');
+            setPhone(data.phone || '');
+            setBio(data.bio || '');
+
+            const prefs = (data.preferences as Record<string, boolean>) || {};
+            setEmailNotifications(prefs.emailNotifications ?? true);
+            setSmsNotifications(prefs.smsNotifications ?? false);
+            setWeeklyReport(prefs.weeklyReport ?? true);
+            setProfileVisibility(prefs.profileVisibility ?? true);
+            setShowEmail(prefs.showEmail ?? false);
+            setShowPhone(prefs.showPhone ?? false);
+          }
+        });
+    }
+
+    // Load coach-specific data
+    loadCoachData();
+  }, [profile, user?.id]);
+
+  // Initialize default preferences from context before DB confirms it
+  const defaultPrefs = (profile?.preferences as Record<string, boolean>) || {};
+
   // Notification settings
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [smsNotifications, setSmsNotifications] = useState(false);
-  const [weeklyReport, setWeeklyReport] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(defaultPrefs.emailNotifications ?? true);
+  const [smsNotifications, setSmsNotifications] = useState(defaultPrefs.smsNotifications ?? false);
+  const { subscribe, status: pushStatus, checkStatus } = usePushSubscription();
+
+  useEffect(() => {
+    checkStatus();
+  }, [checkStatus]);
+  const [weeklyReport, setWeeklyReport] = useState(defaultPrefs.weeklyReport ?? true);
 
   // Privacy settings
-  const [profileVisibility, setProfileVisibility] = useState(true);
-  const [showEmail, setShowEmail] = useState(false);
-  const [showPhone, setShowPhone] = useState(false);
+  const [profileVisibility, setProfileVisibility] = useState(defaultPrefs.profileVisibility ?? true);
+  const [showEmail, setShowEmail] = useState(defaultPrefs.showEmail ?? false);
+  const [showPhone, setShowPhone] = useState(defaultPrefs.showPhone ?? false);
+
+  // Security settings
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   /* Avatar Upload Handler */
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,22 +178,16 @@ export default function ProfilePage() {
       const cleanPhone = sanitizePhone(phone);
       const cleanBio = sanitizeBio(bio);
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: cleanName,
-          phone: cleanPhone,
-          bio: cleanBio,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
+      await updateProfile({
+        full_name: cleanName,
+        phone: cleanPhone,
+        bio: cleanBio,
+      });
 
       // Update local state with cleaned values
       setFullName(cleanName);
       setPhone(cleanPhone);
       setBio(cleanBio);
-
-      if (error) throw error;
 
       toast({
         title: "Perfil actualizado",
@@ -135,6 +201,100 @@ export default function ProfilePage() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePreferencesUpdate = async () => {
+    if (!user) return;
+
+    setSaving(true);
+    try {
+      const preferences = {
+        emailNotifications,
+        smsNotifications,
+        weeklyReport,
+        profileVisibility,
+        showEmail,
+        showPhone
+      };
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          preferences,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      await updateProfile({ preferences });
+
+      toast({
+        title: "Preferencias guardadas",
+        description: "Tus configuraciones han sido actualizadas exitosamente.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error al guardar preferencias",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (!newPassword || !confirmPassword) {
+      toast({
+        title: "Campos incompletos",
+        description: "Por favor, ingresa tu nueva contraseña y confírmala",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Error de verificación",
+        description: "Las contraseñas nuevas no coinciden",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        title: "Contraseña muy corta",
+        description: "La contraseña debe tener al menos 6 caracteres",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+      if (error) throw error;
+
+      toast({
+        title: "Contraseña actualizada",
+        description: "Tu contraseña ha sido cambiada exitosamente.",
+      });
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "No se pudo actualizar la contraseña. Podría ser necesario volver a iniciar sesión.",
+        variant: "destructive"
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -156,9 +316,14 @@ export default function ProfilePage() {
       parent: 'Padre',
       coach: 'Entrenador',
       school: 'Escuela',
+      school_admin: 'Director de Escuela',
       wellness_professional: 'Bienestar',
       store_owner: 'Tienda',
-      admin: 'Admin'
+      admin: 'Admin',
+      super_admin: 'Súper Admin',
+      organizer: 'Organizador',
+      reporter: 'Auditoría'
+
     };
     return roleLabels[profile?.role || ''] || profile?.role;
   };
@@ -188,7 +353,7 @@ export default function ProfilePage() {
             <Bell className="h-4 w-4" />
             Notificaciones
           </TabsTrigger>
-          {profile?.role === 'school' && (
+          {(profile?.role === 'school' || profile?.role === 'school_admin') && (
             <TabsTrigger value="services" className="gap-2">
               <Globe className="h-4 w-4" />
               Servicios
@@ -260,6 +425,35 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Coach: Primary Sport */}
+              {profile?.role === 'coach' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Deporte Principal</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                      onClick={() => { setCoachWizardStep(1); setShowCoachWizard(true); }}
+                    >
+                      <Plus className="w-3 h-3" />
+                      {coachProfile?.primary_sport ? 'Cambiar Deporte' : 'Configurar Deporte'}
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 text-primary">
+                      <Trophy className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        {coachProfile?.primary_sport || 'No configurado'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Especialidad principal</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Form Fields */}
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -297,54 +491,124 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Descripción / Biografía</Label>
-                  <textarea
-                    id="bio"
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Cuéntanos sobre tu escuela..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Esta descripción aparecerá en tu perfil público.
-                  </p>
-                </div>
-
-                <Card className="bg-muted/50 border-dashed">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-primary" />
-                      Tu Micrositio Público
-                    </CardTitle>
-                    <CardDescription>
-                      Comparte este enlace para que padres y alumnos vean tus programas e instalaciones sin registrarse.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center gap-2">
-                    <Input
-                      readOnly
-                      value={`${window.location.origin}/s/academia-demo`}
-                      className="font-mono text-sm bg-white"
+                {profile?.role !== 'parent' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="bio">Descripción / Biografía</Label>
+                    <textarea
+                      id="bio"
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder={profile?.role === 'school' || profile?.role === 'school_admin' ? "Cuéntanos sobre tu escuela..." : "Cuéntanos un poco sobre ti..."}
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/s/academia-demo`);
-                        toast({ title: "Enlace copiado", description: "El link de tu sitio público está en el portapapeles." });
-                      }}
-                    >
-                      <ClipboardCopy className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="default"
-                      onClick={() => window.open('/s/academia-demo', '_blank')}
-                    >
-                      Ver Sitio
-                    </Button>
-                  </CardContent>
-                </Card>
+                    <p className="text-xs text-muted-foreground">
+                      Esta descripción aparecerá en tu perfil público.
+                    </p>
+                  </div>
+                )}
+
+                {/* Coach: Certificados y Licencias */}
+                {profile?.role === 'coach' && (
+                  <Card className="bg-muted/30 border">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Award className="w-4 h-4 text-primary" />
+                          Certificados y Licencias
+                        </CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => { setCoachWizardStep(2); setShowCoachWizard(true); }}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Agregar
+                        </Button>
+                      </div>
+                      <CardDescription>
+                        Gestiona tus certificaciones profesionales
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {coachCerts.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground">
+                          <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">No tienes certificados registrados</p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="mt-1"
+                            onClick={() => { setCoachWizardStep(2); setShowCoachWizard(true); }}
+                          >
+                            Agregar tu primer certificado
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {coachCerts.map((cert) => (
+                            <div key={cert.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                              <FileText className="w-5 h-5 text-primary shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{cert.name}</p>
+                                {cert.file_name && (
+                                  <p className="text-xs text-muted-foreground truncate">{cert.file_name}</p>
+                                )}
+                              </div>
+                              {cert.file_url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="shrink-0"
+                                  onClick={() => window.open(cert.file_url!, '_blank')}
+                                >
+                                  Ver
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+                  <Card className="bg-muted/50 border-dashed">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-primary" />
+                        Tu Micrositio Público
+                      </CardTitle>
+                      <CardDescription>
+                        Comparte este enlace para que padres y alumnos vean tus programas e instalaciones sin registrarse.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex items-center gap-2">
+                      <Input
+                        readOnly
+                        value={`${window.location.origin}/s/academia-demo`}
+                        className="font-mono text-sm bg-white"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/s/academia-demo`);
+                          toast({ title: "Enlace copiado", description: "El link de tu sitio público está en el portapapeles." });
+                        }}
+                      >
+                        <ClipboardCopy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="default"
+                        onClick={() => window.open('/s/academia-demo', '_blank')}
+                      >
+                        Ver Sitio
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               <div className="flex justify-end">
@@ -383,15 +647,21 @@ export default function ProfilePage() {
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Notificaciones Push</Label>
+                    <Label>Notificaciones Push (PWA)</Label>
                     <p className="text-sm text-muted-foreground">
-                      Recibe notificaciones en tu dispositivo
+                      Recibe notificaciones en tu dispositivo cuando la app está en segundo plano
                     </p>
                   </div>
                   <Switch
-                    checked={pushNotifications}
-                    onCheckedChange={setPushNotifications}
+                    checked={pushStatus === 'granted'}
+                    onCheckedChange={(checked) => checked && subscribe()}
+                    disabled={pushStatus === 'loading' || pushStatus === 'unsupported'}
                   />
+                  {pushStatus === 'denied' && (
+                    <p className="text-xs text-muted-foreground col-span-2">
+                      Activa las notificaciones en la configuración del navegador
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -422,9 +692,9 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button className="gap-2">
-                  <Save className="h-4 w-4" />
-                  Guardar Preferencias
+                <Button className="gap-2" onClick={handlePreferencesUpdate} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Guardando...' : 'Guardar Preferencias'}
                 </Button>
               </div>
             </CardContent>
@@ -535,9 +805,9 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button className="gap-2">
-                  <Save className="h-4 w-4" />
-                  Guardar Configuración
+                <Button className="gap-2" onClick={handlePreferencesUpdate} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Guardando...' : 'Guardar Configuración'}
                 </Button>
               </div>
             </CardContent>
@@ -556,25 +826,41 @@ export default function ProfilePage() {
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="current-password">Contraseña Actual</Label>
-                  <Input id="current-password" type="password" />
+                  <Label htmlFor="current-password">Contraseña Actual (opcional)</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Si estás usando un proveedor (Google, Apple), es posible que no necesites esto.</p>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="new-password">Nueva Contraseña</Label>
-                  <Input id="new-password" type="password" />
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="confirm-password">Confirmar Nueva Contraseña</Label>
-                  <Input id="confirm-password" type="password" />
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
                 </div>
               </div>
 
               <div className="flex justify-end">
-                <Button variant="default" className="gap-2">
-                  <Lock className="h-4 w-4" />
-                  Cambiar Contraseña
+                <Button variant="default" className="gap-2" onClick={handlePasswordChange} disabled={changingPassword}>
+                  {changingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                  {changingPassword ? 'Actualizando...' : 'Cambiar Contraseña'}
                 </Button>
               </div>
             </CardContent>
@@ -595,6 +881,16 @@ export default function ProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Coach Profile Wizard */}
+      {profile?.role === 'coach' && (
+        <CoachProfileWizard
+          open={showCoachWizard}
+          onOpenChange={setShowCoachWizard}
+          onSuccess={loadCoachData}
+          initialStep={coachWizardStep}
+        />
+      )}
     </div>
   );
 }

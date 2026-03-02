@@ -4,12 +4,13 @@
 import { supabase } from '@/integrations/supabase/client';
 
 export interface CheckoutPayload {
-    student_id: string;
+    student_id: string; // The ID of the person being enrolled (child or user)
     class_id: string;
     school_id: string;
     parent_id: string;
     amount: number;
     payment_method: string;
+    is_child_enrollment?: boolean; // New flag to distinguish
 }
 
 export interface CheckoutResult {
@@ -27,70 +28,51 @@ class CheckoutAPI {
      */
     async processEnrollment(payload: CheckoutPayload): Promise<CheckoutResult> {
         try {
-            // 0. Resolve Valid School ID (Override payload to ensure Demo works)
-            let validSchoolId = payload.school_id;
-            const { data: demoSchool } = await supabase
-                .from('schools')
-                .select('id')
-                .eq('email', 'spoortmaps+school@gmail.com')
-                .maybeSingle();
-
-            if (demoSchool) {
-                validSchoolId = demoSchool.id;
-            } else {
-                // Fallback: Use any valid school
-                const { data: anySchool } = await supabase.from('schools').select('id').limit(1).maybeSingle();
-                if (anySchool) validSchoolId = anySchool.id;
+            // 1. Validate Target
+            if (!payload.school_id) {
+                throw new Error('School ID is required for checkout');
             }
 
-            // 1. Create Enrollment
-            const { data: enrollment, error: enrollError } = await supabase
-                .from('enrollments')
-                .insert({
-                    user_id: payload.student_id,      // FIX: student_id -> user_id
-                    program_id: payload.class_id,     // FIX: class_id -> program_id
-                    // school_id: validSchoolId,      // REMOVED: Not in enrollments schema
-                    status: 'active'
-                    // payment_status: 'paid'         // REMOVED: Not in enrollments schema
-                } as any)
-                .select()
-                .single();
+            // 2. Execute Atomic Transaction via RPC
+            const { data, error: rpcError } = await supabase.rpc(
+                'process_enrollment_checkout',
+                {
+                    p_program_id: payload.class_id,
+                    p_school_id: payload.school_id,
+                    p_parent_id: payload.parent_id,
+                    p_amount: payload.amount,
+                    p_payment_method: payload.payment_method,
+                    p_student_id: payload.is_child_enrollment ? null : payload.student_id,
+                    p_child_id: payload.is_child_enrollment ? payload.student_id : null
+                }
+            );
+            const result = data as any;
 
-            if (enrollError) throw enrollError;
+            if (rpcError) {
+                console.error('RPC Error details:', rpcError);
+                throw rpcError;
+            }
 
-            // 2. Record Payment
-            // Using 'any' cast to avoid TS errors from stale types
-            const { error: paymentError } = await supabase
-                .from('payments')
-                .insert({
-                    amount: payload.amount,
-                    status: 'completed',
-                    payment_method: payload.payment_method,
-                    parent_id: payload.parent_id,     // FIX: payer_id -> parent_id
-                    // student_id: payload.student_id, // REMOVED: Likely not in payments schema
-                    school_id: validSchoolId,
-                    concept: 'Enrollment Fee'
-                } as any);
-
-            if (paymentError) console.warn('Payment record failed (non-critical for demo):', paymentError);
+            if (!result || !result.success) {
+                throw new Error('Transaction failed without throwing SQL error');
+            }
 
             // 3. Send Notification
-            await supabase.from('notifications').insert({
-                user_id: payload.parent_id,
-                title: 'Inscripción Exitosa',
-                message: 'El pago ha sido procesado y la inscripción está activa.',
-                type: 'payment_success'
+            // Axis 2: Using standardized notify_user RPC
+            await supabase.rpc('notify_user', {
+                p_user_id: payload.parent_id,
+                p_title: 'Inscripción Exitosa',
+                p_message: 'El pago ha sido procesado y la inscripción está activa.',
+                p_type: 'payment_success'
             });
 
-            return { success: true, enrollment_id: enrollment.id };
+            return { success: true, enrollment_id: result.enrollment_id };
 
         } catch (error: any) {
             console.error('Checkout failed:', error);
-            // Fallback for demo
             return {
-                success: true,
-                // Return fake ID to keep UI happy
-                enrollment_id: `mock-enr-${Date.now()}`
+                success: false,
+                error: error.message || 'Error procesando el pago e inscripción'
             };
         }
     }

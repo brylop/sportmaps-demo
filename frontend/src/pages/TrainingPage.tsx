@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dumbbell, Calendar, Clock, Flame, Play, Plus, Video } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
 import { useState } from 'react';
 
 interface Training {
@@ -18,35 +17,9 @@ interface Training {
 
 export default function TrainingPage() {
   const { user } = useAuth();
-  const isDemo = isDemoUser(user);
 
-  const [trainings] = useState<Training[]>(isDemo ? [
-    {
-      id: '1',
-      title: 'Entrenamiento de fuerza',
-      type: 'Fuerza',
-      duration: 60,
-      scheduledDate: '2024-10-28T08:00:00',
-      status: 'completed',
-      calories: 450,
-    },
-    {
-      id: '2',
-      title: 'Cardio intensivo',
-      type: 'Cardio',
-      duration: 45,
-      scheduledDate: '2024-10-29T07:00:00',
-      status: 'pending',
-    },
-    {
-      id: '3',
-      title: 'Técnica de balón',
-      type: 'Técnica',
-      duration: 90,
-      scheduledDate: '2024-10-30T16:00:00',
-      status: 'pending',
-    },
-  ] : []);
+  // Clean MVP: No demo data
+  const [trainings] = useState<Training[]>([]);
 
   const getStatusBadge = (status: Training['status']) => {
     switch (status) {

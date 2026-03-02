@@ -1,0 +1,36 @@
+services:
+  # ── Servicio existente: Python (Wompi webhooks) ───────────────────────────
+  # Upgradeado a Starter para eliminar cold starts en webhooks de pago
+  - type: web
+    name: sportmaps-demo
+    runtime: python
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  # ── Servicio nuevo: BFF Node.js ───────────────────────────────────────────
+  - type: web
+    name: sportmaps-bff
+    runtime: node
+    plan: starter
+    rootDir: bff
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Las siguientes se configuran manualmente en el dashboard de Render
+      # (nunca en el yaml — no commitear secrets)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false

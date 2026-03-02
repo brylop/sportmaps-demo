@@ -5,7 +5,7 @@
 
 import { UserRole } from '@/types/dashboard';
 
-export type Permission = 
+export type Permission =
   | 'dashboard:view'
   | 'calendar:view' | 'calendar:create' | 'calendar:edit' | 'calendar:delete'
   | 'teams:view' | 'teams:create' | 'teams:edit' | 'teams:delete'
@@ -17,7 +17,7 @@ export type Permission =
   | 'settings:view' | 'settings:edit'
   | 'admin:users' | 'admin:system' | 'admin:all';
 
-export type Resource = 
+export type Resource =
   | 'dashboard'
   | 'calendar'
   | 'teams'
@@ -35,7 +35,7 @@ export type Action = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'all';
  * Role-Permission Matrix
  * Defines what each role can do
  */
-const rolePermissions: Record<UserRole, Permission[]> = {
+const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, Permission[]> = {
   athlete: [
     'dashboard:view',
     'calendar:view',
@@ -46,7 +46,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   parent: [
     'dashboard:view',
     'calendar:view',
@@ -58,7 +58,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   coach: [
     'dashboard:view',
     'calendar:view',
@@ -79,7 +79,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   school: [
     'dashboard:view',
     'calendar:view',
@@ -105,7 +105,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   wellness_professional: [
     'dashboard:view',
     'calendar:view',
@@ -119,7 +119,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   store_owner: [
     'dashboard:view',
     'calendar:view',
@@ -133,7 +133,7 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
   organizer: [
     'dashboard:view',
     'calendar:view',
@@ -148,7 +148,20 @@ const rolePermissions: Record<UserRole, Permission[]> = {
     'settings:view',
     'settings:edit'
   ],
-  
+
+  reporter: [
+    'dashboard:view',
+    'calendar:view',
+    'teams:view',
+    'students:view',
+    'stats:view',
+    'reports:view',
+    'reports:create',
+    'messages:view',
+    'settings:view',
+    'settings:edit'
+  ],
+
   admin: [
     'dashboard:view',
     'calendar:view',
@@ -179,11 +192,19 @@ const rolePermissions: Record<UserRole, Permission[]> = {
   ]
 };
 
+// ALIASING FOR DB COMPATIBILITY
+// Database uses 'school_admin', 'super_admin', 'owner', etc.
+(rolePermissions as any)['school_admin'] = rolePermissions.school;
+(rolePermissions as any)['super_admin'] = rolePermissions.admin;
+(rolePermissions as any)['owner'] = rolePermissions.admin;
+(rolePermissions as any)['guest'] = rolePermissions.athlete; // guests get basic access
+
 /**
  * Check if a user has a specific permission
  */
 export function hasPermission(userRole: UserRole, permission: Permission): boolean {
   const permissions = rolePermissions[userRole];
+  if (!permissions) return false; // Safety: unknown role → deny
   return permissions.includes(permission);
 }
 
@@ -220,7 +241,7 @@ export function hasAllPermissions(userRole: UserRole, permissions: Permission[])
  * Feature flags by role
  * Controls visibility of UI features
  */
-export const featureFlags: Record<UserRole, Record<string, boolean>> = {
+export const featureFlags: Partial<Record<UserRole, Record<string, boolean>>> & Record<string, Record<string, boolean>> = {
   athlete: {
     canCreateEvents: false,
     canManageTeams: false,
@@ -267,6 +288,13 @@ export const featureFlags: Record<UserRole, Record<string, boolean>> = {
     canCreateEvents: true,
     canManageTeams: false,
     canViewFinances: true,
+    canAccessAdmin: false,
+    canExportData: true
+  },
+  reporter: {
+    canCreateEvents: false,
+    canManageTeams: false,
+    canViewFinances: false,
     canAccessAdmin: false,
     canExportData: true
   },

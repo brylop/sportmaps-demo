@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShoppingCart, Eye, Package, Truck, CheckCircle, Clock, Loader2 } from 'lucide-react';
 import { useStoreOrders } from '@/hooks/useStoreData';
-import { mockOrders } from '@/lib/mock-data';
+
 
 const statusConfig: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' | 'destructive'; icon: any }> = {
   pending: { label: 'Pendiente', variant: 'secondary', icon: Clock },
@@ -18,19 +18,19 @@ const statusConfig: Record<string, { label: string; variant: 'secondary' | 'defa
 export default function StoreOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { data: orders, isLoading } = useStoreOrders();
-  
-  // Use real data if available, otherwise show mock data
-  const displayOrders = (orders && orders.length > 0) ? orders.map(o => ({
+
+  // Clean MVP: Only real data
+  const displayOrders = (orders || []).map(o => ({
     id: o.id.substring(0, 8).toUpperCase(),
     customer_name: (o.shipping_address as any)?.name || 'Cliente',
     date: new Date(o.created_at).toLocaleDateString('es-CO'),
-    total: Number(o.total),
+    total: Number(o.total_amount),
     status: o.status as keyof typeof statusConfig,
-    items: Array.isArray(o.items) ? (o.items as any[]).length : 1
-  })) : mockOrders;
+    items: 0
+  }));
 
-  const filteredOrders = statusFilter === 'all' 
-    ? displayOrders 
+  const filteredOrders = statusFilter === 'all'
+    ? displayOrders
     : displayOrders.filter(o => o.status === statusFilter);
 
   if (isLoading) {

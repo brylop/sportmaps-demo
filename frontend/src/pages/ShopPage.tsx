@@ -29,9 +29,6 @@ interface Product {
   category: string;
   image_url: string | null;
   stock: number;
-  discount: number | null;
-  rating: number | null;
-  reviews_count: number | null;
 }
 
 interface CartItem extends Product {
@@ -58,88 +55,9 @@ export default function ShopPage() {
 
       if (error) throw error;
 
-      // If no products, return demo products
-      if (!data || data.length === 0) {
-        return getDemoProducts();
-      }
-      return data;
+      return data || [];
     },
   });
-
-  const getDemoProducts = (): Product[] => [
-    {
-      id: 'demo-1',
-      name: 'Balón de Fútbol Pro',
-      description: 'Balón oficial de competición, tamaño 5',
-      price: 89000,
-      category: 'Equipamiento',
-      image_url: 'https://images.unsplash.com/photo-1614632537423-1e6c2e7e0aab?w=300',
-      stock: 15,
-      discount: 10,
-      rating: 4.8,
-      reviews_count: 124,
-    },
-    {
-      id: 'demo-2',
-      name: 'Camiseta Deportiva',
-      description: 'Camiseta de alto rendimiento, material transpirable',
-      price: 65000,
-      category: 'Ropa',
-      image_url: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=300',
-      stock: 8,
-      discount: null,
-      rating: 4.5,
-      reviews_count: 89,
-    },
-    {
-      id: 'demo-3',
-      name: 'Guantes de Arquero',
-      description: 'Guantes profesionales con grip premium',
-      price: 120000,
-      category: 'Equipamiento',
-      image_url: 'https://images.unsplash.com/photo-1606925797300-0b35e9d1794e?w=300',
-      stock: 5,
-      discount: 15,
-      rating: 4.9,
-      reviews_count: 56,
-    },
-    {
-      id: 'demo-4',
-      name: 'Raqueta de Tenis',
-      description: 'Raqueta profesional de grafito',
-      price: 350000,
-      category: 'Equipamiento',
-      image_url: 'https://images.unsplash.com/photo-1617083934551-cc8a01bb4e2e?w=300',
-      stock: 3,
-      discount: null,
-      rating: 4.7,
-      reviews_count: 42,
-    },
-    {
-      id: 'demo-5',
-      name: 'Botella Deportiva 1L',
-      description: 'Botella térmica de acero inoxidable',
-      price: 45000,
-      category: 'Accesorios',
-      image_url: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=300',
-      stock: 25,
-      discount: null,
-      rating: 4.6,
-      reviews_count: 178,
-    },
-    {
-      id: 'demo-6',
-      name: 'Zapatillas Running',
-      description: 'Zapatillas con amortiguación premium',
-      price: 280000,
-      category: 'Calzado',
-      image_url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=300',
-      stock: 10,
-      discount: 20,
-      rating: 4.8,
-      reviews_count: 234,
-    },
-  ];
 
   const categories = Array.from(new Set(products?.map((p) => p.category) || []));
 
@@ -196,10 +114,7 @@ export default function ShopPage() {
   };
 
   const cartTotal = cart.reduce((total, item) => {
-    const price = item.discount
-      ? item.price * (1 - item.discount / 100)
-      : item.price;
-    return total + price * item.quantity;
+    return total + item.price * item.quantity;
   }, 0);
 
   const cartItemCount = cart.reduce((count, item) => count + item.quantity, 0);
@@ -306,54 +221,40 @@ export default function ShopPage() {
                     alt={product.name}
                     className="w-full h-full object-cover"
                   />
-                  {product.discount && (
-                    <Badge className="absolute top-2 right-2 bg-accent text-accent-foreground">
-                      -{product.discount}%
-                    </Badge>
-                  )}
-                  {product.stock <= 5 && (
-                    <Badge variant="destructive" className="absolute top-2 left-2">
+                  {product.stock <= 5 && product.stock > 0 && (
+                    <Badge variant="outline" className="absolute top-2 left-2">
                       ¡Últimas unidades!
                     </Badge>
                   )}
                 </div>
               )}
-              <CardContent className="p-4 space-y-3">
-                <div>
-                  <h3 className="font-semibold line-clamp-1">{product.name}</h3>
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {product.description}
-                  </p>
+              <CardHeader className="p-4 pb-0">
+                <div className="flex justify-between items-start gap-2">
+                  <Badge variant="secondary" className="mb-2">
+                    {product.category}
+                  </Badge>
                 </div>
-
-                {product.rating && (
-                  <div className="flex items-center gap-1 text-sm">
-                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    <span className="font-medium">{product.rating}</span>
-                    <span className="text-muted-foreground">
-                      ({product.reviews_count} reseñas)
+                <CardTitle className="text-lg line-clamp-1">{product.name}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-2">
+                <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">
+                  {product.description}
+                </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xl font-bold text-primary">
+                      {new Intl.NumberFormat('es-CO', {
+                        style: 'currency',
+                        currency: 'COP',
+                        maximumFractionDigits: 0,
+                      }).format(product.price)}
                     </span>
                   </div>
-                )}
-
-                <div className="flex items-center justify-between pt-2">
-                  <div>
-                    {product.discount ? (
-                      <>
-                        <span className="text-lg font-bold text-primary">
-                          {formatCurrency(product.price * (1 - product.discount / 100))}
-                        </span>
-                        <span className="text-sm text-muted-foreground line-through ml-2">
-                          {formatCurrency(product.price)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-lg font-bold text-primary">
-                        {formatCurrency(product.price)}
-                      </span>
-                    )}
-                  </div>
-                  <Button size="sm" onClick={() => addToCart(product)}>
+                  <Button
+                    size="sm"
+                    onClick={() => addToCart(product)}
+                    disabled={product.stock === 0}
+                  >
                     <Plus className="h-4 w-4 mr-1" />
                     Agregar
                   </Button>
@@ -361,7 +262,6 @@ export default function ShopPage() {
               </CardContent>
             </Card>
           ))}
-
           {(!filteredProducts || filteredProducts.length === 0) && (
             <div className="col-span-full text-center py-12">
               <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -403,11 +303,7 @@ export default function ShopPage() {
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm line-clamp-1">{item.name}</p>
                           <p className="text-sm text-primary font-semibold">
-                            {formatCurrency(
-                              (item.discount
-                                ? item.price * (1 - item.discount / 100)
-                                : item.price) * item.quantity
-                            )}
+                            {formatCurrency(item.price * item.quantity)}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">

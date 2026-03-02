@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Building2 } from 'lucide-react';
+import { NumberStepper } from '@/components/ui/number-stepper';
 
 const facilitySchema = z.object({
   name: z.string().min(2, 'Nombre es requerido'),
@@ -107,11 +108,10 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
 
           <div className="space-y-2">
             <Label htmlFor="capacity">Capacidad *</Label>
-            <Input
-              id="capacity"
-              type="number"
-              placeholder="Número de personas"
-              {...form.register('capacity')}
+            <NumberStepper
+              value={form.watch('capacity') === '' ? '' : parseInt(form.watch('capacity'))}
+              onChange={(val) => form.setValue('capacity', String(val), { shouldValidate: true })}
+              min={1}
             />
             {form.formState.errors.capacity && (
               <p className="text-sm text-destructive">{form.formState.errors.capacity.message}</p>

@@ -1,6 +1,8 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
@@ -10,104 +12,183 @@ import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletio
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
-import { UserRole } from '@/types/dashboard';
-import { DemoTour } from '@/components/demo/DemoTour';
-import { DemoConversionModal } from '@/components/modals/DemoConversionModal';
-import { studentsAPI } from '@/lib/api/students';
-import { classesAPI } from '@/lib/api/classes';
-import { getDemoSchoolData, getDemoParentData, formatCurrency } from '@/lib/demo-data';
-import { Plus } from 'lucide-react';
+import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
+import WelcomeSplash from '@/components/WelcomeSplash';
+import { UserRole, OnboardingStep } from '@/types/dashboard';
+import { Plus, MapPin } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { formatCurrency } from '@/lib/utils';
+import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
+import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
+import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
+import { supabase } from '@/integrations/supabase/client';
+import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
 export default function DashboardPage() {
-  const { profile, user } = useAuth();
+  const { profile, user, updateProfile } = useAuth();
+  const { toast } = useToast();
+  const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const pendingInviteId = localStorage.getItem('pending_invite_id');
+  const inviteUrlId = searchParams.get('invite');
   const [showProfileBanner, setShowProfileBanner] = useState(true);
-  const [realStats, setRealStats] = useState<{
-    students: number;
-    classes: number;
-    activeClasses: number;
-    totalEnrolled: number;
-  } | null>(null);
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
+  const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
+  const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const hasAutoOpenedRef = useRef(false);
 
-  // Get real stats from hook (Supabase/Backend)
-  const { data: statsData } = useDashboardStats((profile?.role as UserRole) || 'athlete');
-  const config = useDashboardConfig((profile?.role as UserRole) || 'athlete', statsData);
+  // Show welcome splash if it's the first time
+  useEffect(() => {
+    if (profile && profile.onboarding_started === false) {
+      setShowWelcomeSplash(true);
+    }
+  }, [profile]);
+
+  const handleCloseWelcome = async () => {
+    setShowWelcomeSplash(false);
+    try {
+      await updateProfile({ onboarding_started: true });
+    } catch (error) {
+      console.error("Error updating onboarding_started:", error);
+    }
+  };
+
+  // Get real stats from NEW hook (Multitenant aware)
+  const { stats: realStats, loading: realStatsLoading } = useDashboardStatsReal();
+
+  // Unify stats: only use generic stats hook for non-school/coach roles
+  const isMultitenantRole = profile?.role === 'school' || (profile?.role as string) === 'school_admin' || profile?.role === 'coach' || profile?.role === 'parent';
+  const { data: statsData } = useDashboardStats(isMultitenantRole ? undefined : ((profile?.role as UserRole) || 'athlete'));
+
+  // Usar la misma lógica que AppSidebar para definir el navigationRole
+  let dashboardRole: UserRole = (profile?.role as UserRole) || 'athlete';
+
+  const role = profile?.role as unknown as string;
+
+  if (role === 'owner' || role === 'super_admin') {
+    // Owners siempre operan a nivel de sede
+    dashboardRole = 'school';
+  } else if (role === 'school_admin') {
+    dashboardRole = 'school_admin';
+  } else if (role === 'school') {
+    dashboardRole = 'school';
+  } else if (role === 'staff') {
+    dashboardRole = 'coach';
+  }
+
+  // For multitenant roles, we pass empty stats to config so cards show 0/loading instead of different demo data
+  const config = useDashboardConfig(
+    dashboardRole,
+    isMultitenantRole ? undefined : statsData
+  );
   const { data: notifications } = useNotifications();
 
-  // Check if in demo mode
-  const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
-  const demoRole = sessionStorage.getItem('demo_role') || 'school';
+  const refreshOnboardingData = useCallback(async () => {
+    if (!profile || !user) return;
 
-  // Get demo data objects
-  const demoSchoolData = getDemoSchoolData();
-  const demoParentData = getDemoParentData();
+    try {
+      // Prioridad: 1. URL (?invite=...)  2. localStorage (pending_invite_id)
+      const targetInviteId = inviteUrlId || pendingInviteId;
 
-  // Load real stats from MongoDB API (Specifically for School role which needs separate API calls currently)
-  // Ideally this should be moved to useDashboardStats hook entirely, but keeping strict separation for now as requested
-  useEffect(() => {
-    const loadRealStats = async () => {
-      if (!profile || profile.role !== 'school') {
-        setLoadingStats(false);
+      if (targetInviteId && targetInviteId.length > 30) {
+        console.log('Intentando auto-aceptar invitación:', targetInviteId);
+        const { error: acceptError } = await (supabase.rpc as any)('accept_invitation_pro', {
+          p_invite_id: targetInviteId
+        });
+
+        if (!acceptError) {
+          console.log('Invitación aceptada con éxito');
+          // Solo limpiar si tuvo éxito
+          localStorage.removeItem('pending_invite_id');
+          toast({
+            title: '¡Invitación aceptada!',
+            description: 'Te hemos vinculado correctamente con la academia.',
+          });
+
+          // Limpiar el parámetro de la URL sin recargar para mantener fluidez
+          if (inviteUrlId) {
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+          }
+
+          // RECargar para asegurar que los nuevos permisos (role en profiles) se apliquen
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        } else {
+          console.error('Error al aceptar invitación:', acceptError);
+          // Si el error es que ya no es válida o ya se procesó, entonces sí limpiamos para evitar bucles de error
+          if (acceptError.message?.includes('ya procesada') || acceptError.message?.includes('no válida')) {
+            localStorage.removeItem('pending_invite_id');
+          }
+        }
+      }
+
+      // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
+      const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
+
+      if (statusError) {
+        console.error('Error fetching onboarding status:', statusError);
         return;
       }
 
-      try {
-        setLoadingStats(true);
-        const schoolId = profile.id || 'demo-school';
+      console.log('Onboarding status updated:', status);
 
-        // Fetch real stats from MongoDB backend
-        const [studentsData, classesStats] = await Promise.all([
-          studentsAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, inactive: 0, by_grade: {} })),
-          classesAPI.getStats(schoolId).catch(() => ({ total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }))
-        ]);
+      if (status) {
+        // 2. Gestionar invitaciones
+        const { data: invitations, error: inviteError } = await supabase
+          .from('invitations')
+          .select('*, schools(name)')
+          .eq('email', profile.email)
+          .eq('status', 'pending');
 
-        setRealStats({
-          students: studentsData.total,
-          classes: classesStats.total,
-          activeClasses: classesStats.active,
-          totalEnrolled: classesStats.total_enrolled
-        });
-      } catch (error) {
-        console.error('Error loading real stats:', error);
-      } finally {
-        setLoadingStats(false);
-      }
-    };
+        if (!inviteError && invitations && invitations.length > 0) {
+          const currentInvites = invitations[0];
+          setInvitation({
+            id: currentInvites.id,
+            school_name: (currentInvites.schools as any)?.name || 'Tu Escuela',
+            role_to_assign: currentInvites.role_to_assign,
+          });
+        } else {
+          setInvitation(null);
+        }
 
-    loadRealStats();
-  }, [profile]);
+        // 3. Generar pasos para la UI
+        const steps = getStepsForRole(profile.role as UserRole, status);
+        setOnboardingSteps(steps);
 
-  // Redirect users to onboarding if they haven't completed setup (skip for demo users)
-  useEffect(() => {
-    if (!profile || !user || isDemoMode) return;
+        if (steps.every(s => s.completed)) {
+          setShowProfileBanner(false);
+        }
 
-    const hasCompletedOnboarding = localStorage.getItem(`onboarding_completed_${user.id}`);
+        // 4. Integrar lógica del Coach Wizard
+        if (profile.role === 'coach') {
+          const isWizardIncomplete = !status.has_professional_profile;
 
-    if (!hasCompletedOnboarding) {
-      // Redirect each role to their respective onboarding
-      switch (profile.role) {
-        case 'school':
-          navigate('/school-onboarding');
-          break;
-        case 'coach':
-          navigate('/coach-onboarding');
-          break;
-        case 'athlete':
-          navigate('/athlete-onboarding');
-          break;
-        case 'wellness_professional':
-          navigate('/wellness-onboarding');
-          break;
-        case 'store_owner':
-          navigate('/store-onboarding');
-          break;
-        // parent doesn't need onboarding, they go directly to dashboard
-        default:
-          break;
-      }
+          // Solo abrir automáticamente la primera vez que detectamos que está incompleto
+          if (isWizardIncomplete && !showCoachWizard && !hasAutoOpenedRef.current) {
+            setShowCoachWizard(true);
+            hasAutoOpenedRef.current = true;
+          }
+          // Si ya está completo, asegurarnos de que el wizard esté cerrado
+          else if (!isWizardIncomplete && showCoachWizard) {
+            setShowCoachWizard(false);
+          }
+        }
+      }  // Here we could sync status.has_school etc to state if needed
+    } catch (error) {
+      console.error('Error refreshing onboarding data:', error);
+    } finally {
+      setLoadingStatus(false);
     }
-  }, [profile, user, navigate, isDemoMode]);
+  }, [profile, user, toast]);
+
+  useEffect(() => {
+    refreshOnboardingData();
+  }, [refreshOnboardingData]);
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -123,117 +204,135 @@ export default function DashboardPage() {
     </div>
   );
 
+  // Dashboard handles empty states via the Quick Start Checklist
+
   // Logic to determine stats to display
   const dynamicStats = config.stats.map((stat, index) => {
-    // 1. DEMO MODE: ALWAYS SHOW FAKE ABUNDANT DATA
-    if (isDemoMode) {
-      if (profile.role === 'school') {
-        if (index === 0) return { ...stat, value: formatCurrency(demoSchoolData.monthly_revenue), description: 'Ingresos este mes (Demo)' };
-        if (index === 1) return { ...stat, value: demoSchoolData.students_count, description: `${demoSchoolData.students_count} estudiantes activos` };
-        if (index === 2) return { ...stat, value: demoSchoolData.programs.length, description: 'Programas activos' };
-        if (index === 3) return { ...stat, value: demoSchoolData.pending_payments, description: 'Pagos pendientes' };
+    // 1. SHOW LOADING STATE
+    if (realStatsLoading) {
+      return {
+        ...stat,
+        value: '...',
+        description: 'Cargando datos...'
+      };
+    }
+
+    // 2. REAL USER: SHOW REAL DATA
+    if (realStats) {
+      if (profile.role === 'school' || (profile.role as string) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
+        if (index === 0) {
+          // Students (Config Index 0)
+          const count = realStats.students_count || 0;
+          return {
+            ...stat,
+            value: count,
+            description: count > 0
+              ? `${count} estudiante${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
+              : 'Agrega tu primer estudiante'
+          };
+        }
+        if (index === 1) {
+          // Programs (Config Index 1) - Label and value
+          const count = realStats.classes_count || 0;
+          const label = profile.role === 'coach' ? 'Equipos' : 'Programas';
+          return {
+            ...stat,
+            label, // Override label if coach
+            value: count,
+            description: profile.role === 'coach' ? 'Equipos asignados' : 'Clases/Programas creados'
+          };
+        }
+        if (index === 2) {
+          // Coaches relative or third card
+          const count = profile.role === 'coach' ? (realStats.upcomingEvents || 0) : (realStats.activeTeams || 0);
+          return {
+            ...stat,
+            value: count,
+            description: profile.role === 'coach' ? 'Próximos eventos' : 'Entrenadores activos'
+          };
+        }
+        if (index === 3) {
+          // Revenue, notifications or attendance
+          let value: string | number = 0;
+          let description = stat.description;
+
+          if (profile.role === 'coach') {
+            value = `${realStats.attendanceRate || 0}%`;
+            description = 'Promedio general';
+          } else {
+            value = formatCurrency(realStats.monthly_revenue || 0);
+            description = 'Ingresos confirmados este mes';
+          }
+
+          return {
+            ...stat,
+            value,
+            description
+          };
+        }
       }
+
+      // Add logic for Parent real stats here if useDashboardStatsReal supports it
       if (profile.role === 'parent') {
-        if (index === 0) return { ...stat, value: demoParentData.children.length, description: 'Hijos registrados (Demo)' };
-        if (index === 1) return { ...stat, value: '95%', description: 'Asistencia promedio' };
-        if (index === 2) return { ...stat, value: demoParentData.upcoming_payments.length, description: 'Pagos próximos' };
-        if (index === 3) return { ...stat, value: 2, description: 'Notificaciones' };
-      }
-      return stat;
-    }
-
-    // 2. REAL USER: SHOW REAL DATA (useDashboardConfig already loaded it from useDashboardStats, 
-    // but we might need to override School specifics if they come from separate API)
-
-    // For School role, override with MongoDB API data if available
-    if (profile.role === 'school' && realStats && !loadingStats) {
-      if (index === 0) {
-        // Revenue - Placeholder for now until connected to real payments
-        return { ...stat, value: '$0', description: 'Configura pagos' };
-      }
-      if (index === 1) {
-        return {
-          ...stat,
-          value: realStats.students,
-          description: realStats.students > 0
-            ? `${realStats.students} estudiante${realStats.students !== 1 ? 's' : ''}`
-            : 'Agrega tu primer estudiante'
-        };
-      }
-      if (index === 2) {
-        return {
-          ...stat,
-          value: realStats.classes,
-          description: realStats.classes > 0
-            ? `${realStats.activeClasses} activa${realStats.activeClasses !== 1 ? 's' : ''}`
-            : 'Crea tu primera clase'
-        };
-      }
-      if (index === 3) {
-        return {
-          ...stat,
-          value: realStats.totalEnrolled,
-          description: 'Estudiantes inscritos'
-        };
+        if (index === 0) {
+          return {
+            ...stat,
+            value: realStats.children || 0,
+            description: 'Hijos inscritos en academias'
+          };
+        }
+        if (index === 1) {
+          return {
+            ...stat,
+            value: realStats.children_attendance || '0%',
+            description: 'Asistencia promedio (30 días)'
+          };
+        }
+        if (index === 2) {
+          return {
+            ...stat,
+            value: realStats.upcoming_payments || 0,
+            description: 'Mensualidades pendientes'
+          };
+        }
       }
     }
-
-    // For Parent and other roles, useDashboardConfig already has the correct 0s from useDashboardStats
-    // No manual override needed here, ensuring Clean State for new users!
 
     return stat;
   });
 
   // Transform notifications for display (Demo vs Real)
-  let displayNotifications;
-
-  if (isDemoMode && profile.role === 'school') {
-    displayNotifications = demoSchoolData.notifications.map((n, idx) => ({
-      id: `demo-${idx}`,
-      title: n.type === 'success' ? '💰 Pago Recibido' : n.type === 'warning' ? '⚠️ Atención' : 'ℹ️ Información',
-      message: n.message,
-      type: n.type,
-      read: false,
-      timestamp: n.time
-    }));
-  } else {
-    displayNotifications = notifications?.slice(0, 5).map(n => ({
-      id: n.id,
-      title: n.title,
-      message: n.message,
-      type: n.type as 'info' | 'warning' | 'success',
-      read: n.read || false,
-      timestamp: new Date(n.created_at).toLocaleDateString('es', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }));
-  }
+  const displayNotifications = notifications?.slice(0, 5).map(n => ({
+    id: n.id,
+    title: n.title,
+    message: n.message,
+    type: n.type as 'info' | 'warning' | 'success',
+    read: n.read || false,
+    timestamp: new Date(n.created_at).toLocaleDateString('es', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Demo Tour */}
-      {isDemoMode && (
-        <DemoTour
-          role={demoRole as any}
-          onComplete={() => {
-            console.log('Tour completed');
-          }}
-        />
-      )}
-
-      {/* Demo Conversion Modal */}
-      {isDemoMode && <DemoConversionModal role={demoRole} />}
-
-      {/* Pending Enrollment Modal */}
-      <PendingEnrollmentModal />
-
-      {/* Profile Completion Banner - hide in demo mode */}
-      {!isDemoMode && showProfileBanner && (
-        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
-      )}
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
+            {activeBranchId && (
+              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 animate-in fade-in slide-in-from-left-2">
+                <MapPin className="h-3 w-3 mr-1" />
+                {activeBranchName}
+              </Badge>
+            )}
+          </div>
+          <p className="text-muted-foreground font-poppins">{config.description}</p>
+        </div>
+      </div>
 
       {/* Welcome Message */}
       <WelcomeMessage
@@ -241,11 +340,48 @@ export default function DashboardPage() {
         userName={profile.full_name?.split(' ')[0]}
       />
 
-      {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold font-poppins tracking-tight">{config.title}</h2>
-        <p className="text-muted-foreground font-poppins">{config.description}</p>
-      </div>
+      {/* Pending Enrollment Modal */}
+      <PendingEnrollmentModal />
+
+      {/* Profile Completion Banner */}
+      {showProfileBanner && (
+        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
+      )}
+
+      {/* Invitations and Onboarding Checklist */}
+      {invitation && (
+        <InvitationBanner
+          invitation={invitation}
+          onAction={() => {
+            setInvitation(null);
+            refreshOnboardingData();
+          }}
+        />
+      )}
+
+      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+          <DashboardChecklist
+            steps={onboardingSteps}
+            onStepClick={(step) => {
+              if (step.id === 'complete_profile' && profile.role === 'coach') {
+                setShowCoachWizard(true);
+              } else {
+                navigate(step.href);
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {/* Coach Profile Wizard */}
+      {profile.role === 'coach' && (
+        <CoachProfileWizard
+          open={showCoachWizard}
+          onOpenChange={setShowCoachWizard}
+          onSuccess={refreshOnboardingData}
+        />
+      )}
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -260,50 +396,6 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
-
-      {/* Parent Dashboard: Children Section */}
-      {profile?.role === 'parent' && isDemoMode && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-semibold tracking-tight">Mis Hijos</h3>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {demoParentData.children.map((child, i) => (
-              <div key={i} className="bg-card text-card-foreground rounded-xl border shadow-sm p-6 space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                    {child.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h4 className="font-semibold">{child.name}</h4>
-                    <p className="text-sm text-muted-foreground">{child.program}</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Asistencia</span>
-                    <span className="font-medium">{child.attendance}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Próxima clase</span>
-                    <span className="font-medium text-right">{child.next_class}</span>
-                  </div>
-                  <div className="pt-2">
-                    <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-green-50 text-green-700 hover:bg-green-100">
-                      Activo
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {/* Add Child Button */}
-            <div className="bg-muted/30 border-dashed border-2 rounded-xl p-6 flex flex-col items-center justify-center gap-2 hover:bg-muted/50 transition-colors cursor-pointer text-muted-foreground hover:text-primary">
-              <div className="h-10 w-10 rounded-full bg-background flex items-center justify-center border shadow-sm">
-                <Plus className="h-5 w-5" />
-              </div>
-              <p className="font-medium">Registrar otro hijo</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Main Content Grid */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -329,6 +421,18 @@ export default function DashboardPage() {
           <NotificationList notifications={displayNotifications} />
         )}
       </div>
+
+      {showWelcomeSplash && (
+        <WelcomeSplash
+          userRole={profile.role}
+          userName={
+            (profile.role === 'school' || profile.role === 'school_admin')
+              ? (activeBranchName || 'Tu Academia')
+              : (profile.full_name?.split(' ')[0] || 'Usuario')
+          }
+          onComplete={handleCloseWelcome}
+        />
+      )}
     </div>
   );
 }

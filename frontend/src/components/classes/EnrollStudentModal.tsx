@@ -132,23 +132,26 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh]">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
+            <DialogContent className="w-[95vw] max-w-2xl sm:w-full max-h-[90dvh] p-4 sm:p-6 flex flex-col">
+                <DialogHeader className="text-left">
+                    <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
                         <UserPlus className="h-5 w-5 text-primary" />
                         Inscribir Estudiantes
                     </DialogTitle>
-                    <DialogDescription>
-                        {classItem && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                <Badge variant="secondary">{classItem.name}</Badge>
-                                <Badge variant="outline">{classItem.sport}</Badge>
-                                <Badge className={isFull ? 'bg-red-500' : 'bg-green-500'}>
-                                    <Users className="h-3 w-3 mr-1" />
-                                    {classItem.enrolled_count}/{classItem.capacity}
-                                </Badge>
-                            </div>
-                        )}
+                    <DialogDescription asChild>
+                        <div className="flex flex-col gap-2">
+                            <span>Inscribe o remueve estudiantes para este programa específico.</span>
+                            {classItem && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                    <Badge variant="secondary">{classItem.name}</Badge>
+                                    <Badge variant="outline">{classItem.sport}</Badge>
+                                    <Badge className={enrolledStudents.length >= (classItem.capacity || 20) ? 'bg-red-500' : 'bg-green-500'}>
+                                        <Users className="h-3 w-3 mr-1" />
+                                        {enrolledStudents.length}/{classItem.capacity || 20}
+                                    </Badge>
+                                </div>
+                            )}
+                        </div>
                     </DialogDescription>
                 </DialogHeader>
 
@@ -165,7 +168,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                     </div>
 
                     {/* Students List */}
-                    <ScrollArea className="h-[400px] pr-4">
+                    <ScrollArea className="flex-1 pr-0 sm:pr-4 -mx-1 px-1">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -192,56 +195,59 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                                             key={student.id}
                                             className={`transition-all ${enrolled ? 'border-primary bg-primary/5' : 'hover:border-primary/50'}`}
                                         >
-                                            <CardContent className="p-3 flex items-center justify-between">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className="font-medium truncate">{student.full_name}</p>
-                                                        {enrolled && (
-                                                            <Badge variant="secondary" className="bg-primary/10 text-primary">
-                                                                <Check className="h-3 w-3 mr-1" />
-                                                                Inscrito
-                                                            </Badge>
+                                            <CardContent className="p-3">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <p className="font-medium truncate text-sm sm:text-base">{student.full_name}</p>
+                                                            {enrolled && (
+                                                                <Badge variant="secondary" className="bg-primary/10 text-primary whitespace-nowrap">
+                                                                    <Check className="h-3 w-3 mr-1" />
+                                                                    Inscrito
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground mt-1 flex-wrap">
+                                                            {student.email && <span className="truncate max-w-[150px] sm:max-w-none">{student.email}</span>}
+                                                            {student.grade && <span className="shrink-0">• {student.grade}</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-shrink-0 self-end sm:self-auto w-full sm:w-auto mt-2 sm:mt-0">
+                                                        {enrolled ? (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => handleUnenroll(student)}
+                                                                disabled={isCurrentlyEnrolling}
+                                                                className="text-destructive border-destructive hover:bg-destructive/10 w-full sm:w-auto"
+                                                            >
+                                                                {isCurrentlyEnrolling ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        <X className="h-4 w-4 mr-1" />
+                                                                        Remover
+                                                                    </>
+                                                                )}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => handleEnroll(student)}
+                                                                disabled={isCurrentlyEnrolling || isFull}
+                                                                className="w-full sm:w-auto"
+                                                            >
+                                                                {isCurrentlyEnrolling ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        <UserPlus className="h-4 w-4 mr-1" />
+                                                                        Inscribir
+                                                                    </>
+                                                                )}
+                                                            </Button>
                                                         )}
                                                     </div>
-                                                    <div className="flex gap-2 text-sm text-muted-foreground">
-                                                        {student.email && <span>{student.email}</span>}
-                                                        {student.grade && <span>• {student.grade}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="ml-4">
-                                                    {enrolled ? (
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => handleUnenroll(student)}
-                                                            disabled={isCurrentlyEnrolling}
-                                                            className="text-destructive border-destructive hover:bg-destructive/10"
-                                                        >
-                                                            {isCurrentlyEnrolling ? (
-                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <>
-                                                                    <X className="h-4 w-4 mr-1" />
-                                                                    Remover
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    ) : (
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={() => handleEnroll(student)}
-                                                            disabled={isCurrentlyEnrolling || isFull}
-                                                        >
-                                                            {isCurrentlyEnrolling ? (
-                                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                            ) : (
-                                                                <>
-                                                                    <UserPlus className="h-4 w-4 mr-1" />
-                                                                    Inscribir
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    )}
                                                 </div>
                                             </CardContent>
                                         </Card>

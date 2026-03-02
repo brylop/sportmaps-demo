@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { getStoragePath } from '@/lib/utils';
 
-export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos';
+export type BucketName = 'avatars' | 'medical-documents' | 'payment-receipts' | 'facility-photos' | 'identity-documents' | 'coach-certificates' | 'school-assets';
 
 export function useStorage() {
   const [uploading, setUploading] = useState(false);
@@ -20,39 +21,57 @@ export function useStorage() {
         throw new Error('No se ha seleccionado ningún archivo válido');
       }
 
-      // Generate unique filename
+      // Generar nombre único
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = path ? `${path}/${fileName}` : fileName;
 
-      // Upload file
-      const { error: uploadError, data } = await supabase.storage
+      // Para payment-receipts guardar en subcarpeta con UID del padre
+      // Esto permite que la política RLS de storage filtre por foldername[1] = auth.uid()
+      // Estructura: payment-receipts/{uid}/{filename}
+      let filePath: string;
+      if (bucket === 'payment-receipts') {
+        const { data: { user } } = await supabase.auth.getUser();
+        filePath = user ? `${user.id}/${fileName}` : fileName;
+      } else if (path) {
+        filePath = `${path}/${fileName}`;
+      } else {
+        filePath = fileName;
+      }
+
+      // Subir archivo
+      const { error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: false,
         });
 
-      if (uploadError) {
-        throw uploadError;
+      if (uploadError) throw uploadError;
+
+      // Buckets privados — retornar el filePath para guardar en BD
+      const privateBuckets: BucketName[] = [
+        'identity-documents',
+        'coach-certificates',
+        'medical-documents',
+        'payment-receipts',
+      ];
+
+      if (privateBuckets.includes(bucket)) {
+        return filePath;
       }
 
-      // Get public URL
+      // Buckets públicos — retornar URL pública
       const { data: urlData } = supabase.storage
         .from(bucket)
         .getPublicUrl(filePath);
 
-      toast({
-        title: '✅ Archivo subido',
-        description: 'El archivo se ha subido correctamente',
-      });
-
       return urlData.publicUrl;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error uploading file:', error);
+      const message = error instanceof Error ? error.message : 'No se pudo subir el archivo';
       toast({
         title: '❌ Error',
-        description: error.message || 'No se pudo subir el archivo',
+        description: message,
         variant: 'destructive',
       });
       return null;
@@ -75,11 +94,12 @@ export function useStorage() {
       });
 
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting file:', error);
+      const message = error instanceof Error ? error.message : 'No se pudo eliminar el archivo';
       toast({
         title: '❌ Error',
-        description: error.message || 'No se pudo eliminar el archivo',
+        description: message,
         variant: 'destructive',
       });
       return false;
@@ -89,15 +109,35 @@ export function useStorage() {
   const getFileUrl = (bucket: BucketName, filePath: string): string => {
     const { data } = supabase.storage
       .from(bucket)
-      .getPublicUrl(filePath);
+      .getPublicUrl(getStoragePath(filePath));
 
     return data.publicUrl;
+  };
+
+  const createSignedPathUrl = async (
+    bucket: BucketName,
+    filePath: string,
+    expiresIn = 3600
+  ): Promise<string | null> => {
+    try {
+      const cleanPath = getStoragePath(filePath);
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(cleanPath, expiresIn);
+
+      if (error) throw error;
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error generating signed URL:', error);
+      return null;
+    }
   };
 
   return {
     uploadFile,
     deleteFile,
     getFileUrl,
-    uploading
+    createSignedPathUrl,
+    uploading,
   };
 }

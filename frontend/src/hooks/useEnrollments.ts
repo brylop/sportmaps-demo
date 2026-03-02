@@ -56,7 +56,7 @@ export function useEnrollments() {
         .select(
           `
           *,
-          program:programs(
+          program:teams(
             id,
             name,
             sport,
@@ -69,7 +69,7 @@ export function useEnrollments() {
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setEnrollments(data as EnrollmentWithProgram[] || []);
+      setEnrollments((data as any) as EnrollmentWithProgram[] || []);
     } catch (err: any) {
       console.error('Error fetching enrollments:', err);
       setError(err.message);

@@ -12,6 +12,7 @@ import {
   MapPin,
   Star
 } from "lucide-react";
+import PromotionBanner from "@/components/dashboard/PromotionBanner";
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -93,6 +94,8 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8 max-w-6xl">
         <h1 className="text-3xl font-bold mb-8 text-foreground">¡Hola, Sofia! 👋</h1>
+
+        <PromotionBanner />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

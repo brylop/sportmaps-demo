@@ -35,6 +35,7 @@ interface StaffInput {
   phone?: string;
   specialty?: string;
   certifications?: string[];
+  status?: string;
 }
 
 interface FacilityInput {
@@ -72,7 +73,7 @@ export function useSchoolStaff() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('school_staff')
-        .select('*')
+        .select('id, full_name, email, phone, specialty, certifications, status')
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -119,6 +120,7 @@ export function useSchoolStaff() {
           phone: input.phone || null,
           specialty: input.specialty || null,
           certifications: input.certifications || [],
+          ...(input.status ? { status: input.status } : {}),
         })
         .eq('id', id)
         .select()
@@ -192,54 +194,14 @@ export function useSchoolFacilities() {
   const { data: facilities, isLoading, error, refetch } = useQuery({
     queryKey: ['school-facilities', schoolId],
     queryFn: async () => {
-      try {
-        const { data, error } = await supabase
-          .from('facilities')
-          .select('*')
-          .eq('school_id', schoolId)
-          .order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('facilities')
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false });
 
-        if (error) throw error;
-        return data as Facility[];
-      } catch (error) {
-        // Mock data for demo/restricted mode
-        console.warn("Using mock facilities due to error:", error);
-        return [
-          {
-            id: 'mock-1',
-            school_id: schoolId || 'demo',
-            name: 'Gimnasio de Acrobatics - Sede Norte',
-            type: 'Gimnasio de Porras',
-            capacity: 30,
-            description: 'Spring floor profesional con paneles de seguridad',
-            status: 'available',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: 'mock-2',
-            school_id: schoolId || 'demo',
-            name: 'Sala de Tumbling - Fontibón',
-            type: 'Pista de Tumbling',
-            capacity: 15,
-            description: 'Pista de tumbling con camas elásticas y fosos de espuma',
-            status: 'available',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          {
-            id: 'mock-3',
-            school_id: schoolId || 'demo',
-            name: 'Área de Estiramientos - La Granja',
-            type: 'Sala de Preparación Física',
-            capacity: 20,
-            description: 'Espacio amplio para calentamiento y flexibilidad',
-            status: 'occupied',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ] as Facility[];
-      }
+      if (error) throw error;
+      return data as Facility[];
     },
     enabled: !!schoolId,
   });
@@ -247,51 +209,56 @@ export function useSchoolFacilities() {
   // Create facility
   const createMutation = useMutation({
     mutationFn: async (input: FacilityInput) => {
-      try {
-        // Try actual API call first
-        const { data, error } = await supabase
-          .from('facilities')
-          .insert({
-            school_id: schoolId,
-            name: input.name,
-            type: input.type,
-            capacity: input.capacity,
-            description: input.description || null,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-        return data;
-      } catch (error: any) {
-        // Fallback for demo/RLS errors
-        console.warn("Falling back to demo mode for facility creation", error);
-
-        // Return a mock facility
-        return {
-          id: `temp-${Date.now()}`,
-          school_id: schoolId || 'demo-school',
+      const { data, error } = await supabase
+        .from('facilities')
+        .insert({
+          school_id: schoolId,
           name: input.name,
           type: input.type,
           capacity: input.capacity,
           description: input.description || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async (newFacility) => {
+      // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: ['school-facilities', schoolId] });
+
+      // Snapshot the previous value
+      const previousFacilities = queryClient.getQueryData(['school-facilities', schoolId]);
+
+      // Optimistically update to the new value
+      queryClient.setQueryData(['school-facilities', schoolId], (old: Facility[] | undefined) => {
+        const optimisticFacility = {
+          id: `temp-${Date.now()}`,
+          school_id: schoolId || '',
+          ...newFacility,
           status: 'available',
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         } as Facility;
-      }
-    },
-    onSuccess: (data) => {
-      // Optimistically update the cache
-      queryClient.setQueryData(['school-facilities', schoolId], (old: Facility[] | undefined) => {
-        return [data, ...(old || [])];
+        return [optimisticFacility, ...(old || [])];
       });
 
-      toast({ title: '✅ Instalación creada', description: 'La instalación se ha registrado correctamente (Modo Demo)' });
+      // Return a context object with the snapshotted value
+      return { previousFacilities };
     },
-    onError: (error: any) => {
-      // This should rarely be hit now with the try/catch above
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    onSuccess: (data) => {
+      // No need to setQueryData here, we will invalidate
+      toast({ title: '✅ Instalación creada', description: 'La instalación se ha registrado correctamente' });
+    },
+    onError: (err, newFacility, context) => {
+      // Rollback to the previous value
+      queryClient.setQueryData(['school-facilities', schoolId], context?.previousFacilities);
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+    onSettled: () => {
+      // Always refetch after error or success:
+      queryClient.invalidateQueries({ queryKey: ['school-facilities', schoolId] });
     },
   });
 

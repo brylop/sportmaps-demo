@@ -11,14 +11,14 @@ export function useEvents() {
 
   // Generate slug from title
   const generateSlug = (title: string): string => {
-    let slug = title
+    const slug = title
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .substring(0, 50);
-    
+
     // Add random suffix for uniqueness
     const suffix = Math.random().toString(36).substring(2, 6);
     return `${slug}-${suffix}`;
@@ -73,7 +73,7 @@ export function useEvents() {
     try {
       const { data, error } = await supabase
         .from('events')
-        .select('*')
+        .select('id, title, slug, event_date, start_time, city, status, price, registrations_open')
         .eq('creator_id', user.id)
         .order('created_at', { ascending: false });
 
@@ -93,7 +93,7 @@ export function useEvents() {
     try {
       let query = supabase
         .from('events')
-        .select('*')
+        .select('id, title, slug, event_date, start_time, city, sport, capacity, image_url, price, status, registrations_open, event_type')
         .eq('status', 'active')
         .eq('registrations_open', true)
         .gte('event_date', new Date().toISOString().split('T')[0]);
@@ -287,7 +287,7 @@ export function useEventRegistrations(eventId?: string) {
 
   // Create registration (public - no auth required)
   const createRegistration = useCallback(async (
-    eventId: string, 
+    eventId: string,
     data: {
       participant_name: string;
       participant_email?: string;

@@ -21,7 +21,7 @@ export default function AnalyticsDashboardPage() {
       // 1. Basic Counts
       const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
       const { count: activeEnrollmentsCount } = await supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('status', 'active');
-      
+
       // 2. Revenue (Sum of payments)
       // In a real app with many payments, this should be a Postgres function or view
       const { data: payments } = await supabase.from('payments').select('amount, created_at');
@@ -41,7 +41,7 @@ export default function AnalyticsDashboardPage() {
         .from('enrollments')
         .select(`
           created_at,
-          programs (
+          teams (
             sport,
             schools ( name )
           )
@@ -73,7 +73,7 @@ export default function AnalyticsDashboardPage() {
       const monthKey = format(date, 'MMM', { locale: es });
       const start = startOfMonth(date);
       const end = endOfMonth(date);
-      
+
       const count = analytics.events.filter((e: any) => {
         if (!e.created_at) return false;
         const d = new Date(e.created_at);
@@ -87,7 +87,7 @@ export default function AnalyticsDashboardPage() {
       const monthKey = format(date, 'MMM', { locale: es });
       const start = startOfMonth(date);
       const end = endOfMonth(date);
-      
+
       const count = analytics.enrollments.filter((e: any) => {
         const d = new Date(e.created_at);
         return d >= start && d <= end;
@@ -100,7 +100,7 @@ export default function AnalyticsDashboardPage() {
       const monthKey = format(date, 'MMM', { locale: es });
       const start = startOfMonth(date);
       const end = endOfMonth(date);
-      
+
       const total = analytics.payments.filter((p: any) => {
         const d = new Date(p.created_at);
         return d >= start && d <= end;
@@ -114,10 +114,10 @@ export default function AnalyticsDashboardPage() {
 
   const processSportsData = () => {
     if (!analytics?.enrollments) return [];
-    
+
     const sportsCount: Record<string, number> = {};
     analytics.enrollments.forEach((e: any) => {
-      const sport = e.programs?.sport || 'Otros';
+      const sport = e.teams?.sport || 'Otros';
       sportsCount[sport] = (sportsCount[sport] || 0) + 1;
     });
 
@@ -131,9 +131,9 @@ export default function AnalyticsDashboardPage() {
     if (!analytics?.enrollments) return [];
 
     const schoolStats: Record<string, { students: number }> = {};
-    
+
     analytics.enrollments.forEach((e: any) => {
-      const schoolName = e.programs?.schools?.name || 'Desconocido';
+      const schoolName = e.teams?.schools?.name || 'Desconocido';
       if (!schoolStats[schoolName]) {
         schoolStats[schoolName] = { students: 0 };
       }
@@ -237,10 +237,10 @@ export default function AnalyticsDashboardPage() {
                     <YAxis />
                     <Tooltip />
                     <Legend />
-                    <Line 
-                      type="monotone" 
-                      dataKey="visitors" 
-                      stroke="#8884d8" 
+                    <Line
+                      type="monotone"
+                      dataKey="visitors"
+                      stroke="#8884d8"
                       strokeWidth={2}
                       name="Visitantes"
                       dot={{ r: 4 }}
@@ -319,7 +319,7 @@ export default function AnalyticsDashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip 
+                    <Tooltip
                       formatter={(value: any) => [`$${Number(value).toLocaleString('es-CO')}`, 'Ingresos']}
                     />
                     <Legend />
@@ -345,12 +345,11 @@ export default function AnalyticsDashboardPage() {
               topSchools.map((school, index) => (
                 <div key={school.name} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="flex items-center gap-4">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                      index === 0 ? 'bg-yellow-500 text-white' : 
-                      index === 1 ? 'bg-gray-400 text-white' : 
-                      index === 2 ? 'bg-amber-700 text-white' : 
-                      'bg-primary/10 text-primary'
-                    }`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${index === 0 ? 'bg-yellow-500 text-white' :
+                        index === 1 ? 'bg-gray-400 text-white' :
+                          index === 2 ? 'bg-amber-700 text-white' :
+                            'bg-primary/10 text-primary'
+                      }`}>
                       {index + 1}
                     </div>
                     <div>

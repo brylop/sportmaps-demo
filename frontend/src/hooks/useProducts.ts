@@ -7,7 +7,7 @@ export function useProducts(filters?: { category?: string; minPrice?: number; ma
   return useQuery({
     queryKey: ['products', filters],
     queryFn: async () => {
-      let query = supabase.from('products').select('*').order('created_at', { ascending: false });
+      let query = supabase.from('products').select('id, name, description, price, stock, category, image_url, status').order('created_at', { ascending: false });
 
       if (filters?.category) {
         query = query.eq('category', filters.category);
@@ -51,7 +51,7 @@ export function useCreateProduct() {
       const { data, error } = await supabase
         .from('products')
         .insert([product])
-           }       .select()
+        .select()
         .single();
 
       if (error) throw error;

@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Eye, EyeOff, Users, GraduationCap, School, UserCircle, Heart, Store, Shield } from 'lucide-react';
-import { getDemoUser } from '@/lib/demo-credentials';
-import { useToast } from '@/hooks/use-toast';
+import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { useEffect } from 'react';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -19,60 +20,27 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-// Main demo roles - simplified to 2 primary options
-const mainDemoRoles = [
-  {
-    id: 'school',
-    title: 'Escuela / Academia',
-    description: 'Ver cómo gestionas tu academia y atraes alumnos',
-    email: 'spoortmaps+school@gmail.com',
-    icon: School,
-    color: 'bg-primary',
-    border: 'border-primary',
-    recommended: true,
-  },
-  {
-    id: 'parent',
-    title: 'Padre / Madre',
-    description: 'Ver cómo padres encuentran tu escuela',
-    email: 'spoortmaps@gmail.com',
-    icon: Users,
-    color: 'bg-secondary',
-    border: 'border-secondary',
-    recommended: false,
-  },
-];
-
-// Additional roles - collapsed by default
-const additionalRoles = [
-  {
-    id: 'coach',
-    title: 'Entrenador',
-    description: 'Clases y agenda',
-    email: 'spoortmaps+coach@gmail.com',
-    icon: GraduationCap,
-    color: 'bg-emerald-500',
-  },
-  {
-    id: 'athlete',
-    title: 'Deportista',
-    description: 'Perfil atlético',
-    email: 'spoortmaps+athlete@gmail.com',
-    icon: UserCircle,
-    color: 'bg-orange-500',
-  },
-];
-
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDemoLoading, setIsDemoLoading] = useState<string | null>(null);
-  const [showAdditionalRoles, setShowAdditionalRoles] = useState(false);
-  const [isDemoAccessing, setIsDemoAccessing] = useState(false);
-  const { user, signIn, signUp } = useAuth();
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSending, setResetSending] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const { user, signIn } = useAuth();
+  const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+
+  const inviteEmail = searchParams.get('email');
+  const inviteId = searchParams.get('invite');
+
+  useEffect(() => {
+    if (inviteId) {
+      localStorage.setItem('pending_invite_id', inviteId);
+    }
+  }, [inviteId]);
 
   const from = location.state?.from?.pathname || '/dashboard';
 
@@ -81,11 +49,13 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: inviteEmail || '',
+    }
   });
 
-  // Don't auto-redirect if we're in the middle of demo access
-  if (user && !isDemoAccessing) {
+  // Redirect if already logged in
+  if (user) {
     return <Navigate to={from} replace />;
   }
 
@@ -100,272 +70,216 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemoAccess = async (roleId: string) => {
-    const demoUser = getDemoUser(roleId);
-    if (!demoUser) return;
-
-    setIsDemoLoading(roleId);
-    setIsDemoAccessing(true);
-
-    try {
-      // Store demo mode info
-      sessionStorage.setItem('demo_mode', 'true');
-      sessionStorage.setItem('demo_role', roleId);
-      sessionStorage.setItem('demo_tour_pending', 'true');
-
-      // Try to sign in with Supabase
-      try {
-        await signIn(demoUser.email, demoUser.password);
-
-        toast({
-          title: "¡Acceso demo exitoso!",
-          description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
-        });
-
-        // Wait a bit for auth state to update, then navigate
-        setTimeout(() => {
-          navigate('/demo-welcome');
-        }, 100);
-      } catch (signInError: any) {
-        // If user doesn't exist, create it
-        if (signInError.message?.includes('Invalid') || signInError.message?.includes('credentials')) {
-          console.log('Creating demo user in Supabase...');
-
-          await signUp(demoUser.email, demoUser.password, {
-            full_name: demoUser.fullName,
-            role: demoUser.role as any,
-          });
-
-          // Now sign in
-          await signIn(demoUser.email, demoUser.password);
-
-          toast({
-            title: "Demo creado exitosamente",
-            description: `Bienvenido al perfil demo de ${demoUser.fullName}`,
-          });
-
-          setTimeout(() => {
-            navigate('/demo-welcome');
-          }, 100);
-        } else {
-          throw signInError;
-        }
-      }
-    } catch (error: any) {
-      console.error('Error accessing demo:', error);
-
-      let errorMessage = error.message || "Por favor intenta de nuevo";
-
-      // Handle rate limit specifically
-      if (errorMessage.includes('rate limit') || error.status === 429) {
-        errorMessage = "Demasiados intentos. Por favor espera un momento antes de intentar de nuevo.";
-      }
-
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail || !resetEmail.includes('@')) {
       toast({
-        title: "Error al acceder al demo",
-        description: errorMessage,
-        variant: "destructive",
+        title: 'Correo inválido',
+        description: 'Por favor ingresa un correo electrónico válido.',
+        variant: 'destructive',
       });
-      setIsDemoAccessing(false);
+      return;
+    }
+
+    setResetSending(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) throw error;
+
+      setResetSent(true);
+      toast({
+        title: '¡Correo enviado!',
+        description: 'Revisa tu bandeja de entrada (y spam) para restablecer tu contraseña.',
+      });
+    } catch (error: any) {
+      console.error('Error sending reset email:', error);
+      toast({
+        title: 'Error al enviar el correo',
+        description: error.message || 'No se pudo enviar el correo de recuperación. Intenta de nuevo.',
+        variant: 'destructive',
+      });
     } finally {
-      setIsDemoLoading(null);
+      setResetSending(false);
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
       <div className="w-full max-w-5xl mx-auto space-y-6">
-        {/* Demo Section - Main Focus */}
-        <Card className="w-full border-2 border-primary/20">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-2xl font-bold text-center">Explorar Demo Interactivo</CardTitle>
-            <CardDescription className="text-center text-base">
-              Selecciona un rol para ver SportMaps en acción
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {/* Main Roles */}
-            <div className="grid md:grid-cols-2 gap-4 mb-4">
-              {mainDemoRoles.map((role) => {
-                const Icon = role.icon;
-
-                return (
-                  <Card
-                    key={role.id}
-                    className={`relative overflow-hidden transition-all duration-200 border-2 hover:shadow-lg cursor-pointer ${role.recommended ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary'
-                      } ${isDemoLoading === role.id ? 'opacity-60' : ''}`}
-                    onClick={() => handleDemoAccess(role.id)}
-                  >
-                    {role.recommended && (
-                      <div className="absolute top-2 right-2">
-                        <span className="bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full font-medium">
-                          Recomendado
-                        </span>
-                      </div>
+        <Card className="w-full max-w-md mx-auto border-2 shadow-lg">
+          {showForgotPassword ? (
+            /* ── Forgot Password View ── */
+            <>
+              <CardHeader className="space-y-1">
+                <div className="flex justify-center mb-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    {resetSent ? (
+                      <CheckCircle2 className="w-6 h-6 text-green-500" />
+                    ) : (
+                      <Mail className="w-6 h-6 text-primary" />
                     )}
-                    <CardContent className="pt-6 pb-6">
-                      <div className="flex flex-col items-center text-center gap-3">
-                        <div className={`w-16 h-16 ${role.color} rounded-full flex items-center justify-center shadow-md`}>
-                          {isDemoLoading === role.id ? (
-                            <Loader2 className="w-8 h-8 text-white animate-spin" />
-                          ) : (
-                            <Icon className="w-8 h-8 text-white" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-bold text-lg">{role.title}</p>
-                          <p className="text-sm text-muted-foreground mt-1">{role.description}</p>
-                        </div>
-                        <p className="text-xs text-muted-foreground break-all px-4">
-                          {role.email}
-                        </p>
-                        <Button
-                          variant={role.recommended ? 'default' : 'outline'}
-                          size="lg"
-                          className="w-full mt-2"
-                          disabled={isDemoLoading === role.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDemoAccess(role.id);
-                          }}
-                        >
-                          {isDemoLoading === role.id ? 'Cargando...' : 'Ver Demo'}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+                  </div>
+                </div>
+                <CardTitle className="text-2xl font-bold text-center">
+                  {resetSent ? '¡Correo Enviado!' : 'Recuperar Contraseña'}
+                </CardTitle>
+                <CardDescription className="text-center">
+                  {resetSent
+                    ? 'Revisa tu bandeja de entrada y haz clic en el enlace para restablecer tu contraseña.'
+                    : 'Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {resetSent ? (
+                  <div className="space-y-4">
+                    <div className="rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 text-center">
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        Se envió un enlace de recuperación a <strong>{resetEmail}</strong>.
+                        Puede tardar unos minutos en llegar. Revisa también tu carpeta de spam.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        setShowForgotPassword(false);
+                        setResetSent(false);
+                        setResetEmail('');
+                      }}
+                    >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Volver al inicio de sesión
+                    </Button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleResetPassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="reset-email">Correo Electrónico</Label>
+                      <Input
+                        id="reset-email"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="tu@email.com"
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        disabled={resetSending}
+                      />
+                    </div>
 
-            {/* Additional Roles - Collapsible */}
-            {!showAdditionalRoles && (
-              <Button
-                variant="ghost"
-                className="w-full"
-                onClick={() => setShowAdditionalRoles(true)}
-              >
-                Ver más roles (Coach, Deportista) →
-              </Button>
-            )}
+                    <Button type="submit" className="w-full" disabled={resetSending}>
+                      {resetSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Enviar enlace de recuperación
+                    </Button>
 
-            {showAdditionalRoles && (
-              <div className="mt-4 pt-4 border-t">
-                <p className="text-sm text-muted-foreground text-center mb-3">Roles adicionales</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {additionalRoles.map((role) => {
-                    const Icon = role.icon;
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => {
+                        setShowForgotPassword(false);
+                        setResetEmail('');
+                      }}
+                    >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Volver al inicio de sesión
+                    </Button>
+                  </form>
+                )}
+              </CardContent>
+            </>
+          ) : (
+            /* ── Login View ── */
+            <>
+              <CardHeader className="space-y-1">
+                <div className="flex justify-center mb-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                    <Users className="w-6 h-6 text-primary" />
+                  </div>
+                </div>
+                <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
+                <CardDescription className="text-center">
+                  Accede a tu cuenta de SportMaps
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="tu@email.com"
+                      {...register('email')}
+                      className={errors.email ? 'border-destructive' : ''}
+                    />
+                    {errors.email && (
+                      <p className="text-sm text-destructive">{errors.email.message}</p>
+                    )}
+                  </div>
 
-                    return (
-                      <div
-                        key={role.id}
-                        className={`relative overflow-hidden rounded-lg p-3 text-center transition-all duration-200 border-2 hover:border-primary hover:shadow-lg bg-card group cursor-pointer ${isDemoLoading === role.id ? 'opacity-60' : ''
-                          }`}
-                        onClick={() => handleDemoAccess(role.id)}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Contraseña</Label>
+                      <button
+                        type="button"
+                        onClick={() => setShowForgotPassword(true)}
+                        className="text-xs text-primary hover:underline"
                       >
-                        <div className="flex flex-col items-center gap-2">
-                          <div className={`w-12 h-12 ${role.color} rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform`}>
-                            {isDemoLoading === role.id ? (
-                              <Loader2 className="w-6 h-6 text-white animate-spin" />
-                            ) : (
-                              <Icon className="w-6 h-6 text-white" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-sm">{role.title}</p>
-                            <p className="text-xs text-muted-foreground">{role.description}</p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full text-xs h-7 mt-2"
-                            disabled={isDemoLoading === role.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDemoAccess(role.id);
-                            }}
-                          >
-                            Ver
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                        ¿Olvidaste tu contraseña?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                        {...register('password')}
+                        className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    {errors.password && (
+                      <p className="text-sm text-destructive">{errors.password.message}</p>
+                    )}
+                  </div>
 
-        {/* Login Section - Secondary */}
-        <Card className="w-full max-w-md mx-auto">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-            <CardDescription className="text-center">
-              ¿Ya tienes cuenta? Accede con tus credenciales
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="tu@email.com"
-                  {...register('email')}
-                  className={errors.email ? 'border-destructive' : ''}
-                />
-                {errors.email && (
-                  <p className="text-sm text-destructive">{errors.email.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    {...register('password')}
-                    className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Iniciar Sesión
                   </Button>
+                </form>
+
+                <div className="mt-6 text-center text-sm space-y-2">
+                  <div>
+                    ¿No tienes cuenta?{' '}
+                    <Link to="/register" className="text-primary hover:underline">
+                      Regístrate aquí
+                    </Link>
+                  </div>
+                  <div>
+                    <Link to="/" className="text-muted-foreground hover:underline">
+                      ← Volver al inicio
+                    </Link>
+                  </div>
                 </div>
-                {errors.password && (
-                  <p className="text-sm text-destructive">{errors.password.message}</p>
-                )}
-              </div>
-
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Iniciar Sesión
-              </Button>
-            </form>
-
-            <div className="mt-6 text-center text-sm space-y-2">
-              <div>
-                ¿No tienes cuenta?{' '}
-                <Link to="/register" className="text-primary hover:underline">
-                  Regístrate aquí
-                </Link>
-              </div>
-              <div>
-                <Link to="/" className="text-muted-foreground hover:underline">
-                  ← Volver al inicio
-                </Link>
-              </div>
-            </div>
-          </CardContent>
+              </CardContent>
+            </>
+          )}
         </Card>
       </div>
     </div>

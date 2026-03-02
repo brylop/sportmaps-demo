@@ -8,9 +8,34 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
-import { formatCurrency } from '@/lib/demo-data';
+import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Eye, Loader2 } from 'lucide-react';
+
+interface Enrollment {
+  id: string;
+  child_id: string;
+  program_id: string;
+  school_id: string;
+  children: {
+    full_name: string;
+  } | null;
+  teams: {
+    name: string;
+    price_monthly: number;
+  } | null;
+  schools: {
+    name: string;
+  } | null;
+}
+
+interface ViewingProof {
+  open: boolean;
+  url: string;
+  concept: string;
+  amount: number;
+}
 
 interface Transaction {
   id: string;
@@ -20,6 +45,7 @@ interface Transaction {
   reference: string;
   transaction_date: string;
   authorization_code?: string;
+  receipt_url?: string;
 }
 
 interface Subscription {
@@ -41,17 +67,29 @@ export default function MyPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showChildPicker, setShowChildPicker] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<{ childName: string; programName: string; amount: number }>({
+  const [selectedPayment, setSelectedPayment] = useState<{
+    childId: string;
+    childName: string;
+    programId: string;
+    programName: string;
+    amount: number;
+    schoolId: string;
+  }>({
+    childId: '',
     childName: '',
-    programName: 'Firesquad (Senior L3)',
-    amount: 180000,
+    programId: '',
+    programName: 'Programa de Formación',
+    amount: 0,
+    schoolId: '',
   });
 
-  // Demo children for payment selection
-  const demoChildren = [
-    { id: 'demo-1', name: 'Mateo Pérez', program: 'Firesquad (Senior L3)', amount: 180000 },
-    { id: 'demo-2', name: 'Sofía Pérez', program: 'Butterfly (Junior Prep)', amount: 150000 },
-  ];
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [viewingProof, setViewingProof] = useState<ViewingProof>({
+    open: false,
+    url: '',
+    concept: '',
+    amount: 0,
+  });
 
   useEffect(() => {
     if (user) {
@@ -71,35 +109,143 @@ export default function MyPaymentsPage() {
         .order('created_at', { ascending: false });
 
       if (!error && payments && payments.length > 0) {
-        // Map Supabase payments to Transaction format
-        const txns: Transaction[] = payments.map(p => ({
+        const txns: Transaction[] = payments.map((p) => ({
           id: p.id,
           amount: p.amount,
+          concept: p.concept,
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
           reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
           transaction_date: p.payment_date || p.created_at,
           authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
+          receipt_url: p.receipt_url,
         }));
         setTransactions(txns);
-      } else {
-        // Demo fallback
-        const now = new Date();
-        setTransactions([
-          { id: 'txn_1', amount: 180000, payment_method: 'PSE', status: 'approved', reference: 'SP-2026-001', transaction_date: new Date(now.getTime() - 2 * 86400000).toISOString(), authorization_code: 'AUTH-78523' },
-          { id: 'txn_2', amount: 150000, payment_method: 'PSE', status: 'approved', reference: 'SP-2026-002', transaction_date: new Date(now.getTime() - 2 * 86400000).toISOString(), authorization_code: 'AUTH-78524' },
-          { id: 'txn_3', amount: 180000, payment_method: 'Nequi', status: 'approved', reference: 'SP-2026-003', transaction_date: new Date(now.getTime() - 32 * 86400000).toISOString(), authorization_code: 'AUTH-91234' },
-          { id: 'txn_4', amount: 150000, payment_method: 'Nequi', status: 'approved', reference: 'SP-2026-004', transaction_date: new Date(now.getTime() - 32 * 86400000).toISOString(), authorization_code: 'AUTH-91235' },
-          { id: 'txn_5', amount: 180000, payment_method: 'card', status: 'approved', reference: 'SP-2026-005', transaction_date: new Date(now.getTime() - 62 * 86400000).toISOString(), authorization_code: 'AUTH-45678' },
-          { id: 'txn_6', amount: 150000, payment_method: 'card', status: 'approved', reference: 'SP-2026-006', transaction_date: new Date(now.getTime() - 62 * 86400000).toISOString(), authorization_code: 'AUTH-45679' },
-        ]);
       }
 
-      // Subscriptions: 2 per child with different amounts
-      setSubscriptions([
-        { id: 'sub_1', program_id: 'Firesquad (Senior L3) — Mateo Pérez', amount: 180000, payment_method: 'PSE', status: 'active', next_charge_date: new Date(Date.now() + 15 * 86400000).toISOString(), bank_name: 'Bancolombia' },
-        { id: 'sub_2', program_id: 'Butterfly (Junior Prep) — Sofía Pérez', amount: 150000, payment_method: 'PSE', status: 'active', next_charge_date: new Date(Date.now() + 15 * 86400000).toISOString(), bank_name: 'Bancolombia' },
-      ]);
+      // ── Query A: hijos del padre ─────────────────────────────────────────
+      const { data: childrenData, error: childrenError } = await supabase
+        .from('children')
+        .select(`
+          id,
+          full_name,
+          monthly_fee,
+          parent_id,
+          school_id,
+          team_id,
+          teams:teams!children_team_id_fkey (
+            name,
+            price_monthly
+          )
+        `)
+        .eq('parent_id', user?.id || '');
+
+      if (childrenError || !childrenData || childrenData.length === 0) {
+        setEnrollments([]);
+        return;
+      }
+
+      const childIds = childrenData.map((c: any) => c.id);
+
+      // ── Query B: enrollments activos con join a teams ────────────────────
+      const { data: enrollData, error: enrollError } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          child_id,
+          team_id,
+          program_id,
+          school_id,
+          status,
+          team:teams!enrollments_team_id_fkey (
+            name,
+            price_monthly
+          ),
+          schools (
+            name
+          )
+        `)
+        .in('child_id', childIds)
+        .eq('status', 'active');
+
+      const enrollsByChild: Record<string, any[]> = {};
+      if (!enrollError && enrollData) {
+        enrollData.forEach((e: any) => {
+          if (!enrollsByChild[e.child_id]) enrollsByChild[e.child_id] = [];
+          enrollsByChild[e.child_id].push(e);
+        });
+      }
+
+      if (!childrenError && childrenData) {
+        const flattened: Enrollment[] = [];
+        childrenData.forEach((child: any) => {
+          const activeEnrollments = enrollsByChild[child.id] || [];
+
+          // 1. Check formal enrollments first
+          if (activeEnrollments.length > 0) {
+            activeEnrollments.forEach((enroll: any) => {
+              flattened.push({
+                id: enroll.id,
+                child_id: child.id,
+                program_id: enroll.program_id,
+                school_id: enroll.school_id,
+                children: { full_name: child.full_name },
+                teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
+                schools: enroll.schools,
+              });
+            });
+          }
+          // 2. FIX 2 — Asignación directa por team_id.
+          //    program_id del enrollment = child.team_id (sin mezclar con program_id).
+          else if (child.teams) {
+            flattened.push({
+              id: `direct-team-${child.id}`,
+              child_id: child.id,
+              program_id: child.team_id,
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: child.teams.name,
+                price_monthly: child.teams.price_monthly,
+              },
+              schools: null,
+            });
+          }
+          // 3. Fallback a mensualidad directa
+          else if (child.monthly_fee > 0) {
+            flattened.push({
+              id: `child-${child.id}`,
+              child_id: child.id,
+              program_id: child.team_id || child.id,
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: 'Mensualidad Estudiante',
+                price_monthly: child.monthly_fee,
+              },
+              schools: null,
+            });
+          }
+          // 4. Ultimate fallback — sin programa
+          else {
+            flattened.push({
+              id: `empty-${child.id}`,
+              child_id: child.id,
+              program_id: 'none',
+              school_id: child.school_id || '',
+              children: { full_name: child.full_name },
+              teams: {
+                name: 'Sin programa asignado',
+                price_monthly: 0,
+              },
+              schools: null,
+            });
+          }
+        });
+        setEnrollments(flattened);
+      }
+
+      setSubscriptions([]);
     } catch (error) {
       console.error('Error fetching payment data:', error);
     } finally {
@@ -107,10 +253,37 @@ export default function MyPaymentsPage() {
     }
   };
 
+  const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
+    if (!receiptUrl) return;
+
+    try {
+      const cleanPath = getStoragePath(receiptUrl);
+      const { data, error } = await supabase.storage
+        .from('payment-receipts')
+        .createSignedUrl(cleanPath, 300);
+
+      if (error) throw error;
+
+      setViewingProof({
+        open: true,
+        url: data.signedUrl,
+        concept,
+        amount,
+      });
+    } catch (err: unknown) {
+      console.error('Error generating signed URL:', err);
+      toast({
+        title: 'Error de acceso',
+        description: 'No se pudo generar el acceso seguro al comprobante.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCancelSubscription = async (subscriptionId: string) => {
     toast({
-      title: "Suscripción cancelada",
-      description: "Tu suscripción ha sido cancelada exitosamente"
+      title: 'Suscripción cancelada',
+      description: 'Tu suscripción ha sido cancelada exitosamente',
     });
     setSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
   };
@@ -250,7 +423,7 @@ export default function MyPaymentsPage() {
                             {new Date(txn.transaction_date).toLocaleDateString('es-CO', {
                               day: '2-digit',
                               month: 'short',
-                              year: 'numeric'
+                              year: 'numeric',
                             })}
                           </TableCell>
                           <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
@@ -260,12 +433,25 @@ export default function MyPaymentsPage() {
                               <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
                             </span>
                           </TableCell>
-                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">{formatCurrency(txn.amount)}</TableCell>
+                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
+                            {formatCurrency(txn.amount)}
+                          </TableCell>
                           <TableCell>{getStatusBadge(txn.status)}</TableCell>
                           <TableCell>
                             {txn.status === 'approved' && (
                               <Button variant="ghost" size="sm" className="text-xs">
                                 Ver Recibo
+                              </Button>
+                            )}
+                            {txn.receipt_url && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => handleShowProof(txn.receipt_url!, txn.reference, txn.amount)}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                Comprobante
                               </Button>
                             )}
                           </TableCell>
@@ -366,35 +552,54 @@ export default function MyPaymentsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            {demoChildren.map((child) => (
-              <button
-                key={child.id}
-                className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
-                onClick={() => {
-                  setSelectedPayment({
-                    childName: child.name,
-                    programName: child.program,
-                    amount: child.amount,
-                  });
-                  setShowChildPicker(false);
-                  setShowCheckout(true);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                    {child.name.charAt(0)}
+            {enrollments.length > 0 ? (
+              enrollments.map((enroll) => (
+                <button
+                  key={enroll.id}
+                  className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
+                  onClick={() => {
+                    setSelectedPayment({
+                      childId: enroll.child_id,
+                      childName: enroll.children?.full_name || 'Estudiante',
+                      programId: enroll.program_id,
+                      programName: enroll.teams?.name || 'Programa de Formación',
+                      amount: enroll.teams?.price_monthly || 0,
+                      schoolId: enroll.school_id,
+                    });
+                    setShowChildPicker(false);
+                    setShowCheckout(true);
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
+                      {(enroll.children?.full_name || 'E').charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{enroll.children?.full_name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {enroll.teams?.name || 'Sin curso asignado'}
+                      </p>
+                      {enroll.schools?.name && (
+                        <p className="text-[10px] text-muted-foreground italic truncate">
+                          Escuela: {enroll.schools.name}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold">{child.name}</p>
-                    <p className="text-xs text-muted-foreground">{child.program}</p>
+                  <div className="text-right ml-2 shrink-0">
+                    <p className="font-bold text-primary">{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
+                    <p className="text-xs text-muted-foreground">/mes</p>
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-primary">{formatCurrency(child.amount)}</p>
-                  <p className="text-xs text-muted-foreground">/mes</p>
-                </div>
-              </button>
-            ))}
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No tienes hijos registrados.</p>
+                <Button variant="link" asChild className="mt-2 text-primary p-0">
+                  <a href="/children">Ir a Mis Hijos para registrarlos</a>
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -403,12 +608,50 @@ export default function MyPaymentsPage() {
       <PaymentCheckoutModal
         open={showCheckout}
         onOpenChange={setShowCheckout}
-        studentId={user?.id || 'demo_student'}
-        programId="prog_1"
+        studentId={selectedPayment.childId}
+        programId={selectedPayment.programId}
+        schoolId={selectedPayment.schoolId}
         amount={selectedPayment.amount}
-        programName={`${selectedPayment.programName} — ${selectedPayment.childName}`}
+        concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
+        mode="create"
         onSuccess={fetchPaymentData}
       />
+
+      {/* Proof Viewer Dialog for Parents */}
+      <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mi Comprobante</DialogTitle>
+            <DialogDescription>
+              Referencia: {viewingProof.concept}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted p-3 rounded-lg flex justify-between items-center">
+              <span className="font-semibold">{viewingProof.concept}</span>
+              <span className="font-bold text-lg">{formatCurrency(viewingProof.amount)}</span>
+            </div>
+            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
+              {viewingProof.url ? (
+                <img
+                  src={viewingProof.url}
+                  alt="Comprobante"
+                  className="max-w-full max-h-[60vh] object-contain"
+                />
+              ) : (
+                <div className="text-center text-muted-foreground p-8">
+                  <p>Cargando imagen...</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

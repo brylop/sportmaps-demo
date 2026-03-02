@@ -1,0 +1,6 @@
+# Evita que Render intente procesar frontend o archivos basura durante el build del BFF
+node_modules
+*.md
+.env*
+.env.local
+.env.*.local

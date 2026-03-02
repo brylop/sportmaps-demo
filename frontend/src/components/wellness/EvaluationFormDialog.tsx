@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus, Minus } from 'lucide-react';
 
 interface EvaluationFormData {
   athlete_name: string;
@@ -35,11 +35,11 @@ const evaluationTypes = [
   'Test de Fuerza'
 ];
 
-export function EvaluationFormDialog({ 
-  open, 
-  onOpenChange, 
-  onSubmit, 
-  isLoading 
+export function EvaluationFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isLoading
 }: EvaluationFormDialogProps) {
   const [formData, setFormData] = useState<EvaluationFormData>({
     athlete_name: '',
@@ -69,7 +69,7 @@ export function EvaluationFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto custom-scrollbar">
         <DialogHeader>
           <DialogTitle>Nueva Evaluación</DialogTitle>
         </DialogHeader>
@@ -105,60 +105,145 @@ export function EvaluationFormDialog({
 
           <div className="space-y-2">
             <Label>Métricas Físicas</Label>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Peso (kg)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={formData.metrics.peso || ''}
-                  onChange={(e) => updateMetric('peso', parseFloat(e.target.value) || 0)}
-                />
+                <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative mt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('peso', Math.max(0, (formData.metrics.peso || 0) - 1))}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <Input
+                    type="number"
+                    className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
+                    min="0"
+                    step="0.1"
+                    value={formData.metrics.peso || ''}
+                    onChange={(e) => updateMetric('peso', parseFloat(e.target.value) || 0)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('peso', (formData.metrics.peso || 0) + 1)}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Altura (cm)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={formData.metrics.altura || ''}
-                  onChange={(e) => updateMetric('altura', parseFloat(e.target.value) || 0)}
-                />
+                <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative mt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('altura', Math.max(0, (formData.metrics.altura || 0) - 1))}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <Input
+                    type="number"
+                    className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
+                    min="0"
+                    value={formData.metrics.altura || ''}
+                    onChange={(e) => updateMetric('altura', parseFloat(e.target.value) || 0)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('altura', (formData.metrics.altura || 0) + 1)}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">IMC</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={formData.metrics.imc || ''}
-                  onChange={(e) => updateMetric('imc', parseFloat(e.target.value) || 0)}
-                />
+                <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative mt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('imc', Math.max(0, (formData.metrics.imc || 0) - 0.5))}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <Input
+                    type="number"
+                    className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
+                    min="0"
+                    step="0.1"
+                    value={formData.metrics.imc || ''}
+                    onChange={(e) => updateMetric('imc', parseFloat(e.target.value) || 0)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('imc', (formData.metrics.imc || 0) + 0.5)}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Grasa (%)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={formData.metrics.grasa_corporal || ''}
-                  onChange={(e) => updateMetric('grasa_corporal', parseFloat(e.target.value) || 0)}
-                />
+                <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative mt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('grasa_corporal', Math.max(0, (formData.metrics.grasa_corporal || 0) - 1))}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <Input
+                    type="number"
+                    className="border-0 text-center font-semibold focus-visible:ring-0 px-8 text-sm no-spinners"
+                    min="0"
+                    step="0.1"
+                    value={formData.metrics.grasa_corporal || ''}
+                    onChange={(e) => updateMetric('grasa_corporal', parseFloat(e.target.value) || 0)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => updateMetric('grasa_corporal', (formData.metrics.grasa_corporal || 0) + 1)}
+                    className="h-full px-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="score">Puntuación General (0-100)</Label>
-              <Input
-                id="score"
-                type="number"
-                min="0"
-                max="100"
-                value={formData.score}
-                onChange={(e) => setFormData({ ...formData, score: parseInt(e.target.value) || 0 })}
-              />
+              <Label htmlFor="score">Puntuación (0-100)</Label>
+              <div className="flex items-center border rounded-md h-10 bg-background overflow-hidden relative">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, score: Math.max(0, formData.score - 1) })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <Input
+                  id="score"
+                  type="number"
+                  className="border-0 text-center font-semibold focus-visible:ring-0 px-10 no-spinners"
+                  min="0"
+                  max="100"
+                  value={formData.score}
+                  onChange={(e) => setFormData({ ...formData, score: parseInt(e.target.value) || 0 })}
+                />
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, score: Math.min(100, formData.score + 1) })}
+                  className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="follow_up_date">Fecha de Seguimiento</Label>

@@ -10,8 +10,14 @@ export interface Child {
     gender?: string;
     parent_id: string;
     school_id?: string;
-    sport?: string;
-    team_name?: string;
+
+    medical_info?: string;
+    doc_type?: string;
+    doc_number?: string;
+    grade?: string;
+    emergency_contact?: string;
+    avatar_url?: string;
+    id_document_url?: string;
     created_at?: string;
 }
 
@@ -21,8 +27,14 @@ export interface CreateChildDTO {
     gender?: string;
     parent_id: string;
     school_id?: string;
-    sport?: string;
-    team_name?: string;
+
+    medical_info?: string;
+    doc_type?: string;
+    doc_number?: string;
+    grade?: string;
+    emergency_contact?: string;
+    avatar_url?: string;
+    id_document_url?: string;
 }
 
 class ParentsAPI {
@@ -32,22 +44,16 @@ class ParentsAPI {
      * @param parentId 
      */
     async getChildren(parentId: string): Promise<Child[]> {
-        try {
-            const { data, error } = await supabase
-                .from('children')
-                .select('*')
-                .eq('parent_id', parentId);
+        const { data, error } = await supabase
+            .from('children')
+            .select('*')
+            .eq('parent_id', parentId);
 
-            if (error) {
-                throw error;
-            }
-
-            return data || [];
-        } catch (error) {
-            console.error('Error fetching children:', error);
-            // Fallback for Demo if no DB connection
-            return [];
+        if (error) {
+            throw error;
         }
+
+        return data || [];
     }
 
     /**
@@ -55,27 +61,17 @@ class ParentsAPI {
      * @param childData 
      */
     async addChild(childData: CreateChildDTO): Promise<Child> {
-        try {
-            const { data, error } = await supabase
-                .from('children')
-                .insert(childData)
-                .select()
-                .single();
+        const { data, error } = await supabase
+            .from('children')
+            .insert(childData)
+            .select()
+            .single();
 
-            if (error) {
-                throw error;
-            }
-
-            return data;
-        } catch (error) {
-            console.warn('DB Insert failed, returning mock child for demo flow');
-            // Return mock success for demo continuity even if DB fails
-            return {
-                id: `child-${Date.now()}`,
-                ...childData,
-                created_at: new Date().toISOString()
-            };
+        if (error) {
+            throw error;
         }
+
+        return data;
     }
 }
 

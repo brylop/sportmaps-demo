@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Trophy } from 'lucide-react';
+import { NumberStepper } from '../ui/number-stepper';
 
 const resultSchema = z.object({
   match_date: z.string().min(1, 'Fecha es requerida'),
@@ -48,12 +49,12 @@ const matchTypes = [
   'Final',
 ];
 
-export function MatchResultFormDialog({ 
-  open, 
-  onOpenChange, 
-  onSubmit, 
+export function MatchResultFormDialog({
+  open,
+  onOpenChange,
+  onSubmit,
   teamId,
-  isLoading 
+  isLoading
 }: MatchResultFormDialogProps) {
   const form = useForm<ResultFormData>({
     resolver: zodResolver(resultSchema),
@@ -85,7 +86,7 @@ export function MatchResultFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trophy className="h-5 w-5" />
@@ -157,21 +158,19 @@ export function MatchResultFormDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="home_score">Goles Local *</Label>
-              <Input
-                id="home_score"
-                type="number"
-                min="0"
-                {...form.register('home_score')}
+              <NumberStepper
+                value={form.watch('home_score') === '' ? '' : parseInt(form.watch('home_score'))}
+                onChange={(val) => form.setValue('home_score', String(val))}
+                min={0}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="away_score">Goles Visitante *</Label>
-              <Input
-                id="away_score"
-                type="number"
-                min="0"
-                {...form.register('away_score')}
+              <NumberStepper
+                value={form.watch('away_score') === '' ? '' : parseInt(form.watch('away_score'))}
+                onChange={(val) => form.setValue('away_score', String(val))}
+                min={0}
               />
             </div>
           </div>

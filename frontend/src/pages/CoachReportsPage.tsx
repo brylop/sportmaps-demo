@@ -2,133 +2,74 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { bffClient } from '@/lib/api/bffClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { BarChart3, Download, TrendingUp, Users } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function CoachReportsPage() {
   const { user, profile } = useAuth();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
-  const isDemo = isDemoUser(user);
-
-  // Demo teams data (only for demo users)
-  const demoTeams = isDemoUser ? [
-    {
-      id: 'demo-team-1',
-      coach_id: user?.id,
-      name: 'Firesquad (Senior L3)',
-      sport: 'Cheerleading',
-      age_group: 'Senior',
-      season: '2024',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: teamsData } = useQuery({
+  const { data: teamsResult = [] } = useQuery({
     queryKey: ['coach-teams', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!user?.id) return [];
+
+      // 1. Obtener staffId si existe
+      let staffId = null;
+      if (user.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
+        if (staffData) staffId = staffData.id;
+      }
+
+      // 2. Traer todos los equipos donde el usuario es coach (directo o via tabla de relación)
+      const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('*')
-        .eq('coach_id', user?.id);
+        .select('id, name, coach_id, age_group, team_coaches(coach_id)') as any);
+
       if (error) throw error;
-      return data;
+
+      // 3. Filtrar
+      return (teamsData || []).filter((team: any) => {
+        const isDirectCoach = team.coach_id === user.id || (staffId && team.coach_id === staffId);
+        const isAssignedInTable = team.team_coaches?.some(
+          (tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)
+        );
+        return isDirectCoach || isAssignedInTable;
+      }).sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
     enabled: !!user?.id,
   });
 
-  const teams = teamsData && teamsData.length > 0 ? teamsData : (isDemoUser ? demoTeams : []);
+  const teams = teamsResult || [];
 
-  // Demo roster data (only for demo users)
-  const demoRoster = isDemoUser ? [
-    { id: 'player-1', team_id: selectedTeamId, player_name: 'Mateo Pérez', player_number: 10 },
-    { id: 'player-2', team_id: selectedTeamId, player_name: 'Juan Vargas', player_number: 7 },
-    { id: 'player-3', team_id: selectedTeamId, player_name: 'Camila Torres', player_number: 5 },
-    { id: 'player-4', team_id: selectedTeamId, player_name: 'Santiago Rojas', player_number: 1 },
-    { id: 'player-5', team_id: selectedTeamId, player_name: 'Valeria Gómez', player_number: 11 },
-  ] : [];
-
-  const { data: rosterData } = useQuery({
-    queryKey: ['team-roster', selectedTeamId],
+  const { data: report, isLoading } = useQuery({
+    queryKey: ['team-report', selectedTeamId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', selectedTeamId);
-      if (error) throw error;
-      return data;
+      return await bffClient.get<{
+        team: any;
+        roster: any[];
+        results: any[];
+        attendance: any[];
+        scorers: any[];
+      }>(`/api/v1/reports/coach/${selectedTeamId}`);
     },
     enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
   });
 
-  const roster = (rosterData && rosterData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? rosterData
-    : (isDemoUser ? demoRoster : []);
-
-  // Demo results data (only for demo users)
-  const demoResults = isDemoUser ? [
-    {
-      id: 'result-1',
-      team_id: selectedTeamId,
-      match_date: '2024-10-28',
-      opponent: 'Rockets Bogotá',
-      home_score: 92,
-      away_score: 90,
-      is_home: true,
-      match_type: 'Regional',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'result-2',
-      team_id: selectedTeamId,
-      match_date: '2024-10-18',
-      opponent: 'Thunder Cali',
-      home_score: 88,
-      away_score: 85,
-      is_home: true,
-      match_type: 'Nacional',
-      created_at: new Date().toISOString(),
-    },
-  ] : [];
-
-  const { data: resultsData, isLoading } = useQuery({
-    queryKey: ['match-results', selectedTeamId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('match_results')
-        .select('*')
-        .eq('team_id', selectedTeamId);
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!selectedTeamId && !selectedTeamId.startsWith('demo-'),
-  });
-
-  const results = (resultsData && resultsData.length > 0) || !selectedTeamId.startsWith('demo-')
-    ? resultsData
-    : demoResults;
-
-  // Mock attendance data (en producción vendría de session_attendance)
-  const attendanceData = [
-    { name: 'Mateo Pérez', percentage: 100 },
-    { name: 'Juan Vargas', percentage: 95 },
-    { name: 'Santiago Rojas', percentage: 90 },
-    { name: 'Valeria Gómez', percentage: 85 },
-    { name: 'Camila Torres', percentage: 60 },
-  ];
-
-  // Mock scorer data
-  const scorerData = [
-    { name: 'Mateo Pérez', goals: 4 },
-    { name: 'Valeria Gómez', goals: 2 },
-    { name: 'Juan Vargas', goals: 1 },
-  ];
+  const roster = report?.roster || [];
+  const results = report?.results || [];
+  const attendanceData = report?.attendance || [];
+  const scorerData = report?.scorers || [];
 
   return (
     <div className="space-y-6">
@@ -139,7 +80,7 @@ export default function CoachReportsPage() {
             Analiza el rendimiento de tu equipo
           </p>
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" onClick={() => window.print()}>
           <Download className="w-4 h-4" />
           Exportar PDF
         </Button>

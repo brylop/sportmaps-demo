@@ -7,42 +7,59 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw, Share2 } from 'lucide-react';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { CreateStudentModal } from '@/components/students/CreateStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { supabase } from '@/integrations/supabase/client';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
+import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
+  const { schoolId, schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
-  // Load students on mount
+  // Load students on mount and when school changes
   useEffect(() => {
-    loadStudents();
-  }, [profile]);
+    if (schoolId) {
+      loadStudents();
+    }
+  }, [schoolId, profile]);
 
   const loadStudents = async () => {
     try {
       setLoading(true);
-      const isDemoMode = sessionStorage.getItem('demo_mode') === 'true';
-      const schoolId = isDemoMode ? 'demo-school' : profile?.id;
-
       if (!schoolId) {
         setLoading(false);
         return;
       }
 
-      const data = await studentsAPI.getStudents({
-        school_id: schoolId,
-        limit: 500
-      });
-      setStudents(data);
+      // Para coaches: filtrar por sus equipos (legacy coach_id + junction table)
+      let coachId: string | undefined;
+      if (profile?.role === 'coach' && profile?.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', profile.email)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (staffData) {
+          coachId = staffData.id;
+        }
+      }
+
+      const data = await studentsAPI.getSchoolView(schoolId, null, coachId);
+      // Map to Student type if needed or adjust state type
+      setStudents(data as any as Student[]);
     } catch (error: any) {
       console.error('Error loading students:', error);
       toast({
@@ -128,6 +145,7 @@ export default function StudentsPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setShowCreateModal(true)}
             className="flex-1 md:flex-initial"
           >
             <UserPlus className="h-4 w-4 mr-2" />
@@ -258,7 +276,10 @@ export default function StudentsPage() {
                   {filteredStudents.map((student) => (
                     <TableRow key={student.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-medium whitespace-nowrap">
-                        {student.full_name}
+                        <div className="flex items-center gap-2">
+                          <span>{student.full_name}</span>
+                          <MedicalAlertBadge medicalInfo={student.medical_info} />
+                        </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {student.email ? (
@@ -291,12 +312,21 @@ export default function StudentsPage() {
         </CardContent>
       </Card>
 
+      {/* Create Student Modal */}
+      <CreateStudentModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={loadStudents}
+        schoolId={schoolId || ''}
+      />
+
       {/* CSV Import Modal */}
       <CSVImportModal
         open={showImportModal}
         onClose={() => setShowImportModal(false)}
         onSuccess={handleCSVImportSuccess}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
+        schoolName={schoolName || 'Tu Escuela'}
       />
 
       {/* Enroll Student Modal */}
@@ -304,7 +334,7 @@ export default function StudentsPage() {
         open={showEnrollModal}
         onClose={() => setShowEnrollModal(false)}
         onSuccess={loadStudents}
-        schoolId={profile?.id || 'demo-school'}
+        schoolId={schoolId || ''}
       />
     </div>
   );

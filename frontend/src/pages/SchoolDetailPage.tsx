@@ -30,6 +30,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
+import { ChildSelectionModal } from '@/components/enrollment/ChildSelectionModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
 
@@ -90,15 +91,17 @@ export default function SchoolDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
-  
+
   const [school, setSchool] = useState<School | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [childSelectionOpen, setChildSelectionOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
 
@@ -109,6 +112,7 @@ export default function SchoolDetailPage() {
   }, [id]);
 
   const fetchSchoolData = async () => {
+    if (!id || id === "") return;
     try {
       setLoading(true);
 
@@ -122,16 +126,16 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-      // Fetch programs
+      // Fetch programs from teams table
       const { data: programsData, error: programsError } = await supabase
-        .from('programs')
+        .from('teams')
         .select('*')
         .eq('school_id', id)
         .eq('active', true)
         .order('name');
 
       if (programsError) throw programsError;
-      
+
       // If no programs, add demo programs
       if (!programsData || programsData.length === 0) {
         setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
@@ -145,7 +149,7 @@ export default function SchoolDetailPage() {
         .select('*')
         .eq('school_id', id)
         .eq('status', 'available');
-      
+
       if (facilitiesData && facilitiesData.length > 0) {
         setFacilities(facilitiesData);
       } else {
@@ -170,14 +174,20 @@ export default function SchoolDetailPage() {
 
   const handleEnroll = (program: Program) => {
     setSelectedProgram(program);
-    
+
     if (!user) {
       // Usuario no autenticado - mostrar modal de auth con selección de rol
       setAuthModalOpen(true);
       return;
     }
 
-    // Usuario autenticado - mostrar modal de pago directamente
+    // Usuario autenticado - Seleccionar hijo primero
+    setChildSelectionOpen(true);
+  };
+
+  const handleChildSelected = (childId: string) => {
+    setSelectedChildId(childId);
+    setChildSelectionOpen(false);
     setPaymentModalOpen(true);
   };
 
@@ -189,6 +199,7 @@ export default function SchoolDetailPage() {
     fetchSchoolData();
     setPaymentModalOpen(false);
     setSelectedProgram(null);
+    setSelectedChildId(null);
   };
 
   const getAgeRange = (program: Program) => {
@@ -312,8 +323,8 @@ export default function SchoolDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Enrollment Auth Modal - For unauthenticated users */}
-      <EnrollmentAuthModal 
-        open={authModalOpen} 
+      <EnrollmentAuthModal
+        open={authModalOpen}
         onOpenChange={setAuthModalOpen}
         program={selectedProgram ? {
           id: selectedProgram.id,
@@ -324,6 +335,14 @@ export default function SchoolDetailPage() {
           id: school.id,
           name: school.name
         } : undefined}
+      />
+
+      {/* Child Selection Modal - NEW */}
+      <ChildSelectionModal
+        open={childSelectionOpen}
+        onOpenChange={setChildSelectionOpen}
+        onChildSelected={handleChildSelected}
+        programName={selectedProgram?.name}
       />
 
       {/* Payment Modal - For authenticated users */}
@@ -339,6 +358,7 @@ export default function SchoolDetailPage() {
             amount: selectedProgram.price_monthly,
             schoolId: school?.id,
             programId: selectedProgram.id,
+            childId: selectedChildId || undefined, // Pass selected child
           }}
           onSuccess={handlePaymentSuccess}
         />
@@ -550,12 +570,12 @@ export default function SchoolDetailPage() {
                           onClick={() => handleEnroll(program)}
                           disabled={
                             program.max_participants !== null &&
-                              program.current_participants >= program.max_participants
+                            program.current_participants >= program.max_participants
                           }
                         >
                           <Calendar className="h-4 w-4 mr-2" />
                           {program.max_participants !== null &&
-                          program.current_participants >= program.max_participants
+                            program.current_participants >= program.max_participants
                             ? 'Programa Lleno'
                             : 'Inscribirme'}
                         </Button>
@@ -578,7 +598,7 @@ export default function SchoolDetailPage() {
                     <p className="text-muted-foreground mb-4">
                       Reserva canchas y espacios para prácticas libres. Desde $15,000/hora.
                     </p>
-                    
+
                     {facilities.length === 0 ? (
                       <div className="text-center py-8">
                         <Building className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -587,7 +607,7 @@ export default function SchoolDetailPage() {
                     ) : (
                       <div className="space-y-3">
                         {facilities.filter(f => f.booking_enabled !== false).map((facility) => (
-                          <div 
+                          <div
                             key={facility.id}
                             className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
                           >
@@ -612,7 +632,7 @@ export default function SchoolDetailPage() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">por hora</p>
                               </div>
-                              <Button 
+                              <Button
                                 size="sm"
                                 className="bg-[#FB9F1E] hover:bg-[#e08a1a] text-white"
                                 onClick={() => {
@@ -702,7 +722,7 @@ export default function SchoolDetailPage() {
                     </CardContent>
                   </Card>
                 ))}
-                
+
                 <Card className="bg-muted/50">
                   <CardContent className="p-6 text-center">
                     <p className="text-muted-foreground">
@@ -791,8 +811,8 @@ export default function SchoolDetailPage() {
                   size="lg"
                 />
 
-                <Button 
-                  className="w-full" 
+                <Button
+                  className="w-full"
                   onClick={handleReserveNow}
                   size="lg"
                   variant="outline"
@@ -800,7 +820,7 @@ export default function SchoolDetailPage() {
                   <Calendar className="h-5 w-5 mr-2" />
                   Reservar Ahora
                 </Button>
-                
+
                 <p className="text-xs text-center text-muted-foreground mt-2">
                   Selecciona un programa y completa tu reserva
                 </p>

@@ -2,12 +2,25 @@
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/build",
   "installCommand": "cd frontend && npm install",
+  "ignoreCommand": "bash vercel-ignore-build.sh",
   "framework": "vite",
-  "rewrites": [
+  "cleanUrls": true,
+  "headers": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
-    },
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
     {
       "source": "/(.*)",
       "destination": "/index.html"

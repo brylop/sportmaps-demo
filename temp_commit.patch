@@ -1,0 +1,1308 @@
+﻿commit 04c3356bfeca5046b3bbf841050512687bc3580a
+Author: judegor99 <juligrios1999@gmail.com>
+Date:   Fri Feb 27 10:58:50 2026 -0500
+
+    feat: implementar validador de comprobantes con OCR y soporte PDF
+
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index 564d0de..9fae6ba 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -54,6 +54,7 @@
+         "leaflet": "^1.9.4",
+         "lucide-react": "^0.462.0",
+         "next-themes": "^0.3.0",
++        "pdfjs-dist": "^5.4.624",
+         "postcss": "^8.5.6",
+         "react": "^18.3.1",
+         "react-day-picker": "^8.10.1",
+@@ -68,6 +69,7 @@
+         "tailwind-merge": "^2.6.0",
+         "tailwindcss": "^3.4.17",
+         "tailwindcss-animate": "^1.0.7",
++        "tesseract.js": "^7.0.0",
+         "vaul": "^0.9.9",
+         "vite": "^5.4.19",
+         "vite-plugin-pwa": "^1.2.0",
+@@ -2013,6 +2015,241 @@
+         "@jridgewell/sourcemap-codec": "^1.4.14"
+       }
+     },
++    "node_modules/@napi-rs/canvas": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas/-/canvas-0.1.95.tgz",
++      "integrity": "sha512-lkg23ge+rgyhgUwXmlbkPEhuhHq/hUi/gXKH+4I7vO+lJrbNfEYcQdJLIGjKyXLQzgFiiyDAwh5vAe/tITAE+w==",
++      "optional": true,
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      },
++      "optionalDependencies": {
++        "@napi-rs/canvas-android-arm64": "0.1.95",
++        "@napi-rs/canvas-darwin-arm64": "0.1.95",
++        "@napi-rs/canvas-darwin-x64": "0.1.95",
++        "@napi-rs/canvas-linux-arm-gnueabihf": "0.1.95",
++        "@napi-rs/canvas-linux-arm64-gnu": "0.1.95",
++        "@napi-rs/canvas-linux-arm64-musl": "0.1.95",
++        "@napi-rs/canvas-linux-riscv64-gnu": "0.1.95",
++        "@napi-rs/canvas-linux-x64-gnu": "0.1.95",
++        "@napi-rs/canvas-linux-x64-musl": "0.1.95",
++        "@napi-rs/canvas-win32-arm64-msvc": "0.1.95",
++        "@napi-rs/canvas-win32-x64-msvc": "0.1.95"
++      }
++    },
++    "node_modules/@napi-rs/canvas-android-arm64": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-android-arm64/-/canvas-android-arm64-0.1.95.tgz",
++      "integrity": "sha512-SqTh0wsYbetckMXEvHqmR7HKRJujVf1sYv1xdlhkifg6TlCSysz1opa49LlS3+xWuazcQcfRfmhA07HxxxGsAA==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-darwin-arm64": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-darwin-arm64/-/canvas-darwin-arm64-0.1.95.tgz",
++      "integrity": "sha512-F7jT0Syu+B9DGBUBcMk3qCRIxAWiDXmvEjamwbYfbZl7asI1pmXZUnCOoIu49Wt0RNooToYfRDxU9omD6t5Xuw==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-darwin-x64": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-darwin-x64/-/canvas-darwin-x64-0.1.95.tgz",
++      "integrity": "sha512-54eb2Ho15RDjYGXO/harjRznBrAvu+j5nQ85Z4Qd6Qg3slR8/Ja+Yvvy9G4yo7rdX6NR9GPkZeSTf2UcKXwaXw==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-arm-gnueabihf": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-arm-gnueabihf/-/canvas-linux-arm-gnueabihf-0.1.95.tgz",
++      "integrity": "sha512-hYaLCSLx5bmbnclzQc3ado3PgZ66blJWzjXp0wJmdwpr/kH+Mwhj6vuytJIomgksyJoCdIqIa4N6aiqBGJtJ5Q==",
++      "cpu": [
++        "arm"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-arm64-gnu": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-arm64-gnu/-/canvas-linux-arm64-gnu-0.1.95.tgz",
++      "integrity": "sha512-J7VipONahKsmScPZsipHVQBqpbZx4favaD8/enWzzlGcjiwycOoymL7f4tNeqdjK0su19bDOUt6mjp9gsPWYlw==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-arm64-musl": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-arm64-musl/-/canvas-linux-arm64-musl-0.1.95.tgz",
++      "integrity": "sha512-PXy0UT1J/8MPG8UAkWp6Fd51ZtIZINFzIjGH909JjQrtCuJf3X6nanHYdz1A+Wq9o4aoPAw1YEUpFS1lelsVlg==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-riscv64-gnu": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-riscv64-gnu/-/canvas-linux-riscv64-gnu-0.1.95.tgz",
++      "integrity": "sha512-2IzCkW2RHRdcgF9W5/plHvYFpc6uikyjMb5SxjqmNxfyDFz9/HB89yhi8YQo0SNqrGRI7yBVDec7Pt+uMyRWsg==",
++      "cpu": [
++        "riscv64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-x64-gnu": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-x64-gnu/-/canvas-linux-x64-gnu-0.1.95.tgz",
++      "integrity": "sha512-OV/ol/OtcUr4qDhQg8G7SdViZX8XyQeKpPsVv/j3+7U178FGoU4M+yIocdVo1ih/A8GQ63+LjF4jDoEjaVU8Pw==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-linux-x64-musl": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-x64-musl/-/canvas-linux-x64-musl-0.1.95.tgz",
++      "integrity": "sha512-Z5KzqBK/XzPz5+SFHKz7yKqClEQ8pOiEDdgk5SlphBLVNb8JFIJkxhtJKSvnJyHh2rjVgiFmvtJzMF0gNwwKyQ==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-win32-arm64-msvc": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-win32-arm64-msvc/-/canvas-win32-arm64-msvc-0.1.95.tgz",
++      "integrity": "sha512-aj0YbRpe8qVJ4OzMsK7NfNQePgcf9zkGFzNZ9mSuaxXzhpLHmlF2GivNdCdNOg8WzA/NxV6IU4c5XkXadUMLeA==",
++      "cpu": [
++        "arm64"
++      ],
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
++    "node_modules/@napi-rs/canvas-win32-x64-msvc": {
++      "version": "0.1.95",
++      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-win32-x64-msvc/-/canvas-win32-x64-msvc-0.1.95.tgz",
++      "integrity": "sha512-GA8leTTCfdjuHi8reICTIxU0081PhXvl3lzIniLUjeLACx9GubUiyzkwFb+oyeKLS5IAGZFLKnzAf4wm2epRlA==",
++      "cpu": [
++        "x64"
++      ],
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/Brooooooklyn"
++      }
++    },
+     "node_modules/@nodelib/fs.scandir": {
+       "version": "2.1.5",
+       "license": "MIT",
+@@ -5476,6 +5713,11 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/bmp-js": {
++      "version": "0.1.0",
++      "resolved": "https://registry.npmjs.org/bmp-js/-/bmp-js-0.1.0.tgz",
++      "integrity": "sha512-vHdS19CnY3hwiNdkaqk93DvjVLfbEcI8mys4UjuWrlX1haDmroo8o4xCzh4wD6DGV6HxRCyauwhHRqMTfERtjw=="
++    },
+     "node_modules/brace-expansion": {
+       "version": "1.1.12",
+       "dev": true,
+@@ -7229,6 +7471,11 @@
+       "version": "7.1.1",
+       "license": "ISC"
+     },
++    "node_modules/idb-keyval": {
++      "version": "6.2.2",
++      "resolved": "https://registry.npmjs.org/idb-keyval/-/idb-keyval-6.2.2.tgz",
++      "integrity": "sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg=="
++    },
+     "node_modules/ignore": {
+       "version": "5.3.2",
+       "dev": true,
+@@ -7633,6 +7880,11 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/is-url": {
++      "version": "1.2.4",
++      "resolved": "https://registry.npmjs.org/is-url/-/is-url-1.2.4.tgz",
++      "integrity": "sha512-ITvGim8FhRiYe4IQ5uHSkj7pVaPDrCTkNd3yq3cV7iZAcJdHTUMPMEHcqSOy9xZ9qFenQCvi+2wjH9a1nXqHww=="
++    },
+     "node_modules/is-weakmap": {
+       "version": "2.0.2",
+       "license": "MIT",
+@@ -8281,6 +8533,12 @@
+         "url": "https://opencollective.com/node-fetch"
+       }
+     },
++    "node_modules/node-readable-to-web-readable-stream": {
++      "version": "0.4.2",
++      "resolved": "https://registry.npmjs.org/node-readable-to-web-readable-stream/-/node-readable-to-web-readable-stream-0.4.2.tgz",
++      "integrity": "sha512-/cMZNI34v//jUTrI+UIo4ieHAB5EZRY/+7OmXZgBxaWBMcW2tGdceIw06RFxWxrKZ5Jp3sI2i5TsRo+CBhtVLQ==",
++      "optional": true
++    },
+     "node_modules/node-releases": {
+       "version": "2.0.27",
+       "license": "MIT"
+@@ -8360,6 +8618,14 @@
+       ],
+       "license": "MIT"
+     },
++    "node_modules/opencollective-postinstall": {
++      "version": "2.0.3",
++      "resolved": "https://registry.npmjs.org/opencollective-postinstall/-/opencollective-postinstall-2.0.3.tgz",
++      "integrity": "sha512-8AV/sCtuzUeTo8gQK5qDZzARrulB3egtLzFgteqB2tcT4Mw7B8Kt7JcDHmltjz6FOAHsvTevk70gZEbhM4ZS9Q==",
++      "bin": {
++        "opencollective-postinstall": "index.js"
++      }
++    },
+     "node_modules/optionator": {
+       "version": "0.9.4",
+       "dev": true,
+@@ -8489,6 +8755,18 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/pdfjs-dist": {
++      "version": "5.4.624",
++      "resolved": "https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-5.4.624.tgz",
++      "integrity": "sha512-sm6TxKTtWv1Oh6n3C6J6a8odejb5uO4A4zo/2dgkHuC0iu8ZMAXOezEODkVaoVp8nX1Xzr+0WxFJJmUr45hQzg==",
++      "engines": {
++        "node": ">=20.16.0 || >=22.3.0"
++      },
++      "optionalDependencies": {
++        "@napi-rs/canvas": "^0.1.88",
++        "node-readable-to-web-readable-stream": "^0.4.2"
++      }
++    },
+     "node_modules/performance-now": {
+       "version": "2.1.0",
+       "license": "MIT",
+@@ -9205,8 +9483,7 @@
+     },
+     "node_modules/regenerator-runtime": {
+       "version": "0.13.11",
+-      "license": "MIT",
+-      "optional": true
++      "license": "MIT"
+     },
+     "node_modules/regexp.prototype.flags": {
+       "version": "1.5.4",
+@@ -10157,6 +10434,66 @@
+       "version": "2.20.3",
+       "license": "MIT"
+     },
++    "node_modules/tesseract.js": {
++      "version": "7.0.0",
++      "resolved": "https://registry.npmjs.org/tesseract.js/-/tesseract.js-7.0.0.tgz",
++      "integrity": "sha512-exPBkd+z+wM1BuMkx/Bjv43OeLBxhL5kKWsz/9JY+DXcXdiBjiAch0V49QR3oAJqCaL5qURE0vx9Eo+G5YE7mA==",
++      "hasInstallScript": true,
++      "dependencies": {
++        "bmp-js": "^0.1.0",
++        "idb-keyval": "^6.2.0",
++        "is-url": "^1.2.4",
++        "node-fetch": "^2.6.9",
++        "opencollective-postinstall": "^2.0.3",
++        "regenerator-runtime": "^0.13.3",
++        "tesseract.js-core": "^7.0.0",
++        "wasm-feature-detect": "^1.8.0",
++        "zlibjs": "^0.3.1"
++      }
++    },
++    "node_modules/tesseract.js-core": {
++      "version": "7.0.0",
++      "resolved": "https://registry.npmjs.org/tesseract.js-core/-/tesseract.js-core-7.0.0.tgz",
++      "integrity": "sha512-WnNH518NzmbSq9zgTPeoF8c+xmilS8rFIl1YKbk/ptuuc7p6cLNELNuPAzcmsYw450ca6bLa8j3t0VAtq435Vw=="
++    },
++    "node_modules/tesseract.js/node_modules/node-fetch": {
++      "version": "2.7.0",
++      "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-2.7.0.tgz",
++      "integrity": "sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==",
++      "dependencies": {
++        "whatwg-url": "^5.0.0"
++      },
++      "engines": {
++        "node": "4.x || >=6.0.0"
++      },
++      "peerDependencies": {
++        "encoding": "^0.1.0"
++      },
++      "peerDependenciesMeta": {
++        "encoding": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/tesseract.js/node_modules/tr46": {
++      "version": "0.0.3",
++      "resolved": "https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz",
++      "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="
++    },
++    "node_modules/tesseract.js/node_modules/webidl-conversions": {
++      "version": "3.0.1",
++      "resolved": "https://registry.npmjs.org/webidl-conversions/-/webidl-conversions-3.0.1.tgz",
++      "integrity": "sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ=="
++    },
++    "node_modules/tesseract.js/node_modules/whatwg-url": {
++      "version": "5.0.0",
++      "resolved": "https://registry.npmjs.org/whatwg-url/-/whatwg-url-5.0.0.tgz",
++      "integrity": "sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==",
++      "dependencies": {
++        "tr46": "~0.0.3",
++        "webidl-conversions": "^3.0.0"
++      }
++    },
+     "node_modules/text-segmentation": {
+       "version": "1.0.3",
+       "license": "MIT",
+@@ -10971,6 +11308,11 @@
+         "node": ">=18"
+       }
+     },
++    "node_modules/wasm-feature-detect": {
++      "version": "1.8.0",
++      "resolved": "https://registry.npmjs.org/wasm-feature-detect/-/wasm-feature-detect-1.8.0.tgz",
++      "integrity": "sha512-zksaLKM2fVlnB5jQQDqKXXwYHLQUVH9es+5TOOHwGOVJOCeRBCiPjwSg+3tN2AdTCzjgli4jijCH290kXb/zWQ=="
++    },
+     "node_modules/web-streams-polyfill": {
+       "version": "3.3.3",
+       "resolved": "https://registry.npmjs.org/web-streams-polyfill/-/web-streams-polyfill-3.3.3.tgz",
+@@ -11457,6 +11799,14 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/zlibjs": {
++      "version": "0.3.1",
++      "resolved": "https://registry.npmjs.org/zlibjs/-/zlibjs-0.3.1.tgz",
++      "integrity": "sha512-+J9RrgTKOmlxFSDHo0pI1xM6BLVUv+o0ZT9ANtCxGkjIVCCUdx9alUF8Gm+dGLKbkkkidWIHFDZHDMpfITt4+w==",
++      "engines": {
++        "node": "*"
++      }
++    },
+     "node_modules/zod": {
+       "version": "4.3.5",
+       "license": "MIT",
+diff --git a/frontend/package.json b/frontend/package.json
+index 1436637..db2a07d 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -65,6 +65,7 @@
+     "leaflet": "^1.9.4",
+     "lucide-react": "^0.462.0",
+     "next-themes": "^0.3.0",
++    "pdfjs-dist": "^5.4.624",
+     "postcss": "^8.5.6",
+     "react": "^18.3.1",
+     "react-day-picker": "^8.10.1",
+@@ -79,6 +80,7 @@
+     "tailwind-merge": "^2.6.0",
+     "tailwindcss": "^3.4.17",
+     "tailwindcss-animate": "^1.0.7",
++    "tesseract.js": "^7.0.0",
+     "vaul": "^0.9.9",
+     "vite": "^5.4.19",
+     "vite-plugin-pwa": "^1.2.0",
+@@ -88,6 +90,7 @@
+     "@eslint/js": "^9.32.0",
+     "@playwright/test": "^1.57.0",
+     "@tailwindcss/typography": "^0.5.16",
++    "@testing-library/dom": "^10.0.0",
+     "@testing-library/jest-dom": "^6.9.1",
+     "@testing-library/react": "^16.3.1",
+     "@testing-library/user-event": "^14.6.1",
+@@ -105,7 +108,6 @@
+     "lovable-tagger": "^1.1.10",
+     "supabase": "^2.76.10",
+     "typescript": "^5.8.3",
+-    "@testing-library/dom": "^10.0.0",
+     "typescript-eslint": "^8.38.0",
+     "vitest": "^4.0.18"
+   },
+@@ -113,4 +115,4 @@
+     "@rollup/rollup-linux-x64-gnu": "^4.57.1",
+     "@swc/core-linux-x64-gnu": "^1.15.11"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/frontend/src/components/common/FileUpload.tsx b/frontend/src/components/common/FileUpload.tsx
+index f8cad87..e276204 100644
+--- a/frontend/src/components/common/FileUpload.tsx
++++ b/frontend/src/components/common/FileUpload.tsx
+@@ -1,8 +1,16 @@
+ import { useRef, useState } from 'react';
+ import { Button } from '@/components/ui/button';
+-import { Upload, X, File as FileIcon } from 'lucide-react';
++import {
++  Upload, X, File as FileIcon, Loader2,
++  CheckCircle2, AlertTriangle, ShieldCheck,
++  Calendar, Hash, DollarSign, ScanLine,
++} from 'lucide-react';
+ import { useStorage, BucketName } from '@/hooks/useStorage';
++import { useReceiptValidator, ReceiptValidationResult } from '@/hooks/useReceiptValidator';
+ import { Card } from '@/components/ui/card';
++import { Alert, AlertDescription } from '@/components/ui/alert';
++import { Badge } from '@/components/ui/badge';
++import { Progress } from '@/components/ui/progress';
+ 
+ interface FileUploadProps {
+   bucket: BucketName;
+@@ -11,6 +19,8 @@ interface FileUploadProps {
+   maxSizeMB?: number;
+   onUploadComplete?: (url: string) => void;
+   multiple?: boolean;
++  validateReceipt?: boolean;
++  onValidationResult?: (result: ReceiptValidationResult) => void;
+ }
+ 
+ export function FileUpload({
+@@ -19,46 +29,97 @@ export function FileUpload({
+   accept = '*/*',
+   maxSizeMB = 5,
+   onUploadComplete,
+-  multiple = false
++  multiple = false,
++  validateReceipt = false,
++  onValidationResult,
+ }: FileUploadProps) {
+   const fileInputRef = useRef<HTMLInputElement>(null);
+   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
++  const [validation, setValidation] = useState<ReceiptValidationResult | null>(null);
++  const [ocrProgress, setOcrProgress] = useState(0);
++  const [uploaded, setUploaded] = useState(false);
++
+   const { uploadFile, uploading } = useStorage();
++  const { validate, validating } = useReceiptValidator();
++
++  const reset = () => {
++    setSelectedFiles([]);
++    setValidation(null);
++    setOcrProgress(0);
++    setUploaded(false);
++    if (fileInputRef.current) fileInputRef.current.value = '';
++  };
+ 
+-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
++  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const files = Array.from(e.target.files || []);
+-    
+-    // Validate file sizes
+-    const validFiles = files.filter(file => {
+-      const sizeMB = file.size / (1024 * 1024);
+-      if (sizeMB > maxSizeMB) {
+-        return false;
+-      }
+-      return true;
+-    });
++    setValidation(null);
++    setOcrProgress(0);
++    setUploaded(false);
+ 
+-    setSelectedFiles(multiple ? validFiles : validFiles.slice(0, 1));
+-  };
++    const validSized = files.filter(f => f.size / (1024 * 1024) <= maxSizeMB);
++    const toUse = multiple ? validSized : validSized.slice(0, 1);
++    setSelectedFiles(toUse);
+ 
+-  const handleUpload = async () => {
+-    for (const file of selectedFiles) {
+-      const url = await uploadFile(file, bucket, path);
+-      if (url && onUploadComplete) {
+-        onUploadComplete(url);
++    if (!validateReceipt) {
++      // Sin validacion: subir directo al seleccionar
++      for (const file of toUse) {
++        const url = await uploadFile(file, bucket, path);
++        if (url && onUploadComplete) {
++          onUploadComplete(url);
++          setUploaded(true);
++        }
+       }
++      return;
+     }
+-    setSelectedFiles([]);
+-    if (fileInputRef.current) {
+-      fileInputRef.current.value = '';
++
++    if (toUse.length === 0) return;
++
++    // Con validacion: primero OCR, luego subir solo si pasa
++    setOcrProgress(10);
++    const progressInterval = setInterval(() => {
++      setOcrProgress(p => (p < 85 ? p + 5 : p));
++    }, 300);
++
++    try {
++      const result = await validate(toUse[0]);
++      setOcrProgress(100);
++      setValidation(result);
++      onValidationResult?.(result);
++
++      if (result.valid) {
++        // Subida automatica cuando la validacion pasa
++        // Asi proofUrl ya esta lista cuando el usuario hace clic en "Pagar"
++        const url = await uploadFile(toUse[0], bucket, path);
++        if (url && onUploadComplete) {
++          onUploadComplete(url);
++          setUploaded(true);
++        }
++      }
++    } finally {
++      clearInterval(progressInterval);
++      setTimeout(() => setOcrProgress(0), 800);
+     }
+   };
+ 
+   const removeFile = (index: number) => {
+-    setSelectedFiles(files => files.filter((_, i) => i !== index));
++    setSelectedFiles(f => f.filter((_, i) => i !== index));
++    setValidation(null);
++    setUploaded(false);
++    onValidationResult?.({
++      valid: false,
++      extractedDate: null,
++      extractedAmount: null,
++      extractedReference: null,
++      rejectionReason: null,
++    });
+   };
+ 
++  const busy = uploading || validating;
++
+   return (
+-    <div className="space-y-4">
++    <div className="space-y-3">
++
++      {/* Selector */}
+       <div className="flex gap-2">
+         <input
+           ref={fileInputRef}
+@@ -72,32 +133,48 @@ export function FileUpload({
+           type="button"
+           variant="outline"
+           onClick={() => fileInputRef.current?.click()}
+-          disabled={uploading}
++          disabled={busy}
++          className="flex-1"
+         >
+-          <Upload className="w-4 h-4 mr-2" />
+-          Seleccionar Archivo{multiple ? 's' : ''}
++          {validating ? (
++            <>
++              <ScanLine className="w-4 h-4 mr-2 animate-pulse" />
++              Leyendo comprobante...
++            </>
++          ) : uploading ? (
++            <>
++              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
++              Subiendo archivo...
++            </>
++          ) : (
++            <>
++              <Upload className="w-4 h-4 mr-2" />
++              {uploaded ? 'Cambiar archivo' : 'Seleccionar archivo'}
++            </>
++          )}
+         </Button>
+-        
+-        {selectedFiles.length > 0 && (
+-          <Button
+-            type="button"
+-            onClick={handleUpload}
+-            disabled={uploading}
+-          >
+-            {uploading ? 'Subiendo...' : `Subir (${selectedFiles.length})`}
+-          </Button>
+-        )}
+       </div>
+ 
+-      {selectedFiles.length > 0 && (
++      {/* Barra de progreso OCR */}
++      {validating && ocrProgress > 0 && (
++        <div className="space-y-1">
++          <Progress value={ocrProgress} className="h-1.5" />
++          <p className="text-xs text-muted-foreground text-center">
++            Analizando comprobante... {ocrProgress}%
++          </p>
++        </div>
++      )}
++
++      {/* Archivos seleccionados */}
++      {selectedFiles.length > 0 && !uploaded && (
+         <div className="space-y-2">
+-          {selectedFiles.map((file, index) => (
+-            <Card key={index} className="p-3">
++          {selectedFiles.map((file, i) => (
++            <Card key={i} className="p-3">
+               <div className="flex items-center justify-between">
+-                <div className="flex items-center gap-2">
+-                  <FileIcon className="w-4 h-4 text-muted-foreground" />
+-                  <span className="text-sm">{file.name}</span>
+-                  <span className="text-xs text-muted-foreground">
++                <div className="flex items-center gap-2 min-w-0">
++                  <FileIcon className="w-4 h-4 text-muted-foreground shrink-0" />
++                  <span className="text-sm truncate">{file.name}</span>
++                  <span className="text-xs text-muted-foreground shrink-0">
+                     ({(file.size / 1024).toFixed(1)} KB)
+                   </span>
+                 </div>
+@@ -105,7 +182,8 @@ export function FileUpload({
+                   type="button"
+                   variant="ghost"
+                   size="sm"
+-                  onClick={() => removeFile(index)}
++                  onClick={() => removeFile(i)}
++                  disabled={busy}
+                 >
+                   <X className="w-4 h-4" />
+                 </Button>
+@@ -115,9 +193,80 @@ export function FileUpload({
+         </div>
+       )}
+ 
++      {/* Resultado de validacion */}
++      {validation && !validating && (
++        <div className="animate-in fade-in slide-in-from-top-1 duration-300">
++
++          {/* Rechazado */}
++          {!validation.valid && (
++            <Alert className="border-red-300 bg-red-50 dark:bg-red-950/30">
++              <AlertTriangle className="h-4 w-4 text-red-500" />
++              <AlertDescription>
++                <p className="font-semibold text-red-700 dark:text-red-400 mb-1">
++                  Comprobante no valido
++                </p>
++                <p className="text-sm text-red-600 dark:text-red-300">
++                  {validation.rejectionReason}
++                </p>
++              </AlertDescription>
++            </Alert>
++          )}
++
++          {/* Aprobado */}
++          {validation.valid && (
++            <Alert className="border-green-300 bg-green-50 dark:bg-green-950/30">
++              <ShieldCheck className="h-4 w-4 text-green-600" />
++              <AlertDescription>
++                <p className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
++                  <CheckCircle2 className="h-4 w-4" />
++                  Comprobante verificado y listo para enviar
++                </p>
++                <div className="space-y-1.5">
++
++                  {validation.extractedDate && (
++                    <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
++                      <Calendar className="h-3 w-3 shrink-0" />
++                      <span><strong>Fecha:</strong> {validation.extractedDate}</span>
++                      <Badge className="bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-100 text-[10px] h-4 px-1">
++                        Hoy
++                      </Badge>
++                    </div>
++                  )}
++
++                  {validation.extractedAmount ? (
++                    <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
++                      <DollarSign className="h-3 w-3 shrink-0" />
++                      <span><strong>Monto:</strong> {validation.extractedAmount}</span>
++                    </div>
++                  ) : (
++                    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
++                      <DollarSign className="h-3 w-3 shrink-0" />
++                      <span>Monto no detectado</span>
++                    </div>
++                  )}
++
++                  {validation.extractedReference ? (
++                    <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
++                      <Hash className="h-3 w-3 shrink-0" />
++                      <span><strong>Referencia:</strong> {validation.extractedReference}</span>
++                    </div>
++                  ) : (
++                    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
++                      <Hash className="h-3 w-3 shrink-0" />
++                      <span>Numero de operacion no detectado</span>
++                    </div>
++                  )}
++
++                </div>
++              </AlertDescription>
++            </Alert>
++          )}
++        </div>
++      )}
++
+       <p className="text-xs text-muted-foreground">
+-        Tama├▒o m├íximo: {maxSizeMB}MB
++        Tamano maximo: {maxSizeMB}MB - Formatos: imagenes (JPG/PNG) o PDF
+       </p>
+     </div>
+   );
+-}
++}
+\ No newline at end of file
+diff --git a/frontend/src/components/payment/PaymentCheckoutModal.tsx b/frontend/src/components/payment/PaymentCheckoutModal.tsx
+index 7e49377..4662cbe 100644
+--- a/frontend/src/components/payment/PaymentCheckoutModal.tsx
++++ b/frontend/src/components/payment/PaymentCheckoutModal.tsx
+@@ -277,10 +277,10 @@ export function PaymentCheckoutModal({
+                     onClick={() => !isDisabled && handlePaymentMethod(method.id)}
+                     disabled={isDisabled}
+                     className={`w-full flex items-center gap-4 p-4 border-2 rounded-lg transition-all ${isDisabled
+-                        ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
+-                        : isSelected
+-                          ? 'border-primary bg-primary/5 hover:border-primary'
+-                          : 'border-border hover:border-primary'
++                      ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
++                      : isSelected
++                        ? 'border-primary bg-primary/5 hover:border-primary'
++                        : 'border-border hover:border-primary'
+                       }`}
+                   >
+                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'
+@@ -329,7 +329,8 @@ export function PaymentCheckoutModal({
+                   <p className="font-medium text-sm">Sube tu comprobante:</p>
+                   <FileUpload
+                     bucket="payment-receipts"
+-                    accept="image/*"
++                    accept="image/*,application/pdf"
++                    validateReceipt={true}
+                     onUploadComplete={(url) => setProofUrl(url)}
+                   />
+                   {proofUrl && (
+@@ -369,7 +370,11 @@ export function PaymentCheckoutModal({
+             </div>
+ 
+             <p className="text-xs text-center text-muted-foreground">
+-              ­ƒöÆ Pago 100% seguro. Tus datos est├ín protegidos.
++              {selectedMethod === 'transfer' ? (
++                "Se├▒or usuario, recuerde que el soporte de pago enviado ser├í revisado previamente por la administraci├│n para su validaci├│n definitiva."
++              ) : (
++                "­ƒöÆ Pago 100% seguro. Tus datos est├ín protegidos."
++              )}
+             </p>
+           </div>
+         )}
+diff --git a/frontend/src/hooks/useReceiptValidator.ts b/frontend/src/hooks/useReceiptValidator.ts
+new file mode 100644
+index 0000000..c9650e9
+--- /dev/null
++++ b/frontend/src/hooks/useReceiptValidator.ts
+@@ -0,0 +1,248 @@
++/**
++ * useReceiptValidator.ts
++ * 
++ * Validador de comprobantes de pago usando OCR en el navegador.
++ * Usa Tesseract.js para extraer texto de im├ígenes y pdfjs-dist para PDFs.
++ * 100% gratuito, sin llamadas a APIs externas.
++ */
++
++import { useState } from 'react';
++import Tesseract from 'tesseract.js';
++
++export interface ReceiptValidationResult {
++    valid: boolean;
++    extractedDate: string | null;
++    extractedAmount: string | null;
++    extractedReference: string | null;
++    rejectionReason: string | null;
++    rawText?: string;
++}
++
++// ÔöÇÔöÇ Helpers de fecha ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++
++const getTodayVariants = () => {
++    const today = new Date();
++    const day = today.getDate();
++    const month = today.getMonth() + 1;
++    const year = today.getFullYear();
++    const dd = String(day).padStart(2, '0');
++    const mm = String(month).padStart(2, '0');
++
++    const monthNames = [
++        'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
++        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
++    ];
++    const monthName = monthNames[today.getMonth()];
++
++    return {
++        iso: `${year}-${mm}-${dd}`,
++        slash: `${dd}/${mm}/${year}`,
++        slashShort: `${dd}/${mm}/${String(year).slice(2)}`,
++        dash: `${dd}-${mm}-${year}`,
++        dot: `${dd}.${mm}.${year}`,
++        human: `${day} de ${monthName} de ${year}`,
++        humanShort: `${day} ${monthName} ${year}`,
++        dayMonth: `${dd}/${mm}`,
++        dayMonthDash: `${dd}-${mm}`,
++        day,
++        month,
++        year,
++        monthName,
++    };
++};
++
++// ÔöÇÔöÇ Extracci├│n con regex ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++
++const extractDate = (text: string): { found: string | null; isToday: boolean } => {
++    const today = getTodayVariants();
++    const lower = text.toLowerCase();
++
++    const patterns = [
++        today.iso,
++        today.slash,
++        today.slashShort,
++        today.dash,
++        today.dot,
++        today.human,
++        today.humanShort,
++        today.dayMonth,
++        today.dayMonthDash,
++    ];
++
++    for (const pattern of patterns) {
++        if (lower.includes(pattern.toLowerCase())) {
++            return { found: pattern, isToday: true };
++        }
++    }
++
++    const dateRegex = /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})\b/g;
++    const matches = text.match(dateRegex);
++    const humanDateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-z├í├®├¡├│├║├▒]+)\s+(?:de\s+)?(\d{4})\b/gi;
++    const humanMatch = humanDateRegex.exec(text);
++
++    const found = humanMatch ? humanMatch[0] : (matches ? matches[0] : null);
++    return { found, isToday: false };
++};
++
++const extractAmount = (text: string): string | null => {
++    const patterns = [
++        /(?:valor|monto|total|transferencia|pago|enviaste?|recibiste?|cobrado)[:\s]*\$?\s*([\d.,]+)/gi,
++        /\$\s*([\d.,]+(?:\.\d{2})?)/g,
++        /COP\s*([\d.,]+)/gi,
++        /\b(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?)\b/g,
++    ];
++
++    for (const pattern of patterns) {
++        const match = pattern.exec(text);
++        if (match) {
++            const raw = match[1] || match[0];
++            const numeric = parseFloat(raw.replace(/[.,]/g, ''));
++            if (numeric > 1000) {
++                return raw.trim();
++            }
++        }
++    }
++    return null;
++};
++
++const extractReference = (text: string): string | null => {
++    const patterns = [
++        /(?:n[u├║]mero\s+de\s+operaci[o├│]n|no\.?\s*operaci[o├│]n)[:\s#]*([A-Z0-9\-]{4,20})/gi,
++        /(?:referencia|ref\.?)[:\s#]*([A-Z0-9\-]{4,20})/gi,
++        /(?:transacci[o├│]n|transacci[o├│]n\s+n[u├║]mero?)[:\s#]*([A-Z0-9\-]{4,20})/gi,
++        /(?:comprobante|n[u├║]mero\s+de\s+comprobante)[:\s#]*([A-Z0-9\-]{4,20})/gi,
++        /(?:aprobaci[o├│]n|c[o├│]digo)[:\s#]*([A-Z0-9\-]{4,20})/gi,
++        /(?:id\s+transacci[o├│]n|id)[:\s#]*([A-Z0-9\-]{6,20})/gi,
++    ];
++
++    for (const pattern of patterns) {
++        const match = pattern.exec(text);
++        if (match?.[1]) return match[1].trim();
++    }
++
++    const longNumber = /\b(\d{8,20})\b/.exec(text);
++    if (longNumber) return longNumber[1];
++
++    return null;
++};
++
++// ÔöÇÔöÇ Convertir primera p├ígina de PDF a imagen via canvas ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++
++const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
++    const pdfjs = await import('pdfjs-dist');
++    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
++
++    const arrayBuffer = await file.arrayBuffer();
++    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
++    const page = await pdf.getPage(1);
++
++    const scale = 2;
++    const viewport = page.getViewport({ scale });
++
++    const canvas = document.createElement('canvas');
++    canvas.width = viewport.width;
++    canvas.height = viewport.height;
++
++    const ctx = canvas.getContext('2d')!;
++    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
++
++    return new Promise(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'));
++};
++
++// ÔöÇÔöÇ Hook principal ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++
++export function useReceiptValidator() {
++    const [validating, setValidating] = useState(false);
++
++    const validate = async (file: File): Promise<ReceiptValidationResult> => {
++        setValidating(true);
++        try {
++            let imageSource: File | Blob = file;
++
++            if (file.type === 'application/pdf') {
++                try {
++                    imageSource = await pdfPageToImageBlob(file);
++                } catch (err) {
++                    console.error('Error convirtiendo PDF:', err);
++                    return {
++                        valid: false,
++                        extractedDate: null,
++                        extractedAmount: null,
++                        extractedReference: null,
++                        rejectionReason: 'No se pudo procesar el PDF. Intenta convertirlo a imagen (JPG/PNG) y vuelve a subirlo.',
++                    };
++                }
++            }
++
++            const { data } = await Tesseract.recognize(imageSource, 'spa+eng', {
++                logger: process.env.NODE_ENV === 'development' ? (m) => console.log('[OCR]', m.status, Math.round((m.progress || 0) * 100) + '%') : undefined,
++            });
++
++            const text = data.text || '';
++            const textLower = text.toLowerCase();
++
++            const receiptKeywords = [
++                'transferencia', 'transacci├│n', 'transaccion',
++                'comprobante', 'recibo', 'pago', 'operaci├│n', 'operacion',
++                'nequi', 'daviplata', 'bancolombia', 'banco', 'enviaste',
++                'enviado', 'recibiste', 'valor', 'aprobado', 'exitoso',
++                'exitosa', 'realizada', 'confirmado',
++            ];
++
++            const isReceipt = receiptKeywords.some(kw => textLower.includes(kw));
++
++            if (!isReceipt && text.length < 50) {
++                return {
++                    valid: false,
++                    extractedDate: null,
++                    extractedAmount: null,
++                    extractedReference: null,
++                    rejectionReason:
++                        'No pudimos leer el comprobante o no parece ser un soporte v├ílido. Por favor, aseg├║rate de que la imagen sea n├¡tida o que el PDF sea legible e int├®ntalo de nuevo.',
++                    rawText: text,
++                };
++            }
++
++            const { found: dateFound, isToday } = extractDate(text);
++
++            if (!isToday) {
++                const today = getTodayVariants();
++                const dateMsg = dateFound
++                    ? `La fecha encontrada es "${dateFound}"`
++                    : 'No se encontr├│ ninguna fecha en el comprobante';
++                return {
++                    valid: false,
++                    extractedDate: dateFound,
++                    extractedAmount: extractAmount(text),
++                    extractedReference: extractReference(text),
++                    rejectionReason:
++                        `${dateMsg}, pero el comprobante debe ser del d├¡a de hoy (${today.slash}). ` +
++                        'Verifica que est├®s subiendo el comprobante correcto.',
++                    rawText: text,
++                };
++            }
++
++            return {
++                valid: true,
++                extractedDate: dateFound,
++                extractedAmount: extractAmount(text),
++                extractedReference: extractReference(text),
++                rejectionReason: null,
++                rawText: text,
++            };
++        } catch (err) {
++            console.error('Error en OCR:', err);
++            return {
++                valid: false,
++                extractedDate: null,
++                extractedAmount: null,
++                extractedReference: null,
++                rejectionReason: 'Error al analizar el archivo. Intenta de nuevo.',
++            };
++        } finally {
++            setValidating(false);
++        }
++    };
++
++    return { validate, validating };
++}
+diff --git a/frontend/src/lib/api/classes.ts b/frontend/src/lib/api/classes.ts
+index 966f75e..b9bb013 100644
+--- a/frontend/src/lib/api/classes.ts
++++ b/frontend/src/lib/api/classes.ts
+@@ -247,34 +247,80 @@ class ClassesAPI {
+   }
+ 
+   /**
+-   * Enroll a student in a program via BFF
++   * Enroll a student in a program ÔÇö inserci├│n directa en Supabase
++   * Reemplaza la llamada al BFF para evitar falsos positivos de duplicado
++   * con enrollments en status 'cancelled' o 'completed'.
+    */
+   async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
+-    try {
+-      const response = await bffClient.post<{ success: boolean; data: any }>('/api/v1/enrollments', {
+-        student_id: studentId,
+-        class_id: classId,
+-      });
++    // Verificar si existe enrollment activo
++    const { data: existing } = await supabase
++      .from('enrollments')
++      .select('id, status')
++      .eq('program_id', classId)
++      .eq('child_id', studentId)
++      .eq('status', 'active')
++      .maybeSingle();
+ 
+-      return {
+-        id: response.data.id,
+-        class_id: classId,
+-        student_id: studentId,
+-        student_name: studentName,
+-        enrollment_date: response.data.created_at,
+-        status: 'active',
+-      };
+-    } catch (error: any) {
+-      console.error('Error enrolling student via BFF:', error.body || error.message);
+-
+-      let msg = error.message || 'Failed to enroll student';
+-      if (error.status === 409) msg = 'La clase ya est├í llena.';
+-      if (error.body?.details) {
+-        msg += ": " + JSON.stringify(error.body.details);
+-      }
++    if (existing) {
++      throw new Error('El estudiante ya est├í inscrito en esta clase/equipo.');
++    }
++
++    // Verificar si existe un enrollment cancelado para reactivar
++    // (evita violar el unique constraint enrollments_child_program_unique)
++    const { data: cancelled } = await supabase
++      .from('enrollments')
++      .select('id')
++      .eq('program_id', classId)
++      .eq('child_id', studentId)
++      .in('status', ['cancelled', 'completed'])
++      .maybeSingle();
++
++    let data, error;
++
++    if (cancelled) {
++      // Reactivar el enrollment existente en lugar de insertar uno nuevo
++      ({ data, error } = await supabase
++        .from('enrollments')
++        .update({
++          status: 'active',
++          team_id: classId,
++          start_date: new Date().toISOString().split('T')[0],
++        })
++        .eq('id', cancelled.id)
++        .select('id, created_at')
++        .single());
++    } else {
++      // Insertar enrollment nuevo
++      const { data: team } = await supabase
++        .from('teams')
++        .select('school_id')
++        .eq('id', classId)
++        .single();
+ 
+-      throw new Error(msg);
++      ({ data, error } = await supabase
++        .from('enrollments')
++        .insert({
++          program_id: classId,
++          team_id: classId,
++          child_id: studentId,
++          school_id: team?.school_id,
++          status: 'active',
++          start_date: new Date().toISOString().split('T')[0],
++        })
++        .select('id, created_at')
++        .single());
+     }
++
++    if (error) throw new Error(error.message || 'Error al inscribir estudiante.');
++
++    return {
++      id: data.id,
++      class_id: classId,
++      student_id: studentId,
++      student_name: studentName,
++      enrollment_date: data.created_at,
++      status: 'active',
++    };
+   }
+ 
+   /**
+diff --git a/frontend/src/pages/MyPaymentsPage.tsx b/frontend/src/pages/MyPaymentsPage.tsx
+index bdd8245..1231ae0 100644
+--- a/frontend/src/pages/MyPaymentsPage.tsx
++++ b/frontend/src/pages/MyPaymentsPage.tsx
+@@ -123,8 +123,7 @@ export default function MyPaymentsPage() {
+         setTransactions(txns);
+       }
+ 
+-      // FIX 1 ÔÇö Usar FK expl├¡cita children_team_id_fkey para el join de teams.
+-      //          Eliminado program_id del select para no mezclar fuentes.
++      // ÔöÇÔöÇ Query A: hijos del padre ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+       const { data: childrenData, error: childrenError } = await supabase
+         .from('children')
+         .select(`
+@@ -137,35 +136,61 @@ export default function MyPaymentsPage() {
+           teams:teams!children_team_id_fkey (
+             name,
+             price_monthly
+-          ),
+-          enrollments (
+-            id,
+-            program_id,
+-            school_id,
+-            teams:teams!enrollments_program_id_fkey (
+-              name,
+-              price_monthly
+-            ),
+-            schools (
+-              name
+-            )
+           )
+         `)
+         .eq('parent_id', user?.id || '');
+ 
++      if (childrenError || !childrenData || childrenData.length === 0) {
++        setEnrollments([]);
++        return;
++      }
++
++      const childIds = childrenData.map((c: any) => c.id);
++
++      // ÔöÇÔöÇ Query B: enrollments activos con join a teams ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
++      const { data: enrollData, error: enrollError } = await supabase
++        .from('enrollments')
++        .select(`
++          id,
++          child_id,
++          team_id,
++          program_id,
++          school_id,
++          status,
++          team:teams!enrollments_team_id_fkey (
++            name,
++            price_monthly
++          ),
++          schools (
++            name
++          )
++        `)
++        .in('child_id', childIds)
++        .eq('status', 'active');
++
++      const enrollsByChild: Record<string, any[]> = {};
++      if (!enrollError && enrollData) {
++        enrollData.forEach((e: any) => {
++          if (!enrollsByChild[e.child_id]) enrollsByChild[e.child_id] = [];
++          enrollsByChild[e.child_id].push(e);
++        });
++      }
++
+       if (!childrenError && childrenData) {
+         const flattened: Enrollment[] = [];
+         childrenData.forEach((child: any) => {
++          const activeEnrollments = enrollsByChild[child.id] || [];
++
+           // 1. Check formal enrollments first
+-          if (child.enrollments && child.enrollments.length > 0) {
+-            child.enrollments.forEach((enroll: any) => {
++          if (activeEnrollments.length > 0) {
++            activeEnrollments.forEach((enroll: any) => {
+               flattened.push({
+                 id: enroll.id,
+                 child_id: child.id,
+                 program_id: enroll.program_id,
+                 school_id: enroll.school_id,
+                 children: { full_name: child.full_name },
+-                teams: enroll.teams,
++                teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
+                 schools: enroll.schools,
+               });
+             });

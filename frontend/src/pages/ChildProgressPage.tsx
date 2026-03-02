@@ -8,27 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ArrowLeft, Trophy, TrendingUp, Star, Calendar } from 'lucide-react';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function ChildProgressPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isDemo = isDemoUser(user);
+
 
   // Fetch child info
   const { data: child, isLoading: loadingChild } = useQuery({
     queryKey: ['child', id],
     queryFn: async () => {
-      if (id?.startsWith('demo-')) {
-        // Return demo child
-        return {
-          id,
-          full_name: id === 'demo-1' ? 'Mateo Pérez' : 'Sofía Pérez',
-          sport: 'Cheerleading',
-          team_name: id === 'demo-1' ? 'Firesquad (Senior L3)' : 'Butterfly (Junior Prep)',
-        };
-      }
+
       const { data, error } = await supabase
         .from('children')
         .select('*')
@@ -45,16 +37,7 @@ export default function ChildProgressPage() {
   const { data: progress, isLoading: loadingProgress } = useQuery({
     queryKey: ['academic-progress', id],
     queryFn: async () => {
-      if (id?.startsWith('demo-') || isDemoUser) {
-        // Return demo progress
-        return [
-          { id: '1', skill_name: 'Técnica de Stunts', skill_level: 85, comments: 'Excelente mejora', evaluation_date: '2024-10-15' },
-          { id: '2', skill_name: 'Tumbling', skill_level: 72, comments: 'Buen progreso', evaluation_date: '2024-10-15' },
-          { id: '3', skill_name: 'Trabajo en equipo', skill_level: 90, comments: 'Sobresaliente', evaluation_date: '2024-10-15' },
-          { id: '4', skill_name: 'Coreografía', skill_level: 78, comments: 'Mejorando cada semana', evaluation_date: '2024-10-10' },
-          { id: '5', skill_name: 'Flexibilidad', skill_level: 65, comments: 'Necesita más práctica', evaluation_date: '2024-10-10' },
-        ];
-      }
+
       const { data, error } = await supabase
         .from('academic_progress')
         .select('*')

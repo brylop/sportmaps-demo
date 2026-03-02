@@ -9,19 +9,13 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { TrendingUp, MessageSquare, Award } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState } from 'react';
-import { isDemoUser } from '@/lib/demo-check';
+
 
 export default function AcademicProgressPage() {
   const { user } = useAuth();
   const [selectedChildId, setSelectedChildId] = useState<string>('');
 
-  const isDemo = isDemoUser(user);
 
-  // Demo children only for demo users
-  const demoChildren = isDemoUser ? [
-    { id: 'demo-1', full_name: 'Mateo Pérez', parent_id: user?.id },
-    { id: 'demo-2', full_name: 'Sofía Pérez', parent_id: user?.id },
-  ] : [];
 
   const { data: childrenData } = useQuery({
     queryKey: ['children', user?.id],
@@ -36,38 +30,9 @@ export default function AcademicProgressPage() {
     enabled: !!user?.id,
   });
 
-  const children = childrenData && childrenData.length > 0 ? childrenData : demoChildren;
+  const children = childrenData || [];
 
-  // Demo progress data only for demo users
-  const demoProgress = isDemoUser ? [
-    {
-      id: 'prog-1',
-      child_id: selectedChildId,
-      skill_name: 'Técnica de pase',
-      skill_level: 85,
-      evaluation_date: '2024-10-28',
-      comments: 'Excelente mejora en la precisión de los pases. Demuestra gran control del balón.',
-      children: { full_name: 'Mateo Pérez' },
-    },
-    {
-      id: 'prog-2',
-      child_id: selectedChildId,
-      skill_name: 'Condición física',
-      skill_level: 78,
-      evaluation_date: '2024-10-25',
-      comments: 'Buena resistencia. Sigue trabajando en velocidad.',
-      children: { full_name: 'Mateo Pérez' },
-    },
-    {
-      id: 'prog-3',
-      child_id: selectedChildId,
-      skill_name: 'Trabajo en equipo',
-      skill_level: 92,
-      evaluation_date: '2024-10-20',
-      comments: 'Sobresaliente. Siempre apoya a sus compañeros.',
-      children: { full_name: 'Mateo Pérez' },
-    },
-  ] : [];
+
 
   const { data: progressData, isLoading, error, refetch } = useQuery({
     queryKey: ['academic-progress', selectedChildId],
@@ -83,9 +48,7 @@ export default function AcademicProgressPage() {
     enabled: !!selectedChildId && !selectedChildId.startsWith('demo-'),
   });
 
-  const progress = (progressData && progressData.length > 0) || !selectedChildId.startsWith('demo-')
-    ? progressData
-    : demoProgress;
+  const progress = progressData || [];
 
   const getStars = (level: number) => {
     const stars = Math.ceil(level / 20);

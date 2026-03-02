@@ -23,12 +23,14 @@ export interface CartItem {
     appointmentDate?: string;
     appointmentTime?: string;
     serviceType?: string;
+    childId?: string;
+    childName?: string;
   };
 }
 
 interface CartContextType {
   items: CartItem[];
-  addItem: (item: Omit<CartItem, 'quantity'>) => void;
+  addItem: (item: Omit<CartItem, 'quantity'>, quantity?: number) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
@@ -65,17 +67,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
   }, [items]);
 
-  const addItem = (newItem: Omit<CartItem, 'quantity'>) => {
+  const addItem = (newItem: Omit<CartItem, 'quantity'>, quantity: number = 1) => {
     setItems((current) => {
       const existingIndex = current.findIndex((item) => item.id === newItem.id);
-      
+
       if (existingIndex >= 0) {
         // Only increase quantity for products
         if (newItem.type === 'product') {
           const updated = [...current];
           updated[existingIndex] = {
             ...updated[existingIndex],
-            quantity: updated[existingIndex].quantity + 1,
+            quantity: updated[existingIndex].quantity + quantity,
           };
           return updated;
         }
@@ -93,7 +95,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         description: newItem.name,
       });
 
-      return [...current, { ...newItem, quantity: 1 }];
+      return [...current, { ...newItem, quantity }];
     });
   };
 

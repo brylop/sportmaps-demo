@@ -1,11 +1,23 @@
-// Classes API service
-const API_URL = import.meta.env.VITE_BACKEND_URL || '';
+// Classes/Programs API service — uses Supabase directly (table: teams)
+// Per NAMING_DICTIONARY.md: "classes" in UI = "teams" in Supabase
+import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from './bffClient';
+import { Database } from '@/integrations/supabase/types';
+
+type TeamRow = Database['public']['Tables']['teams']['Row'];
+type TeamWithCoach = TeamRow & { coach?: { full_name: string | null } | null };
 
 export interface Schedule {
   day: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
-  start_time: string; // HH:MM
-  end_time: string; // HH:MM
+  start_time: string;
+  end_time: string;
 }
+
+const isValidUUID = (id: string | null | undefined): boolean => {
+  if (!id) return false;
+  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return regex.test(id);
+};
 
 export interface Class {
   id: string;
@@ -18,12 +30,15 @@ export interface Class {
   coach_name?: string;
   capacity: number;
   enrolled_count: number;
+  current_participants?: number;
   schedule: Schedule[];
   location?: string;
   price?: number;
+  price_monthly?: number;
   status: 'active' | 'inactive' | 'full' | 'cancelled';
   start_date?: string;
   end_date?: string;
+  active?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -32,7 +47,7 @@ export interface ClassCreate {
   name: string;
   description?: string;
   sport: string;
-  level: 'beginner' | 'intermediate' | 'advanced';
+  level?: 'beginner' | 'intermediate' | 'advanced';
   school_id: string;
   coach_id?: string;
   coach_name?: string;
@@ -79,36 +94,39 @@ export interface ClassStats {
 }
 
 class ClassesAPI {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = `${API_URL}/api/classes`;
-  }
-
+  /**
+   * Create a new program (class) in Supabase
+   */
   async createClass(classData: ClassCreate): Promise<Class> {
-    const response = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(classData),
-    });
+    const { data, error } = await supabase
+      .from('teams')
+      .insert({
+        name: classData.name,
+        description: classData.description,
+        sport: classData.sport,
+        school_id: classData.school_id,
+        coach_id: classData.coach_id,
+        price_monthly: classData.price || 0,
+        max_students: classData.capacity || 20,
+        active: classData.status !== 'inactive',
+      })
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
+      .single();
 
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      const text = await response.text();
-      console.error('API Error (Non-JSON):', text);
-      throw new Error(`Error del servidor (${response.status})`);
+    if (error) {
+      console.error('Error creating program:', error);
+      throw new Error(error.message || 'Failed to create class');
     }
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to create class');
-    }
-
-    return response.json();
+    return this.mapTeamToClass(data);
   }
 
+  /**
+   * Get programs (classes) with filters
+   */
   async getClasses(params?: {
     school_id?: string;
     sport?: string;
@@ -119,211 +137,324 @@ class ClassesAPI {
     skip?: number;
     limit?: number;
   }): Promise<Class[]> {
-    const queryParams = new URLSearchParams();
-
-    if (params?.school_id) queryParams.append('school_id', params.school_id);
-    if (params?.sport) queryParams.append('sport', params.sport);
-    if (params?.level) queryParams.append('level', params.level);
-    if (params?.status) queryParams.append('status', params.status);
-    if (params?.coach_id) queryParams.append('coach_id', params.coach_id);
-    if (params?.search) queryParams.append('search', params.search);
-    if (params?.skip !== undefined) queryParams.append('skip', params.skip.toString());
-    if (params?.limit !== undefined) queryParams.append('limit', params.limit.toString());
-
     try {
-      const url = `${this.baseUrl}?${queryParams.toString()}`;
-      const response = await fetch(url);
-
-      // Check if response is JSON (api endpoint) or HTML (fallback/404)
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        console.warn('API returned non-JSON response, falling back to mock data');
-        return this.getMockClasses();
-      }
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to fetch classes');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('Error fetching classes, using mock data:', error);
-      return this.getMockClasses();
-    }
-  }
-
-  private getMockClasses(): Class[] {
-    return [
-      {
-        id: '1',
-        name: 'Butterfly (Junior Prep)',
-        sport: 'Cheerleading',
-        level: 'beginner',
-        school_id: 'demo',
-        coach_name: 'Andrés Martínez',
-        capacity: 20,
-        enrolled_count: 15,
-        schedule: [{ day: 'tuesday', start_time: '16:00', end_time: '18:00' }],
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        name: 'Firesquad (Senior L3)',
-        sport: 'Cheerleading',
-        level: 'intermediate',
-        school_id: 'demo',
-        coach_name: 'Lucía Fernández',
-        capacity: 15,
-        enrolled_count: 15,
-        schedule: [{ day: 'monday', start_time: '17:30', end_time: '19:30' }],
-        status: 'full',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      {
-        id: '3',
-        name: 'Bombsquad (Coed L5)',
-        sport: 'Cheerleading',
-        level: 'advanced',
-        school_id: 'demo',
-        coach_name: 'Martín Gómez',
-        capacity: 10,
-        enrolled_count: 3,
-        schedule: [{ day: 'wednesday', start_time: '19:00', end_time: '21:00' }],
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-    ];
-  }
-
-  async getClass(id: string): Promise<Class> {
-    const response = await fetch(`${this.baseUrl}/${id}`);
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to fetch class');
-    }
-
-    return response.json();
-  }
-
-  async updateClass(id: string, updates: ClassUpdate): Promise<Class> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(updates),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to update class');
-    }
-
-    return response.json();
-  }
-
-  async deleteClass(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to delete class');
-    }
-  }
-
-  async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
-    try {
-      const url = `${this.baseUrl}/${classId}/enroll?student_id=${studentId}&student_name=${encodeURIComponent(studentName)}`;
-      const response = await fetch(url, {
-        method: 'POST',
-      });
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Fallback for non-JSON response (likely HTML error or empty)
-        if (!response.ok) throw new Error('API Error');
-      }
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to enroll student');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.warn('Error enrolling student (using mock):', error);
-      // Return mock enrollment for demo
-      return {
-        id: `enroll-${Date.now()}`,
-        class_id: classId,
-        student_id: studentId,
-        student_name: studentName,
-        enrollment_date: new Date().toISOString(),
-        status: 'active'
-      };
-    }
-  }
-
-  async unenrollStudent(classId: string, studentId: string): Promise<void> {
-    try {
-      const response = await fetch(`${this.baseUrl}/${classId}/enroll/${studentId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        // Try parsing error, but might fail if empty or HTML
-        try {
-          const error = await response.json();
-          throw new Error(error.detail || 'Failed to unenroll student');
-        } catch (e) {
-          throw new Error('Failed to unenroll student (Network/API error)');
-        }
-      }
-    } catch (error) {
-      console.warn('Error unenrolling student (mocking success):', error);
-      // Swallow error for demo
-    }
-  }
-
-  async getClassStudents(classId: string): Promise<any[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/${classId}/students`);
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Return empty list or mock if non-JSON
+      if (!params?.school_id || !isValidUUID(params.school_id)) {
+        console.warn('getClasses called without valid school_id, returning empty array');
         return [];
       }
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to fetch class students');
+      let query = supabase
+        .from('teams')
+        .select(`
+          *,
+          coach:coach_id(full_name)
+        `)
+        .eq('school_id', params.school_id)
+        .order('created_at', { ascending: false });
+      if (params?.sport) {
+        query = query.eq('sport', params.sport);
+      }
+      if (params?.status === 'active') {
+        query = query.eq('active', true);
+      } else if (params?.status === 'inactive') {
+        query = query.eq('active', false);
+      }
+      if (params?.search) {
+        query = query.ilike('name', `%${params.search}%`);
       }
 
-      return response.json();
+      const offset = params?.skip ?? 0;
+      const limit = params?.limit ?? 100;
+      query = query.range(offset, offset + limit - 1);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.warn('Error fetching programs from Supabase:', error.message);
+        return [];
+      }
+
+      return (data || []).map((t) => this.mapTeamToClass(t as TeamWithCoach));
     } catch (error) {
-      console.warn('Error fetching class students, returning empty list:', error);
+      console.warn('Error fetching classes:', error);
       return [];
     }
   }
 
-  async getStats(schoolId: string): Promise<ClassStats> {
-    const response = await fetch(`${this.baseUrl}/stats/${schoolId}`);
+  /**
+   * Get a single program by ID
+   */
+  async getClass(id: string): Promise<Class> {
+    const { data, error } = await supabase
+      .from('teams')
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
+      .eq('id', id)
+      .single();
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to fetch stats');
+    if (error || !data) {
+      throw new Error(error?.message || 'Class not found');
     }
 
-    return response.json();
+    return this.mapTeamToClass(data);
+  }
+
+  /**
+   * Update a program
+   */
+  async updateClass(id: string, updates: ClassUpdate): Promise<Class> {
+    const updateData: Database['public']['Tables']['teams']['Update'] = {};
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.description !== undefined) updateData.description = updates.description;
+    if (updates.sport !== undefined) updateData.sport = updates.sport;
+    if (updates.price !== undefined) updateData.price_monthly = updates.price;
+    if (updates.capacity !== undefined) updateData.max_students = updates.capacity;
+    if (updates.status !== undefined) updateData.active = updates.status !== 'inactive';
+    if (updates.coach_id !== undefined) updateData.coach_id = updates.coach_id;
+    updateData.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('teams')
+      .update(updateData)
+      .eq('id', id)
+      .select(`
+        *,
+        coach:coach_id(full_name)
+      `)
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message || 'Failed to update class');
+    }
+
+    return this.mapTeamToClass(data);
+  }
+
+  /**
+   * Delete a program
+   */
+  async deleteClass(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('teams')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(error.message || 'Failed to delete class');
+    }
+  }
+
+  /**
+   * Enroll a student in a program — inserción directa en Supabase
+   * Reemplaza la llamada al BFF para evitar falsos positivos de duplicado
+   * con enrollments en status 'cancelled' o 'completed'.
+   */
+  async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
+    // Verificar si existe enrollment activo
+    const { data: existing } = await supabase
+      .from('enrollments')
+      .select('id, status')
+      .eq('program_id', classId)
+      .eq('child_id', studentId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (existing) {
+      throw new Error('El estudiante ya está inscrito en esta clase/equipo.');
+    }
+
+    // Verificar si existe un enrollment cancelado para reactivar
+    // (evita violar el unique constraint enrollments_child_program_unique)
+    const { data: cancelled } = await supabase
+      .from('enrollments')
+      .select('id')
+      .eq('program_id', classId)
+      .eq('child_id', studentId)
+      .in('status', ['cancelled', 'completed'])
+      .maybeSingle();
+
+    let data, error;
+
+    if (cancelled) {
+      // Reactivar el enrollment existente en lugar de insertar uno nuevo
+      ({ data, error } = await supabase
+        .from('enrollments')
+        .update({
+          status: 'active',
+          team_id: classId,
+          start_date: new Date().toISOString().split('T')[0],
+        })
+        .eq('id', cancelled.id)
+        .select('id, created_at')
+        .single());
+    } else {
+      // Insertar enrollment nuevo
+      const { data: team } = await supabase
+        .from('teams')
+        .select('school_id')
+        .eq('id', classId)
+        .single();
+
+      ({ data, error } = await supabase
+        .from('enrollments')
+        .insert({
+          program_id: classId,
+          team_id: classId,
+          child_id: studentId,
+          school_id: team?.school_id,
+          status: 'active',
+          start_date: new Date().toISOString().split('T')[0],
+        })
+        .select('id, created_at')
+        .single());
+    }
+
+    if (error) throw new Error(error.message || 'Error al inscribir estudiante.');
+
+    return {
+      id: data.id,
+      class_id: classId,
+      student_id: studentId,
+      student_name: studentName,
+      enrollment_date: data.created_at,
+      status: 'active',
+    };
+  }
+
+  /**
+   * Unenroll a student from a program
+   */
+  async unenrollStudent(classId: string, studentId: string): Promise<void> {
+    const { error } = await supabase
+      .from('enrollments')
+      .update({ status: 'cancelled' })
+      .eq('program_id', classId)
+      .eq('child_id', studentId)
+      .eq('status', 'active');
+
+    if (error) {
+      console.warn('Error unenrolling student:', error.message);
+    }
+  }
+
+  /**
+   * Get all students enrolled in a program
+   */
+  async getClassStudents(classId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('enrollments')
+        .select(`
+          id,
+          created_at,
+          child_id,
+          children:child_id(id, full_name, date_of_birth, avatar_url, parent_id)
+        `)
+        .eq('program_id', classId)
+        .eq('status', 'active');
+
+      if (error) {
+        console.warn('Error fetching enrolled students:', error.message);
+        return [];
+      }
+
+      return (data || []).map((enrollment) => ({
+        enrollment_id: enrollment.id,
+        enrollment_date: enrollment.created_at,
+        student: enrollment.children as any, // Join results are still tricky for TS without complex nesting
+      }));
+    } catch (error) {
+      console.warn('Error fetching class students:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get class/program statistics for a school
+   */
+  async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<ClassStats> {
+    if ((!schoolId || !isValidUUID(schoolId)) && !coachId) {
+      return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+    }
+    try {
+      let query = supabase
+        .from('teams')
+        .select('*');
+
+      if (schoolId) {
+        query = query.eq('school_id', schoolId);
+      }
+
+      if (branchId) {
+        query = query.eq('branch_id', branchId);
+      }
+
+      if (coachId) {
+        // Obtener equipos via campo legacy Y junction table
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+        if (teamIds.length === 0) {
+          return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+        }
+        query = query.in('id', teamIds);
+      }
+
+      const { data: teams } = await query;
+
+      if (!teams) return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+
+      const total = teams.length;
+      const active = teams.filter(t => t.active).length;
+      const full = 0; // Simple logic, can refine if capacity/student count comparison is needed
+
+      const by_sport: Record<string, number> = {};
+      teams.forEach(t => {
+        if (t.sport) {
+          by_sport[t.sport] = (by_sport[t.sport] || 0) + 1;
+        }
+      });
+
+      const total_enrolled = teams.reduce((sum, t) => sum + (t.current_students || 0), 0);
+
+      return { total, active, full, by_sport, total_enrolled };
+    } catch (error) {
+      console.warn('Error fetching class stats:', error);
+      return { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 };
+    }
+  }
+
+  /**
+   * Map a Supabase 'teams' row to the Class interface
+   */
+  private mapTeamToClass(team: TeamWithCoach): Class {
+    return {
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      sport: team.sport || '',
+      level: (team.level || team.age_group || 'beginner') as 'beginner' | 'intermediate' | 'advanced',
+      school_id: team.school_id || '',
+      coach_id: team.coach_id,
+      coach_name: team.coach?.full_name,
+      capacity: team.max_students || 20,
+      enrolled_count: team.current_students || 0,
+      current_participants: team.current_students || 0,
+      schedule: (team.schedule as unknown as Schedule[]) || [],
+      price: team.price_monthly,
+      price_monthly: team.price_monthly,
+      status: team.active ? 'active' : 'inactive',
+      active: team.active,
+      created_at: team.created_at,
+      updated_at: team.updated_at,
+    };
   }
 }
 

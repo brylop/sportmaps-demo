@@ -1,12 +1,18 @@
 import { useState } from 'react';
+import { useNotifications } from '@/hooks/useDashboardStats';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Bell, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Bell,
+  CheckCircle,
+  AlertCircle,
   Info,
   Trash2,
   Check,
@@ -18,7 +24,7 @@ interface Notification {
   type: 'info' | 'success' | 'warning' | 'error';
   title: string;
   message: string;
-  timestamp: Date;
+  created_at: string;
   read: boolean;
   action?: {
     label: string;
@@ -26,56 +32,15 @@ interface Notification {
   };
 }
 
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    type: 'warning',
-    title: 'Partido próximo',
-    message: 'Tienes un partido mañana a las 10:00 AM vs Academia Norte',
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    read: false,
-    action: { label: 'Ver detalles', href: '/calendar' }
-  },
-  {
-    id: '2',
-    type: 'success',
-    title: 'Asistencia confirmada',
-    message: 'Tu asistencia al entrenamiento de hoy ha sido registrada',
-    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
-    read: false
-  },
-  {
-    id: '3',
-    type: 'info',
-    title: 'Nuevo mensaje del entrenador',
-    message: 'El entrenador Carlos ha enviado información sobre el próximo torneo',
-    timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    read: true,
-    action: { label: 'Ver mensaje', href: '/messages' }
-  },
-  {
-    id: '4',
-    type: 'success',
-    title: 'Pago procesado',
-    message: 'Tu pago de mensualidad ha sido procesado correctamente',
-    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    read: true
-  },
-  {
-    id: '5',
-    type: 'info',
-    title: 'Actualización de horario',
-    message: 'El entrenamiento del viernes se ha movido a las 17:00',
-    timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-    read: true
-  }
-];
+// Notification interface is handled by useNotifications hook result
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { data: notifications = [], isLoading } = useNotifications();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n: any) => !n.read).length;
 
   const getIcon = (type: Notification['type']) => {
     const icons = {
@@ -97,31 +62,60 @@ export default function NotificationsPage() {
     return colors[type];
   };
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
+  const markAsRead = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
   };
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllAsRead = async () => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
   };
 
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  const deleteNotification = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
   };
 
-  const getTimeAgo = (date: Date) => {
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-    
-    if (seconds < 60) return 'Hace un momento';
-    if (seconds < 3600) return `Hace ${Math.floor(seconds / 60)} minutos`;
-    if (seconds < 86400) return `Hace ${Math.floor(seconds / 3600)} horas`;
-    return `Hace ${Math.floor(seconds / 86400)} días`;
+  const getTimeAgo = (dateStr: string) => {
+    try {
+      return formatDistanceToNow(new Date(dateStr), { addSuffix: true, locale: es });
+    } catch (e) {
+      return 'Hace un momento';
+    }
   };
 
-  const filteredNotifications = filter === 'unread' 
-    ? notifications.filter(n => !n.read)
+  const filteredNotifications = filter === 'unread'
+    ? notifications.filter((n: any) => !n.read)
     : notifications;
 
   return (
@@ -183,7 +177,7 @@ export default function NotificationsPage() {
               <Bell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium mb-2">No hay notificaciones</h3>
               <p className="text-muted-foreground">
-                {filter === 'unread' 
+                {filter === 'unread'
                   ? 'Has leído todas tus notificaciones'
                   : 'No tienes notificaciones en este momento'
                 }
@@ -192,21 +186,20 @@ export default function NotificationsPage() {
           </Card>
         ) : (
           filteredNotifications.map((notification, index) => {
-            const Icon = getIcon(notification.type);
+            const Icon = getIcon(notification.type as any);
             return (
               <Card
                 key={notification.id}
-                className={`transition-all hover:shadow-md animate-in slide-in-from-left ${
-                  !notification.read ? 'border-primary/50 bg-primary/5' : ''
-                }`}
+                className={`transition-all hover:shadow-md animate-in slide-in-from-left ${!notification.read ? 'border-primary/50 bg-primary/5' : ''
+                  }`}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-4">
-                    <div className={`p-2 rounded-full bg-background ${getIconColor(notification.type)}`}>
+                    <div className={`p-2 rounded-full bg-background ${getIconColor(notification.type as any)}`}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1">
                         <h3 className="font-semibold text-sm">
@@ -216,20 +209,17 @@ export default function NotificationsPage() {
                           )}
                         </h3>
                         <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {getTimeAgo(notification.timestamp)}
+                          {getTimeAgo(notification.created_at)}
                         </span>
                       </div>
-                      
+
                       <p className="text-sm text-muted-foreground mb-3">
                         {notification.message}
                       </p>
-                      
+
                       <div className="flex items-center gap-2">
-                        {notification.action && (
-                          <Button size="sm" variant="outline">
-                            {notification.action.label}
-                          </Button>
-                        )}
+                        {/* Action handled by Supabase notifications should have a link/action structure if needed */}
+                        {/* For now, we only show buttons if they exist in DB structure or logic */}
                         {!notification.read && (
                           <Button
                             size="sm"

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { UserRole } from '@/types/dashboard';
 
 export interface DashboardStats {
@@ -27,10 +28,11 @@ export interface DashboardStats {
 
 export function useDashboardStats(role?: UserRole) {
   const { user, profile } = useAuth();
+  const { schoolId, activeBranchId, totalBranches } = useSchoolContext();
   const effectiveRole = role || profile?.role;
 
   return useQuery({
-    queryKey: ['dashboard-stats', user?.id, effectiveRole],
+    queryKey: ['dashboard-stats', user?.id, effectiveRole, schoolId, activeBranchId],
     queryFn: async (): Promise<DashboardStats> => {
       if (!user?.id) throw new Error('No user');
 
@@ -129,49 +131,32 @@ export function useDashboardStats(role?: UserRole) {
         stats.evaluations = evalCount || 0;
       }
 
-      if (effectiveRole === 'school') {
+      if (effectiveRole === 'school' || effectiveRole === 'admin') {
         try {
-          const { data: schoolData } = await supabase
-            .from('schools')
-            .select('id')
-            .eq('owner_id', user.id)
-            .limit(1);
+          const { data: schoolStats, error: rpcError } = await supabase
+            .rpc('get_school_dashboard_stats', {
+              p_user_id: user.id,
+              p_branch_id: activeBranchId || null
+            });
 
-          const school = schoolData && schoolData.length > 0 ? schoolData[0] : null;
+          if (rpcError) throw rpcError;
 
-          if (school) {
-            const { count: progCount } = await supabase
-              .from('programs')
-              .select('id', { count: 'exact' })
-              .eq('school_id', school.id);
-            stats.programs = progCount || 0;
+          if (schoolStats) {
+            stats.programs = schoolStats.programs || 0;
+            stats.activePrograms = schoolStats.active_programs || 0;
+            stats.activeTeams = schoolStats.active_teams || 0;
+            stats.totalStudents = schoolStats.total_students || 0;
+            stats.pendingPayments = schoolStats.pending_payments || 0;
+            stats.totalRevenue = schoolStats.total_revenue || 0;
 
-            const { count: activeProgCount } = await supabase
-              .from('programs')
-              .select('id', { count: 'exact' })
-              .eq('school_id', school.id)
-              .eq('active', true);
-            stats.activePrograms = activeProgCount || 0;
-
-            // Total students (enrollments)
-            const { data: myPrograms } = await supabase
-              .from('programs')
-              .select('id')
-              .eq('school_id', school.id);
-
-            const programIds = myPrograms?.map(p => p.id) || [];
-
-            if (programIds.length > 0) {
-              const { count: enrollCount } = await supabase
-                .from('enrollments')
-                .select('id', { count: 'exact', head: true })
-                .in('program_id', programIds)
-                .eq('status', 'active');
-              stats.totalStudents = enrollCount || 0;
+            if (effectiveRole === 'admin') {
+              stats.teams = totalBranches || 0;
+            } else {
+              stats.teams = schoolStats.programs || 0;
             }
           }
         } catch (error) {
-          console.warn('Error fetching school stats, falling back to 0:', error);
+          console.warn('Error fetching school stats via RPC, falling back to 0:', error);
         }
       }
 
@@ -200,7 +185,7 @@ export function useNotifications() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('notifications')
-        .select('*')
+        .select('id, title, message, type, link, read, created_at')
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
         .limit(10);

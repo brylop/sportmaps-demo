@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,22 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Mail, UserPlus, Check, Clock, X as XIcon, Send, Copy, DollarSign, Link as LinkIcon } from 'lucide-react';
+import {
+  UserPlus,
+  Search,
+  X as XIcon,
+  Clock,
+  Check,
+  Copy,
+  Share2,
+  MessageCircle,
+  Send,
+  Filter,
+  RefreshCcw,
+  DollarSign,
+  Link as LinkIcon,
+  Mail
+} from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -24,75 +39,202 @@ interface Invitation {
   monthly_fee: number;
   status: string;
   created_at: string;
+  expires_at?: string;
+  parent_phone?: string;
   registration_link?: string;
+  role_to_assign?: string;
+  program_id?: string;
+  branch_name?: string;
 }
 
 export default function InvitationsManagementPage() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { schoolId, schoolName, programs, defaultMonthlyFee } = useSchoolContext();
+  const { schoolId, schoolName, programs, defaultMonthlyFee, currentUserRole, activeBranchId } = useSchoolContext();
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'owner';
 
   const [formData, setFormData] = useState({
     parentEmail: '',
+    parentPhone: '',
     childName: '',
     programId: '',
     monthlyFee: defaultMonthlyFee,
+    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'school_admin' | 'reporter',
   });
 
-  // Demo invitations with monthly_fee
-  const [invitations, setInvitations] = useState<Invitation[]>([
-    {
-      id: '1',
-      invited_email: 'maria.gonzalez@email.com',
-      child_name: 'Mateo Pérez',
-      program_name: 'Firesquad (Senior L3)',
-      monthly_fee: 180000,
-      status: 'accepted',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: '2',
-      invited_email: 'carlos.rodriguez@email.com',
-      child_name: 'Laura Rodríguez',
-      program_name: 'Butterfly (Junior Prep)',
-      monthly_fee: 150000,
-      status: 'pending',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-    },
-    {
-      id: '3',
-      invited_email: 'ana.martinez@email.com',
-      child_name: 'Santiago Martínez',
-      program_name: 'Bombsquad (Coed L5)',
-      monthly_fee: 200000,
-      status: 'pending',
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-    },
-    {
-      id: '4',
-      invited_email: 'spoortmaps@gmail.com',
-      child_name: 'Demo Hijo',
-      program_name: 'Legends (Open L6)',
-      monthly_fee: 220000,
-      status: 'accepted',
-      created_at: new Date(Date.now() - 345600000).toISOString(),
+  // Branch selector state kept for compatibility (unused in MVP)
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+
+  const [suggestedContacts, setSuggestedContacts] = useState<{ name: string, email: string, phone?: string, childName?: string, programId?: string }[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
+
+  // Handle URL params
+  useEffect(() => {
+    const email = searchParams.get('email');
+    const child = searchParams.get('child');
+    const program = searchParams.get('program');
+    const phone = searchParams.get('phone');
+
+    if (email || child || program || phone) {
+      setFormData(prev => ({
+        ...prev,
+        parentEmail: email || prev.parentEmail,
+        childName: child || prev.childName,
+        programId: program || prev.programId,
+        parentPhone: phone || prev.parentPhone,
+      }));
+      setDialogOpen(true);
     }
-  ]);
+  }, [searchParams]);
+
+  // Pre-load contacts based on role
+  useEffect(() => {
+    if (!schoolId) return;
+    const fetchSuggestions = async () => {
+      let contacts: {
+        name: string,
+        email: string,
+        phone?: string,
+        childName?: string,
+        programId?: string
+      }[] = [];
+
+      if (formData.role === 'parent') {
+        const { data } = await supabase
+          .from('students' as any)
+          .select('full_name, parent_name, parent_phone, program_id, profiles!parent_id(email)')
+          .eq('school_id', schoolId);
+
+        if (data) {
+          contacts = (data as any[]).map((d) => ({
+            name: d.parent_name || '',
+            email: d.profiles?.email || '',
+            phone: d.parent_phone || '',
+            childName: d.full_name || '',
+            programId: d.program_id || ''
+          }));
+        }
+      } else if (['coach', 'staff', 'athlete', 'viewer', 'owner', 'admin'].includes(formData.role)) {
+        // Only query roles that exist in the school_members role constraint
+        const { data } = await supabase
+          .from('school_members')
+          .select('role, profiles(full_name, email, phone)')
+          .eq('school_id', schoolId)
+          .eq('role', formData.role);
+
+        if (data) {
+          contacts = (data as any[]).map((d) => ({
+            name: d.profiles?.full_name || '',
+            email: d.profiles?.email || '',
+            phone: d.profiles?.phone || ''
+          }));
+        }
+      }
+      // For school_admin and reporter: no pre-existing suggestions (new role)
+      // Deduplicate and filter empty
+      const unique = Array.from(new Set(contacts.map(c => c.email))).map(email => contacts.find(c => c.email === email)!);
+      setSuggestedContacts(unique.filter(c => c.email));
+    };
+    fetchSuggestions();
+  }, [schoolId, formData.role]);
+
+  // Fetch real invitations
+  const { data: invitations = [], isLoading } = useQuery<Invitation[]>({
+    queryKey: ['invitations', schoolId, activeBranchId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      let query = supabase
+        .from('invitations') as any;
+
+      query = query.select('*, school_branches(name)')
+        .eq('school_id', schoolId);
+
+      if (activeBranchId) {
+        query = query.eq('branch_id', activeBranchId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Map DB fields to Invitation interface
+      return (data || []).map((inv: any) => ({ // inv here is from DB result
+        id: inv.id,
+        invited_email: inv.email,
+        parent_phone: inv.parent_phone || '',
+        child_name: inv.child_name || (inv.role_to_assign !== 'parent' ? '—' : ''),
+        program_name: programs.find(p => p.id === inv.program_id)?.name || (inv.role_to_assign === 'parent' ? 'Programa General' : '—'),
+        monthly_fee: inv.monthly_fee || 0,
+        status: inv.status,
+        created_at: inv.created_at,
+        expires_at: inv.expires_at || null,
+        role_to_assign: inv.role_to_assign,
+        branch_name: inv.school_branches?.name || 'Sede Principal'
+      })) as Invitation[];
+    },
+    enabled: !!schoolId,
+  });
+
+  // Client-side filtering and sorting
+  const filteredInvitations = invitations
+    .filter(inv => {
+      // 1. Status Filter
+      if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
+
+      // 2. Search Filter
+      const search = searchTerm.toLowerCase();
+      if (!search) return true;
+
+      return (
+        inv.invited_email.toLowerCase().includes(search) ||
+        inv.child_name.toLowerCase().includes(search) ||
+        inv.program_name.toLowerCase().includes(search) ||
+        (inv.parent_phone && inv.parent_phone.includes(search))
+      );
+    })
+    .sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (sortBy === 'name') return (a.child_name || a.invited_email).localeCompare(b.child_name || b.invited_email);
+      return 0;
+    });
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const generateRegistrationLink = (invitation: Partial<Invitation>) => {
+    const role = invitation.role_to_assign || formData.role;
+    const email = invitation.invited_email || formData.parentEmail;
+    const inviteId = invitation.id || '';
+    const child = invitation.child_name || formData.childName;
+    const program = invitation.program_id || formData.programId;
+
     const params = new URLSearchParams({
       school: schoolId || 'demo',
-      program: invitation.program_name || '',
-      fee: String(invitation.monthly_fee || defaultMonthlyFee),
-      child: invitation.child_name || '',
+      email: email || '',
+      invite: inviteId,
+      role: role
     });
+
+    if (role === 'parent') {
+      if (child) params.append('child', child);
+      if (program) params.append('program', program);
+    }
+
     return `${window.location.origin}/register?${params.toString()}`;
+  };
+
+  const sendWhatsApp = (invitation: Partial<Invitation>) => {
+    const link = generateRegistrationLink(invitation);
+    const message = `¡Hola! Te invitamos a inscribir a ${invitation.child_name} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const phone = invitation.parent_phone || formData.parentPhone;
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const copyLinkToClipboard = (invitation: Invitation) => {
@@ -110,77 +252,86 @@ export default function InvitationsManagementPage() {
       const programName = selectedProgram?.name || 'Programa';
       const fee = data.monthlyFee || selectedProgram?.monthly_fee || defaultMonthlyFee;
 
-      // Create new invitation in local state
-      const newInvitation: Invitation = {
-        id: `inv-${Date.now()}`,
-        invited_email: data.parentEmail,
-        child_name: data.childName,
-        program_name: programName,
-        monthly_fee: fee,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        registration_link: generateRegistrationLink({
-          program_name: programName,
-          monthly_fee: fee,
-          child_name: data.childName,
-        }),
-      };
+      // 1. Create in DB via RPC (generic)
+      const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
+        p_email: data.parentEmail,
+        p_role: data.role,
+        p_child_name: data.role === 'parent' ? data.childName : null,
+        // Program: applies to parent, coach and athlete
+        p_program_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.programId || null) : null,
+        p_monthly_fee: data.role === 'parent' ? fee : null,
+        p_parent_phone: data.parentPhone || null,
+        // Branch: siempre usar la sede del admin que invita
+        p_branch_id: activeBranchId || null
+      });
 
-      setInvitations(prev => [newInvitation, ...prev]);
+      if (error) throw error;
 
-      // Try to send email via edge function (non-blocking)
-      try {
-        await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
-            },
-            body: JSON.stringify({
-              to: data.parentEmail,
-              parentName: data.parentEmail.split('@')[0],
-              childName: data.childName,
-              schoolName,
-              programName,
-              monthlyFee: fee,
-              invitationLink: newInvitation.registration_link,
-            })
-          }
-        );
-      } catch (e) {
-        console.warn('Email send failed (demo mode):', e);
-      }
+      // 2. Try to send email via edge function (non-blocking)
+      const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(data.parentEmail)}&role=${data.role}&invite=${inviteId}`;
 
-      return newInvitation;
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+          },
+          body: JSON.stringify({
+            to: data.parentEmail,
+            parentName: data.parentEmail.split('@')[0],
+            childName: data.childName,
+            schoolName,
+            programName,
+            monthlyFee: fee,
+            invitationLink: registration_link,
+          })
+        }
+      ).catch(error => {
+        console.warn('Email send failed (RPC succeeded):', error);
+      });
+
+      return { id: inviteId, registration_link };
     },
-    onSuccess: (invitation) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       setDialogOpen(false);
-      setFormData({ parentEmail: '', childName: '', programId: '', monthlyFee: defaultMonthlyFee });
+      const email = formData.parentEmail;
+      setFormData({
+        parentEmail: '',
+        parentPhone: '',
+        childName: '',
+        programId: '',
+        monthlyFee: defaultMonthlyFee,
+        role: 'parent'
+      });
+      setSelectedBranchId('');
 
       toast({
         title: '✅ Invitación creada',
-        description: `Invitación para ${invitation.child_name} creada. Mensualidad: ${formatCurrency(invitation.monthly_fee)}`,
+        description: `Invitación registrada para ${email}.`,
       });
 
       // Auto-copy registration link
-      if (invitation.registration_link) {
-        navigator.clipboard.writeText(invitation.registration_link);
+      if (result.registration_link) {
+        navigator.clipboard.writeText(result.registration_link);
         toast({
           title: '📋 Link copiado automáticamente',
           description: 'Compártelo por WhatsApp o email para que el padre se registre.',
         });
       }
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message
+        : (typeof error === 'object' && error !== null && 'message' in error) ? String((error as any).message)
+          : String(error);
       toast({
         title: '❌ Error',
-        description: error.message || 'No se pudo crear la invitación',
+        description: `No se pudo enviar la invitación: ${message}`,
         variant: 'destructive',
       });
-    }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -200,28 +351,17 @@ export default function InvitationsManagementPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'accepted':
-        return (
-          <Badge className="bg-green-500">
-            <Check className="w-3 h-3 mr-1" />
-            Aceptada
-          </Badge>
-        );
+        return <Badge className="bg-green-500"><Check className="w-3 h-3 mr-1" />Aceptada</Badge>;
       case 'pending':
-        return (
-          <Badge variant="secondary">
-            <Clock className="w-3 h-3 mr-1" />
-            Pendiente
-          </Badge>
-        );
+        return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
       case 'rejected':
-        return (
-          <Badge variant="destructive">
-            <XIcon className="w-3 h-3 mr-1" />
-            Rechazada
-          </Badge>
-        );
+        return <Badge variant="destructive"><XIcon className="w-3 h-3 mr-1" />Rechazada</Badge>;
+      case 'expired':
+        return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirada</Badge>;
+      case 'cancelled':
+        return <Badge variant="outline" className="text-gray-400 border-gray-300"><XIcon className="w-3 h-3 mr-1" />Cancelada</Badge>;
       default:
-        return null;
+        return <Badge variant="outline" className="text-gray-400">{status}</Badge>;
     }
   };
 
@@ -229,27 +369,70 @@ export default function InvitationsManagementPage() {
     total: invitations.length,
     accepted: invitations.filter(i => i.status === 'accepted').length,
     pending: invitations.filter(i => i.status === 'pending').length,
-    rejected: invitations.filter(i => i.status === 'rejected').length
+    rejected: invitations.filter(i => i.status === 'rejected').length,
+    expired: invitations.filter(i => i.status === 'expired').length,
   };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Gestión de Invitaciones</h1>
-          <p className="text-muted-foreground">
-            Invita a padres para que inscriban a sus hijos en <strong>{schoolName}</strong>
-          </p>
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card p-4 rounded-lg border shadow-sm">
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nombre, email, teléfono o programa..."
+            className="pl-9"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+              onClick={() => setSearchTerm('')}
+            >
+              <XIcon className="h-4 w-4" />
+            </Button>
+          )}
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <UserPlus className="w-4 h-4 mr-2" />
-          Nueva Invitación
-        </Button>
+
+        <div className="flex gap-2 w-full md:w-auto">
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-full md:w-32">
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Más recientes</SelectItem>
+              <SelectItem value="oldest">Más antiguos</SelectItem>
+              <SelectItem value="name">Por nombre</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(searchTerm || statusFilter !== 'all') && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearchTerm('');
+                setStatusFilter('all');
+              }}
+              className="flex-1 md:flex-none"
+            >
+              Limpiar Filtros
+            </Button>
+          )}
+          <Button onClick={() => setDialogOpen(true)} className="flex-1 md:flex-none">
+            <UserPlus className="w-4 h-4 mr-2" />
+            Nueva Invitación
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-primary/20 ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter('all')}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Invitaciones
@@ -260,7 +443,10 @@ export default function InvitationsManagementPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-green-500/20 ${statusFilter === 'accepted' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter('accepted')}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Aceptadas
@@ -271,7 +457,10 @@ export default function InvitationsManagementPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-yellow-500/20 ${statusFilter === 'pending' ? 'ring-2 ring-yellow-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter('pending')}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Pendientes
@@ -282,7 +471,10 @@ export default function InvitationsManagementPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-red-500/20 ${statusFilter === 'rejected' ? 'ring-2 ring-red-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
+          onClick={() => setStatusFilter('rejected')}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Rechazadas
@@ -290,6 +482,19 @@ export default function InvitationsManagementPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-500">{stats.rejected}</div>
+          </CardContent>
+        </Card>
+
+        <Card
+          className={`cursor-pointer transition-all hover:ring-2 hover:ring-orange-500/20 ${statusFilter === 'expired' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'
+            }`}
+          onClick={() => setStatusFilter('expired')}
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Expiradas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-500">{stats.expired}</div>
           </CardContent>
         </Card>
       </div>
@@ -303,48 +508,81 @@ export default function InvitationsManagementPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Email del Padre</TableHead>
-                <TableHead>Nombre del Hijo</TableHead>
-                <TableHead>Programa</TableHead>
+                <TableHead>Email / Rol</TableHead>
+                <TableHead>Sede</TableHead>
+                <TableHead>Estudiante / Programa</TableHead>
                 <TableHead>Mensualidad</TableHead>
-                <TableHead>Fecha de Envío</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Acciones</TableHead>
+                <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invitations.map((invitation) => (
+              {filteredInvitations.map((invitation) => (
                 <TableRow key={invitation.id}>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      {invitation.invited_email}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-sm">{invitation.invited_email}</span>
+                      </div>
+                      <Badge variant="secondary" className="w-fit text-[10px] capitalize font-normal">
+                        {invitation.role_to_assign === 'parent' ? 'Padre' :
+                          invitation.role_to_assign === 'coach' ? 'Entrenador' :
+                            invitation.role_to_assign === 'athlete' ? 'Atleta' :
+                              invitation.role_to_assign === 'school_admin' ? 'Admin Sede' :
+                                invitation.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
+                      </Badge>
+                      {invitation.parent_phone && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <MessageCircle className="w-3 h-3 text-green-500" />
+                          <span className="text-xs text-muted-foreground">{invitation.parent_phone}</span>
+                        </div>
+                      )}
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">
-                    {invitation.child_name}
+                  <TableCell>
+                    <div className="flex flex-col gap-1 text-xs">
+                      <span className="font-medium">{invitation.branch_name}</span>
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="text-xs">{invitation.program_name}</Badge>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium text-xs">
+                        {invitation.child_name || '—'}
+                      </span>
+                      {invitation.program_name !== '—' && (
+                        <Badge variant="outline" className="w-fit text-[10px] font-normal">{invitation.program_name}</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="font-semibold text-primary">
-                    {formatCurrency(invitation.monthly_fee)}
-                  </TableCell>
-                  <TableCell>
-                    {format(new Date(invitation.created_at), 'PPP', { locale: es })}
+                    {invitation.role_to_assign === 'parent' ? formatCurrency(invitation.monthly_fee) : '—'}
                   </TableCell>
                   <TableCell>
                     {getStatusBadge(invitation.status)}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
+                  <TableCell className="text-xs">
+                    {format(new Date(invitation.created_at), 'PPP', { locale: es })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => copyLinkToClipboard(invitation)}
-                        title="Copiar link de registro"
+                        title="Copiar link"
                       >
                         <Copy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        onClick={() => sendWhatsApp(invitation)}
+                        title="Enviar por WhatsApp"
+                      >
+                        <MessageCircle className="w-4 h-4" />
                       </Button>
                       {invitation.status === 'pending' && (
                         <Button
@@ -369,106 +607,226 @@ export default function InvitationsManagementPage() {
         </CardContent>
       </Card>
 
-      {/* Create Invitation Dialog */}
+      {/* ── Create Invitation Dialog ──────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Enviar Nueva Invitación</DialogTitle>
-            <DialogDescription>
-              Crea una invitación para que un padre inscriba a su hijo. Se generará un link de registro.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-md sm:max-w-lg p-0 overflow-hidden">
+          {/* Header */}
+          <div className="px-6 pt-6 pb-4 border-b bg-gradient-to-b from-primary/5 to-transparent">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                Nueva Invitación
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                {formData.role === 'parent'
+                  ? 'Invita a un padre para inscribir a su hijo. Se generará un link de registro.'
+                  : formData.role === 'coach'
+                    ? 'Invita un entrenador a unirse a tu academia.'
+                    : formData.role === 'school_admin'
+                      ? 'Invita un administrador que gestionará su propia sede.'
+                      : formData.role === 'reporter'
+                        ? 'Invita un súper usuario con acceso de solo lectura a reportes.'
+                        : 'Genera un link de registro personalizado.'}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
+            {/* Role selector */}
             <div className="space-y-2">
-              <Label htmlFor="parentEmail">Email del Padre/Tutor *</Label>
-              <Input
-                id="parentEmail"
-                type="email"
-                placeholder="padre@ejemplo.com"
-                value={formData.parentEmail}
-                onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="childName">Nombre del Hijo/a *</Label>
-              <Input
-                id="childName"
-                placeholder="Ej: María Rodríguez"
-                value={formData.childName}
-                onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="programId">Programa *</Label>
-              <Select
-                value={formData.programId}
-                onValueChange={handleProgramChange}
-                required
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar programa" />
-                </SelectTrigger>
-                <SelectContent>
-                  {programs.map(program => (
-                    <SelectItem key={program.id} value={program.id}>
-                      {program.name} — {formatCurrency(program.monthly_fee)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="monthlyFee">Mensualidad (COP) *</Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="monthlyFee"
-                  type="number"
-                  className="pl-9"
-                  value={formData.monthlyFee}
-                  onChange={(e) => setFormData({ ...formData, monthlyFee: parseInt(e.target.value) || 0 })}
-                  required
-                />
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de invitación</Label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'parent', label: '👨‍👩‍👧 Padre/Madre' },
+                  { id: 'coach', label: '🏋️ Entrenador' },
+                  { id: 'athlete', label: '⚽ Atleta' },
+                  { id: 'school_admin', label: '🔑 Administrador' },
+                  { id: 'reporter', label: '📊 Súper Usuario' },
+                  { id: 'guest', label: '👤 Invitado' },
+                ].map((role) => (
+                  <Button
+                    key={role.id}
+                    type="button"
+                    variant={formData.role === role.id ? 'default' : 'outline'}
+                    className={`text-xs h-9 px-2 transition-all ${formData.role === role.id
+                        ? 'ring-2 ring-primary/30 shadow-sm'
+                        : 'hover:bg-accent'
+                      }`}
+                    onClick={() => setFormData({
+                      ...formData,
+                      role: role.id as typeof formData.role,
+                      ...(role.id !== 'parent' ? {
+                        childName: '',
+                        programId: '',
+                        monthlyFee: defaultMonthlyFee
+                      } : {})
+                    })}
+                  >
+                    {role.label}
+                  </Button>
+                ))}
               </div>
             </div>
 
+            {/* Info block for school_admin */}
+            {formData.role === 'school_admin' && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-400">
+                <strong>Nota:</strong> El administrador invitado creará y gestionará su propia sede al registrarse. Verá solo los datos de su sede.
+              </div>
+            )}
+
+            {/* Info block for reporter role */}
+            {formData.role === 'reporter' && (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm text-blue-700 dark:text-blue-400">
+                <strong>Súper Usuario:</strong> Acceso de solo lectura a reportes y analíticas. No puede hacer cambios ni ver información financiera sensible.
+              </div>
+            )}
+
+            {/* Email */}
+            <div className="space-y-1.5">
+              <Label htmlFor="parentEmail" className="text-sm font-medium">
+                Email *
+              </Label>
+              <Input
+                id="parentEmail"
+                type="email"
+                placeholder="ejemplo@correo.com"
+                value={formData.parentEmail}
+                onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
+                required
+                className="h-10"
+              />
+
+              {/* Contact Suggestions */}
+              {suggestedContacts.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Sugeridos:
+                  </p>
+                  <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
+                    {suggestedContacts.slice(0, 3).map(contact => (
+                      <div
+                        key={contact.email}
+                        className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
+                        onClick={() => {
+                          const newFormData = {
+                            ...formData,
+                            parentEmail: contact.email,
+                            parentPhone: contact.phone || formData.parentPhone,
+                          };
+                          if (formData.role === 'parent') {
+                            newFormData.childName = contact.childName || formData.childName;
+                            newFormData.programId = contact.programId || formData.programId;
+                            const prog = programs.find(p => p.id === contact.programId);
+                            if (prog) newFormData.monthlyFee = prog.monthly_fee;
+                          }
+                          setFormData(newFormData);
+                        }}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold group-hover:text-primary">{contact.name || 'Sin nombre'}</span>
+                          <span className="text-[10px] text-muted-foreground">{contact.email}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[9px] h-5 group-hover:bg-primary group-hover:text-white transition-colors">
+                          Usar
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* WhatsApp / Phone */}
+            <div className="space-y-1.5">
+              <Label htmlFor="parentPhone" className="text-sm font-medium">WhatsApp / Teléfono</Label>
+              <Input
+                id="parentPhone"
+                placeholder="Ej: 3001234567"
+                value={formData.parentPhone}
+                onChange={(e) => setFormData({ ...formData, parentPhone: e.target.value })}
+                className="h-10"
+              />
+            </div>
+
+            {/* Program selector — for parent, coach and athlete */}
+            {['parent', 'coach', 'athlete'].includes(formData.role) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="programId" className="text-sm font-medium">
+                  Programa {formData.role === 'parent' ? '*' : '(opcional)'}
+                </Label>
+                <Select value={formData.programId} onValueChange={handleProgramChange}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Seleccionar programa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {programs.map(program => (
+                      <SelectItem key={program.id} value={program.id}>
+                        {program.name} — {formatCurrency(program.monthly_fee)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Child name — only for parent role */}
+            {formData.role === 'parent' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="childName" className="text-sm font-medium">Nombre del Hijo/a *</Label>
+                <Input
+                  id="childName"
+                  placeholder="Ej: María Rodríguez"
+                  value={formData.childName}
+                  onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
+                  required
+                  className="h-10"
+                />
+              </div>
+            )}
+
             {/* Preview link */}
-            {formData.childName && formData.programId && (
+            {formData.parentEmail && (
               <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2">
                 <LinkIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-                <div>
+                <div className="overflow-hidden">
                   <p className="text-xs font-medium">Link de registro:</p>
-                  <p className="text-xs text-muted-foreground break-all">
-                    {generateRegistrationLink({
-                      program_name: programs.find(p => p.id === formData.programId)?.name || '',
-                      monthly_fee: formData.monthlyFee,
-                      child_name: formData.childName,
-                    })}
+                  <p className="text-[10px] text-muted-foreground break-all leading-tight italic">
+                    {generateRegistrationLink({})}
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="flex gap-2 justify-end pt-4">
+            {/* Actions */}
+            <div className="flex gap-2 justify-end pt-4 border-t">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
+                className="px-4"
                 onClick={() => setDialogOpen(false)}
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
+                className="px-6 shadow-sm"
                 disabled={sendInvitationMutation.isPending}
               >
+                <Send className="w-4 h-4 mr-2" />
                 {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
               </Button>
+              {formData.parentPhone && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="px-4 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-900/30"
+                  onClick={() => sendWhatsApp({})}
+                >
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  WhatsApp
+                </Button>
+              )}
             </div>
           </form>
         </DialogContent>
