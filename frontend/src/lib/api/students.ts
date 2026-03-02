@@ -337,12 +337,20 @@ class StudentsAPI {
    * Update a student
    */
   async updateStudent(id: string, updates: StudentUpdate): Promise<Student> {
+    const dbUpdates: any = {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Mapear status a is_active para la BD
+    if (updates.status !== undefined) {
+      dbUpdates.is_active = updates.status === 'active';
+      delete dbUpdates.status;
+    }
+
     const { data, error } = await supabase
       .from('children')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
+      .update(dbUpdates)
       .eq('id', id)
       .select()
       .single();
