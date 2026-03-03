@@ -18,7 +18,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
-import { EmailTemplates } from '@/lib/email-templates';
 
 interface BillingSettings {
   school_id: string;
@@ -223,9 +222,15 @@ export default function PaymentsAutomationPage() {
           if (fullPayment?.parent_id) {
             if (payment.parent?.email) {
               await emailClient.send({
+                type: 'payment_confirmation',
                 to: payment.parent.email,
-                subject: '¡Pago Aprobado - SportMaps!',
-                html: EmailTemplates.paymentConfirmation(payment.parent.full_name || 'Usuario', formatCurrency(payment.amount), payment.concept, payment.id.slice(0, 8).toUpperCase()),
+                data: {
+                  userName: payment.parent.full_name || 'Usuario',
+                  schoolName: 'Tu Escuela',
+                  amount: formatCurrency(payment.amount),
+                  concept: payment.concept,
+                  reference: payment.id.slice(0, 8).toUpperCase(),
+                },
               });
             }
             await supabase.rpc('notify_user', {

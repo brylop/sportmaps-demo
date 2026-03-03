@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
-import { EmailTemplates } from '@/lib/email-templates';
 import { bffClient } from '@/lib/api/bffClient';
 
 /**
@@ -516,14 +515,13 @@ export async function createStudentWithPendingPayment(params: {
             const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId || ''}`;
 
             await emailClient.send({
+                type: 'parent_invitation',
                 to: params.parentEmail,
-                subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
-                html: EmailTemplates.invitation(
-                    params.parentName || 'Padre de Familia',
-                    params.fullName,
-                    params.schoolName || 'nuestra escuela',
-                    inviteLink
-                )
+                data: {
+                    schoolName: params.schoolName || 'Tu Escuela',
+                    childName: params.fullName,
+                    registrationUrl: inviteLink,
+                },
             });
             console.log(`✉️ Invitación enviada y registrada para ${params.parentEmail}`);
         } catch (inviteErr) {
