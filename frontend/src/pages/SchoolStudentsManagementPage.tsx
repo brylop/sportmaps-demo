@@ -16,7 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -33,10 +33,11 @@ const studentSchema = z.object({
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
   program_id: z.string().min(1, 'Selecciona un programa'),
-  monthly_fee: z.coerce.number().min(10000, 'Mínimo $10.000 COP'),
+  monthly_fee: z.number().min(10000, 'Mínimo $10.000 COP'),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
 });
+
 type StudentFormData = z.infer<typeof studentSchema>;
 
 export default function SchoolStudentsManagementPage() {
@@ -52,6 +53,8 @@ export default function SchoolStudentsManagementPage() {
   const [viewingStudent, setViewingStudent] = useState<StudentViewRow | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
 
   const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
@@ -74,6 +77,28 @@ export default function SchoolStudentsManagementPage() {
       setCoachIdResolved(true);
     }
   }, [profile?.role, profile?.email, schoolId]);
+
+  useEffect(() => {
+    if (!viewingStudent) { setStudentDocs([]); return; }
+    const studentId = viewingStudent.id;
+    setLoadingDocs(true);
+    supabase.storage
+      .from('identity-documents')
+      .list(`children/${studentId}/docs`, { limit: 20 })
+      .then(async ({ data: files, error }) => {
+        if (error || !files) { setStudentDocs([]); return; }
+        const docs = await Promise.all(
+          files.map(async (f) => {
+            const { data } = await supabase.storage
+              .from('identity-documents')
+              .createSignedUrl(`children/${studentId}/docs/${f.name}`, 300);
+            return { name: f.name, url: data?.signedUrl || '' };
+          })
+        );
+        setStudentDocs(docs.filter(d => d.url));
+      })
+      .finally(() => setLoadingDocs(false));
+  }, [viewingStudent]);
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
@@ -590,7 +615,13 @@ export default function SchoolStudentsManagementPage() {
                   <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="monthly_fee" type="number" className="pl-9" placeholder="150000" {...form.register('monthly_fee')} />
+                    <Input
+                      id="monthly_fee"
+                      type="number"
+                      className="pl-9"
+                      placeholder="150000"
+                      {...form.register('monthly_fee', { valueAsNumber: true })}
+                    />
                   </div>
                   {form.formState.errors.monthly_fee && <p className="text-sm text-destructive">{form.formState.errors.monthly_fee.message}</p>}
                 </div>
@@ -668,6 +699,40 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ))}
               </div>
+              {/* Identity Documents */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <FolderOpen className="h-4 w-4 text-primary" />
+                  Documentos de Identidad
+                </div>
+                {loadingDocs ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Cargando documentos...
+                  </div>
+                ) : studentDocs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
+                    No hay documentos subidos para este estudiante.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {studentDocs.map((doc) => (
+                      <a
+                        key={doc.name}
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="truncate">{doc.name}</span>
+                        </span>
+                        <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
               <DialogFooter><Button onClick={() => setViewingStudent(null)}>Cerrar</Button></DialogFooter>
             </div>
           )}
@@ -682,7 +747,7 @@ export default function SchoolStudentsManagementPage() {
           toast({ title: "Importación completada", description: "La lista de estudiantes se ha actualizado." });
           queryClient.invalidateQueries({ queryKey: ['school-students'] });
         }}
-        schoolId={schoolId || 'demo-school'}
+        schoolId={schoolId ?? ''}
         schoolName={schoolName}
         branchId={activeBranchId}
         students={students}

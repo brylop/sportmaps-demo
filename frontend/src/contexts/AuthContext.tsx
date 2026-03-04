@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { emailClient } from '@/lib/email-client';
 import { Database } from '@/integrations/supabase/types';
 
 interface UserProfile {
@@ -122,7 +123,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
               const created = await createProfile(session.user.id, {
                 full_name: session.user.user_metadata?.full_name || 'Usuario',
-                role: 'athlete',
+                email: session.user.email || '',
+                role: session.user.user_metadata?.role || 'athlete',
               });
               setProfile(created as UserProfile);
             }
@@ -218,11 +220,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         // Profile creation is handled by DB Triggers for security
-        // await createProfile(data.user.id, userData);
         toast({
           title: "¡Registro exitoso!",
           description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
         });
+
+        // Send welcome email for school owners (non-blocking)
+        if (userData.role === 'school' && userData.school_name) {
+          emailClient.send({
+            type: 'welcome_school',
+            to: email,
+            data: {
+              userName: userData.full_name || 'Administrador',
+              schoolName: userData.school_name,
+            },
+          }).catch((err) => console.warn('Welcome email failed:', err));
+        }
       }
     } catch (error: unknown) {
       const err = error as Error;
