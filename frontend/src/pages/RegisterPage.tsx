@@ -22,6 +22,9 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
+// Roles que representan instituciones/negocios (no personas físicas)
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
+
 // Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -29,7 +32,7 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().regex(/^\+?[0-9\s-]*$/, 'Formato de teléfono inválido').optional().or(z.literal('')),
-  dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
+  dateOfBirth: z.string().optional(),
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
@@ -37,13 +40,22 @@ const registerSchema = z.object({
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
 }).refine((data) => {
-  // Soporta tanto 'school' como 'school_admin' para mayor robustez
-  if ((data.role === 'school' || data.role === 'school_admin') && (!data.schoolName || data.schoolName.trim() === '')) {
+  // Fecha de nacimiento requerida solo para usuarios individuales
+  if (!INSTITUTION_ROLES.includes(data.role) && (!data.dateOfBirth || data.dateOfBirth.trim() === '')) {
     return false;
   }
   return true;
 }, {
-  message: 'El nombre de la academia es requerido para este perfil',
+  message: 'La fecha de nacimiento es requerida',
+  path: ['dateOfBirth'],
+}).refine((data) => {
+  // Nombre de academia solo requerido al crear una escuela nueva (role=school)
+  if (data.role === 'school' && (!data.schoolName || data.schoolName.trim() === '')) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El nombre de la academia es requerido',
   path: ['schoolName'],
 });
 
@@ -134,6 +146,10 @@ export default function RegisterPage() {
             role_to_assign: invite.role_to_assign,
             child_name: invite.child_name,
           });
+          // Pre-fill schoolName so la validación pase y el backend tenga contexto
+          if (invite.school_name) {
+            setValue('schoolName', invite.school_name);
+          }
         }
       } catch (err) {
         console.warn('Invitation validation failed or ID is invalid. This is expected if the link is malformed or unauthorized.', err);
@@ -439,6 +455,7 @@ export default function RegisterPage() {
               />
             </div>
 
+            {!INSTITUTION_ROLES.includes(watch('role')) && (
             <div className="space-y-2">
               <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
               <Controller
@@ -493,6 +510,7 @@ export default function RegisterPage() {
                 <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
               )}
             </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
@@ -515,17 +533,19 @@ export default function RegisterPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {roles.length > 0 ? (
-                          roles.map((role) => (
-                            <SelectItem key={role.id} value={role.name}>
-                              {role.display_name}
-                            </SelectItem>
-                          ))
+                          roles
+                            .filter(r => !['admin', 'super_admin', 'reporter', 'school_admin'].includes(r.name))
+                            .map((role) => (
+                              <SelectItem key={role.id} value={role.name}>
+                                {role.display_name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <>
                             <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
                             <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
                             <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
-                            <SelectItem value={USER_ROLES.SCHOOL_ADMIN}>🏫 Escuela/Centro Deportivo</SelectItem>
+                            <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
                           </>
                         )}
                       </SelectContent>
@@ -538,7 +558,7 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === USER_ROLES.SCHOOL_ADMIN || watch('role') === 'school') && (
+            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === 'school') && !inviteId && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <Label htmlFor="schoolName">Nombre de la Academia</Label>
                 <Input
