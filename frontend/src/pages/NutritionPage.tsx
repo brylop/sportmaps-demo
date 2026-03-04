@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Plus, Apple, Salad, Beef, Droplets, Target, User, AlertCircle } from 'lucide-react';
+import { Search, Plus, Apple, Salad, Beef, Droplets, Target, User } from 'lucide-react';
 
 interface NutritionPlan {
   id: string;
@@ -19,12 +19,7 @@ interface NutritionPlan {
   endDate: string;
 }
 
-const mockPlans: NutritionPlan[] = [
-  { id: '1', athlete: 'Miguel Torres', goal: 'Aumento masa muscular', calories: 3200, protein: 180, carbs: 400, fat: 80, status: 'active', startDate: '2025-12-01', endDate: '2026-02-28' },
-  { id: '2', athlete: 'Sofía Ramírez', goal: 'Definición', calories: 1800, protein: 140, carbs: 150, fat: 60, status: 'active', startDate: '2025-12-15', endDate: '2026-01-31' },
-  { id: '3', athlete: 'Diego Fernández', goal: 'Rendimiento maratón', calories: 2800, protein: 120, carbs: 450, fat: 70, status: 'active', startDate: '2025-11-01', endDate: '2026-03-15' },
-  { id: '4', athlete: 'Valentina Castro', goal: 'Recuperación lesión', calories: 2200, protein: 150, carbs: 250, fat: 65, status: 'completed', startDate: '2025-10-01', endDate: '2025-12-15' },
-];
+const mockPlans: NutritionPlan[] = [];
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
   active: { label: 'Activo', variant: 'default' },

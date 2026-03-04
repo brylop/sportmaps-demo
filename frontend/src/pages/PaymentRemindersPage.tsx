@@ -17,6 +17,7 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { emailClient } from '@/lib/email-client';
 
 export default function PaymentRemindersPage() {
     const { schoolId, activeBranchId, activeBranchName } = useSchoolContext();
@@ -84,12 +85,31 @@ export default function PaymentRemindersPage() {
             return;
         }
         setSending(true);
+        let sent = 0;
+        let failed = 0;
         try {
-            // Simulate sending -- in production this would call a backend endpoint/edge function
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            const count = selectedIds.size;
-            toast.success(`✅ ${count} recordatorio${count > 1 ? 's' : ''} enviado${count > 1 ? 's' : ''}`);
+            const selected = batch?.reminders.filter(r => selectedIds.has(r.id)) || [];
+            for (const reminder of selected) {
+                if (!reminder.parentEmail) { failed++; continue; }
+                try {
+                    await emailClient.send({
+                        type: 'payment_reminder',
+                        to: reminder.parentEmail,
+                        data: {
+                            userName: reminder.parentName,
+                            schoolName: batch?.schoolId || '',
+                            concept: reminder.programName,
+                            amount: formatCurrency(reminder.amount),
+                            dueDate: formatDate(reminder.dueDate),
+                        },
+                    });
+                    sent++;
+                } catch {
+                    failed++;
+                }
+            }
+            if (sent > 0) toast.success(`✅ ${sent} recordatorio${sent > 1 ? 's' : ''} enviado${sent > 1 ? 's' : ''}`);
+            if (failed > 0) toast.warning(`${failed} sin email registrado, no enviado${failed > 1 ? 's' : ''}`);
             setSelectedIds(new Set());
         } catch (error: any) {
             toast.error(error.message || 'Error al enviar recordatorios');

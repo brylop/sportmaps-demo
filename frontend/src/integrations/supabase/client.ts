@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Falla de forma explícita si las variables no están configuradas
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -13,7 +13,7 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     '❌ Supabase no configurado.',
     'Crea el archivo frontend/.env.local con:',
     '  VITE_SUPABASE_URL=https://tu-proyecto.supabase.co',
-    '  VITE_SUPABASE_PUBLISHABLE_KEY=tu_anon_key',
+    '  VITE_SUPABASE_ANON_KEY=tu_anon_key',
     'Consulta frontend/.env.example para referencia.',
   ].join('\n');
   console.error(msg);
@@ -39,7 +39,7 @@ export const supabase = createClient<Database>(
 
 // Helper: verifica que las credenciales estén configuradas vía env vars
 export const isSupabaseConfigured = (): boolean =>
-  Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+  Boolean(import.meta.env.VITE_SUPABASE_URL && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY));
 
 if (import.meta.env.DEV) {
   console.log('✅ Supabase configurado desde variables de entorno');

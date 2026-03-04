@@ -92,8 +92,14 @@ export default function DashboardPage() {
     try {
       // Prioridad: 1. URL (?invite=...)  2. localStorage (pending_invite_id)
       const targetInviteId = inviteUrlId || pendingInviteId;
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      if (targetInviteId && targetInviteId.length > 30) {
+      // Limpiar si el valor guardado no es un UUID válido
+      if (targetInviteId && !UUID_REGEX.test(targetInviteId)) {
+        localStorage.removeItem('pending_invite_id');
+      }
+
+      if (targetInviteId && UUID_REGEX.test(targetInviteId)) {
         console.log('Intentando auto-aceptar invitación:', targetInviteId);
         const { error: acceptError } = await (supabase.rpc as any)('accept_invitation_pro', {
           p_invite_id: targetInviteId
@@ -120,10 +126,8 @@ export default function DashboardPage() {
           }, 1500);
         } else {
           console.error('Error al aceptar invitación:', acceptError);
-          // Si el error es que ya no es válida o ya se procesó, entonces sí limpiamos para evitar bucles de error
-          if (acceptError.message?.includes('ya procesada') || acceptError.message?.includes('no válida')) {
-            localStorage.removeItem('pending_invite_id');
-          }
+          // Siempre limpiar para evitar bucles de reintento
+          localStorage.removeItem('pending_invite_id');
         }
       }
 
