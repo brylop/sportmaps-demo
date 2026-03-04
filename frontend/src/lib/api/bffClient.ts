@@ -16,7 +16,23 @@
 
 import { supabase } from '@/integrations/supabase/client';
 
-const BFF_URL = import.meta.env.VITE_BFF_URL ?? 'http://localhost:3000';
+/**
+ * Resuelve la URL del BFF en runtime.
+ * En producción/staging siempre usa sportmaps-bff.onrender.com,
+ * evitando el problema de env vars mal configuradas en el build de Vercel.
+ */
+function resolveBffUrl(): string {
+    const configured = import.meta.env.VITE_BFF_URL ?? '';
+    if (typeof window === 'undefined') return configured || 'http://localhost:3000';
+    const { hostname } = window.location;
+    // En local: respetar la variable de entorno (o usar localhost)
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return configured || 'http://localhost:3000';
+    }
+    // En cualquier despliegue en Vercel/dominio: siempre el BFF correcto
+    return 'https://sportmaps-bff.onrender.com';
+}
+const BFF_URL = resolveBffUrl();
 
 // ── Estado interno del módulo ─────────────────────────────────────────────────
 // Se persiste a nivel de módulo — sobrevive re-renders sin React context.
