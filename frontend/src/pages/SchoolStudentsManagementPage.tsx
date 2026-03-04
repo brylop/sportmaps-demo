@@ -33,10 +33,11 @@ const studentSchema = z.object({
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
   program_id: z.string().min(1, 'Selecciona un programa'),
-  monthly_fee: z.coerce.number().min(10000, 'Mínimo $10.000 COP'),
+  monthly_fee: z.number().min(10000, 'Mínimo $10.000 COP'),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
 });
+
 type StudentFormData = z.infer<typeof studentSchema>;
 
 export default function SchoolStudentsManagementPage() {
@@ -590,7 +591,13 @@ export default function SchoolStudentsManagementPage() {
                   <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="monthly_fee" type="number" className="pl-9" placeholder="150000" {...form.register('monthly_fee')} />
+                    <Input
+                      id="monthly_fee"
+                      type="number"
+                      className="pl-9"
+                      placeholder="150000"
+                      {...form.register('monthly_fee', { valueAsNumber: true })}
+                    />
                   </div>
                   {form.formState.errors.monthly_fee && <p className="text-sm text-destructive">{form.formState.errors.monthly_fee.message}</p>}
                 </div>
