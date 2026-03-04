@@ -215,7 +215,7 @@ export default function InvitationsManagementPage() {
     const program = invitation.program_id || formData.programId;
 
     const params = new URLSearchParams({
-      school: schoolId || 'demo',
+      school: schoolId || '',
       email: email || '',
       invite: inviteId,
       role: role
@@ -231,7 +231,8 @@ export default function InvitationsManagementPage() {
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
     const link = generateRegistrationLink(invitation);
-    const message = `¡Hola! Te invitamos a inscribir a ${invitation.child_name} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const childName = invitation.child_name || formData.childName;
+    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
     const phone = invitation.parent_phone || formData.parentPhone;
     const cleanPhone = phone.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');

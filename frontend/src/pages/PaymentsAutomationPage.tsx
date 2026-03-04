@@ -241,6 +241,21 @@ export default function PaymentsAutomationPage() {
           }
         }
       }
+      if (action === 'reject') {
+        const payment = payments.find(p => p.id === paymentId);
+        if (payment) {
+          const { data: fullPayment } = await supabase.from('payments').select('parent_id').eq('id', paymentId).maybeSingle();
+          if (fullPayment?.parent_id) {
+            await supabase.rpc('notify_user', {
+              p_user_id: fullPayment.parent_id,
+              p_title: '❌ Pago Rechazado',
+              p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
+              p_type: 'error',
+              p_link: '/my-payments',
+            });
+          }
+        }
+      }
       toast({
         title: action === 'approve' ? 'Pago Aprobado' : 'Pago Rechazado',
         description: `La transacción ha sido ${action === 'approve' ? 'validada' : 'rechazada'} correctamente.`,

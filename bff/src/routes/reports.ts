@@ -172,7 +172,8 @@ router.get(
                 .from('children')
                 .select('id, full_name, status, created_at, team_id, branch_id')
                 .eq('school_id', schoolId)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .limit(500);
 
             if (branchFilterId) studentsQuery = studentsQuery.eq('branch_id', branchFilterId);
 
@@ -219,7 +220,8 @@ router.get(
                 .select('id, amount, status, payment_month, created_at, student_id, branch_id')
                 .eq('school_id', schoolId)
                 .gte('created_at', since)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .limit(1000);
 
             if (branchFilterId) paymentsQuery = paymentsQuery.eq('branch_id', branchFilterId);
 
@@ -340,7 +342,7 @@ router.get(
 router.get(
     '/coach/:teamId',
     requireAuth,
-    requireRole('owner', 'super_admin', 'admin', 'auditor', 'reporter', 'coach', 'school_admin'),
+    requireRole('owner', 'super_admin', 'admin', 'auditor', 'reporter', 'coach', 'staff', 'school_admin'),
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
         try {
             const { teamId } = req.params;

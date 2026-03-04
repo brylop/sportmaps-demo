@@ -123,7 +123,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
               const created = await createProfile(session.user.id, {
                 full_name: session.user.user_metadata?.full_name || 'Usuario',
-                role: 'athlete',
+                email: session.user.email || '',
+                role: session.user.user_metadata?.role || 'athlete',
               });
               setProfile(created as UserProfile);
             }
