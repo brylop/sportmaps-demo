@@ -76,7 +76,7 @@ class PaymentRemindersAPI {
         // Fetch parent profiles
         const { data: parents } = await supabase
             .from('profiles')
-            .select('id, full_name, phone')
+            .select('id, full_name, email, phone')
             .in('id', parentIds);
 
         // Fetch children
@@ -110,7 +110,7 @@ class PaymentRemindersAPI {
                 id: payment.id,
                 parentId: payment.parent_id,
                 parentName: parent?.full_name || 'Sin nombre',
-                parentEmail: parent?.phone || '',
+                parentEmail: (parent as any)?.email || '',
                 childName: child?.full_name || 'Sin asignar',
                 childId: payment.child_id || '',
                 programName: program?.name || 'Programa',
