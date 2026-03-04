@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
+import { EditChildDialog } from '@/components/children/EditChildDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -17,6 +18,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingChild, setEditingChild] = useState<any | null>(null);
 
 
 
@@ -93,8 +95,19 @@ export default function MyChildrenPage() {
                     </p>
                   </div>
                 </div>
-                {/* Allergy Icon */}
-                <MedicalAlertBadge medicalInfo={child.medical_info} />
+                <div className="flex items-center gap-2">
+                  {/* Allergy Icon */}
+                  <MedicalAlertBadge medicalInfo={child.medical_info} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={() => setEditingChild(child)}
+                    title="Editar información"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -151,6 +164,15 @@ export default function MyChildrenPage() {
         onOpenChange={setShowAddDialog}
         onSuccess={refetch}
       />
+
+      {editingChild && (
+        <EditChildDialog
+          open={!!editingChild}
+          onOpenChange={(open) => !open && setEditingChild(null)}
+          onSuccess={refetch}
+          child={editingChild}
+        />
+      )}
     </div>
   );
 }
