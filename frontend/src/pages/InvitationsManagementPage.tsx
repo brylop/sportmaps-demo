@@ -325,6 +325,7 @@ export default function InvitationsManagementPage() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
       setDialogOpen(false);
       const email = formData.parentEmail;
       setFormData({
