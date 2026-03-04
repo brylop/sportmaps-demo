@@ -582,8 +582,8 @@ export default function SchoolStudentsManagementPage() {
                   {form.formState.errors.full_name && <p className="text-sm text-destructive">{form.formState.errors.full_name.message}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="date_of_birth">Fecha de Nacimiento *</Label>
-                  <Input id="date_of_birth" type="date" {...form.register('date_of_birth')} />
+                  <Label htmlFor="date_of_birth">Fecha de Nacimiento del Estudiante *</Label>
+                  <Input id="date_of_birth" type="date" autoComplete="off" {...form.register('date_of_birth')} />
                   {form.formState.errors.date_of_birth && <p className="text-sm text-destructive">{form.formState.errors.date_of_birth.message}</p>}
                 </div>
                 <div className="space-y-2">
