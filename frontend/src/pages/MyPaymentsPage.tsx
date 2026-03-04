@@ -294,6 +294,8 @@ export default function MyPaymentsPage() {
         return <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" />Aprobado</Badge>;
       case 'rejected':
         return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rechazado</Badge>;
+      case 'awaiting_approval':
+        return <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="h-3 w-3 mr-1" />Por Validar</Badge>;
       case 'pending':
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pendiente</Badge>;
       default:

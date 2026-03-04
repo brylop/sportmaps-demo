@@ -682,7 +682,7 @@ export default function SchoolStudentsManagementPage() {
           toast({ title: "Importación completada", description: "La lista de estudiantes se ha actualizado." });
           queryClient.invalidateQueries({ queryKey: ['school-students'] });
         }}
-        schoolId={schoolId || 'demo-school'}
+        schoolId={schoolId ?? ''}
         schoolName={schoolName}
         branchId={activeBranchId}
         students={students}

@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
+import rateLimit from 'express-rate-limit';
 
 // Cargar variables de entorno PRIMERO, antes de cualquier import que las use
 dotenv.config();
@@ -14,6 +15,23 @@ import attendanceRouter from './routes/attendance';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
+});
+
+const paymentLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minuto
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Límite de operaciones de pago alcanzado. Intenta en 1 minuto.' },
+});
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
 app.use(cors({
@@ -60,11 +78,11 @@ app.get('/health', (_req: Request, res: Response) => {
     });
 });
 
-app.use('/api/v1/students', studentsRouter);
-app.use('/api/v1/enrollments', enrollmentsRouter);
-app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/students', generalLimiter, studentsRouter);
+app.use('/api/v1/enrollments', paymentLimiter, enrollmentsRouter);
+app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
-app.use('/api/v1/attendance', attendanceRouter);
+app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

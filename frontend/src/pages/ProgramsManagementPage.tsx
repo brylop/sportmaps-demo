@@ -24,10 +24,11 @@ export default function ProgramsManagementPage() {
   const { toast } = useToast();
 
   const loadClasses = useCallback(async () => {
+    if (!schoolId) return;
     try {
       setLoading(true);
       const data = await classesAPI.getClasses({
-        school_id: schoolId || 'demo-school',
+        school_id: schoolId,
         limit: 500
       });
       setClasses(data);

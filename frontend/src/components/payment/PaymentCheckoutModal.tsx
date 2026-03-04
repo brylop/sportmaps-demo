@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
+import { emailClient } from '@/lib/email-client';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -140,17 +141,40 @@ export function PaymentCheckoutModal({
         return;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let error = null;
       if (mode === 'update' && paymentId) {
-        const { error: updateError } = await supabase.from('payments').update({ status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`, updated_at: new Date().toISOString() }).eq('id', paymentId);
+        const { error: updateError } = await supabase.from('payments').update({ status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), receipt_number: receiptNumber, updated_at: new Date().toISOString() }).eq('id', paymentId);
         error = updateError;
       } else {
         const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
-        const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, child_id: studentId, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_number: `DEMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}` });
+        const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, child_id: studentId, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_number: receiptNumber });
         error = insertError;
       }
       if (error) throw error;
+
+      // Notificar al padre por email (fire-and-forget, no bloquea el flujo)
+      supabase
+        .from('children')
+        .select('full_name, parent_email_temp')
+        .eq('id', studentId)
+        .single()
+        .then(({ data: child }) => {
+          const parentEmail = child?.parent_email_temp;
+          if (parentEmail) {
+            emailClient.send({
+              type: 'payment_confirmation',
+              to: parentEmail,
+              data: {
+                studentName: child.full_name || 'tu hijo/a',
+                amount: formatCurrency(amount),
+                concept,
+                paymentMethod: selectedMethod === 'transfer' ? 'Transferencia' : selectedMethod === 'pse' ? 'PSE' : 'Efectivo',
+              },
+            }).catch(() => {/* silencio — no interrumpir flujo si email falla */});
+          }
+        });
+
       setPaymentStatus('success');
       toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(amount)} fue procesado correctamente` });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
