@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -154,6 +154,40 @@ export default function ReportsPage() {
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [growthData, setGrowthData] = useState<any[]>([]);
 
+  const exportCSV = () => {
+    const rows: string[] = [
+      '=== REPORTE SPORTMAPS ===',
+      `Generado: ${new Date().toLocaleString('es-CO')}`,
+      '',
+      '-- RESUMEN --',
+      `Ocupación Global,${summary.occupancyRate}%`,
+      `Total Estudiantes,${summary.totalStudents}`,
+      `Capacidad Total,${summary.totalCapacity}`,
+      `Ingresos Confirmados,${formatCurrency(summary.totalRevenue)}`,
+      `Crecimiento Neto (mes),${summary.netGrowth}`,
+      '',
+      '-- OCUPACIÓN POR PROGRAMA --',
+      'Programa,Ocupados,Vacantes',
+      ...occupancyData.map(r => `${r.name},${r.occupied},${r.vacant}`),
+      '',
+      '-- INGRESOS POR PROGRAMA --',
+      'Programa,Monto',
+      ...revenueData.map(r => `${r.name},${r.value}`),
+      '',
+      '-- CRECIMIENTO (6 MESES) --',
+      'Mes,Nuevos,Retiros',
+      ...growthData.map(r => `${r.month},${r.nuevos},${r.retiros}`),
+    ];
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reporte-sportmaps-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const loadData = useCallback(async () => {
     if (!schoolId) return;
     setLoading(true);
@@ -230,6 +264,24 @@ export default function ReportsPage() {
               <AlertCircle className="w-3 h-3" /> Modo directo
             </Badge>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 h-8"
+            onClick={exportCSV}
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 h-8"
+            onClick={() => window.print()}
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Imprimir
+          </Button>
           <Button
             variant="outline"
             size="sm"
