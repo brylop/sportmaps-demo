@@ -293,7 +293,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="school-config" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolSettingsPage />
                         </ProtectedRoute>
                       } />

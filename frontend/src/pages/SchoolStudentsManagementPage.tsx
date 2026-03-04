@@ -16,7 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -53,6 +53,8 @@ export default function SchoolStudentsManagementPage() {
   const [viewingStudent, setViewingStudent] = useState<StudentViewRow | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
 
   const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
@@ -75,6 +77,28 @@ export default function SchoolStudentsManagementPage() {
       setCoachIdResolved(true);
     }
   }, [profile?.role, profile?.email, schoolId]);
+
+  useEffect(() => {
+    if (!viewingStudent) { setStudentDocs([]); return; }
+    const studentId = viewingStudent.id;
+    setLoadingDocs(true);
+    supabase.storage
+      .from('identity-documents')
+      .list(`children/${studentId}/docs`, { limit: 20 })
+      .then(async ({ data: files, error }) => {
+        if (error || !files) { setStudentDocs([]); return; }
+        const docs = await Promise.all(
+          files.map(async (f) => {
+            const { data } = await supabase.storage
+              .from('identity-documents')
+              .createSignedUrl(`children/${studentId}/docs/${f.name}`, 300);
+            return { name: f.name, url: data?.signedUrl || '' };
+          })
+        );
+        setStudentDocs(docs.filter(d => d.url));
+      })
+      .finally(() => setLoadingDocs(false));
+  }, [viewingStudent]);
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
@@ -674,6 +698,40 @@ export default function SchoolStudentsManagementPage() {
                     <span className={`text-sm text-right truncate ${bold ? 'font-bold text-primary' : ''}`}>{value}</span>
                   </div>
                 ))}
+              </div>
+              {/* Identity Documents */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <FolderOpen className="h-4 w-4 text-primary" />
+                  Documentos de Identidad
+                </div>
+                {loadingDocs ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Cargando documentos...
+                  </div>
+                ) : studentDocs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
+                    No hay documentos subidos para este estudiante.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {studentDocs.map((doc) => (
+                      <a
+                        key={doc.name}
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="truncate">{doc.name}</span>
+                        </span>
+                        <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
               <DialogFooter><Button onClick={() => setViewingStudent(null)}>Cerrar</Button></DialogFooter>
             </div>
