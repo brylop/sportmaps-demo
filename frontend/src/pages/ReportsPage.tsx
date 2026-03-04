@@ -259,11 +259,7 @@ export default function ReportsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {dataSource === 'supabase' && (
-            <Badge variant="secondary" className="text-xs gap-1">
-              <AlertCircle className="w-3 h-3" /> Modo directo
-            </Badge>
-          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -294,25 +290,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Banner de aviso cuando el BFF falló pero el fallback funcionó */}
-      {bffError && dataSource === 'supabase' && (
-        <Alert variant="default" className="border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20">
-          <AlertCircle className="h-4 w-4 text-yellow-600" />
-          <AlertTitle className="text-yellow-700 dark:text-yellow-400">
-            Reportes cargados en modo directo
-          </AlertTitle>
-          <AlertDescription className="text-yellow-600 dark:text-yellow-300 text-xs mt-1">
-            El servidor BFF no respondió correctamente
-            {bffError !== 'Error desconocido del BFF'
-              ? ` (${bffError})`
-              : ''}
-            . Los datos se obtuvieron directamente desde la base de datos y son igualmente confiables.
-            Si el problema persiste, verifica que el BFF esté activo y que el header{' '}
-            <code className="bg-yellow-200 dark:bg-yellow-800 px-1 rounded">x-school-id</code>{' '}
-            se esté enviando correctamente en <code>bffClient</code>.
-          </AlertDescription>
-        </Alert>
-      )}
+
 
       {/* Banner crítico: ambas fuentes fallaron */}
       {bffError && dataSource === null && (
