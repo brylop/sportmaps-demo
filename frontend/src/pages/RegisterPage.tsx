@@ -36,6 +36,9 @@ const registerSchema = z.object({
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
+  acceptTerms: z.boolean().refine(val => val === true, {
+    message: 'Debes aceptar los términos y condiciones para continuar',
+  }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
@@ -621,6 +624,31 @@ export default function RegisterPage() {
               </div>
               {errors.confirmPassword && (
                 <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-start gap-3">
+                <input
+                  id="acceptTerms"
+                  type="checkbox"
+                  {...register('acceptTerms')}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 accent-[#248223] cursor-pointer"
+                />
+                <label htmlFor="acceptTerms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
+                  Acepto los{' '}
+                  <a href="/terminos-y-condiciones" target="_blank" className="text-[#248223] font-semibold hover:underline">
+                    Términos y Condiciones
+                  </a>{' '}
+                  y la{' '}
+                  <a href="/politica-de-privacidad" target="_blank" className="text-[#248223] font-semibold hover:underline">
+                    Política de Privacidad
+                  </a>{' '}
+                  de SportMaps.
+                </label>
+              </div>
+              {errors.acceptTerms && (
+                <p className="text-sm text-destructive">{errors.acceptTerms.message}</p>
               )}
             </div>
 
