@@ -233,7 +233,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <InvitationsManagementPage />
                         </ProtectedRoute>
                       } />
