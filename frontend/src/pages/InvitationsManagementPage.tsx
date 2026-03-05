@@ -241,13 +241,14 @@ export default function InvitationsManagementPage() {
   const resendEmail = async (invitation: Invitation) => {
     const link = generateRegistrationLink(invitation);
     try {
+      const { data: { session: edgeSession } } = await supabase.auth.getSession();
       await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+            'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
           },
           body: JSON.stringify({
             type: 'parent_invitation',
@@ -299,13 +300,14 @@ export default function InvitationsManagementPage() {
       // 2. Try to send email via edge function (non-blocking)
       const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(data.parentEmail)}&role=${data.role}&invite=${inviteId}`;
 
+      const { data: { session: sendSession } } = await supabase.auth.getSession();
       await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+            'Authorization': `Bearer ${sendSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
           },
           body: JSON.stringify({
             type: 'parent_invitation',
@@ -674,8 +676,8 @@ export default function InvitationsManagementPage() {
                     type="button"
                     variant={formData.role === role.id ? 'default' : 'outline'}
                     className={`text-xs h-9 px-2 transition-all ${formData.role === role.id
-                        ? 'ring-2 ring-primary/30 shadow-sm'
-                        : 'hover:bg-accent'
+                      ? 'ring-2 ring-primary/30 shadow-sm'
+                      : 'hover:bg-accent'
                       }`}
                     onClick={() => setFormData({
                       ...formData,

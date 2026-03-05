@@ -232,9 +232,10 @@ export default function SchoolStudentsManagementPage() {
           if (error) throw error;
           const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
           const selectedProgram = programs.find(p => p.id === student.program_id);
+          const { data: { session: edgeSession } } = await supabase.auth.getSession();
           fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
             body: JSON.stringify({
               to: student.parent_email,
               parentName: student.parent_name || student.parent_email.split('@')[0],
