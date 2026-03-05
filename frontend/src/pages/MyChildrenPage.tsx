@@ -87,11 +87,13 @@ export default function MyChildrenPage() {
                   <div>
                     <CardTitle className="text-lg">{child.full_name}</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      {new Date(child.date_of_birth).toLocaleDateString('es-CO', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
+                      {child.date_of_birth
+                        ? new Date(child.date_of_birth + 'T00:00:00').toLocaleDateString('es-CO', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                        : 'Sin fecha de nacimiento'}
                     </p>
                   </div>
                 </div>
@@ -132,7 +134,7 @@ export default function MyChildrenPage() {
                   </div>
                 )}
 
-                {child.monthly_fee && (
+                {child.monthly_fee != null && child.monthly_fee > 0 && (
                   <div className="flex items-center gap-2 text-sm font-bold text-green-600 dark:text-green-500 pt-1">
                     <span role="img" aria-label="pago">💰</span>
                     <span>Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(child.monthly_fee)}</span>
