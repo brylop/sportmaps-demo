@@ -27,7 +27,15 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*, schools(name), teams!team_id(name, sport, level)')
+        .select(`
+          *,
+          schools(name),
+          teams!team_id(name, sport, level, school_staff(full_name)),
+          enrollments(
+            status,
+            teams!program_id(name, sport, level, school_staff(full_name))
+          )
+        `)
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
@@ -114,18 +122,36 @@ export default function MyChildrenPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                {child.teams && (
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <School className="w-4 h-4 text-muted-foreground" />
-                    <span>{child.teams.name} {child.teams.level ? `(${child.teams.level})` : ''}</span>
-                  </div>
-                )}
+                {(() => {
+                  const activeEnrollment = child.enrollments?.find((e: any) => e.status === 'active');
+                  const team = activeEnrollment?.teams || child.teams;
 
-                {child.teams?.sport && (
-                  <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                    {child.teams.sport}
-                  </Badge>
-                )}
+                  if (!team) return null;
+
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <School className="w-4 h-4 text-muted-foreground" />
+                        <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                      </div>
+
+                      {team.school_staff?.full_name && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
+                          <User className="w-3 h-3" />
+                          <span>Entrenador: {team.school_staff.full_name}</span>
+                        </div>
+                      )}
+
+                      {team.sport && (
+                        <div className="ml-6 mt-1">
+                          <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                            {team.sport}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {child.schools?.name && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">

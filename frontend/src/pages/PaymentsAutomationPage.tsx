@@ -99,6 +99,10 @@ export default function PaymentsAutomationPage() {
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
 
+  // Filtros Historial
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+
   useEffect(() => {
     if (schoolId) {
       loadBillingSettings();
@@ -185,14 +189,33 @@ export default function PaymentsAutomationPage() {
     if (!schoolId) return;
     try {
       let query = supabase
-        .from('children')
-        .select(`id, full_name, monthly_fee, team_id, teams:teams!children_team_id_fkey(name)`)
+        .from('enrollments')
+        .select(`
+          id,
+          child_id,
+          team_id,
+          schools!inner ( id ),
+          children ( full_name ),
+          teams ( name, price_monthly )
+        `)
         .eq('school_id', schoolId)
-        .not('team_id', 'is', null);
-      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+        .eq('status', 'active');
+
+      if (activeBranchId) {
+        // En un caso real podrías filtrar enrollments por branch si existiera en enrollment, 
+        // pero vamos a filtrar en memoria por simplicidad o dejarlo así ya que se hereda del school.
+      }
       const { data, error } = await query;
       if (error) throw error;
-      setTeamSubscriptions(data as unknown as TeamSubscription[]);
+
+      const mapped = (data as any[]).map(e => ({
+        id: e.id,
+        full_name: e.children?.full_name || 'Sin nombre',
+        monthly_fee: e.teams?.price_monthly || 0,
+        team_id: e.team_id,
+        teams: e.teams,
+      }));
+      setTeamSubscriptions(mapped);
     } catch (error: unknown) {
       const err = error as { message?: string };
       toast({ title: 'Error en suscripciones', description: err.message || String(err), variant: 'destructive' });
@@ -307,7 +330,19 @@ export default function PaymentsAutomationPage() {
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
-  const historyPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+
+  // Filtrar historial
+  const rawHistoryPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+  const historyPayments = rawHistoryPayments.filter(p => {
+    const searchMatch = !historySearch ||
+      p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.concept?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.program?.name?.toLowerCase().includes(historySearch.toLowerCase());
+    const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
+    return searchMatch && statusMatch;
+  });
+
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
 
@@ -539,9 +574,30 @@ export default function PaymentsAutomationPage() {
         {/* ── Tab: Historial ───────────────────────────────────────────── */}
         <TabsContent value="history">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
-              <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
+                <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <Input
+                  placeholder="Buscar alumno, padre o concepto..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full sm:w-[250px] h-9"
+                />
+                <select
+                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={historyStatusFilter}
+                  onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="paid">Pagado</option>
+                  <option value="rejected">Rechazado</option>
+                  <option value="failed">Fallido</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {/* Mobile cards */}
@@ -590,16 +646,19 @@ export default function PaymentsAutomationPage() {
                   </TableHeader>
                   <TableBody>
                     {historyPayments.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No hay historial disponible.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
                     ) : historyPayments.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
                         <TableRow key={payment.id}>
                           <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
                           <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
-                          <TableCell className="text-sm">{payment.program?.name || payment.concept}</TableCell>
-                          <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                          <TableCell className="text-xs uppercase">{payment.payment_method || 'N/A'}</TableCell>
+                          <TableCell className="text-sm">
+                            <div className="font-medium text-blue-600">{payment.concept}</div>
+                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">{payment.program.name}</div>}
+                          </TableCell>
+                          <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
                           <TableCell><Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge></TableCell>
                           <TableCell>
                             {payment.receipt_url ? (

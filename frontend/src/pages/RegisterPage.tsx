@@ -102,7 +102,11 @@ export default function RegisterPage() {
   const inviteEmail = searchParams.get('email');
   const inviteRole = searchParams.get('role');
   const [invitationInfo, setInvitationInfo] = useState<{
-    school_name: string; role_to_assign: string; child_name?: string;
+    school_name: string;
+    role_to_assign: string;
+    child_name?: string;
+    program_name?: string;
+    monthly_fee?: number;
   } | null>(null);
 
   const { signUp, user } = useAuth();
@@ -148,6 +152,8 @@ export default function RegisterPage() {
             school_name: invite.school_name || 'Tu Academia',
             role_to_assign: invite.role_to_assign,
             child_name: invite.child_name,
+            program_name: invite.program_name,
+            monthly_fee: invite.monthly_fee,
           });
           // Pre-fill schoolName so la validación pase y el backend tenga contexto
           if (invite.school_name) {
@@ -180,8 +186,17 @@ export default function RegisterPage() {
     fetchRoles();
   }, []);
 
-  // Redirect if already logged in and not just submitted
-  if (user && !isSubmitted) {
+  // Conflict resolution: If user is logged in but the invite is for a different email, log them out.
+  useEffect(() => {
+    if (user && inviteEmail && user.email !== inviteEmail && !isSubmitted) {
+      supabase.auth.signOut().then(() => {
+        window.location.reload();
+      });
+    }
+  }, [user, inviteEmail, isSubmitted]);
+
+  // Redirect if already logged in (and email matches or no invite), and not just submitted
+  if (user && !isSubmitted && (!inviteEmail || user.email === inviteEmail)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -393,6 +408,16 @@ export default function RegisterPage() {
                     }</strong>
                     {invitationInfo.child_name && <> para <strong className="text-primary">{invitationInfo.child_name}</strong></>}
                   </p>
+                  {invitationInfo.program_name && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Equipo asignado: <strong>{invitationInfo.program_name}</strong>
+                    </p>
+                  )}
+                  {invitationInfo.monthly_fee != null && invitationInfo.monthly_fee > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Mensualidad: <strong>{new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(invitationInfo.monthly_fee)}/mes</strong>
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -459,60 +484,60 @@ export default function RegisterPage() {
             </div>
 
             {!INSTITUTION_ROLES.includes(watch('role')) && (
-            <div className="space-y-2">
-              <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
-              <Controller
-                name="dateOfBirth"
-                control={control}
-                render={({ field }) => (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !field.value && "text-muted-foreground",
-                          errors.dateOfBirth && "border-destructive"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {field.value ? (
-                          format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
-                        ) : (
-                          <span>Selecciona tu fecha</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
-                        onSelect={(date) => {
-                          if (date) {
-                            // Save as YYYY-MM-DD
-                            const year = date.getFullYear();
-                            const month = String(date.getMonth() + 1).padStart(2, '0');
-                            const day = String(date.getDate()).padStart(2, '0');
-                            field.onChange(`${year}-${month}-${day}`);
+              <div className="space-y-2">
+                <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
+                <Controller
+                  name="dateOfBirth"
+                  control={control}
+                  render={({ field }) => (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground",
+                            errors.dateOfBirth && "border-destructive"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value ? (
+                            format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Selecciona tu fecha</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              // Save as YYYY-MM-DD
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              field.onChange(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={1920}
+                          toYear={new Date().getFullYear()}
+                          locale={es}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1920-01-01")
                           }
-                        }}
-                        captionLayout="dropdown-buttons"
-                        fromYear={1920}
-                        toYear={new Date().getFullYear()}
-                        locale={es}
-                        disabled={(date) =>
-                          date > new Date() || date < new Date("1920-01-01")
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                />
+                {errors.dateOfBirth && (
+                  <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
                 )}
-              />
-              {errors.dateOfBirth && (
-                <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
-              )}
-            </div>
+              </div>
             )}
 
             <div className="space-y-2">
