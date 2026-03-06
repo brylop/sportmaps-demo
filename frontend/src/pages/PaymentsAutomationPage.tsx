@@ -164,20 +164,20 @@ export default function PaymentsAutomationPage() {
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept,
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
           program:teams!payments_program_id_fkey(name)`)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(100);
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query;
       if (error) throw error;
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
-        receipt_url: p.receipt_url, concept: p.concept,
+        receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
         parent: p.parent, child: p.child, program: p.program,
       })));
     } catch (error: unknown) {
@@ -213,6 +213,7 @@ export default function PaymentsAutomationPage() {
 
       const mapped = (data as any[]).map(e => ({
         id: e.id,
+        child_id: e.child_id,
         full_name: e.children?.full_name || 'Sin nombre',
         monthly_fee: e.team?.price_monthly || 0,
         team_id: e.team_id,
@@ -356,6 +357,18 @@ export default function PaymentsAutomationPage() {
 
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
+
+  const getPreferredMethod = (childId?: string) => {
+    if (!childId) return { label: 'Pendiente', icon: Clock };
+    const latest = payments.find(p => p.child_id === childId && p.status === 'paid');
+    if (!latest || !latest.payment_method) return { label: 'Pendiente', icon: Clock };
+    switch (latest.payment_method.toLowerCase()) {
+      case 'transfer': return { label: 'Transferencia', icon: Smartphone };
+      case 'pse': return { label: 'PSE', icon: Building2 };
+      case 'card': return { label: 'Tarjeta', icon: CreditCard };
+      default: return { label: latest.payment_method.toUpperCase(), icon: CreditCard };
+    }
+  };
 
   return (
     <div className="space-y-6 w-full max-w-full overflow-x-hidden animate-in fade-in">
@@ -582,7 +595,17 @@ export default function PaymentsAutomationPage() {
                         <TableCell><Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">{sub.teams?.name || 'Sin equipo'}</Badge></TableCell>
                         <TableCell className="font-bold">{formatCurrency(sub.monthly_fee || 0)}</TableCell>
                         <TableCell><span className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-amber-500" />Día {billing?.payment_cutoff_day || 5} (Prox. Mes)</span></TableCell>
-                        <TableCell><Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700"><CreditCard className="h-3.5 w-3.5" />Cobro Automático</Badge></TableCell>
+                        <TableCell>
+                          {(() => {
+                            const method = getPreferredMethod(sub.child_id);
+                            const Icon = method.icon;
+                            return (
+                              <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
+                                <Icon className="h-3.5 w-3.5" />{method.label}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
