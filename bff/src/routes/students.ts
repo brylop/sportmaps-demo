@@ -247,8 +247,10 @@ router.post(
                     parent_name_temp: s.parent_name || null,
                     parent_email_temp: s.parent_email || null,
                     parent_phone_temp: s.parent_phone || null,
-                    is_demo: false, // Por defecto
+                    is_demo: false,
+                    is_active: true,
                     created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
                 }));
 
                 const { data, error } = await supabase
