@@ -319,7 +319,7 @@ router.post(
                 );
 
                 // Create enrollments & payments
-                const enrollmentRecords: Array<{ child_id: string; program_id: string; status: string; start_date: string }> = [];
+                const enrollmentRecords: Array<{ child_id: string; program_id: string; team_id: string; school_id: string; status: string; start_date: string }> = [];
                 const paymentRecords: Array<any> = [];
 
                 const dueDate = new Date();
