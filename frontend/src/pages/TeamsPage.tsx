@@ -285,7 +285,7 @@ export default function TeamsPage() {
       {/* Stats Cards - Replicating screenshot */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - primary cursor - pointer hover: shadow - md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
         >
           <CardHeader className="pb-2">
@@ -302,7 +302,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - orange - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
         >
           <CardHeader className="pb-2">
@@ -319,7 +319,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - green - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
         >
           <CardHeader className="pb-2">
@@ -336,7 +336,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - blue - 500 cursor - pointer hover: shadow - md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
         >
           <CardHeader className="pb-2">
@@ -513,9 +513,20 @@ export default function TeamsPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="bg-background text-[10px]">
-                              {student.program_name || 'Sin programa'}
-                            </Badge>
+                            <div className="flex flex-wrap gap-1 max-w-[140px]">
+                              {student.program_name
+                                ? String(student.program_name).split(',').map((prog: string, i: number) => (
+                                  <Badge
+                                    key={i}
+                                    variant="secondary"
+                                    className="text-[10px] px-2 py-0.5 bg-primary/10 text-primary border-primary/20 whitespace-nowrap"
+                                  >
+                                    {prog.trim()}
+                                  </Badge>
+                                ))
+                                : <span className="text-xs text-muted-foreground italic">Sin programa</span>
+                              }
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
