@@ -50,7 +50,7 @@ export default function SchoolStudentsManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [viewingStudent, setViewingStudent] = useState<StudentViewRow | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
@@ -300,10 +300,23 @@ export default function SchoolStudentsManagementPage() {
     if (selectedProgram) form.setValue('monthly_fee', selectedProgram.monthly_fee);
   };
 
-  const filteredStudents = students.filter(student =>
+  const enhancedStudents = students.map(student => {
+    const emergencyContact = student.emergency_contact || '';
+    const hasEmergencyContactParts = emergencyContact.includes(' - ');
+    const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
+    const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
+
+    return {
+      ...student,
+      display_parent_name: student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null),
+      display_parent_phone: student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null),
+    };
+  });
+
+  const filteredStudents = enhancedStudents.filter(student =>
     (activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')) &&
     (student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (student.parent_name && student.parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
+      (student.display_parent_name && student.display_parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
   );
 
   const formatCurrency = (amount: number) =>
@@ -518,7 +531,7 @@ export default function SchoolStudentsManagementPage() {
                         <TableCell>
                           <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
                         </TableCell>
-                        <TableCell>{student.parent_name || '-'}</TableCell>
+                        <TableCell>{student.display_parent_name || '-'}</TableCell>
                         <TableCell className="font-semibold text-primary">
                           {student.price_monthly ? formatCurrency(student.price_monthly) : '-'}
                         </TableCell>
@@ -691,8 +704,8 @@ export default function SchoolStudentsManagementPage() {
                   { label: 'Escuela', value: schoolName },
                   { label: 'Equipo', value: viewingStudent.program_name || '-' },
                   { label: 'Mensualidad', value: viewingStudent.price_monthly ? formatCurrency(viewingStudent.price_monthly) : '-', bold: true },
-                  { label: 'Acudiente', value: viewingStudent.parent_name || '-' },
-                  { label: 'Teléfono', value: viewingStudent.parent_phone || '-' },
+                  { label: 'Acudiente', value: viewingStudent.display_parent_name || '-' },
+                  { label: 'Teléfono', value: viewingStudent.display_parent_phone || '-' },
                 ].map(({ label, value, bold }) => (
                   <div key={label} className="flex items-center justify-between p-2 rounded hover:bg-muted/50 gap-2">
                     <span className="text-sm font-medium shrink-0">{label}:</span>

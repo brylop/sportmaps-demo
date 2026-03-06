@@ -175,4 +175,31 @@ router.patch(
     }
 );
 
+// ── GET /api/v1/attendance/rate/:teamId ───────────────────────────────────────
+// Calcula el porcentaje de asistencia de un equipo sin problemas de RLS
+router.get(
+    '/rate/:teamId',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+    async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { teamId } = req.params;
+            const { data, error } = await supabase
+                .from('attendance_records')
+                .select('status')
+                .eq('program_id', teamId);
+
+            if (error) throw error;
+
+            const total = data?.length || 0;
+            const present = data?.filter((r: any) => r.status === 'present' || r.status === 'late').length || 0;
+
+            return res.json({ rate: total > 0 ? Math.round((present / total) * 100) : 0 });
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error calculando porcentaje de asistencia');
+            return res.status(500).json({ error: 'Error interno calculando asistencia.', rate: 0 });
+        }
+    }
+);
+
 export default router;

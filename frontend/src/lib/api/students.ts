@@ -105,6 +105,7 @@ export interface StudentViewRow {
   parent_id?: string;
   school_id: string;
   created_at: string;
+  emergency_contact?: string;
   parent_name?: string;
   parent_phone?: string;
   parent_avatar?: string;
