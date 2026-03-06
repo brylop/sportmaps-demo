@@ -260,7 +260,12 @@ router.post(
 
                 if (error) {
                     req.log?.error({ err: error }, 'Error en bulk insert');
-                    return res.status(500).json({ error: 'Error en base de datos al insertar.' });
+                    return res.status(500).json({
+                        error: 'Error en base de datos al insertar.',
+                        details: error.message,
+                        hint: error.hint,
+                        code: error.code,
+                    });
                 }
                 inserted = data?.length ?? 0;
 
@@ -329,6 +334,8 @@ router.post(
                         enrollmentRecords.push({
                             child_id: childId,
                             program_id: teamId,
+                            team_id: teamId,
+                            school_id: schoolId,
                             status: 'active',
                             start_date: new Date().toISOString().split('T')[0],
                         });
