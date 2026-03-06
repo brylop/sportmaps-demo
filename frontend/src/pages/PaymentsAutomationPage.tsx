@@ -103,6 +103,9 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
 
+  // Filtros Validación (Pendientes)
+  const [pendingSearch, setPendingSearch] = useState('');
+
   useEffect(() => {
     if (schoolId) {
       loadBillingSettings();
@@ -196,7 +199,7 @@ export default function PaymentsAutomationPage() {
           team_id,
           schools!inner ( id ),
           children ( full_name ),
-          teams ( name, price_monthly )
+          team:teams!enrollments_team_id_fkey ( name, price_monthly )
         `)
         .eq('school_id', schoolId)
         .eq('status', 'active');
@@ -211,9 +214,9 @@ export default function PaymentsAutomationPage() {
       const mapped = (data as any[]).map(e => ({
         id: e.id,
         full_name: e.children?.full_name || 'Sin nombre',
-        monthly_fee: e.teams?.price_monthly || 0,
+        monthly_fee: e.team?.price_monthly || 0,
         team_id: e.team_id,
-        teams: e.teams,
+        teams: { name: e.team?.name },
       }));
       setTeamSubscriptions(mapped);
     } catch (error: unknown) {
@@ -329,7 +332,15 @@ export default function PaymentsAutomationPage() {
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const rawPendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const pendingPayments = rawPendingPayments.filter(p => {
+    if (!pendingSearch) return true;
+    const term = pendingSearch.toLowerCase();
+    return p.child?.full_name?.toLowerCase().includes(term) ||
+      p.parent?.full_name?.toLowerCase().includes(term) ||
+      p.concept?.toLowerCase().includes(term) ||
+      p.program?.name?.toLowerCase().includes(term);
+  });
 
   // Filtrar historial
   const rawHistoryPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
@@ -405,12 +416,22 @@ export default function PaymentsAutomationPage() {
         {/* ── Tab: Validación de cobros ────────────────────────────────── */}
         <TabsContent value="recurrent">
           <Card className="border-amber-200 bg-amber-50/10">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
-                Validación de Cobros
-              </CardTitle>
-              <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                  Validación de Cobros
+                </CardTitle>
+                <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+              </div>
+              <div className="w-full sm:w-auto">
+                <Input
+                  placeholder="Buscar alumno, padre o equipo..."
+                  value={pendingSearch}
+                  onChange={(e) => setPendingSearch(e.target.value)}
+                  className="w-full sm:w-[250px] h-9"
+                />
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {loading ? (
