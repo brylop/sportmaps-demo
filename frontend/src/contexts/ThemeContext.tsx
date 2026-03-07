@@ -69,22 +69,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   // --- Branding Logic ---
-  const { schoolBranding, schoolId } = useSchoolContext();
+  const { schoolBranding, schoolId, currentUserRole } = useSchoolContext();
+
+  // Restricted roles according to user request: School Admins, Parents, and Coaches.
+  // Super admins and other global roles should stick to SportMaps branding.
+  const isBrandingRole = ['owner', 'admin', 'school_admin', 'school', 'parent', 'coach'].includes(currentUserRole || '');
 
   // Decide which branding to use.
-  // Priority: Preview > School Branding (only if schoolId exists) > Default SportMaps
+  // Priority: Preview > School Branding (only for restricted roles) > Default SportMaps
   const branding: BrandingSettings = previewBranding || (
-    schoolId && schoolBranding?.branding_settings
+    schoolId && isBrandingRole && schoolBranding?.branding_settings
       ? { ...DEFAULT_BRANDING, ...schoolBranding.branding_settings }
       : DEFAULT_BRANDING
   );
 
   useEffect(() => {
-    // Only apply institutional branding if there's a schoolId OR if we are in preview mode
-    const isInstitutional = !!schoolId || !!previewBranding;
+    // Only apply institutional branding if there's a valid school context for the role OR if we are in preview mode
+    const isInstitutional = (!!schoolId && isBrandingRole) || !!previewBranding;
 
-    // If NOT institutional and NO preview, we strictly use DEFAULT_BRANDING
+    // Choose active colors
     const activeColors = isInstitutional ? branding : DEFAULT_BRANDING;
+
+    // Safety check: Avoid unnecessary DOM manipulation if colors match SportMaps defaults
+    // and we are NOT in institutional/preview mode (to handle resets correctly)
     const root = window.document.documentElement;
 
     root.style.setProperty('--primary', hexToHsl(activeColors.primary_color));
@@ -119,8 +126,8 @@ export function useBranding(): BrandingSettings {
 }
 
 // === Helper Functions ===
-export function hexToHsl(hex: string): string {
-  if (!hex || typeof hex !== 'string') return '201 96% 32%';
+export function hexToHsl(hex: string | undefined | null): string {
+  if (!hex || typeof hex !== 'string') return '119 60% 32%'; // SportMaps Green fallback
 
   hex = hex.replace(/^#/, '');
   if (hex.length === 3) hex = hex.split('').map(char => char + char).join('');

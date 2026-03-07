@@ -229,18 +229,6 @@ export function useSchoolContext(): SchoolContext {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 2. Effect: Fetch Programs when Active School Changes
-    useEffect(() => {
-        if (activeSchoolId && activeSchoolId !== "") {
-            fetchPrograms(activeSchoolId, activeBranchId);
-            fetchSettings(activeSchoolId);
-            fetchSchoolBranding(activeSchoolId);
-        }
-    }, [activeSchoolId, activeBranchId]);
-    // 3. Effect: Link Active School to bffClient for header injection
-    useEffect(() => {
-        bffClient.setSchoolId(activeSchoolId ?? null);
-    }, [activeSchoolId]);
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
@@ -419,6 +407,27 @@ export function useSchoolContext(): SchoolContext {
             console.error('Failed to update onboarding step:', err);
         }
     };
+
+    // 2a. Effect: Fetch Branch-specific data (Programs)
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchPrograms(activeSchoolId, activeBranchId);
+        }
+    }, [activeSchoolId, activeBranchId, fetchPrograms]);
+
+    // 2b. Effect: Fetch School-wide data (Settings, Branding)
+    // Only happens when the school changes, NOT the branch.
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchSettings(activeSchoolId);
+            fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSettings, fetchSchoolBranding]);
+
+    // 3. Effect: Link Active School to bffClient for header injection
+    useEffect(() => {
+        bffClient.setSchoolId(activeSchoolId ?? null);
+    }, [activeSchoolId]);
 
     return {
         schoolId: activeSchoolId,
