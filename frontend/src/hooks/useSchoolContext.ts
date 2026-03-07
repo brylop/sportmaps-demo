@@ -254,6 +254,8 @@ export function useSchoolContext(): SchoolContext {
         }
 
         setOnboardingStatus(school.onboardingStatus || 'completed');
+        // Clear branding when switching schools to avoid "flash" of previous branding
+        setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
     }, []);
 
@@ -327,7 +329,10 @@ export function useSchoolContext(): SchoolContext {
     }, []);
 
     const fetchSchoolBranding = useCallback(async (id: string) => {
-        if (!id || id === "") return;
+        if (!id || id === "") {
+            setSchoolBranding(null);
+            return;
+        }
 
         const { data } = await supabase
             .from('schools')

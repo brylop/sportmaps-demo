@@ -26,29 +26,30 @@ export function BrandingSettingsForm() {
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    // Load logo from DB directly on mount or schoolId change
+    // Load branding data on mount or schoolId change
     useEffect(() => {
-        async function fetchLocalLogo() {
+        async function fetchAndInit() {
             if (!schoolId) return;
 
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('schools')
-                .select('logo_url')
+                .select('logo_url, branding_settings')
                 .eq('id', schoolId)
                 .maybeSingle();
 
-            if (data) {
-                setLogoUrl(data.logo_url);
+            if (data && !error) {
+                const schoolData = data as any;
+                setLogoUrl(schoolData.logo_url);
+                const settings = schoolData.branding_settings as any;
+                // Initialize with DB values or fallback to default SportMaps branding (Green/Orange)
+                setPrimaryColor(settings?.primary_color || '#248223');
+                setSecondaryColor(settings?.secondary_color || '#FB9F1E');
+                setShowWatermark(settings?.show_sportmaps_watermark ?? true);
             }
         }
 
-        // Also init colors in case they changed from context since mount
-        setPrimaryColor(currentBranding.primary_color);
-        setSecondaryColor(currentBranding.secondary_color);
-        setShowWatermark(currentBranding.show_sportmaps_watermark);
-
-        fetchLocalLogo();
-    }, [schoolId, currentBranding]);
+        fetchAndInit();
+    }, [schoolId]);
 
     const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -208,6 +209,7 @@ export function BrandingSettingsForm() {
                     </CardTitle>
                     <CardDescription>
                         Configura los colores principales que se aplicarán a los botones, enlaces y acentos visuales en la plataforma.
+                        Para escuelas nuevas, se recomienda iniciar con los colores de SportMaps.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -267,10 +269,25 @@ export function BrandingSettingsForm() {
                             <span className="w-3 h-3 rounded-full bg-primary inline-block"></span>
                             Previsualización en tiempo real activa
                         </div>
-                        <Button onClick={handleSaveBranding} disabled={saving || !schoolId} className="gap-2">
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                            {saving ? 'Guardando...' : 'Guardar Identidad Visual'}
-                        </Button>
+                        <div className="flex items-center gap-3">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                type="button"
+                                onClick={() => {
+                                    setPrimaryColor('#248223');
+                                    setSecondaryColor('#FB9F1E');
+                                    setShowWatermark(true);
+                                }}
+                            >
+                                <Palette className="h-4 w-4 mr-2" />
+                                Restablecer a SportMaps
+                            </Button>
+                            <Button onClick={handleSaveBranding} disabled={saving || !schoolId} className="gap-2">
+                                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                {saving ? 'Guardando...' : 'Guardar Identidad Visual'}
+                            </Button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
