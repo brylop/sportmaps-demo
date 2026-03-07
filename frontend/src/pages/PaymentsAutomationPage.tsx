@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, getStoragePath } from '@/lib/utils';
