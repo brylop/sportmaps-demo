@@ -9,13 +9,14 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Camera, Loader2, Save, Palette, Image as ImageIcon } from 'lucide-react';
-import { useBranding, hexToHsl } from '@/contexts/ThemeContext';
+import { useTheme, useBranding } from '@/contexts/ThemeContext';
 import { getUserFriendlyError } from '@/lib/error-translator';
 
 export function BrandingSettingsForm() {
     const { schoolId, refreshSchoolBranding } = useSchoolContext();
     const { uploadFile, uploading } = useStorage();
     const { toast } = useToast();
+    const { setPreviewBranding } = useTheme();
     const currentBranding = useBranding();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -134,19 +135,19 @@ export function BrandingSettingsForm() {
         }
     };
 
-    // Live preview effect locally before saving
+    // Live preview effect via Context instead of direct DOM manipulation
     useEffect(() => {
-        const root = document.documentElement;
-        root.style.setProperty('--primary', hexToHsl(primaryColor));
-        root.style.setProperty('--secondary', hexToHsl(secondaryColor));
+        setPreviewBranding({
+            primary_color: primaryColor,
+            secondary_color: secondaryColor,
+            show_sportmaps_watermark: showWatermark
+        });
 
         return () => {
-            // On unmount if not saved, revert to context branding immediately 
-            // (Though ThemeProvider will do this automatically on next render)
-            root.style.setProperty('--primary', hexToHsl(currentBranding.primary_color));
-            root.style.setProperty('--secondary', hexToHsl(currentBranding.secondary_color));
+            // Revert preview on unmount
+            setPreviewBranding(null);
         }
-    }, [primaryColor, secondaryColor, currentBranding]);
+    }, [primaryColor, secondaryColor, showWatermark, setPreviewBranding]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">

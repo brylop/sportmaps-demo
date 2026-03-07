@@ -7,6 +7,7 @@ interface ThemeContextType {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   actualTheme: 'light' | 'dark';
+  setPreviewBranding: (branding: BrandingSettings | null) => void;
 }
 
 interface BrandingSettings {
@@ -30,6 +31,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   const [actualTheme, setActualTheme] = useState<'light' | 'dark'>('light');
+  const [previewBranding, setPreviewBranding] = useState<BrandingSettings | null>(null);
 
   useEffect(() => {
     localStorage.setItem('theme', theme);
@@ -67,30 +69,33 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   // --- Branding Logic ---
-  const { schoolBranding } = useSchoolContext();
-  const branding: BrandingSettings = {
-    ...DEFAULT_BRANDING,
-    ...(schoolBranding?.branding_settings ?? {}),
-  }
+  const { schoolBranding, schoolId } = useSchoolContext();
+
+  // Decide which branding to use.
+  // Priority: Preview > School Branding (only if schoolId exists) > Default SportMaps
+  const branding: BrandingSettings = previewBranding || (
+    schoolId && schoolBranding?.branding_settings
+      ? { ...DEFAULT_BRANDING, ...schoolBranding.branding_settings }
+      : DEFAULT_BRANDING
+  );
 
   useEffect(() => {
+    // Only apply institutional branding if there's a schoolId OR if we are in preview mode
+    const isInstitutional = !!schoolId || !!previewBranding;
+
+    // If NOT institutional and NO preview, we strictly use DEFAULT_BRANDING
+    const activeColors = isInstitutional ? branding : DEFAULT_BRANDING;
     const root = window.document.documentElement;
 
-    root.style.setProperty('--primary', hexToHsl(branding.primary_color));
-    root.style.setProperty('--secondary', hexToHsl(branding.secondary_color));
-    root.style.setProperty('--primary-foreground', getContrastColorHsl(branding.primary_color));
-    root.style.setProperty('--secondary-foreground', getContrastColorHsl(branding.secondary_color));
+    root.style.setProperty('--primary', hexToHsl(activeColors.primary_color));
+    root.style.setProperty('--secondary', hexToHsl(activeColors.secondary_color));
+    root.style.setProperty('--primary-foreground', getContrastColorHsl(activeColors.primary_color));
+    root.style.setProperty('--secondary-foreground', getContrastColorHsl(activeColors.secondary_color));
 
-    return () => {
-      root.style.setProperty('--primary', hexToHsl(DEFAULT_BRANDING.primary_color));
-      root.style.setProperty('--secondary', hexToHsl(DEFAULT_BRANDING.secondary_color));
-      root.style.setProperty('--primary-foreground', getContrastColorHsl(DEFAULT_BRANDING.primary_color));
-      root.style.setProperty('--secondary-foreground', getContrastColorHsl(DEFAULT_BRANDING.secondary_color));
-    };
-  }, [branding.primary_color, branding.secondary_color]);
+  }, [branding.primary_color, branding.secondary_color, schoolId, previewBranding]);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, actualTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, actualTheme, setPreviewBranding }}>
       {children}
     </ThemeContext.Provider>
   );
