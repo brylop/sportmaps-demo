@@ -33,6 +33,7 @@ import {
 import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
 import { coachesAPI, CoachProfile, CoachCertification } from '@/lib/api/coaches';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
+import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
 
 export default function ProfilePage() {
   const { user, profile, updateProfile } = useAuth();
@@ -357,6 +358,12 @@ export default function ProfilePage() {
             <TabsTrigger value="services" className="gap-2">
               <Globe className="h-4 w-4" />
               Servicios
+            </TabsTrigger>
+          )}
+          {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+            <TabsTrigger value="branding" className="gap-2">
+              <Palette className="h-4 w-4" />
+              Identidad Visual
             </TabsTrigger>
           )}
           <TabsTrigger value="privacy" className="gap-2">
@@ -752,6 +759,13 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Branding Tab */}
+        {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+          <TabsContent value="branding" className="space-y-4">
+            <BrandingSettingsForm />
+          </TabsContent>
+        )}
 
         {/* Privacy Tab */}
         <TabsContent value="privacy" className="space-y-4">

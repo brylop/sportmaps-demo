@@ -95,9 +95,8 @@ export function AppSidebar() {
     >
       <SidebarHeader className="h-16 flex items-center px-4 overflow-hidden">
         {!isCollapsed ? (
-          <div className="flex items-center gap-2 overflow-hidden">
-            <Logo size="sm" />
-            <span className="font-bold text-lg tracking-tight truncate">SportMaps</span>
+          <div className="flex items-center gap-2 overflow-hidden w-full">
+            <Logo size="sm" showName />
           </div>
         ) : (
           <div className="flex justify-center w-full">

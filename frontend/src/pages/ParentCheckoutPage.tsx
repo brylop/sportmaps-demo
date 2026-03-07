@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
@@ -18,6 +19,7 @@ export default function ParentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
@@ -111,6 +113,8 @@ export default function ParentCheckoutPage() {
       paymentType: 'monthly',
       schoolName,
       studentName,
+      logoUrl: schoolBranding?.logo_url,
+      brandingSettings: schoolBranding?.branding_settings,
     });
   };
 

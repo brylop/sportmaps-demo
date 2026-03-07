@@ -14,11 +14,28 @@ interface ReceiptData {
   programName?: string;
   subscriptionPeriod?: string;
   studentName?: string;
+  // White Label Branding
+  logoUrl?: string | null;
+  brandingSettings?: {
+    primary_color: string;
+    secondary_color: string;
+    show_sportmaps_watermark: boolean;
+  } | null;
 }
 
-// SportMaps brand colors
-const BRAND_GREEN = [36, 130, 35] as const; // #248223
-const BRAND_ORANGE = [251, 159, 30] as const; // #FB9F1E
+// Default SportMaps brand colors
+const BRAND_GREEN = [36, 130, 35] as [number, number, number]; // #248223
+const BRAND_ORANGE = [251, 159, 30] as [number, number, number]; // #FB9F1E
+
+// Helper to convert hex to RGB
+function hexToRgb(hex: string): [number, number, number] {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? [
+    parseInt(result[1], 16),
+    parseInt(result[2], 16),
+    parseInt(result[3], 16)
+  ] : BRAND_GREEN;
+}
 
 export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   const doc = new jsPDF();
@@ -39,22 +56,33 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
     }).format(amount);
   };
 
+  // Determine colors based on branding settings
+  const primaryColor = data.brandingSettings?.primary_color
+    ? hexToRgb(data.brandingSettings.primary_color)
+    : BRAND_GREEN;
+
+  const secondaryColor = data.brandingSettings?.secondary_color
+    ? hexToRgb(data.brandingSettings.secondary_color)
+    : BRAND_ORANGE;
+
   // Header with brand colors
-  doc.setFillColor(...BRAND_GREEN);
+  doc.setFillColor(...primaryColor);
   doc.rect(0, 0, pageWidth, 45, 'F');
 
-  // Logo area (text-based since we can't load external images easily)
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(28);
   doc.setFont('helvetica', 'bold');
-  centerText('SPORTMAPS', 22);
+
+  // NOTE: Loading external images in jsPDF requires converting them to base64 first.
+  // We'll fallback to text if logo_url is hard to load synchronously or if it's missing.
+  centerText(data.schoolName || 'SPORTMAPS', 22);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  centerText('Tu ecosistema deportivo', 32);
+  centerText(data.schoolName ? 'Recibo Oficial' : 'Tu ecosistema deportivo', 32);
 
-  // Receipt title with orange accent
-  doc.setFillColor(...BRAND_ORANGE);
+  // Receipt title with secondary color accent
+  doc.setFillColor(...secondaryColor);
   doc.rect(0, 45, pageWidth, 8, 'F');
 
   doc.setTextColor(255, 255, 255);
@@ -75,14 +103,14 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
 
   // Divider line
   y += 10;
-  doc.setDrawColor(...BRAND_GREEN);
+  doc.setDrawColor(...primaryColor);
   doc.setLineWidth(0.5);
   doc.line(20, y, pageWidth - 20, y);
 
   // Customer information
   y += 15;
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...BRAND_GREEN);
+  doc.setTextColor(...primaryColor);
   doc.text('INFORMACIÓN DEL CLIENTE', 20, y);
 
   y += 10;
@@ -98,7 +126,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   // Payment details
   y += 15;
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...BRAND_GREEN);
+  doc.setTextColor(...primaryColor);
   doc.text('DETALLE DEL PAGO', 20, y);
 
   y += 10;
@@ -174,13 +202,13 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   doc.setTextColor(60, 60, 60);
   doc.text('TOTAL PAGADO:', 30, y + 8);
 
-  doc.setTextColor(...BRAND_GREEN);
+  doc.setTextColor(...primaryColor);
   doc.setFontSize(18);
   doc.text(formatCurrency(data.amount), pageWidth - 30, y + 10, { align: 'right' });
 
   // Status badge
   y += 35;
-  doc.setFillColor(...BRAND_GREEN);
+  doc.setFillColor(...primaryColor);
   doc.roundedRect(pageWidth / 2 - 25, y, 50, 12, 2, 2, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(10);
@@ -197,20 +225,26 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   doc.setTextColor(120, 120, 120);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  centerText('Este recibo es un comprobante válido de tu transacción en SportMaps.', y);
 
-  y += 5;
-  centerText('Para cualquier consulta, contáctanos en soporte@sportmaps.co', y);
-
-  y += 10;
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...BRAND_ORANGE);
-  centerText('www.sportmaps.co', y);
+  if (data.brandingSettings?.show_sportmaps_watermark !== false) {
+    centerText('Este recibo es un comprobante válido de tu transacción en SportMaps.', y);
+    y += 5;
+    centerText('Para cualquier consulta, contáctanos en soporte@sportmaps.co', y);
+    y += 10;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND_ORANGE);
+    centerText('Powered by SportMaps | www.sportmaps.co', y);
+  } else {
+    centerText(`Este recibo es un comprobante válido emitido por ${data.schoolName || 'la academia'}.`, y);
+    y += 5;
+    centerText('Por favor contacte a su sede para dudas sobre este cobro.', y);
+  }
 
   // Add QR-like reference code at the bottom
   y += 10;
   doc.setTextColor(150, 150, 150);
   doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
   centerText(`Ref: ${data.receiptNumber} | Generado: ${new Date().toISOString()}`, y);
 
   return doc;

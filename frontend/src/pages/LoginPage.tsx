@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useEffect } from 'react';
+import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -35,6 +36,9 @@ export default function LoginPage() {
 
   const inviteEmail = searchParams.get('email');
   const inviteId = searchParams.get('invite');
+
+  // Load branding if we have an invite id
+  const inviteBranding = useInvitationBranding(inviteId);
 
   useEffect(() => {
     if (inviteId) {
@@ -195,13 +199,17 @@ export default function LoginPage() {
             <>
               <CardHeader className="space-y-1">
                 <div className="flex justify-center mb-4">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                    <Users className="w-6 h-6 text-primary" />
-                  </div>
+                  {inviteBranding?.logo_url ? (
+                    <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
+                  ) : (
+                    <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                      <Users className="w-6 h-6 text-primary" />
+                    </div>
+                  )}
                 </div>
                 <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
                 <CardDescription className="text-center">
-                  Accede a tu cuenta de SportMaps
+                  Accede a tu cuenta de {inviteBranding?.school_name || 'SportMaps'}
                 </CardDescription>
               </CardHeader>
               <CardContent>

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { transactionsAPI } from '@/lib/api/transactions';
@@ -61,6 +62,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   const [proofUploaded, setProofUploaded] = useState(false);
   const { toast } = useToast();
   const { user, profile } = useAuth();
+  const { schoolBranding } = useSchoolContext();
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -81,6 +83,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
       amount: item.amount,
       paymentMethod,
       paymentType,
+      logoUrl: schoolBranding?.logo_url,
+      brandingSettings: schoolBranding?.branding_settings,
     });
   };
 

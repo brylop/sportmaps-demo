@@ -21,6 +21,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
@@ -108,6 +109,8 @@ export default function RegisterPage() {
     program_name?: string;
     monthly_fee?: number;
   } | null>(null);
+
+  const inviteBranding = useInvitationBranding(inviteId);
 
   const { signUp, user } = useAuth();
 
@@ -287,8 +290,14 @@ export default function RegisterPage() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
         <Card className="w-full max-w-md shadow-2xl border-t-8 border-primary animate-in fade-in zoom-in duration-300">
           <CardContent className="pt-10 flex flex-col items-center text-center">
-            <div className="bg-primary/10 p-4 rounded-full mb-6">
-              <School className="w-12 h-12 text-primary" />
+            <div className="flex justify-center mb-6">
+              {inviteBranding?.logo_url ? (
+                <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
+              ) : (
+                <div className="bg-primary/10 p-4 rounded-full">
+                  <School className="w-12 h-12 text-primary" />
+                </div>
+              )}
             </div>
 
             <h2 className="text-2xl font-bold font-poppins text-foreground mb-2">Invitación Pendiente</h2>
@@ -381,9 +390,14 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/5 via-background to-[#FB9F1E]/5 p-4 font-poppins">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center text-[#248223]">Crear Cuenta</CardTitle>
+          <div className="flex justify-center mb-4">
+            {inviteBranding?.logo_url ? (
+              <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
+            ) : null}
+          </div>
+          <CardTitle className="text-2xl font-bold text-center text-primary">Crear Cuenta</CardTitle>
           <CardDescription className="text-center">
-            Únete a la comunidad SportMaps
+            Únete a {inviteBranding?.school_name || 'la comunidad SportMaps'}
           </CardDescription>
         </CardHeader>
         <CardContent>

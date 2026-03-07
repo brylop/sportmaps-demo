@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
@@ -32,6 +33,7 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
+  const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
@@ -171,6 +173,8 @@ export default function CheckoutPage() {
       paymentType: 'one_time',
       schoolName: items[0]?.metadata.schoolName,
       programName: items[0]?.name,
+      logoUrl: schoolBranding?.logo_url,
+      brandingSettings: schoolBranding?.branding_settings,
     });
   };
 

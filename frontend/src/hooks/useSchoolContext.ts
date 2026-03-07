@@ -67,6 +67,17 @@ export interface SchoolContext {
     loading: boolean;
     /** Error message if any operation failed. */
     error: string | null;
+    /** Branding settings de la escuela activa (logo, colores) */
+    schoolBranding: {
+        logo_url: string | null
+        branding_settings: {
+            primary_color: string
+            secondary_color: string
+            show_sportmaps_watermark: boolean
+        } | null
+    } | null;
+    /** Recarga los datos de branding sin recargar toda la página */
+    refreshSchoolBranding: () => Promise<void>;
 }
 
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
@@ -89,6 +100,7 @@ export function useSchoolContext(): SchoolContext {
     const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
     const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
     const [schoolSettings, setSchoolSettings] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const [schoolBranding, setSchoolBranding] = useState<SchoolContext['schoolBranding']>(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -222,6 +234,7 @@ export function useSchoolContext(): SchoolContext {
         if (activeSchoolId && activeSchoolId !== "") {
             fetchPrograms(activeSchoolId, activeBranchId);
             fetchSettings(activeSchoolId);
+            fetchSchoolBranding(activeSchoolId);
         }
     }, [activeSchoolId, activeBranchId]);
     // 3. Effect: Link Active School to bffClient for header injection
@@ -325,6 +338,30 @@ export function useSchoolContext(): SchoolContext {
         setSchoolSettings(data);
     }, []);
 
+    const fetchSchoolBranding = useCallback(async (id: string) => {
+        if (!id || id === "") return;
+
+        const { data } = await supabase
+            .from('schools')
+            .select('logo_url, branding_settings')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (data) {
+            const schoolData = data as any;
+            setSchoolBranding({
+                logo_url: schoolData.logo_url ?? null,
+                branding_settings: schoolData.branding_settings ?? null,
+            });
+        }
+    }, []);
+
+    const refreshSchoolBranding = useCallback(async () => {
+        if (activeSchoolId) {
+            await fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSchoolBranding]);
+
     const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed'): Promise<boolean> => {
         if (!activeSchoolId) {
             console.error('❌ updateOnboardingStatus: No activeSchoolId found.');
@@ -402,6 +439,8 @@ export function useSchoolContext(): SchoolContext {
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,
         error,
+        schoolBranding,
+        refreshSchoolBranding,
     };
 }
 
