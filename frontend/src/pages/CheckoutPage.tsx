@@ -28,6 +28,7 @@ import { downloadReceipt } from '@/lib/receipt-generator';
 import { checkoutAPI } from '@/lib/api/checkout';
 import { transactionsAPI } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -119,7 +120,11 @@ export default function CheckoutPage() {
       }
     } catch (error) {
       console.error('Payment error:', error);
-      toast({ title: 'Error en el pago', description: 'Hubo un problema al procesar tu pago.', variant: 'destructive' });
+      toast({
+        title: 'Error en el pago',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally {
       setProcessing(false);
     }
@@ -147,7 +152,11 @@ export default function CheckoutPage() {
       toast({ title: '¡Pago registrado!', description: 'La escuela confirmará tu pago' });
     } catch (error) {
       console.error('Manual payment error:', error);
-      toast({ title: 'Error al registrar', description: 'Intenta nuevamente.', variant: 'destructive' });
+      toast({
+        title: 'Error al registrar',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally {
       setProcessing(false);
     }

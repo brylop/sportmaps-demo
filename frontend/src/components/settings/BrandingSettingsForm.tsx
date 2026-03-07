@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Camera, Loader2, Save, Palette, Image as ImageIcon } from 'lucide-react';
 import { useBranding, hexToHsl } from '@/contexts/ThemeContext';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 export function BrandingSettingsForm() {
     const { schoolId, refreshSchoolBranding } = useSchoolContext();
@@ -88,7 +89,7 @@ export function BrandingSettingsForm() {
             console.error('Error uploading logo:', error);
             toast({
                 title: "Error",
-                description: "No se pudo subir la imagen. Intenta de nuevo.",
+                description: getUserFriendlyError(error),
                 variant: "destructive",
             });
         }
@@ -125,7 +126,7 @@ export function BrandingSettingsForm() {
             console.error('Error saving branding:', error);
             toast({
                 title: "Error",
-                description: "No se pudieron guardar las configuraciones de marca.",
+                description: getUserFriendlyError(error),
                 variant: "destructive",
             });
         } finally {

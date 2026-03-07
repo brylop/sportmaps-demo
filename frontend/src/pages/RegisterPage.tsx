@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
@@ -228,25 +229,17 @@ export default function RegisterPage() {
     } catch (error: any) {
       console.error("Registration error:", error);
 
-      let errorMessage = "Ha ocurrido un error inesperado. Inténtalo de nuevo.";
-
-      // Mapeo de errores de Supabase Auth
-      if (error?.status === 429 || error?.message?.includes('rate limit exceeded')) {
-        errorMessage = "Has realizado demasiados intentos. Por favor, espera unos minutos o intenta con otro correo.";
-      } else if (error?.message?.includes('User already registered') || error?.message?.includes('already exist')) {
-        errorMessage = "Este correo electrónico ya está registrado.";
+      if (error?.message?.includes('User already registered') || error?.message?.includes('already exist')) {
         setUserExistsError(true);
         if (inviteId) {
           localStorage.setItem('pending_invite_id', inviteId);
         }
-      } else if (error?.message) {
-        errorMessage = error.message;
       }
 
       toast({
         variant: "destructive",
         title: "Error de registro",
-        description: errorMessage,
+        description: getUserFriendlyError(error),
       });
     } finally {
       setIsLoading(false);
@@ -276,7 +269,7 @@ export default function RegisterPage() {
     } catch (err: any) {
       toast({
         title: "Error al aceptar",
-        description: err.message || "No se pudo procesar la invitación.",
+        description: getUserFriendlyError(err),
         variant: "destructive"
       });
     } finally {

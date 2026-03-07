@@ -15,6 +15,7 @@ import { Navigate } from 'react-router-dom';
 import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
@@ -148,7 +149,7 @@ export default function PaymentsAutomationPage() {
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {
-      toast({ title: 'Error al guardar', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error al guardar', description: getUserFriendlyError(err), variant: 'destructive' });
     } finally {
       setBillingSaving(false);
     }
@@ -181,8 +182,7 @@ export default function PaymentsAutomationPage() {
         parent: p.parent, child: p.child, program: p.program,
       })));
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      toast({ title: 'Error al cargar pagos', description: err.message || 'Error desconocido', variant: 'destructive' });
+      toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -221,8 +221,7 @@ export default function PaymentsAutomationPage() {
       }));
       setTeamSubscriptions(mapped);
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      toast({ title: 'Error en suscripciones', description: err.message || String(err), variant: 'destructive' });
+      toast({ title: 'Error en suscripciones', description: getUserFriendlyError(error), variant: 'destructive' });
     }
   };
 
@@ -290,8 +289,7 @@ export default function PaymentsAutomationPage() {
       });
       await fetchPayments();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({ title: 'Error', description: `No se pudo procesar la acción: ${message}`, variant: 'destructive' });
+      toast({ title: 'Error', description: `No se pudo procesar la acción: ${getUserFriendlyError(error)}`, variant: 'destructive' });
     } finally {
       setProcessingId(null);
     }

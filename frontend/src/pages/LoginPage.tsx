@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useEffect } from 'react';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -102,7 +103,7 @@ export default function LoginPage() {
       console.error('Error sending reset email:', error);
       toast({
         title: 'Error al enviar el correo',
-        description: error.message || 'No se pudo enviar el correo de recuperación. Intenta de nuevo.',
+        description: getUserFriendlyError(error),
         variant: 'destructive',
       });
     } finally {

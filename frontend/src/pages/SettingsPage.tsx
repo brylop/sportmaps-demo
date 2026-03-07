@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 import {
   Settings,
   User,
@@ -163,7 +164,7 @@ export default function ProfilePage() {
       console.error('Error uploading avatar:', error);
       toast({
         title: "Error",
-        description: "No se pudo subir la imagen. Intenta de nuevo.",
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     }
@@ -197,7 +198,7 @@ export default function ProfilePage() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     } finally {
@@ -238,7 +239,7 @@ export default function ProfilePage() {
     } catch (error: any) {
       toast({
         title: "Error al guardar preferencias",
-        description: error.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     } finally {
@@ -291,7 +292,7 @@ export default function ProfilePage() {
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err.message || "No se pudo actualizar la contraseña. Podría ser necesario volver a iniciar sesión.",
+        description: getUserFriendlyError(err),
         variant: "destructive"
       });
     } finally {

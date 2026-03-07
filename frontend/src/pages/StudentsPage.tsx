@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -64,7 +65,7 @@ export default function StudentsPage() {
       console.error('Error loading students:', error);
       toast({
         title: 'Error al cargar estudiantes',
-        description: error.message || 'Por favor intenta de nuevo',
+        description: getUserFriendlyError(error),
         variant: 'destructive',
       });
     } finally {

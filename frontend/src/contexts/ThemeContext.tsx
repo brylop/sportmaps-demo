@@ -16,8 +16,8 @@ interface BrandingSettings {
 }
 
 const DEFAULT_BRANDING: BrandingSettings = {
-  primary_color: '#0ea5e9',
-  secondary_color: '#64748b',
+  primary_color: '#248223', // SportMaps Green
+  secondary_color: '#FB9F1E', // SportMaps Orange
   show_sportmaps_watermark: true,
 }
 
