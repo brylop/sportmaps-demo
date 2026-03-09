@@ -171,6 +171,7 @@ export function CSVImportModal({
 
   const handleUpload = async () => {
     if (!file) return;
+    if (!schoolId) return;
 
     try {
       setUploading(true);

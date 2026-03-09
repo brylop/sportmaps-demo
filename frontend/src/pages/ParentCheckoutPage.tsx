@@ -8,16 +8,19 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
@@ -111,6 +114,8 @@ export default function ParentCheckoutPage() {
       paymentType: 'monthly',
       schoolName,
       studentName,
+      logoUrl: schoolBranding?.logo_url,
+      brandingSettings: schoolBranding?.branding_settings,
     });
   };
 
@@ -208,7 +213,11 @@ export default function ParentCheckoutPage() {
         toast({ title: 'Pago cancelado', description: 'Cerraste la ventana de pago.' });
       }
     } catch (error) {
-      toast({ title: 'Error en el pago', variant: 'destructive' });
+      toast({
+        title: 'Error en el pago',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally { setProcessing(false); }
   };
 
@@ -232,7 +241,11 @@ export default function ParentCheckoutPage() {
       setSuccess(true);
       toast({ title: '¡Pago registrado!', description: 'La escuela confirmará tu pago' });
     } catch (error) {
-      toast({ title: 'Error al registrar', variant: 'destructive' });
+      toast({
+        title: 'Error al registrar',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally { setProcessing(false); }
   };
 

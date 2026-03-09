@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 import {
   Settings,
   User,
@@ -33,6 +34,7 @@ import {
 import { sanitizeBio, sanitizeName, sanitizePhone } from '@/lib/sanitize';
 import { coachesAPI, CoachProfile, CoachCertification } from '@/lib/api/coaches';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
+import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
 
 export default function ProfilePage() {
   const { user, profile, updateProfile } = useAuth();
@@ -162,7 +164,7 @@ export default function ProfilePage() {
       console.error('Error uploading avatar:', error);
       toast({
         title: "Error",
-        description: "No se pudo subir la imagen. Intenta de nuevo.",
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     }
@@ -196,7 +198,7 @@ export default function ProfilePage() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     } finally {
@@ -237,7 +239,7 @@ export default function ProfilePage() {
     } catch (error: any) {
       toast({
         title: "Error al guardar preferencias",
-        description: error.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
     } finally {
@@ -290,7 +292,7 @@ export default function ProfilePage() {
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err.message || "No se pudo actualizar la contraseña. Podría ser necesario volver a iniciar sesión.",
+        description: getUserFriendlyError(err),
         variant: "destructive"
       });
     } finally {
@@ -357,6 +359,12 @@ export default function ProfilePage() {
             <TabsTrigger value="services" className="gap-2">
               <Globe className="h-4 w-4" />
               Servicios
+            </TabsTrigger>
+          )}
+          {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+            <TabsTrigger value="branding" className="gap-2">
+              <Palette className="h-4 w-4" />
+              Identidad Visual
             </TabsTrigger>
           )}
           <TabsTrigger value="privacy" className="gap-2">
@@ -752,6 +760,13 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Branding Tab */}
+        {(profile?.role === 'school' || profile?.role === 'school_admin') && (
+          <TabsContent value="branding" className="space-y-4">
+            <BrandingSettingsForm />
+          </TabsContent>
+        )}
 
         {/* Privacy Tab */}
         <TabsContent value="privacy" className="space-y-4">

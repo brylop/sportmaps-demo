@@ -27,6 +27,8 @@ const PageLoader = () => (
 const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const ExplorePage = lazy(() => import("./pages/ExplorePage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
@@ -165,6 +167,8 @@ const App = () => (
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/terminos-y-condiciones" element={<TermsPage />} />
+                    <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
                     <Route path="/checkout" element={
                       <ProtectedRoute>
                         <CheckoutPage />
@@ -233,7 +237,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <InvitationsManagementPage />
                         </ProtectedRoute>
                       } />
@@ -293,7 +297,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="school-config" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolSettingsPage />
                         </ProtectedRoute>
                       } />

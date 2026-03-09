@@ -215,7 +215,7 @@ export default function InvitationsManagementPage() {
     const program = invitation.program_id || formData.programId;
 
     const params = new URLSearchParams({
-      school: schoolId || 'demo',
+      school: schoolId || '',
       email: email || '',
       invite: inviteId,
       role: role
@@ -231,10 +231,40 @@ export default function InvitationsManagementPage() {
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
     const link = generateRegistrationLink(invitation);
-    const message = `¡Hola! Te invitamos a inscribir a ${invitation.child_name} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const childName = invitation.child_name || formData.childName;
+    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
     const phone = invitation.parent_phone || formData.parentPhone;
     const cleanPhone = phone.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const resendEmail = async (invitation: Invitation) => {
+    const link = generateRegistrationLink(invitation);
+    try {
+      const { data: { session: edgeSession } } = await supabase.auth.getSession();
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+          },
+          body: JSON.stringify({
+            type: 'parent_invitation',
+            to: invitation.invited_email,
+            data: {
+              schoolName,
+              childName: invitation.child_name || '',
+              registrationUrl: link,
+            }
+          })
+        }
+      );
+      toast({ title: '📧 Correo reenviado', description: `Email enviado a ${invitation.invited_email}` });
+    } catch {
+      toast({ title: 'Error al reenviar', description: 'No se pudo enviar el correo.', variant: 'destructive' });
+    }
   };
 
   const copyLinkToClipboard = (invitation: Invitation) => {
@@ -270,32 +300,34 @@ export default function InvitationsManagementPage() {
       // 2. Try to send email via edge function (non-blocking)
       const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(data.parentEmail)}&role=${data.role}&invite=${inviteId}`;
 
+      const { data: { session: sendSession } } = await supabase.auth.getSession();
       await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+            'Authorization': `Bearer ${sendSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
           },
           body: JSON.stringify({
+            type: 'parent_invitation',
             to: data.parentEmail,
-            parentName: data.parentEmail.split('@')[0],
-            childName: data.childName,
-            schoolName,
-            programName,
-            monthlyFee: fee,
-            invitationLink: registration_link,
+            data: {
+              schoolName,
+              childName: data.childName || '',
+              registrationUrl: registration_link,
+            }
           })
         }
-      ).catch(error => {
-        console.warn('Email send failed (RPC succeeded):', error);
+      ).catch(err => {
+        console.warn('Email send failed (RPC succeeded):', err);
       });
 
       return { id: inviteId, registration_link };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
       setDialogOpen(false);
       const email = formData.parentEmail;
       setFormData({
@@ -588,12 +620,7 @@ export default function InvitationsManagementPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            toast({
-                              title: '📧 Invitación reenviada',
-                              description: `Re-enviando invitación a ${invitation.invited_email}`,
-                            });
-                          }}
+                          onClick={() => resendEmail(invitation)}
                         >
                           <Send className="w-4 h-4" />
                         </Button>
@@ -649,8 +676,8 @@ export default function InvitationsManagementPage() {
                     type="button"
                     variant={formData.role === role.id ? 'default' : 'outline'}
                     className={`text-xs h-9 px-2 transition-all ${formData.role === role.id
-                        ? 'ring-2 ring-primary/30 shadow-sm'
-                        : 'hover:bg-accent'
+                      ? 'ring-2 ring-primary/30 shadow-sm'
+                      : 'hover:bg-accent'
                       }`}
                     onClick={() => setFormData({
                       ...formData,

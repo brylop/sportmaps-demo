@@ -2,7 +2,9 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { emailClient } from '@/lib/email-client';
 import { Database } from '@/integrations/supabase/types';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 interface UserProfile {
   id: string;
@@ -122,7 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
               const created = await createProfile(session.user.id, {
                 full_name: session.user.user_metadata?.full_name || 'Usuario',
-                role: 'athlete',
+                email: session.user.email || '',
+                role: session.user.user_metadata?.role || 'athlete',
               });
               setProfile(created as UserProfile);
             }
@@ -218,18 +221,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         // Profile creation is handled by DB Triggers for security
-        // await createProfile(data.user.id, userData);
         toast({
           title: "¡Registro exitoso!",
           description: "Bienvenido a SportMaps. Tu cuenta ha sido creada.",
         });
+
+        // Send welcome email for school owners (non-blocking)
+        if (userData.role === 'school' && userData.school_name) {
+          emailClient.send({
+            type: 'welcome_school',
+            to: email,
+            data: {
+              userName: userData.full_name || 'Administrador',
+              schoolName: userData.school_name,
+            },
+          }).catch((err) => console.warn('Welcome email failed:', err));
+        }
       }
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error signing up:', error);
       toast({
         title: "Error en el registro",
-        description: err.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;
@@ -250,16 +263,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         description: "Bienvenido a SportMaps",
       });
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error signing in:', error);
-      let message = err.message;
-      if (message === "Invalid login credentials") {
-        message = "Credenciales inválidas. Por favor verifica tu email y contraseña. (Tip: Revisa si escribiste 'spoortmaps' correctamente si estás usando correos de prueba)";
-      }
-
       toast({
         title: "Error en el inicio de sesión",
-        description: message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;
@@ -306,7 +313,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!err.message?.includes('session')) {
         toast({
           title: "Error",
-          description: err.message,
+          description: getUserFriendlyError(err),
           variant: "destructive",
         });
       } else {
@@ -341,11 +348,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       }
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error updating profile:', error);
       toast({
         title: "Error",
-        description: err.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;

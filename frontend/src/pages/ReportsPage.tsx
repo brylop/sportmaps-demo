@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -154,6 +154,40 @@ export default function ReportsPage() {
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [growthData, setGrowthData] = useState<any[]>([]);
 
+  const exportCSV = () => {
+    const rows: string[] = [
+      '=== REPORTE SPORTMAPS ===',
+      `Generado: ${new Date().toLocaleString('es-CO')}`,
+      '',
+      '-- RESUMEN --',
+      `Ocupación Global,${summary.occupancyRate}%`,
+      `Total Estudiantes,${summary.totalStudents}`,
+      `Capacidad Total,${summary.totalCapacity}`,
+      `Ingresos Confirmados,${formatCurrency(summary.totalRevenue)}`,
+      `Crecimiento Neto (mes),${summary.netGrowth}`,
+      '',
+      '-- OCUPACIÓN POR PROGRAMA --',
+      'Programa,Ocupados,Vacantes',
+      ...occupancyData.map(r => `${r.name},${r.occupied},${r.vacant}`),
+      '',
+      '-- INGRESOS POR PROGRAMA --',
+      'Programa,Monto',
+      ...revenueData.map(r => `${r.name},${r.value}`),
+      '',
+      '-- CRECIMIENTO (6 MESES) --',
+      'Mes,Nuevos,Retiros',
+      ...growthData.map(r => `${r.month},${r.nuevos},${r.retiros}`),
+    ];
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reporte-sportmaps-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const loadData = useCallback(async () => {
     if (!schoolId) return;
     setLoading(true);
@@ -225,11 +259,25 @@ export default function ReportsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {dataSource === 'supabase' && (
-            <Badge variant="secondary" className="text-xs gap-1">
-              <AlertCircle className="w-3 h-3" /> Modo directo
-            </Badge>
-          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 h-8"
+            onClick={exportCSV}
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 h-8"
+            onClick={() => window.print()}
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Imprimir
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -242,25 +290,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Banner de aviso cuando el BFF falló pero el fallback funcionó */}
-      {bffError && dataSource === 'supabase' && (
-        <Alert variant="default" className="border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20">
-          <AlertCircle className="h-4 w-4 text-yellow-600" />
-          <AlertTitle className="text-yellow-700 dark:text-yellow-400">
-            Reportes cargados en modo directo
-          </AlertTitle>
-          <AlertDescription className="text-yellow-600 dark:text-yellow-300 text-xs mt-1">
-            El servidor BFF no respondió correctamente
-            {bffError !== 'Error desconocido del BFF'
-              ? ` (${bffError})`
-              : ''}
-            . Los datos se obtuvieron directamente desde la base de datos y son igualmente confiables.
-            Si el problema persiste, verifica que el BFF esté activo y que el header{' '}
-            <code className="bg-yellow-200 dark:bg-yellow-800 px-1 rounded">x-school-id</code>{' '}
-            se esté enviando correctamente en <code>bffClient</code>.
-          </AlertDescription>
-        </Alert>
-      )}
+
 
       {/* Banner crítico: ambas fuentes fallaron */}
       {bffError && dataSource === null && (

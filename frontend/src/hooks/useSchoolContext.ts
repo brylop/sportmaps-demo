@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
-import { EmailTemplates } from '@/lib/email-templates';
 import { bffClient } from '@/lib/api/bffClient';
 
 /**
@@ -68,6 +67,17 @@ export interface SchoolContext {
     loading: boolean;
     /** Error message if any operation failed. */
     error: string | null;
+    /** Branding settings de la escuela activa (logo, colores) */
+    schoolBranding: {
+        logo_url: string | null
+        branding_settings: {
+            primary_color: string
+            secondary_color: string
+            show_sportmaps_watermark: boolean
+        } | null
+    } | null;
+    /** Recarga los datos de branding sin recargar toda la página */
+    refreshSchoolBranding: () => Promise<void>;
 }
 
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
@@ -90,6 +100,7 @@ export function useSchoolContext(): SchoolContext {
     const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
     const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
     const [schoolSettings, setSchoolSettings] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const [schoolBranding, setSchoolBranding] = useState<SchoolContext['schoolBranding']>(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -218,17 +229,6 @@ export function useSchoolContext(): SchoolContext {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 2. Effect: Fetch Programs when Active School Changes
-    useEffect(() => {
-        if (activeSchoolId && activeSchoolId !== "") {
-            fetchPrograms(activeSchoolId, activeBranchId);
-            fetchSettings(activeSchoolId);
-        }
-    }, [activeSchoolId, activeBranchId]);
-    // 3. Effect: Link Active School to bffClient for header injection
-    useEffect(() => {
-        bffClient.setSchoolId(activeSchoolId ?? null);
-    }, [activeSchoolId]);
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
@@ -254,6 +254,8 @@ export function useSchoolContext(): SchoolContext {
         }
 
         setOnboardingStatus(school.onboardingStatus || 'completed');
+        // Clear branding when switching schools to avoid "flash" of previous branding
+        setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
     }, []);
 
@@ -326,6 +328,33 @@ export function useSchoolContext(): SchoolContext {
         setSchoolSettings(data);
     }, []);
 
+    const fetchSchoolBranding = useCallback(async (id: string) => {
+        if (!id || id === "") {
+            setSchoolBranding(null);
+            return;
+        }
+
+        const { data } = await supabase
+            .from('schools')
+            .select('logo_url, branding_settings')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (data) {
+            const schoolData = data as any;
+            setSchoolBranding({
+                logo_url: schoolData.logo_url ?? null,
+                branding_settings: schoolData.branding_settings ?? null,
+            });
+        }
+    }, []);
+
+    const refreshSchoolBranding = useCallback(async () => {
+        if (activeSchoolId) {
+            await fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSchoolBranding]);
+
     const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed'): Promise<boolean> => {
         if (!activeSchoolId) {
             console.error('❌ updateOnboardingStatus: No activeSchoolId found.');
@@ -384,6 +413,27 @@ export function useSchoolContext(): SchoolContext {
         }
     };
 
+    // 2a. Effect: Fetch Branch-specific data (Programs)
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchPrograms(activeSchoolId, activeBranchId);
+        }
+    }, [activeSchoolId, activeBranchId, fetchPrograms]);
+
+    // 2b. Effect: Fetch School-wide data (Settings, Branding)
+    // Only happens when the school changes, NOT the branch.
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchSettings(activeSchoolId);
+            fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSettings, fetchSchoolBranding]);
+
+    // 3. Effect: Link Active School to bffClient for header injection
+    useEffect(() => {
+        bffClient.setSchoolId(activeSchoolId ?? null);
+    }, [activeSchoolId]);
+
     return {
         schoolId: activeSchoolId,
         schoolName: activeSchoolName,
@@ -403,6 +453,8 @@ export function useSchoolContext(): SchoolContext {
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,
         error,
+        schoolBranding,
+        refreshSchoolBranding,
     };
 }
 
@@ -516,14 +568,13 @@ export async function createStudentWithPendingPayment(params: {
             const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId || ''}`;
 
             await emailClient.send({
+                type: 'parent_invitation',
                 to: params.parentEmail,
-                subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
-                html: EmailTemplates.invitation(
-                    params.parentName || 'Padre de Familia',
-                    params.fullName,
-                    params.schoolName || 'nuestra escuela',
-                    inviteLink
-                )
+                data: {
+                    schoolName: params.schoolName || 'Tu Escuela',
+                    childName: params.fullName,
+                    registrationUrl: inviteLink,
+                },
             });
             console.log(`✉️ Invitación enviada y registrada para ${params.parentEmail}`);
         } catch (inviteErr) {

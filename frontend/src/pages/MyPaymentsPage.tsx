@@ -294,6 +294,8 @@ export default function MyPaymentsPage() {
         return <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" />Aprobado</Badge>;
       case 'rejected':
         return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rechazado</Badge>;
+      case 'awaiting_approval':
+        return <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="h-3 w-3 mr-1" />Por Validar</Badge>;
       case 'pending':
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pendiente</Badge>;
       default:
@@ -312,6 +314,16 @@ export default function MyPaymentsPage() {
         return '📱';
       default:
         return '💰';
+    }
+  };
+
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method.toLowerCase()) {
+      case 'pse': return 'PSE';
+      case 'card':
+      case 'tarjeta': return 'Tarjeta';
+      case 'transfer': return 'Transf. / Nequi';
+      default: return method.toUpperCase();
     }
   };
 
@@ -430,7 +442,7 @@ export default function MyPaymentsPage() {
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-1 text-xs md:text-sm">
                               {getPaymentMethodIcon(txn.payment_method)}
-                              <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
+                              <span className="hidden md:inline">{getPaymentMethodLabel(txn.payment_method)}</span>
                             </span>
                           </TableCell>
                           <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">

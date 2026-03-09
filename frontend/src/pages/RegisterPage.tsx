@@ -21,6 +21,11 @@ import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { useInvitationBranding } from '@/hooks/useInvitationBranding';
+import { getUserFriendlyError } from '@/lib/error-translator';
+
+// Roles que representan instituciones/negocios (no personas físicas)
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
 
 // Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
@@ -29,21 +34,33 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   phone: z.string().regex(/^\+?[0-9\s-]*$/, 'Formato de teléfono inválido').optional().or(z.literal('')),
-  dateOfBirth: z.string().min(1, 'La fecha de nacimiento es requerida'),
+  dateOfBirth: z.string().optional(),
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
+  acceptTerms: z.boolean().refine(val => val === true, {
+    message: 'Debes aceptar los términos y condiciones para continuar',
+  }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Las contraseñas no coinciden',
   path: ['confirmPassword'],
 }).refine((data) => {
-  // Soporta tanto 'school' como 'school_admin' para mayor robustez
-  if ((data.role === 'school' || data.role === 'school_admin') && (!data.schoolName || data.schoolName.trim() === '')) {
+  // Fecha de nacimiento requerida solo para usuarios individuales
+  if (!INSTITUTION_ROLES.includes(data.role) && (!data.dateOfBirth || data.dateOfBirth.trim() === '')) {
     return false;
   }
   return true;
 }, {
-  message: 'El nombre de la academia es requerido para este perfil',
+  message: 'La fecha de nacimiento es requerida',
+  path: ['dateOfBirth'],
+}).refine((data) => {
+  // Nombre de academia solo requerido al crear una escuela nueva (role=school)
+  if (data.role === 'school' && (!data.schoolName || data.schoolName.trim() === '')) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El nombre de la academia es requerido',
   path: ['schoolName'],
 });
 
@@ -87,8 +104,14 @@ export default function RegisterPage() {
   const inviteEmail = searchParams.get('email');
   const inviteRole = searchParams.get('role');
   const [invitationInfo, setInvitationInfo] = useState<{
-    school_name: string; role_to_assign: string; child_name?: string;
+    school_name: string;
+    role_to_assign: string;
+    child_name?: string;
+    program_name?: string;
+    monthly_fee?: number;
   } | null>(null);
+
+  const inviteBranding = useInvitationBranding(inviteId);
 
   const { signUp, user } = useAuth();
 
@@ -133,7 +156,13 @@ export default function RegisterPage() {
             school_name: invite.school_name || 'Tu Academia',
             role_to_assign: invite.role_to_assign,
             child_name: invite.child_name,
+            program_name: invite.program_name,
+            monthly_fee: invite.monthly_fee,
           });
+          // Pre-fill schoolName so la validación pase y el backend tenga contexto
+          if (invite.school_name) {
+            setValue('schoolName', invite.school_name);
+          }
         }
       } catch (err) {
         console.warn('Invitation validation failed or ID is invalid. This is expected if the link is malformed or unauthorized.', err);
@@ -161,8 +190,17 @@ export default function RegisterPage() {
     fetchRoles();
   }, []);
 
-  // Redirect if already logged in and not just submitted
-  if (user && !isSubmitted) {
+  // Conflict resolution: If user is logged in but the invite is for a different email, log them out.
+  useEffect(() => {
+    if (user && inviteEmail && user.email !== inviteEmail && !isSubmitted) {
+      supabase.auth.signOut().then(() => {
+        window.location.reload();
+      });
+    }
+  }, [user, inviteEmail, isSubmitted]);
+
+  // Redirect if already logged in (and email matches or no invite), and not just submitted
+  if (user && !isSubmitted && (!inviteEmail || user.email === inviteEmail)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -191,25 +229,17 @@ export default function RegisterPage() {
     } catch (error: any) {
       console.error("Registration error:", error);
 
-      let errorMessage = "Ha ocurrido un error inesperado. Inténtalo de nuevo.";
-
-      // Mapeo de errores de Supabase Auth
-      if (error?.status === 429 || error?.message?.includes('rate limit exceeded')) {
-        errorMessage = "Has realizado demasiados intentos. Por favor, espera unos minutos o intenta con otro correo.";
-      } else if (error?.message?.includes('User already registered') || error?.message?.includes('already exist')) {
-        errorMessage = "Este correo electrónico ya está registrado.";
+      if (error?.message?.includes('User already registered') || error?.message?.includes('already exist')) {
         setUserExistsError(true);
         if (inviteId) {
           localStorage.setItem('pending_invite_id', inviteId);
         }
-      } else if (error?.message) {
-        errorMessage = error.message;
       }
 
       toast({
         variant: "destructive",
         title: "Error de registro",
-        description: errorMessage,
+        description: getUserFriendlyError(error),
       });
     } finally {
       setIsLoading(false);
@@ -239,7 +269,7 @@ export default function RegisterPage() {
     } catch (err: any) {
       toast({
         title: "Error al aceptar",
-        description: err.message || "No se pudo procesar la invitación.",
+        description: getUserFriendlyError(err),
         variant: "destructive"
       });
     } finally {
@@ -253,8 +283,14 @@ export default function RegisterPage() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
         <Card className="w-full max-w-md shadow-2xl border-t-8 border-primary animate-in fade-in zoom-in duration-300">
           <CardContent className="pt-10 flex flex-col items-center text-center">
-            <div className="bg-primary/10 p-4 rounded-full mb-6">
-              <School className="w-12 h-12 text-primary" />
+            <div className="flex justify-center mb-6">
+              {inviteBranding?.logo_url ? (
+                <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
+              ) : (
+                <div className="bg-primary/10 p-4 rounded-full">
+                  <School className="w-12 h-12 text-primary" />
+                </div>
+              )}
             </div>
 
             <h2 className="text-2xl font-bold font-poppins text-foreground mb-2">Invitación Pendiente</h2>
@@ -347,9 +383,14 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/5 via-background to-[#FB9F1E]/5 p-4 font-poppins">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center text-[#248223]">Crear Cuenta</CardTitle>
+          <div className="flex justify-center mb-4">
+            {inviteBranding?.logo_url ? (
+              <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
+            ) : null}
+          </div>
+          <CardTitle className="text-2xl font-bold text-center text-primary">Crear Cuenta</CardTitle>
           <CardDescription className="text-center">
-            Únete a la comunidad SportMaps
+            Únete a {inviteBranding?.school_name || 'la comunidad SportMaps'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -374,6 +415,16 @@ export default function RegisterPage() {
                     }</strong>
                     {invitationInfo.child_name && <> para <strong className="text-primary">{invitationInfo.child_name}</strong></>}
                   </p>
+                  {invitationInfo.program_name && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Equipo asignado: <strong>{invitationInfo.program_name}</strong>
+                    </p>
+                  )}
+                  {invitationInfo.monthly_fee != null && invitationInfo.monthly_fee > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Mensualidad: <strong>{new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(invitationInfo.monthly_fee)}/mes</strong>
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -439,60 +490,62 @@ export default function RegisterPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
-              <Controller
-                name="dateOfBirth"
-                control={control}
-                render={({ field }) => (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !field.value && "text-muted-foreground",
-                          errors.dateOfBirth && "border-destructive"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {field.value ? (
-                          format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
-                        ) : (
-                          <span>Selecciona tu fecha</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
-                        onSelect={(date) => {
-                          if (date) {
-                            // Save as YYYY-MM-DD
-                            const year = date.getFullYear();
-                            const month = String(date.getMonth() + 1).padStart(2, '0');
-                            const day = String(date.getDate()).padStart(2, '0');
-                            field.onChange(`${year}-${month}-${day}`);
+            {!INSTITUTION_ROLES.includes(watch('role')) && (
+              <div className="space-y-2">
+                <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
+                <Controller
+                  name="dateOfBirth"
+                  control={control}
+                  render={({ field }) => (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground",
+                            errors.dateOfBirth && "border-destructive"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value ? (
+                            format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Selecciona tu fecha</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              // Save as YYYY-MM-DD
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              field.onChange(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={1920}
+                          toYear={new Date().getFullYear()}
+                          locale={es}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1920-01-01")
                           }
-                        }}
-                        captionLayout="dropdown-buttons"
-                        fromYear={1920}
-                        toYear={new Date().getFullYear()}
-                        locale={es}
-                        disabled={(date) =>
-                          date > new Date() || date < new Date("1920-01-01")
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                />
+                {errors.dateOfBirth && (
+                  <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
                 )}
-              />
-              {errors.dateOfBirth && (
-                <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="role">Tipo de Usuario</Label>
@@ -515,17 +568,19 @@ export default function RegisterPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {roles.length > 0 ? (
-                          roles.map((role) => (
-                            <SelectItem key={role.id} value={role.name}>
-                              {role.display_name}
-                            </SelectItem>
-                          ))
+                          roles
+                            .filter(r => !['admin', 'super_admin', 'reporter', 'school_admin'].includes(r.name))
+                            .map((role) => (
+                              <SelectItem key={role.id} value={role.name}>
+                                {role.display_name}
+                              </SelectItem>
+                            ))
                         ) : (
                           <>
                             <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
                             <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
                             <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
-                            <SelectItem value={USER_ROLES.SCHOOL_ADMIN}>🏫 Escuela/Centro Deportivo</SelectItem>
+                            <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
                           </>
                         )}
                       </SelectContent>
@@ -538,7 +593,7 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === USER_ROLES.SCHOOL_ADMIN || watch('role') === 'school') && (
+            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === 'school') && !inviteId && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <Label htmlFor="schoolName">Nombre de la Academia</Label>
                 <Input
@@ -601,6 +656,31 @@ export default function RegisterPage() {
               </div>
               {errors.confirmPassword && (
                 <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-start gap-3">
+                <input
+                  id="acceptTerms"
+                  type="checkbox"
+                  {...register('acceptTerms')}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 accent-[#248223] cursor-pointer"
+                />
+                <label htmlFor="acceptTerms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
+                  Acepto los{' '}
+                  <a href="/terminos-y-condiciones" target="_blank" className="text-[#248223] font-semibold hover:underline">
+                    Términos y Condiciones
+                  </a>{' '}
+                  y la{' '}
+                  <a href="/politica-de-privacidad" target="_blank" className="text-[#248223] font-semibold hover:underline">
+                    Política de Privacidad
+                  </a>{' '}
+                  de SportMaps.
+                </label>
+              </div>
+              {errors.acceptTerms && (
+                <p className="text-sm text-destructive">{errors.acceptTerms.message}</p>
               )}
             </div>
 
