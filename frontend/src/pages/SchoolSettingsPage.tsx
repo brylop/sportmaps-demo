@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
-
 interface SchoolProfile {
     id: string;
     name: string;
