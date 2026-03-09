@@ -4,6 +4,7 @@ import { classesAPI } from '@/lib/api/classes';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 
 export interface DashboardStats {
   // School stats
@@ -160,6 +161,34 @@ export function useDashboardStatsReal() {
           upcomingEventsCount = eventCount || 0;
         }
 
+        // Calcular asistencia real del coach
+        let attendanceRate = 0;
+        if (isCoach) {
+          // Buscar equipos por coach_id directo O por tabla team_coaches
+          const [{ data: teamsDirecta }, { data: teamsRelacion }] = await Promise.all([
+            supabase.from('teams').select('id')
+              .or(`coach_id.eq.${coachIdFilter},coach_id.eq.${user?.id}`),
+            supabase.from('team_coaches').select('team_id')
+              .or(`coach_id.eq.${coachIdFilter},coach_id.eq.${user?.id}`)
+          ]);
+
+          const teamIds = [
+            ...(teamsDirecta || []).map((t: any) => t.id),
+            ...(teamsRelacion || []).map((t: any) => t.team_id),
+          ].filter((id, i, arr) => arr.indexOf(id) === i); // deduplicar
+          // Calcular asistencia real del coach via BFF (Bypassa RLS interno)
+          if (teamIds.length > 0) {
+            try {
+              const json = await bffClient.get<{ rate: number }>(
+                `/api/v1/attendance/rate/${teamIds[0]}`
+              );
+              attendanceRate = json.rate || 0;
+            } catch (err) {
+              console.error('Error obteniendo tasa de asistencia del coach:', err);
+            }
+          }
+        }
+
         setStats({
           students_count: studentStats.total,
           active_students: studentStats.active,
@@ -172,7 +201,7 @@ export function useDashboardStatsReal() {
           activeTeams: classStats.active, // Map active classes to activeTeams for coaches
           notifications: 0, // Fallback for now
           upcomingEvents: upcomingEventsCount,
-          attendanceRate: 0, // Placeholder
+          attendanceRate,
         });
       } else if (profile.role === 'parent') {
         // Load parent-specific stats

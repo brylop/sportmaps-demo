@@ -27,7 +27,7 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 export default function DashboardPage() {
   const { profile, user, updateProfile } = useAuth();
   const { toast } = useToast();
-  const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
+  const { activeBranchId, activeBranchName, totalBranches, schoolName } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const pendingInviteId = localStorage.getItem('pending_invite_id');
@@ -441,7 +441,7 @@ export default function DashboardPage() {
           userRole={profile.role}
           userName={
             (profile.role === 'school' || profile.role === 'school_admin')
-              ? (activeBranchName || 'Tu Academia')
+              ? (schoolName || 'Tu Academia')
               : (profile.full_name?.split(' ')[0] || 'Usuario')
           }
           onComplete={handleCloseWelcome}

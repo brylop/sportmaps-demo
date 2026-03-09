@@ -22,14 +22,14 @@ import { supabase } from '@/integrations/supabase/client';
  * evitando el problema de env vars mal configuradas en el build de Vercel.
  */
 function resolveBffUrl(): string {
-    const configured = import.meta.env.VITE_BFF_URL ?? '';
-    if (typeof window === 'undefined') return configured || 'http://localhost:3000';
+    const configured = import.meta.env.VITE_BFF_URL;
+    if (configured) return configured;
+
+    if (typeof window === 'undefined') return 'http://localhost:3000';
     const { hostname } = window.location;
-    // En local: respetar la variable de entorno (o usar localhost)
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return configured || 'http://localhost:3000';
+        return 'http://localhost:3000';
     }
-    // En cualquier despliegue en Vercel/dominio: siempre el BFF correcto
     return 'https://sportmaps-bff.onrender.com';
 }
 const BFF_URL = resolveBffUrl();

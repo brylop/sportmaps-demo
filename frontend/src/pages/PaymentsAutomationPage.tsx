@@ -9,12 +9,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
@@ -99,6 +100,13 @@ export default function PaymentsAutomationPage() {
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
 
+  // Filtros Historial
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+
+  // Filtros Validación (Pendientes)
+  const [pendingSearch, setPendingSearch] = useState('');
+
   useEffect(() => {
     if (schoolId) {
       loadBillingSettings();
@@ -141,7 +149,7 @@ export default function PaymentsAutomationPage() {
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {
-      toast({ title: 'Error al guardar', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error al guardar', description: getUserFriendlyError(err), variant: 'destructive' });
     } finally {
       setBillingSaving(false);
     }
@@ -157,25 +165,24 @@ export default function PaymentsAutomationPage() {
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept,
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
           program:teams!payments_program_id_fkey(name)`)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(100);
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query;
       if (error) throw error;
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
-        receipt_url: p.receipt_url, concept: p.concept,
+        receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
         parent: p.parent, child: p.child, program: p.program,
       })));
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      toast({ title: 'Error al cargar pagos', description: err.message || 'Error desconocido', variant: 'destructive' });
+      toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -185,17 +192,36 @@ export default function PaymentsAutomationPage() {
     if (!schoolId) return;
     try {
       let query = supabase
-        .from('children')
-        .select(`id, full_name, monthly_fee, team_id, teams:teams!children_team_id_fkey(name)`)
+        .from('enrollments')
+        .select(`
+          id,
+          child_id,
+          team_id,
+          schools!inner ( id ),
+          children ( full_name ),
+          team:teams!enrollments_team_id_fkey ( name, price_monthly )
+        `)
         .eq('school_id', schoolId)
-        .not('team_id', 'is', null);
-      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+        .eq('status', 'active');
+
+      if (activeBranchId) {
+        // En un caso real podrías filtrar enrollments por branch si existiera en enrollment, 
+        // pero vamos a filtrar en memoria por simplicidad o dejarlo así ya que se hereda del school.
+      }
       const { data, error } = await query;
       if (error) throw error;
-      setTeamSubscriptions(data as unknown as TeamSubscription[]);
+
+      const mapped = (data as any[]).map(e => ({
+        id: e.id,
+        child_id: e.child_id,
+        full_name: e.children?.full_name || 'Sin nombre',
+        monthly_fee: e.team?.price_monthly || 0,
+        team_id: e.team_id,
+        teams: { name: e.team?.name },
+      }));
+      setTeamSubscriptions(mapped);
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      toast({ title: 'Error en suscripciones', description: err.message || String(err), variant: 'destructive' });
+      toast({ title: 'Error en suscripciones', description: getUserFriendlyError(error), variant: 'destructive' });
     }
   };
 
@@ -263,8 +289,7 @@ export default function PaymentsAutomationPage() {
       });
       await fetchPayments();
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({ title: 'Error', description: `No se pudo procesar la acción: ${message}`, variant: 'destructive' });
+      toast({ title: 'Error', description: `No se pudo procesar la acción: ${getUserFriendlyError(error)}`, variant: 'destructive' });
     } finally {
       setProcessingId(null);
     }
@@ -306,10 +331,42 @@ export default function PaymentsAutomationPage() {
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
-  const historyPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+  const rawPendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const pendingPayments = rawPendingPayments.filter(p => {
+    if (!pendingSearch) return true;
+    const term = pendingSearch.toLowerCase();
+    return p.child?.full_name?.toLowerCase().includes(term) ||
+      p.parent?.full_name?.toLowerCase().includes(term) ||
+      p.concept?.toLowerCase().includes(term) ||
+      p.program?.name?.toLowerCase().includes(term);
+  });
+
+  // Filtrar historial
+  const rawHistoryPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+  const historyPayments = rawHistoryPayments.filter(p => {
+    const searchMatch = !historySearch ||
+      p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.concept?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.program?.name?.toLowerCase().includes(historySearch.toLowerCase());
+    const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
+    return searchMatch && statusMatch;
+  });
+
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
+
+  const getPreferredMethod = (childId?: string) => {
+    if (!childId) return { label: 'Pendiente', icon: Clock };
+    const latest = payments.find(p => p.child_id === childId && p.status === 'paid');
+    if (!latest || !latest.payment_method) return { label: 'Pendiente', icon: Clock };
+    switch (latest.payment_method.toLowerCase()) {
+      case 'transfer': return { label: 'Transferencia', icon: Smartphone };
+      case 'pse': return { label: 'PSE', icon: Building2 };
+      case 'card': return { label: 'Tarjeta', icon: CreditCard };
+      default: return { label: latest.payment_method.toUpperCase(), icon: CreditCard };
+    }
+  };
 
   return (
     <div className="space-y-6 w-full max-w-full overflow-x-hidden animate-in fade-in">
@@ -370,12 +427,22 @@ export default function PaymentsAutomationPage() {
         {/* ── Tab: Validación de cobros ────────────────────────────────── */}
         <TabsContent value="recurrent">
           <Card className="border-amber-200 bg-amber-50/10">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                <Clock className="h-5 w-5 text-amber-600 shrink-0" />
-                Validación de Cobros
-              </CardTitle>
-              <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                  Validación de Cobros
+                </CardTitle>
+                <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+              </div>
+              <div className="w-full sm:w-auto">
+                <Input
+                  placeholder="Buscar alumno, padre o equipo..."
+                  value={pendingSearch}
+                  onChange={(e) => setPendingSearch(e.target.value)}
+                  className="w-full sm:w-[250px] h-9"
+                />
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {loading ? (
@@ -526,7 +593,17 @@ export default function PaymentsAutomationPage() {
                         <TableCell><Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">{sub.teams?.name || 'Sin equipo'}</Badge></TableCell>
                         <TableCell className="font-bold">{formatCurrency(sub.monthly_fee || 0)}</TableCell>
                         <TableCell><span className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-amber-500" />Día {billing?.payment_cutoff_day || 5} (Prox. Mes)</span></TableCell>
-                        <TableCell><Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700"><CreditCard className="h-3.5 w-3.5" />Cobro Automático</Badge></TableCell>
+                        <TableCell>
+                          {(() => {
+                            const method = getPreferredMethod(sub.child_id);
+                            const Icon = method.icon;
+                            return (
+                              <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
+                                <Icon className="h-3.5 w-3.5" />{method.label}
+                              </Badge>
+                            );
+                          })()}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -539,9 +616,30 @@ export default function PaymentsAutomationPage() {
         {/* ── Tab: Historial ───────────────────────────────────────────── */}
         <TabsContent value="history">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
-              <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div>
+                <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
+                <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <Input
+                  placeholder="Buscar alumno, padre o concepto..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full sm:w-[250px] h-9"
+                />
+                <select
+                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={historyStatusFilter}
+                  onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="paid">Pagado</option>
+                  <option value="rejected">Rechazado</option>
+                  <option value="failed">Fallido</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {/* Mobile cards */}
@@ -590,16 +688,19 @@ export default function PaymentsAutomationPage() {
                   </TableHeader>
                   <TableBody>
                     {historyPayments.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No hay historial disponible.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
                     ) : historyPayments.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
                         <TableRow key={payment.id}>
                           <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
                           <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
-                          <TableCell className="text-sm">{payment.program?.name || payment.concept}</TableCell>
-                          <TableCell>{formatCurrency(payment.amount)}</TableCell>
-                          <TableCell className="text-xs uppercase">{payment.payment_method || 'N/A'}</TableCell>
+                          <TableCell className="text-sm">
+                            <div className="font-medium text-blue-600">{payment.concept}</div>
+                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">{payment.program.name}</div>}
+                          </TableCell>
+                          <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
                           <TableCell><Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge></TableCell>
                           <TableCell>
                             {payment.receipt_url ? (

@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
 import { Database } from '@/integrations/supabase/types';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 interface UserProfile {
   id: string;
@@ -238,11 +239,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error signing up:', error);
       toast({
         title: "Error en el registro",
-        description: err.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;
@@ -263,16 +263,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         description: "Bienvenido a SportMaps",
       });
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error signing in:', error);
-      let message = err.message;
-      if (message === "Invalid login credentials") {
-        message = "Credenciales inválidas. Por favor verifica tu email y contraseña. (Tip: Revisa si escribiste 'spoortmaps' correctamente si estás usando correos de prueba)";
-      }
-
       toast({
         title: "Error en el inicio de sesión",
-        description: message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;
@@ -319,7 +313,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!err.message?.includes('session')) {
         toast({
           title: "Error",
-          description: err.message,
+          description: getUserFriendlyError(err),
           variant: "destructive",
         });
       } else {
@@ -354,11 +348,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       }
     } catch (error: unknown) {
-      const err = error as Error;
       console.error('Error updating profile:', error);
       toast({
         title: "Error",
-        description: err.message,
+        description: getUserFriendlyError(error),
         variant: "destructive",
       });
       throw error;

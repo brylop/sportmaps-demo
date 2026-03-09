@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-
+import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
 interface SchoolProfile {
     id: string;
     name: string;
@@ -144,48 +144,10 @@ export default function SchoolSettingsPage() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* Logo */}
-                <Card className="md:col-span-2">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Camera className="h-5 w-5 text-primary" />
-                            Logo de la Escuela
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex items-center gap-6">
-                        <div className="h-24 w-24 rounded-full border-2 border-border overflow-hidden bg-muted flex items-center justify-center shrink-0">
-                            {profile.logo_url ? (
-                                <img src={profile.logo_url} alt="Logo" className="h-full w-full object-cover" />
-                            ) : (
-                                <Building2 className="h-10 w-10 text-muted-foreground" />
-                            )}
-                        </div>
-                        <div className="space-y-2">
-                            <p className="text-sm text-muted-foreground">
-                                Sube el logo de tu escuela. Recomendado: imagen cuadrada, mín. 200×200px.
-                            </p>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    if (f) handleLogoUpload(f);
-                                }}
-                            />
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={uploadingLogo}
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <Image className="h-4 w-4 mr-2" />
-                                {uploadingLogo ? 'Subiendo...' : 'Cambiar Logo'}
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
+                {/* Identidad Visual (Logo y Colores) */}
+                <div className="md:col-span-2">
+                    <BrandingSettingsForm />
+                </div>
 
                 {/* Basic Info */}
                 <Card>

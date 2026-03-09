@@ -50,7 +50,7 @@ export default function SchoolStudentsManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [viewingStudent, setViewingStudent] = useState<StudentViewRow | null>(null);
+  const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
@@ -140,7 +140,7 @@ export default function SchoolStudentsManagementPage() {
         });
         if (result.success) {
           toast({
-            title: '✅ Estudiante registrado',
+            title: '✅ Atleta registrado',
             description: `${data.full_name} asociado a ${schoolName} con mensualidad de $${data.monthly_fee.toLocaleString('es-CO')} COP`,
           });
         }
@@ -171,7 +171,7 @@ export default function SchoolStudentsManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       setDialogOpen(false);
       setEditingStudent(null);
-      toast({ title: '✅ Estudiante actualizado' });
+      toast({ title: '✅ Atleta actualizado' });
     }
   });
 
@@ -232,15 +232,16 @@ export default function SchoolStudentsManagementPage() {
           if (error) throw error;
           const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
           const selectedProgram = programs.find(p => p.id === student.program_id);
+          const { data: { session: edgeSession } } = await supabase.auth.getSession();
           fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
             body: JSON.stringify({
               to: student.parent_email,
               parentName: student.parent_name || student.parent_email.split('@')[0],
               childName: student.full_name,
               schoolName,
-              programName: selectedProgram?.name || 'Programa',
+              programName: selectedProgram?.name || 'Equipo',
               monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0,
               invitationLink: registration_link,
             })
@@ -299,10 +300,23 @@ export default function SchoolStudentsManagementPage() {
     if (selectedProgram) form.setValue('monthly_fee', selectedProgram.monthly_fee);
   };
 
-  const filteredStudents = students.filter(student =>
+  const enhancedStudents = students.map(student => {
+    const emergencyContact = student.emergency_contact || '';
+    const hasEmergencyContactParts = emergencyContact.includes(' - ');
+    const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
+    const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
+
+    return {
+      ...student,
+      display_parent_name: student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null),
+      display_parent_phone: student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null),
+    };
+  });
+
+  const filteredStudents = enhancedStudents.filter(student =>
     (activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')) &&
     (student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (student.parent_name && student.parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
+      (student.display_parent_name && student.display_parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
   );
 
   const formatCurrency = (amount: number) =>
@@ -368,9 +382,9 @@ export default function SchoolStudentsManagementPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Estudiantes</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filteredStudents.length} estudiante{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
+            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -381,7 +395,7 @@ export default function SchoolStudentsManagementPage() {
           </Button>
           <Button size="sm" onClick={handleCreateStudent}>
             <UserPlus className="w-4 h-4 mr-2" />
-            <span className="hidden sm:inline">Agregar Estudiante</span>
+            <span className="hidden sm:inline">Agregar Atleta</span>
             <span className="sm:hidden">Agregar</span>
           </Button>
         </div>
@@ -429,9 +443,9 @@ export default function SchoolStudentsManagementPage() {
             <div className="p-6">
               <EmptyState
                 icon={UserPlus}
-                title="No hay estudiantes"
-                description="Agrega estudiantes manualmente o importa desde un archivo CSV"
-                actionLabel="+ Agregar Estudiante"
+                title="No hay atletas"
+                description="Agrega atletas manualmente o importa desde un archivo CSV"
+                actionLabel="+ Agregar Atleta"
                 onAction={handleCreateStudent}
               />
             </div>
@@ -462,7 +476,7 @@ export default function SchoolStudentsManagementPage() {
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
-                        {student.program_name || 'Sin programa'} · {student.branch_name || 'Sede Principal'}
+                        {student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
                       </p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
@@ -490,7 +504,7 @@ export default function SchoolStudentsManagementPage() {
                       </TableHead>
                       <TableHead>Nombre</TableHead>
                       <TableHead>Edad</TableHead>
-                      <TableHead>Programa</TableHead>
+                      <TableHead>Equipo</TableHead>
                       <TableHead>Sede</TableHead>
                       <TableHead>Acudiente</TableHead>
                       <TableHead>Mensualidad</TableHead>
@@ -512,12 +526,12 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">{student.program_name || 'Sin programa'}</Badge>
+                          <Badge variant="outline" className="text-xs">{student.program_name || 'Sin equipo'}</Badge>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
                         </TableCell>
-                        <TableCell>{student.parent_name || '-'}</TableCell>
+                        <TableCell>{student.display_parent_name || '-'}</TableCell>
                         <TableCell className="font-semibold text-primary">
                           {student.price_monthly ? formatCurrency(student.price_monthly) : '-'}
                         </TableCell>
@@ -565,16 +579,16 @@ export default function SchoolStudentsManagementPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingStudent ? 'Editar Estudiante' : 'Agregar Nuevo Estudiante'}</DialogTitle>
+            <DialogTitle>{editingStudent ? 'Editar Atleta' : 'Agregar Nuevo Atleta'}</DialogTitle>
             <DialogDescription>
               {editingStudent
                 ? `Actualiza la información de ${editingStudent.full_name}.`
-                : <>Registra el estudiante. Quedará asociado a <strong>{schoolName}</strong>.</>}
+                : <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><User className="w-4 h-4" />Información del Estudiante</h3>
+              <h3 className="font-semibold flex items-center gap-2"><User className="w-4 h-4" />Información del Atleta</h3>
               <div className="grid gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="full_name">Nombre Completo *</Label>
@@ -582,27 +596,27 @@ export default function SchoolStudentsManagementPage() {
                   {form.formState.errors.full_name && <p className="text-sm text-destructive">{form.formState.errors.full_name.message}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="date_of_birth">Fecha de Nacimiento *</Label>
-                  <Input id="date_of_birth" type="date" {...form.register('date_of_birth')} />
+                  <Label htmlFor="date_of_birth">Fecha de Nacimiento del Atleta *</Label>
+                  <Input id="date_of_birth" type="date" autoComplete="off" {...form.register('date_of_birth')} />
                   {form.formState.errors.date_of_birth && <p className="text-sm text-destructive">{form.formState.errors.date_of_birth.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="photo">Foto de Perfil</Label>
                   <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground mb-2">Sube una foto del estudiante</p>
+                    <p className="text-sm text-muted-foreground mb-2">Sube una foto del atleta</p>
                     <Input type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
                   </div>
                 </div>
               </div>
             </div>
             <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4" />Programa y Mensualidad</h3>
+              <h3 className="font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4" />Equipo y Mensualidad</h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="program_id">Programa *</Label>
+                  <Label htmlFor="program_id">Equipo *</Label>
                   <Select value={form.watch('program_id')} onValueChange={handleProgramChange}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar programa" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
                     <SelectContent>
                       {programs.map(program => (
                         <SelectItem key={program.id} value={program.id}>{program.name} — {formatCurrency(program.monthly_fee)}</SelectItem>
@@ -656,7 +670,7 @@ export default function SchoolStudentsManagementPage() {
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={createStudentMutation.isPending || updateStudentMutation.isPending}>
-                {createStudentMutation.isPending || updateStudentMutation.isPending ? 'Guardando...' : (editingStudent ? 'Guardar Cambios' : 'Agregar Estudiante')}
+                {createStudentMutation.isPending || updateStudentMutation.isPending ? 'Guardando...' : (editingStudent ? 'Guardar Cambios' : 'Agregar Atleta')}
               </Button>
             </DialogFooter>
           </form>
@@ -667,7 +681,7 @@ export default function SchoolStudentsManagementPage() {
       <Dialog open={!!viewingStudent} onOpenChange={(open) => !open && setViewingStudent(null)}>
         <DialogContent className="w-[95vw] max-w-md">
           <DialogHeader>
-            <DialogTitle>Perfil del Estudiante</DialogTitle>
+            <DialogTitle>Perfil del Atleta</DialogTitle>
             <DialogDescription>Detalles académicos y de contacto</DialogDescription>
           </DialogHeader>
           {viewingStudent && (
@@ -688,10 +702,10 @@ export default function SchoolStudentsManagementPage() {
               <div className="grid gap-2">
                 {[
                   { label: 'Escuela', value: schoolName },
-                  { label: 'Programa', value: viewingStudent.program_name || '-' },
+                  { label: 'Equipo', value: viewingStudent.program_name || '-' },
                   { label: 'Mensualidad', value: viewingStudent.price_monthly ? formatCurrency(viewingStudent.price_monthly) : '-', bold: true },
-                  { label: 'Acudiente', value: viewingStudent.parent_name || '-' },
-                  { label: 'Teléfono', value: viewingStudent.parent_phone || '-' },
+                  { label: 'Acudiente', value: viewingStudent.display_parent_name || '-' },
+                  { label: 'Teléfono', value: viewingStudent.display_parent_phone || '-' },
                 ].map(({ label, value, bold }) => (
                   <div key={label} className="flex items-center justify-between p-2 rounded hover:bg-muted/50 gap-2">
                     <span className="text-sm font-medium shrink-0">{label}:</span>
@@ -711,7 +725,7 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ) : studentDocs.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
-                    No hay documentos subidos para este estudiante.
+                    No hay documentos subidos para este atleta.
                   </p>
                 ) : (
                   <div className="space-y-1">
@@ -744,7 +758,7 @@ export default function SchoolStudentsManagementPage() {
         onClose={() => setShowImportModal(false)}
         onSuccess={() => {
           setShowImportModal(false);
-          toast({ title: "Importación completada", description: "La lista de estudiantes se ha actualizado." });
+          toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." });
           queryClient.invalidateQueries({ queryKey: ['school-students'] });
         }}
         schoolId={schoolId ?? ''}

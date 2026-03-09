@@ -21,17 +21,20 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { checkoutAPI } from '@/lib/api/checkout';
 import { transactionsAPI } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
+  const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
@@ -117,7 +120,11 @@ export default function CheckoutPage() {
       }
     } catch (error) {
       console.error('Payment error:', error);
-      toast({ title: 'Error en el pago', description: 'Hubo un problema al procesar tu pago.', variant: 'destructive' });
+      toast({
+        title: 'Error en el pago',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally {
       setProcessing(false);
     }
@@ -145,7 +152,11 @@ export default function CheckoutPage() {
       toast({ title: '¡Pago registrado!', description: 'La escuela confirmará tu pago' });
     } catch (error) {
       console.error('Manual payment error:', error);
-      toast({ title: 'Error al registrar', description: 'Intenta nuevamente.', variant: 'destructive' });
+      toast({
+        title: 'Error al registrar',
+        description: getUserFriendlyError(error),
+        variant: 'destructive'
+      });
     } finally {
       setProcessing(false);
     }
@@ -171,6 +182,8 @@ export default function CheckoutPage() {
       paymentType: 'one_time',
       schoolName: items[0]?.metadata.schoolName,
       programName: items[0]?.name,
+      logoUrl: schoolBranding?.logo_url,
+      brandingSettings: schoolBranding?.branding_settings,
     });
   };
 

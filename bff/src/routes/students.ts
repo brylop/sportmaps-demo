@@ -247,8 +247,10 @@ router.post(
                     parent_name_temp: s.parent_name || null,
                     parent_email_temp: s.parent_email || null,
                     parent_phone_temp: s.parent_phone || null,
-                    is_demo: false, // Por defecto
+                    is_demo: false,
+                    is_active: true,
                     created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
                 }));
 
                 const { data, error } = await supabase
@@ -258,7 +260,12 @@ router.post(
 
                 if (error) {
                     req.log?.error({ err: error }, 'Error en bulk insert');
-                    return res.status(500).json({ error: 'Error en base de datos al insertar.' });
+                    return res.status(500).json({
+                        error: 'Error en base de datos al insertar.',
+                        details: error.message,
+                        hint: error.hint,
+                        code: error.code,
+                    });
                 }
                 inserted = data?.length ?? 0;
 
@@ -312,7 +319,7 @@ router.post(
                 );
 
                 // Create enrollments & payments
-                const enrollmentRecords: Array<{ child_id: string; program_id: string; status: string; start_date: string }> = [];
+                const enrollmentRecords: Array<{ child_id: string; program_id: string; team_id: string; school_id: string; status: string; start_date: string }> = [];
                 const paymentRecords: Array<any> = [];
 
                 const dueDate = new Date();
@@ -327,6 +334,8 @@ router.post(
                         enrollmentRecords.push({
                             child_id: childId,
                             program_id: teamId,
+                            team_id: teamId,
+                            school_id: schoolId,
                             status: 'active',
                             start_date: new Date().toISOString().split('T')[0],
                         });

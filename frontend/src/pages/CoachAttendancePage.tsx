@@ -268,7 +268,7 @@ export default function CoachAttendancePage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24 sm:pb-6">
       <div>
         <h1 className="text-3xl font-bold">Asistencias</h1>
         <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
@@ -417,7 +417,7 @@ export default function CoachAttendancePage() {
 
               {/* Acciones del pie */}
               {roster.length > 0 && !isFinalized && (
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="sticky bottom-16 sm:bottom-0 z-10 bg-background/95 backdrop-blur border-t pt-3 pb-3 px-0 -mx-0 flex flex-col sm:flex-row gap-3">
                   {/* Guardar / Guardar cambios */}
                   <Button
                     className="flex-1"

@@ -396,10 +396,17 @@ router.get(
                 }
             });
 
-            const { data: children } = await supabase
-                .from('children')
-                .select('id, full_name')
-                .eq('team_id', teamId);
+            // Obtener child_ids únicos desde los registros de asistencia
+            const childIds = [...new Set((attendance || []).map((r: any) => r.child_id).filter(Boolean))];
+
+            let children: any[] = [];
+            if (childIds.length > 0) {
+                const { data: childrenData } = await supabase
+                    .from('children')
+                    .select('id, full_name')
+                    .in('id', childIds);
+                children = childrenData || [];
+            }
 
             const attendanceReport = (children || []).map((child: any) => {
                 const stat = attendanceByPlayer[child.id];

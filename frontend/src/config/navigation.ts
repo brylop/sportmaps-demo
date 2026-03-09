@@ -142,7 +142,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -232,7 +232,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -268,7 +268,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -302,7 +302,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]

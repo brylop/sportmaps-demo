@@ -317,6 +317,16 @@ export default function MyPaymentsPage() {
     }
   };
 
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method.toLowerCase()) {
+      case 'pse': return 'PSE';
+      case 'card':
+      case 'tarjeta': return 'Tarjeta';
+      case 'transfer': return 'Transf. / Nequi';
+      default: return method.toUpperCase();
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -432,7 +442,7 @@ export default function MyPaymentsPage() {
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-1 text-xs md:text-sm">
                               {getPaymentMethodIcon(txn.payment_method)}
-                              <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
+                              <span className="hidden md:inline">{getPaymentMethodLabel(txn.payment_method)}</span>
                             </span>
                           </TableCell>
                           <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
