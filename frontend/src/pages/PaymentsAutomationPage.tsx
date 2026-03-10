@@ -194,7 +194,7 @@ export default function PaymentsAutomationPage() {
   const loadTeamSubscriptions = async () => {
     if (!schoolId) return;
     try {
-      let query = supabase
+      const query = supabase
         .from('enrollments')
         .select(`
           id,

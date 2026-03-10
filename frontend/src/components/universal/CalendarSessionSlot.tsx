@@ -60,7 +60,7 @@ export function CalendarSessionSlot({
             },
             {
                 onSuccess: () => toast({ title: 'Reserva confirmada' }),
-                onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+                onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
             }
         );
     };
@@ -69,7 +69,7 @@ export function CalendarSessionSlot({
         if (!existingBookingId) return;
         cancelBooking.mutate(existingBookingId, {
             onSuccess: () => toast({ title: 'Reserva cancelada' }),
-            onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+            onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
         });
     };
 

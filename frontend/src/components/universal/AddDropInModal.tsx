@@ -86,7 +86,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                     setSearch('');
                     setResults([]);
                 },
-                onError: (err: any) => {
+                onError: (err: Error) => {
                     toast({ title: 'Error', description: err.message, variant: 'destructive' });
                 },
             }

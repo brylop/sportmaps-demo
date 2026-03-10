@@ -69,7 +69,7 @@ export function useMyBookings(childId?: string) {
     return useQuery({
         queryKey: ['my-bookings', schoolId, childId ?? 'self'],
         queryFn: () =>
-            bffClient.get<{ bookings: any[] }>(`/api/v1/sessions/my-bookings${params}`),
+            bffClient.get<{ bookings: SessionBooking[] }>(`/api/v1/sessions/my-bookings${params}`),
         enabled: !!schoolId,
         staleTime: 60 * 1000,
     });

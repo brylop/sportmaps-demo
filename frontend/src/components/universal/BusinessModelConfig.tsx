@@ -114,8 +114,8 @@ export function BusinessModelConfig() {
             queryClient.invalidateQueries({ queryKey: ['school-context', schoolId] });
             toast({ title: 'Módulos actualizados' });
             setDirty(false);
-        } catch (err: any) {
-            toast({ title: 'Error', description: err.message, variant: 'destructive' });
+        } catch (err) {
+            toast({ title: 'Error', description: err instanceof Error ? err.message : 'Error desconocido', variant: 'destructive' });
         }
         setSaving(false);
     };
@@ -138,7 +138,6 @@ export function BusinessModelConfig() {
             <CardContent className="space-y-4">
                 {MODULES.map((mod) => {
                     const isOn = localModules.includes(mod.key);
-                    const hasMissingDeps = mod.dependencies?.some((d) => !localModules.includes(d));
 
                     return (
                         <div

@@ -16,7 +16,7 @@ interface ChildMembershipSectionProps {
  */
 export function ChildMembershipSection({ childId }: ChildMembershipSectionProps) {
     const { activePlan, isLoading: planLoading } = useMyPlan(childId);
-    const { data: bookingsData, isLoading: bookingsLoading } = useMyBookings(childId);
+    const { data: bookingsData } = useMyBookings(childId);
 
     if (planLoading) {
         return <div className="h-32 bg-muted animate-pulse rounded-lg" />;
@@ -65,7 +65,7 @@ export function ChildMembershipSection({ childId }: ChildMembershipSectionProps)
                     <div>
                         <p className="text-xs font-medium text-muted-foreground mb-2">Historial reciente</p>
                         <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                            {bookings.slice(0, 10).map((booking: any) => (
+                            {bookings.slice(0, 10).map((booking: { id: string; booked_at: string; status: string }) => (
                                 <div
                                     key={booking.id}
                                     className="flex items-center justify-between text-xs p-2 rounded bg-muted/50"
