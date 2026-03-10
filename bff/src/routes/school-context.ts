@@ -26,7 +26,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
         const features = {
             selfBooking: activeModules.includes('session_bookings'),
-            capacityCheck: activeModules.includes('session_bookings'),
+            capacityCheck: activeModules.includes('capacity_check'),
             offeringPlans: activeModules.includes('offering_plans'),
             creditDeduction: activeModules.includes('credit_deduction'),
             courtBooking: activeModules.includes('court_booking'),
@@ -59,8 +59,14 @@ router.patch('/modules', requireAuth, async (req: Request, res: Response) => {
         }
 
         const VALID_MODULES = [
-            'offering_plans', 'session_bookings', 'credit_deduction',
-            'billing_events', 'sport_configs', 'court_booking', 'tournament_mode',
+            'session_bookings',
+            'capacity_check',
+            'offering_plans',
+            'credit_deduction',
+            'billing_events',
+            'sport_configs',
+            'court_booking',
+            'tournament_mode',
         ];
 
         const { active_modules } = req.body;

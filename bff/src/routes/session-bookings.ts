@@ -130,8 +130,8 @@ router.get('/:id/bookings',
             const { data, error } = await supabase
                 .from('session_bookings')
                 .select(`
-                    id, status, booking_type, is_secondary, booked_at, cancelled_at,
-                    user_id, child_id, enrollment_id
+                    id, status, booking_type, is_secondary, booked_at,
+                    cancelled_at, user_id, child_id, enrollment_id
                 `)
                 .eq('session_id', sessionId)
                 .eq('school_id', schoolId)
@@ -139,50 +139,56 @@ router.get('/:id/bookings',
                 .order('booked_at', { ascending: true });
 
             if (error) throw error;
+            if (!data || data.length === 0) {
+                return res.json({ bookings: [] });
+            }
 
-            // Enriquecer con datos de perfiles y planes
-            const enriched = await Promise.all((data || []).map(async (booking: any) => {
-                let person = null;
-                if (booking.user_id) {
-                    const { data: profile } = await supabase
+            // ── 3 queries en paralelo en lugar de N×3 ──────────────────────
+            const userIds = [...new Set(data.filter(b => b.user_id).map(b => b.user_id))];
+            const childIds = [...new Set(data.filter(b => b.child_id).map(b => b.child_id))];
+            const enrollIds = [...new Set(data.map(b => b.enrollment_id))];
+
+            const [profilesRes, childrenRes, enrollmentsRes] = await Promise.all([
+                userIds.length
+                    ? supabase
                         .from('profiles')
                         .select('id, full_name, avatar_url')
-                        .eq('id', booking.user_id)
-                        .single();
-                    person = profile;
-                } else if (booking.child_id) {
-                    const { data: child } = await supabase
+                        .in('id', userIds)
+                    : Promise.resolve({ data: [], error: null }),
+                childIds.length
+                    ? supabase
                         .from('children')
                         .select('id, full_name, avatar_url')
-                        .eq('id', booking.child_id)
-                        .single();
-                    person = child;
-                }
-
-                const { data: enrollment } = await supabase
+                        .in('id', childIds)
+                    : Promise.resolve({ data: [], error: null }),
+                supabase
                     .from('enrollments')
-                    .select('id, sessions_used, secondary_sessions_used, offering_plan_id')
-                    .eq('id', booking.enrollment_id)
-                    .single();
+                    .select(`
+                        id, sessions_used, secondary_sessions_used, offering_plan_id,
+                        plan:offering_plans(name, max_sessions, max_secondary_sessions)
+                    `)
+                    .in('id', enrollIds),
+            ]);
 
-                let plan = null;
-                if (enrollment?.offering_plan_id) {
-                    const { data: p } = await supabase
-                        .from('offering_plans')
-                        .select('name, max_sessions, max_secondary_sessions')
-                        .eq('id', enrollment.offering_plan_id)
-                        .single();
-                    plan = p;
-                }
+            if (enrollmentsRes.error) throw enrollmentsRes.error;
 
-                return {
-                    ...booking,
-                    person,
-                    enrollment: enrollment ? {
-                        ...enrollment,
-                        plan,
-                    } : null,
-                };
+            // ── Mapas para lookup O(1) ──────────────────────────────────────
+            const profileMap = Object.fromEntries(
+                (profilesRes.data || []).map(p => [p.id, p])
+            );
+            const childMap = Object.fromEntries(
+                (childrenRes.data || []).map(c => [c.id, c])
+            );
+            const enrollmentMap = Object.fromEntries(
+                (enrollmentsRes.data || []).map(e => [e.id, e])
+            );
+
+            const enriched = data.map(booking => ({
+                ...booking,
+                person: booking.user_id
+                    ? (profileMap[booking.user_id as string] ?? null)
+                    : (childMap[booking.child_id as string] ?? null),
+                enrollment: booking.enrollment_id ? (enrollmentMap[booking.enrollment_id] ?? null) : null,
             }));
 
             res.json({ bookings: enriched });
