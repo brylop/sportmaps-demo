@@ -7,10 +7,13 @@ const router = Router();
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 const EnrollmentSchema = z.object({
-    student_id: z.string().uuid('student_id inválido'),
-    class_id: z.string().uuid('class_id inválido'),
-    program_id: z.string().uuid('program_id inválido').optional(),
-});
+    user_id: z.string().uuid().optional(),
+    child_id: z.string().uuid().optional(),
+    team_id: z.string().uuid(),
+}).refine(
+    (d) => (d.user_id && !d.child_id) || (!d.user_id && d.child_id),
+    { message: 'Debe especificar user_id o child_id, no ambos' }
+);
 
 // ── POST /api/v1/enrollments ──────────────────────────────────────────────────
 router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
@@ -24,29 +27,33 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             });
         }
 
-        const { student_id, class_id, program_id } = parsed.data;
+        const { user_id, child_id, team_id } = parsed.data;
 
         // 2. Comprobar si ya está inscrito
-        const { data: existing, error: findError } = await supabase
+        let dupQuery = supabase
             .from('enrollments')
             .select('id')
-            .eq('child_id', student_id)
-            .eq('program_id', class_id)
-            .eq('school_id', req.schoolId)
-            .maybeSingle();
+            .eq('team_id', team_id)
+            .eq('school_id', req.schoolId);
+
+        if (child_id) dupQuery = dupQuery.eq('child_id', child_id);
+        else dupQuery = dupQuery.eq('user_id', user_id as string);
+
+        const { data: existing, error: findError } = await dupQuery.maybeSingle();
 
         if (existing) {
-            return res.status(400).json({ error: 'El estudiante ya está inscrito en esta clase/equipo.' });
+            return res.status(400).json({ error: 'Ya está inscrito en este equipo.' });
         }
 
         // 3. Ejecutar inserción en enrollments
         // req.schoolId asegura que no matriculemos en otra escuela
         const { data, error } = await supabase.from('enrollments').insert({
-            child_id: student_id,
-            program_id: class_id,
+            user_id: user_id || null,
+            child_id: child_id || null,
+            team_id,
             school_id: req.schoolId,
             status: 'active',
-            start_date: new Date().toISOString().split('T')[0]
+            start_date: new Date().toISOString().split('T')[0],
         }).select().single();
 
         if (error) {
@@ -73,15 +80,19 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
 
 // ── GET /api/v1/enrollments ───────────────────────────────────────────────────
 router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { class_id } = req.query;
+    const { team_id } = req.query;
 
     let query = supabase
         .from('enrollments')
-        .select('id, student_id, class_id, status, payment_status, created_at')
+        .select(`
+            id, child_id, user_id, team_id,
+            status, offering_plan_id, sessions_used,
+            secondary_sessions_used, expires_at, start_date, created_at
+        `)
         .eq('school_id', req.schoolId);  // 🔒 siempre filtrado
 
-    if (class_id && typeof class_id === 'string') {
-        query = query.eq('class_id', class_id);
+    if (team_id && typeof team_id === 'string') {
+        query = query.eq('team_id', team_id);
     }
 
     const { data, error } = await query.order('created_at', { ascending: false });
@@ -101,8 +112,8 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
         let query = supabase
             .from('enrollments')
             .select(`
-                id, status, sessions_used, secondary_sessions_used, expires_at, start_date,
-                team_id, program_id, offering_plan_id
+                id, status, sessions_used, secondary_sessions_used,
+                expires_at, start_date, team_id, offering_plan_id
             `)
             .eq('school_id', schoolId)
             .eq('status', 'active');
@@ -116,38 +127,32 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
         const { data: enrollments, error } = await query;
         if (error) throw error;
 
-        // Enriquecer con datos del plan y equipo
-        const enriched = await Promise.all((enrollments || []).map(async (enrollment: any) => {
-            let offeringPlan = null;
-            let offering = null;
-            let team = null;
+        // ── N+1 Eliminado ──────────────────────────────────────────────────
+        const planIds = [...new Set((enrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
+        const teamIds = [...new Set((enrollments || []).map((e: any) => e.team_id).filter(Boolean))];
 
-            if (enrollment.offering_plan_id) {
-                const { data: plan } = await supabase
-                    .from('offering_plans')
-                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id')
-                    .eq('id', enrollment.offering_plan_id)
-                    .single();
-                offeringPlan = plan;
+        const [plansRes, teamsRes] = await Promise.all([
+            planIds.length
+                ? supabase.from('offering_plans').select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id').in('id', planIds)
+                : Promise.resolve({ data: [], error: null }),
+            teamIds.length
+                ? supabase.from('teams').select('id, name, sport').in('id', teamIds)
+                : Promise.resolve({ data: [], error: null })
+        ]);
 
-                if (plan?.offering_id) {
-                    const { data: off } = await supabase
-                        .from('offerings')
-                        .select('id, name, offering_type, sport')
-                        .eq('id', plan.offering_id)
-                        .single();
-                    offering = off;
-                }
-            }
+        const offeringIds = [...new Set((plansRes.data || []).map((p: any) => p.offering_id).filter(Boolean))];
+        const offeringsRes = offeringIds.length
+            ? await supabase.from('offerings').select('id, name, offering_type, sport').in('id', offeringIds)
+            : { data: [], error: null };
 
-            if (enrollment.team_id) {
-                const { data: t } = await supabase
-                    .from('teams')
-                    .select('id, name, sport')
-                    .eq('id', enrollment.team_id)
-                    .single();
-                team = t;
-            }
+        const planMap = Object.fromEntries((plansRes.data || []).map((p: any) => [p.id, p]));
+        const teamMap = Object.fromEntries((teamsRes.data || []).map((t: any) => [t.id, t]));
+        const offeringMap = Object.fromEntries((offeringsRes.data || []).map((o: any) => [o.id, o]));
+
+        const enriched = (enrollments || []).map((enrollment: any) => {
+            const offeringPlan = enrollment.offering_plan_id ? (planMap[enrollment.offering_plan_id] || null) : null;
+            const offering = offeringPlan?.offering_id ? (offeringMap[offeringPlan.offering_id] || null) : null;
+            const team = enrollment.team_id ? (teamMap[enrollment.team_id] || null) : null;
 
             // Computar status
             const maxSessions = offeringPlan?.max_sessions ?? null;
@@ -188,7 +193,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                     sessions_remaining: maxSessions !== null ? Math.max(0, maxSessions - used) : null,
                 },
             };
-        }));
+        });
 
         res.json({ enrollments: enriched });
     } catch (err: any) {
