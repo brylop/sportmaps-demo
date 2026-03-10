@@ -12,6 +12,11 @@ import enrollmentsRouter from './routes/enrollments';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 import attendanceRouter from './routes/attendance';
+import schoolContextRouter from './routes/school-context';
+import offeringsRouter from './routes/offerings';
+import sessionBookingsRouter from './routes/session-bookings';
+import sportConfigsRouter from './routes/sport-configs';
+import billingEventsRouter from './routes/billing-events';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -83,6 +88,11 @@ app.use('/api/v1/enrollments', paymentLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
+app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
+app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
+app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
+app.use('/api/v1/sport-configs', generalLimiter, sportConfigsRouter);
+app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

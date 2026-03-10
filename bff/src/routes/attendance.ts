@@ -155,7 +155,14 @@ router.patch(
                 return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
             }
 
-            // Finalizar
+            // Obtener preview de bookings que serán procesados por el trigger
+            const { data: bookingsPreview } = await supabase
+                .from('session_bookings')
+                .select('id, user_id, child_id, is_secondary, booking_type, enrollment_id')
+                .eq('session_id', sessionId)
+                .eq('status', 'confirmed');
+
+            // Finalizar — trigger trg_deduct_sessions_on_finalize se dispara automáticamente
             const { error: updateErr } = await supabase
                 .from('attendance_sessions')
                 .update({
@@ -167,7 +174,18 @@ router.patch(
 
             if (updateErr) throw updateErr;
 
-            return res.json({ success: true, message: 'Sesión finalizada correctamente.' });
+            return res.json({
+                success: true,
+                message: 'Sesión finalizada correctamente.',
+                summary: {
+                    bookings_processed: bookingsPreview?.length ?? 0,
+                    details: (bookingsPreview || []).map((b: any) => ({
+                        booking_id: b.id,
+                        booking_type: b.booking_type,
+                        is_secondary: b.is_secondary,
+                    })),
+                },
+            });
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error finalizando sesión de asistencia');
             return res.status(500).json({ error: 'Error interno finalizando la sesión.' });

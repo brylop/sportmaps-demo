@@ -169,9 +169,9 @@ export function PaymentCheckoutModal({
                 studentName: child.full_name || 'tu hijo/a',
                 amount: formatCurrency(amount),
                 concept,
-                paymentMethod: selectedMethod === 'transfer' ? 'Transferencia' : selectedMethod === 'pse' ? 'PSE' : 'Efectivo',
+                paymentMethod: selectedMethod === 'pse' ? 'PSE' : 'Tarjeta',
               },
-            }).catch(() => {/* silencio — no interrumpir flujo si email falla */});
+            }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
           }
         });
 
@@ -261,7 +261,7 @@ export function PaymentCheckoutModal({
                     onClick={() => !isDisabled && setSelectedMethod(method.id)}
                     disabled={isDisabled}
                     className={`w-full flex items-center gap-3 p-3 sm:p-4 border-2 rounded-lg transition-all text-left ${isDisabled ? 'border-border/50 opacity-50 cursor-not-allowed bg-muted/30'
-                        : isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary'
+                      : isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary'
                       }`}
                   >
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDisabled ? 'bg-muted/50' : isSelected ? 'bg-primary text-white' : 'bg-muted'}`}>

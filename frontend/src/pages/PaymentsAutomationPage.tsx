@@ -75,6 +75,8 @@ interface PaymentTransaction {
   parent: { full_name: string | null; email: string | null } | null;
   child: { full_name: string } | null;
   program: { name: string } | null;
+  child_id?: string | null;
+  parent_id?: string | null;
 }
 
 interface TeamSubscription {
@@ -84,6 +86,7 @@ interface TeamSubscription {
   team_id: string;
   teams: { name: string } | null;
   payment_method?: string;
+  child_id?: string | null;
 }
 
 export default function PaymentsAutomationPage() {
