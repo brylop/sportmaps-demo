@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ── SEO & Meta ─────────────────────────────────────── -->
+  <title>SportMaps — Ecosistema Deportivo</title>
+  <meta name="description"
+    content="Plataforma integral de gestión deportiva: academias, entrenadores, atletas y eventos en un solo lugar.">
+  <meta name="keywords" content="deportes, academia, fútbol, entrenamiento, gestión deportiva, flutter">
+  <meta name="author" content="SportMaps">
+
+  <!-- ── Open Graph ─────────────────────────────────────── -->
+  <meta property="og:title" content="SportMaps — Ecosistema Deportivo">
+  <meta property="og:description" content="Gestiona tu academia deportiva con la plataforma todo-en-uno.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sportmaps.app">
+  <meta property="og:image" content="/icons/og-image.png">
+
+  <!-- ── PWA / Icons ────────────────────────────────────── -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/icons/Icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SportMaps">
+  <meta name="theme-color" content="#248223">
+
+  <!-- ── Splash screen (muestra mientras Flutter carga) ── -->
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #0A1F0A 0%, #164016 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Poppins', sans-serif;
+      overflow: hidden;
+    }
+
+    #splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      animation: fadeIn 0.6s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .logo-box {
+      width: 80px;
+      height: 80px;
+      background: transparent;
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 30px rgba(36, 130, 35, 0.5);
+      animation: pulse 2s ease-in-out infinite;
+      overflow: hidden;
+    }
+
+    .logo-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 20px rgba(36, 130, 35, 0.4);
+      }
+
+      50% {
+        box-shadow: 0 0 40px rgba(36, 130, 35, 0.7);
+      }
+    }
+
+    .logo-text {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #3FA53D, #FB9F1E);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .tagline {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    .loader {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      background: #248223;
+      border-radius: 50%;
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+
+    .dot:nth-child(2) {
+      animation-delay: 0.2s;
+      background: #3FA53D;
+    }
+
+    .dot:nth-child(3) {
+      animation-delay: 0.4s;
+      background: #FB9F1E;
+    }
+
+    @keyframes bounce {
+
+      0%,
+      80%,
+      100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+      }
+
+      40% {
+        transform: scale(1.2);
+        opacity: 1;
+      }
+    }
+
+    /* Ocultar splash cuando Flutter está listo */
+    .flutter-loader {
+      display: none;
+    }
+
+    flt-glass-pane {
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    flt-glass-pane.ready {
+      opacity: 1;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Splash mientras carga Flutter -->
+  <div id="splash">
+    <div class="logo-box">
+      <!-- Se toma en cuenta el logo del proyecto definido en pubspec como assets/splash/splash_logo.png -->
+      <img src="assets/splash/splash_logo.png" alt="SportMaps Logo"
+        onerror="this.src='favicon.png'; this.onerror=null;">
+    </div>
+    <div class="logo-text">SportMaps</div>
+    <div class="tagline">Cargando ecosistema deportivo...</div>
+    <div class="loader">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+  </div>
+
+  <!-- Flutter bootstrap -->
+  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('load', function (ev) {
+      // Wait for the service worker or the engine to be ready
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('flutter_service_worker.js');
+      }
+    });
+
+    // Cleanup splash when Flutter is ready
+    window.addEventListener('flutter-first-frame', function () {
+      // Show main pane
+      var glassPane = document.querySelector('flt-glass-pane');
+      if (glassPane) glassPane.classList.add('ready');
+
+      var splash = document.getElementById('splash');
+      if (splash) {
+        splash.style.transition = 'opacity 0.4s ease';
+        splash.style.opacity = '0';
+        setTimeout(function () {
+          if (splash && splash.parentNode) {
+            splash.parentNode.removeChild(splash);
+          }
+        }, 400);
+      }
+    });
+  </script>
+</body>
+
+</html>

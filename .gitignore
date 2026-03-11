@@ -168,4 +168,5 @@ android-sdk/ -e
 -e 
 # Environment files
 *.env
-*.env.*
+# Flutter SDK
+flutter/
