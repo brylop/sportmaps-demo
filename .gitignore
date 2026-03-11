@@ -165,7 +165,17 @@ android-sdk/ -e
 # Environment files
 *.env
 *.env.*
--e 
-# Environment files
-*.env
-*.env.*
+.env.local
+frontend/.env.local
+
+# Flutter / Dart / Mobile
+flutter/
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/local.properties
+mobile/analyze_output*.txt
+*.iml
