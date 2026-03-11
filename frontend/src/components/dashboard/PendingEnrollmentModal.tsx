@@ -52,7 +52,7 @@ export function PendingEnrollmentModal() {
           user_id: user.id,
           program_id: pendingEnrollment.programId,
           school_id: pendingEnrollment.schoolId,
-          child_id: selectedChildId,
+          ...(profile?.role === 'athlete' ? {} : { child_id: selectedChildId }),
           start_date: new Date().toISOString().split('T')[0],
           status: 'active',
         });

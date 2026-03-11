@@ -13,10 +13,18 @@ export interface SchoolFeatures {
     sportConfigs: boolean;
 }
 
+export interface SportConfig {
+    sport: string;
+    categorization_axis: 'age' | 'weight' | 'belt' | 'level' | 'division' | 'none';
+    settings: Record<string, unknown>;
+}
+
 interface SchoolFeaturesData {
     activeModules: string[];
     features: SchoolFeatures;
     isUniversalMode: boolean;
+    sports: SportConfig[];
+    primarySport: SportConfig | null;
     isLoading: boolean;
     error: Error | null;
 }
@@ -48,6 +56,8 @@ export function useSchoolFeatures(): SchoolFeaturesData {
             active_modules: string[];
             features: SchoolFeatures;
             is_universal_mode: boolean;
+            sports: SportConfig[];
+            primary_sport: SportConfig | null;
         }>('/api/v1/school/context'),
         enabled: !!schoolId,
         staleTime: 10 * 60 * 1000,
@@ -58,6 +68,8 @@ export function useSchoolFeatures(): SchoolFeaturesData {
         activeModules: data?.active_modules ?? [],
         features: data?.features ?? DEFAULT_FEATURES,
         isUniversalMode: data?.is_universal_mode ?? false,
+        sports: data?.sports ?? [],
+        primarySport: data?.primary_sport ?? null,
         isLoading,
         error: error as Error | null,
     };

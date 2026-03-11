@@ -1,7 +1,8 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { LogOut } from 'lucide-react';
+import { LogOut, ChevronDown } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +28,8 @@ export function AppSidebar() {
   const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
   const sidebar = useSidebar();
   const { state, isMobile, setOpenMobile } = sidebar;
+  const location = useLocation();
+  const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
 
   if (!profile || !user) return null;
 
@@ -133,41 +136,99 @@ export function AppSidebar() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item, itemIdx) => (
-                  <SidebarMenuItem key={itemIdx}>
-                    <SidebarMenuButton
-                      asChild
-                      tooltip={item.title}
-                      className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
-                    >
-                      <NavLink
-                        to={item.href}
-                        // En mobile: cerrar el drawer al navegar
-                        onClick={() => isMobile && setOpenMobile(false)}
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
-                          }`
-                        }
-                      >
-                        {({ isActive }) => (
-                          <>
-                            <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
-                            {/* Texto: siempre visible en mobile, condicional en desktop */}
-                            <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
-                            {item.badge && !isCollapsed && (
-                              <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
-                                {item.badge}
-                              </Badge>
-                            )}
-                            {isActive && !isCollapsed && (
-                              <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
-                            )}
-                          </>
+                {group.items.map((item, itemIdx) => {
+                  // Submenu item — collapsible parent
+                  if (item.submenu && item.submenu.length > 0) {
+                    const submenuKey = `${groupIdx}-${itemIdx}`;
+                    const isSubmenuActive = item.submenu.some(sub => sub.href && location.pathname.startsWith(sub.href));
+                    const isOpen = openSubmenus[submenuKey] ?? isSubmenuActive;
+
+                    return (
+                      <div key={itemIdx}>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            tooltip={item.title}
+                            className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 cursor-pointer"
+                            onClick={() => setOpenSubmenus(prev => ({ ...prev, [submenuKey]: !isOpen }))}
+                          >
+                            <div className={`flex items-center gap-3 w-full ${isSubmenuActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>
+                              <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isSubmenuActive ? 'text-primary' : ''}`} />
+                              <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
+                              {!isCollapsed && (
+                                <ChevronDown className={`ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                              )}
+                            </div>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        {isOpen && !isCollapsed && (
+                          <div className="ml-4 pl-3 border-l border-border/30 space-y-0.5 mt-0.5 mb-1 animate-in slide-in-from-top-2 duration-200">
+                            {item.submenu.map((sub, subIdx) => (
+                              <SidebarMenuItem key={subIdx}>
+                                <SidebarMenuButton
+                                  asChild
+                                  className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 h-8"
+                                >
+                                  <NavLink
+                                    to={sub.href || '#'}
+                                    onClick={() => isMobile && setOpenMobile(false)}
+                                    className={({ isActive }) =>
+                                      `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`
+                                    }
+                                  >
+                                    {({ isActive }) => (
+                                      <>
+                                        <sub.icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-primary' : ''}`} />
+                                        <span className="truncate text-sm">{sub.title}</span>
+                                        {isActive && (
+                                          <div className="absolute right-0 w-1 h-4 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                                        )}
+                                      </>
+                                    )}
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            ))}
+                          </div>
                         )}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                      </div>
+                    );
+                  }
+
+                  // Regular item — NavLink
+                  return (
+                    <SidebarMenuItem key={itemIdx}>
+                      <SidebarMenuButton
+                        asChild
+                        tooltip={item.title}
+                        className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
+                      >
+                        <NavLink
+                          to={item.href || '#'}
+                          onClick={() => isMobile && setOpenMobile(false)}
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                            }`
+                          }
+                        >
+                          {({ isActive }) => (
+                            <>
+                              <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
+                              <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
+                              {item.badge && !isCollapsed && (
+                                <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
+                                  {item.badge}
+                                </Badge>
+                              )}
+                              {isActive && !isCollapsed && (
+                                <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                              )}
+                            </>
+                          )}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

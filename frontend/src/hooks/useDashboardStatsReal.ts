@@ -163,13 +163,11 @@ export function useDashboardStatsReal() {
 
         // Calcular asistencia real del coach
         let attendanceRate = 0;
-        if (isCoach) {
-          // Buscar equipos por coach_id directo O por tabla team_coaches
+        if (isCoach && coachIdFilter) {
+          // Separate queries instead of invalid OR syntax
           const [{ data: teamsDirecta }, { data: teamsRelacion }] = await Promise.all([
-            supabase.from('teams').select('id')
-              .or(`coach_id.eq.${coachIdFilter},coach_id.eq.${user?.id}`),
-            supabase.from('team_coaches').select('team_id')
-              .or(`coach_id.eq.${coachIdFilter},coach_id.eq.${user?.id}`)
+            supabase.from('teams').select('id').eq('coach_id', coachIdFilter),
+            supabase.from('team_coaches').select('team_id').eq('coach_id', coachIdFilter),
           ]);
 
           const teamIds = [

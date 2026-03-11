@@ -12,17 +12,30 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     try {
         const { schoolId } = req;
 
-        const { data: settings, error } = await supabase
-            .from('school_settings')
-            .select('active_modules')
-            .eq('school_id', schoolId)
-            .single();
+        const [settingsRes, sportConfigsRes] = await Promise.all([
+            supabase
+                .from('school_settings')
+                .select('active_modules')
+                .eq('school_id', schoolId)
+                .single(),
+            supabase
+                .from('sport_configs')
+                .select('sport, categorization_axis, settings')
+                .eq('school_id', schoolId)
+                .eq('is_active', true)
+                .order('created_at', { ascending: true }),
+        ]);
 
-        if (error && error.code !== 'PGRST116') {
-            throw error;
+        if (settingsRes.error && settingsRes.error.code !== 'PGRST116') {
+            throw settingsRes.error;
         }
 
-        const activeModules: string[] = settings?.active_modules ?? [];
+        const activeModules: string[] = settingsRes.data?.active_modules ?? [];
+        const sports = (sportConfigsRes.data || []).map(s => ({
+            sport: s.sport,
+            categorization_axis: s.categorization_axis,
+            settings: s.settings ?? {},
+        }));
 
         const features = {
             selfBooking: activeModules.includes('session_bookings'),
@@ -39,6 +52,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
             active_modules: activeModules,
             features,
             is_universal_mode: activeModules.length > 0,
+            sports,
+            primary_sport: sports[0] ?? null,
         });
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching school context');

@@ -33,7 +33,7 @@ router.get(
             // 2. Si existe la sesión, traer los registros asociados
             const { data: records, error: recordsErr } = await supabase
                 .from('attendance_records')
-                .select('child_id, status')
+                .select('child_id, user_id, status')
                 .eq('program_id', teamId)
                 .eq('attendance_date', today);
 
@@ -59,11 +59,16 @@ router.post(
             const { schoolId } = req;
             const { teamId, records } = req.body as {
                 teamId: string;
-                records: { childId: string; status: string }[];
+                records: { childId?: string; userId?: string; status: string }[];
             };
 
             if (!teamId || !Array.isArray(records) || records.length === 0) {
                 return res.status(400).json({ error: 'teamId y records son requeridos.' });
+            }
+
+            const invalidRecord = records.find((r) => !r.childId && !r.userId);
+            if (invalidRecord) {
+                return res.status(400).json({ error: 'Cada record debe tener childId o userId.' });
             }
 
             const today = new Date().toISOString().split('T')[0];
@@ -104,23 +109,37 @@ router.post(
             if (sessionErr) throw sessionErr;
 
             // 3. Guardar registros de asistencia (upsert — permite edición antes de finalizar)
-            const attendanceRecords = records.map(({ childId, status }) => ({
+            const attendanceRecords = records.map(({ childId, userId, status }) => ({
                 school_id: schoolId,
                 program_id: teamId,
-                child_id: childId,
+                ...(childId ? { child_id: childId } : { user_id: userId }),
                 attendance_date: today,
                 status,
                 marked_by: req.user?.id,
             }));
 
-            const { error: recordsErr } = await supabase
-                .from('attendance_records')
-                .upsert(attendanceRecords, {
-                    onConflict: 'child_id,program_id,attendance_date',
-                    ignoreDuplicates: false,
-                });
+            const childRecords = attendanceRecords.filter((r: any) => r.child_id);
+            const adultRecords = attendanceRecords.filter((r: any) => r.user_id);
 
-            if (recordsErr) throw recordsErr;
+            if (childRecords.length > 0) {
+                const { error: childErr } = await supabase
+                    .from('attendance_records')
+                    .upsert(childRecords, {
+                        onConflict: 'child_id,program_id,attendance_date',
+                        ignoreDuplicates: false,
+                    });
+                if (childErr) throw childErr;
+            }
+
+            if (adultRecords.length > 0) {
+                const { error: adultErr } = await supabase
+                    .from('attendance_records')
+                    .upsert(adultRecords, {
+                        onConflict: 'user_id,program_id,attendance_date',
+                        ignoreDuplicates: false,
+                    });
+                if (adultErr) throw adultErr;
+            }
 
             return res.json({ success: true, sessionId: session.id });
         } catch (err: any) {

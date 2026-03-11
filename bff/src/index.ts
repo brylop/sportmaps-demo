@@ -84,7 +84,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/v1/students', generalLimiter, studentsRouter);
-app.use('/api/v1/enrollments', paymentLimiter, enrollmentsRouter);
+app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);

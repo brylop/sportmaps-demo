@@ -26,10 +26,11 @@ import { UserRole } from '@/types/dashboard';
 
 export interface NavItem {
   title: string;
-  href: string;
+  href?: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   description?: string;
+  submenu?: NavItem[];
 }
 
 export interface NavGroup {
@@ -150,7 +151,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -240,7 +248,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -276,7 +291,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -310,7 +332,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }

@@ -49,6 +49,7 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
 const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
@@ -207,6 +208,11 @@ const App = () => (
 
                       {/* Athlete routes */}
                       <Route path="teams" element={<TeamsPage />} />
+                      <Route path="offerings" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <OfferingsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="stats" element={<StatsPage />} />
                       <Route path="goals" element={<GoalsPage />} />
                       <Route path="training" element={<TrainingPage />} />

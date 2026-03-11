@@ -13,7 +13,7 @@ const CreateOfferingSchema = z.object({
     offering_type: z.enum(['membership', 'session_pack', 'court_booking', 'tournament', 'single_session']),
     sport: z.string().optional(),
     branch_id: z.string().uuid().optional(),
-    metadata: z.record(z.unknown()).optional().default({}),
+    metadata: z.record(z.string(), z.unknown()).optional().default({}),
     sort_order: z.number().int().min(0).optional().default(0),
 });
 
@@ -23,7 +23,7 @@ const UpdateOfferingSchema = z.object({
     sport: z.string().optional(),
     branch_id: z.string().uuid().nullable().optional(),
     is_active: z.boolean().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     sort_order: z.number().int().min(0).optional(),
 });
 
@@ -37,8 +37,23 @@ const CreatePlanSchema = z.object({
     currency: z.string().default('COP'),
     slot_duration_minutes: z.number().int().positive().optional(),
     auto_renew: z.boolean().default(false),
-    metadata: z.record(z.unknown()).optional().default({}),
+    metadata: z.record(z.string(), z.unknown()).optional().default({}),
     sort_order: z.number().int().min(0).optional().default(0),
+});
+
+const UpdatePlanSchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().optional(),
+    max_sessions: z.number().int().positive().nullable().optional(),
+    max_secondary_sessions: z.number().int().min(0).optional(),
+    duration_days: z.number().int().positive().optional(),
+    price: z.number().min(0).optional(),
+    currency: z.string().optional(),
+    slot_duration_minutes: z.number().int().positive().nullable().optional(),
+    auto_renew: z.boolean().optional(),
+    is_active: z.boolean().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    sort_order: z.number().int().min(0).optional(),
 });
 
 // ── GET /api/v1/offerings ────────────────────────────────────────────────────
@@ -168,6 +183,28 @@ router.delete('/:id',
             const { schoolId } = req;
             const { id } = req.params;
 
+            // Antes del DELETE — verificar que no haya enrollments activos
+            const { data: plans } = await supabase
+                .from('offering_plans')
+                .select('id')
+                .eq('offering_id', id);
+
+            const planIds = plans?.map(p => p.id) || [];
+            if (planIds.length > 0) {
+                const { count } = await supabase
+                    .from('enrollments')
+                    .select('id', { count: 'exact', head: true })
+                    .in('offering_plan_id', planIds)
+                    .eq('status', 'active');
+
+                if (count && count > 0) {
+                    return res.status(409).json({
+                        error: 'No se puede eliminar un offering con inscripciones activas',
+                        code: 'OFFERING_HAS_ACTIVE_ENROLLMENTS'
+                    });
+                }
+            }
+
             const { error } = await supabase
                 .from('offerings')
                 .delete()
@@ -259,12 +296,17 @@ router.patch('/:offeringId/plans/:planId',
     requireRole('owner', 'admin', 'school_admin'),
     async (req: Request, res: Response) => {
         try {
+            const parsed = UpdatePlanSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+            }
+
             const { schoolId } = req;
             const { planId } = req.params;
 
             const { data, error } = await supabase
                 .from('offering_plans')
-                .update(req.body)
+                .update(parsed.data)
                 .eq('id', planId)
                 .eq('school_id', schoolId)
                 .select()

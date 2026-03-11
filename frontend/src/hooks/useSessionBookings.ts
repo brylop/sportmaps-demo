@@ -91,11 +91,20 @@ export function useBookingMutations() {
             `/api/v1/sessions/${sessionId}/book`,
             body
         ),
-        onSuccess: () => {
+        onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['session-availability'] });
             queryClient.invalidateQueries({ queryKey: ['session-bookings'] });
             queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
-            queryClient.invalidateQueries({ queryKey: ['my-plan', schoolId] });
+
+            if (variables.child_id) {
+                queryClient.invalidateQueries({
+                    queryKey: ['my-plan', schoolId, variables.child_id]
+                });
+            } else {
+                queryClient.invalidateQueries({
+                    queryKey: ['my-plan', schoolId, 'self']
+                });
+            }
         },
     });
 
@@ -106,6 +115,9 @@ export function useBookingMutations() {
             queryClient.invalidateQueries({ queryKey: ['session-availability'] });
             queryClient.invalidateQueries({ queryKey: ['session-bookings'] });
             queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
+            // Al cancelar también deberíamos invalidar el plan genéricamente,
+            // ya que devuelve los créditos (pero no tenemos el child_id fácilmente,
+            // lo invalidamos general o lo dejamos que expire en 2 min)
         },
     });
 

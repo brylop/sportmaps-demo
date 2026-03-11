@@ -16,8 +16,12 @@ interface AddDropInModalProps {
     sessionId: string;
 }
 
+import { getAthleteIds, SchoolAthlete } from '@/lib/athleteUtils';
+
 interface SearchResult {
-    childId: string;
+    primaryId: string;
+    childId: string | null;
+    userId: string | null;
     fullName: string;
     enrollmentId: string;
 }
@@ -39,8 +43,8 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
         setSearching(true);
 
         const { data } = await supabase
-            .from('children')
-            .select('id, full_name')
+            .from('school_athletes' as any)
+            .select('*')
             .eq('school_id', schoolId)
             .eq('is_active', true)
             .ilike('full_name', `%${search.trim()}%`)
@@ -48,11 +52,12 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
 
         if (data) {
             const enriched: SearchResult[] = [];
-            for (const child of data) {
+            for (const athlete of data as unknown as SchoolAthlete[]) {
+                const { primaryId, childId, userId } = getAthleteIds(athlete);
                 const { data: enrollment } = await supabase
                     .from('enrollments')
                     .select('id')
-                    .eq('child_id', child.id)
+                    .eq(athlete.athlete_type === 'adult' ? 'user_id' : 'child_id', athlete.id)
                     .eq('school_id', schoolId)
                     .eq('status', 'active')
                     .limit(1)
@@ -60,8 +65,10 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
 
                 if (enrollment) {
                     enriched.push({
-                        childId: child.id,
-                        fullName: child.full_name,
+                        primaryId,
+                        childId,
+                        userId,
+                        fullName: athlete.full_name,
                         enrollmentId: enrollment.id,
                     });
                 }
@@ -77,6 +84,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                 sessionId,
                 enrollment_id: result.enrollmentId,
                 child_id: result.childId,
+                user_id: result.userId,
                 booking_type: 'drop_in',
             },
             {
@@ -121,7 +129,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                         )}
                         {results.map((r) => (
                             <Button
-                                key={r.childId}
+                                key={r.primaryId}
                                 variant="ghost"
                                 className="w-full justify-start text-sm"
                                 onClick={() => handleSelect(r)}

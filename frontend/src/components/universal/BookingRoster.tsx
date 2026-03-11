@@ -50,8 +50,15 @@ function BookingRosterRow({ booking }: { booking: SessionBooking }) {
     const person = booking.person;
     const typeBadge = BOOKING_TYPE_BADGE[booking.booking_type] ?? BOOKING_TYPE_BADGE.walk_in;
     const plan = booking.enrollment?.plan;
-    const sessionsUsed = booking.enrollment?.sessions_used ?? 0;
-    const maxSessions = plan?.max_sessions ?? null;
+    const isSecondary = booking.is_secondary;
+
+    const sessionsUsed = isSecondary
+        ? (booking.enrollment?.secondary_sessions_used ?? 0)
+        : (booking.enrollment?.sessions_used ?? 0);
+
+    const maxSessions = isSecondary
+        ? (plan?.max_secondary_sessions ?? null)
+        : (plan?.max_sessions ?? null);
 
     const initials = person?.full_name
         ?.split(' ')

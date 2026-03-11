@@ -96,12 +96,27 @@ export function useDashboardStats(role?: UserRole) {
       }
 
       if (effectiveRole === 'coach') {
-        const { count: teamCount } = await supabase
-          .from('teams')
-          .select('id', { count: 'exact' })
-          .eq('coach_id', user.id);
-        stats.teams = teamCount || 0;
-        stats.activeTeams = teamCount || 0;
+        // Resolve school_staff.id from email (teams.coach_id = school_staff.id, NOT auth.users.id)
+        let coachStaffId: string | undefined;
+        if (user.email) {
+          const { data: staffData } = await supabase
+            .from('school_staff')
+            .select('id')
+            .eq('email', user.email)
+            .maybeSingle();
+          coachStaffId = staffData?.id;
+        }
+
+        if (coachStaffId) {
+          // Query teams via direct coach_id AND team_coaches junction
+          const [{ count: directCount }, { count: junctionCount }] = await Promise.all([
+            supabase.from('teams').select('id', { count: 'exact', head: true }).eq('coach_id', coachStaffId),
+            supabase.from('team_coaches').select('team_id', { count: 'exact', head: true }).eq('coach_id', coachStaffId),
+          ]);
+          const teamCount = Math.max(directCount || 0, junctionCount || 0);
+          stats.teams = teamCount;
+          stats.activeTeams = teamCount;
+        }
       }
 
       if (effectiveRole === 'store_owner') {
@@ -142,17 +157,18 @@ export function useDashboardStats(role?: UserRole) {
           if (rpcError) throw rpcError;
 
           if (schoolStats) {
-            stats.programs = schoolStats.programs || 0;
-            stats.activePrograms = schoolStats.active_programs || 0;
-            stats.activeTeams = schoolStats.active_teams || 0;
-            stats.totalStudents = schoolStats.total_students || 0;
-            stats.pendingPayments = schoolStats.pending_payments || 0;
-            stats.totalRevenue = schoolStats.total_revenue || 0;
+            const s = schoolStats as any;
+            stats.programs = s.programs || 0;
+            stats.activePrograms = s.active_programs || 0;
+            stats.activeTeams = s.active_teams || 0;
+            stats.totalStudents = s.total_students || 0;
+            stats.pendingPayments = s.pending_payments || 0;
+            stats.totalRevenue = s.total_revenue || 0;
 
             if (effectiveRole === 'admin') {
               stats.teams = totalBranches || 0;
             } else {
-              stats.teams = schoolStats.programs || 0;
+              stats.teams = s.programs || 0;
             }
           }
         } catch (error) {

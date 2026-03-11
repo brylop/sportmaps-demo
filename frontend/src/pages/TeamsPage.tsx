@@ -195,7 +195,7 @@ export default function TeamsPage() {
   // Fetch school students for the detailed list view
   const { data: schoolStudents = [], isLoading: studentsLoading } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId) : Promise.resolve([]),
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId) : Promise.resolve([]),
     enabled: statusFilter === 'with_students' && !!schoolId,
   });
 
@@ -496,8 +496,15 @@ export default function TeamsPage() {
                       const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
                       const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
 
-                      const displayParentName = student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null) || 'No registrado';
-                      const displayParentPhone = student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null);
+                      const isAdult = (student as any).athlete_type === 'adult';
+
+                      const displayParentName = isAdult
+                        ? null
+                        : student.parent_name || fallbackParentName?.trim() || 'No registrado';
+
+                      const displayParentPhone = isAdult
+                        ? (student as any).parent_phone || null
+                        : student.parent_phone || fallbackParentPhone?.trim() || null;
 
                       return (
                         <TableRow key={student.id} className="hover:bg-muted/30 transition-colors">
@@ -514,8 +521,8 @@ export default function TeamsPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1 max-w-[140px]">
-                              {student.program_name
-                                ? String(student.program_name).split(',').map((prog: string, i: number) => (
+                              {(student as any).team_name
+                                ? String((student as any).team_name).split(',').map((prog: string, i: number) => (
                                   <Badge
                                     key={i}
                                     variant="secondary"
@@ -531,7 +538,7 @@ export default function TeamsPage() {
                           <TableCell>
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                               <User className="h-3 w-3" />
-                              {displayParentName}
+                              {isAdult ? <span className="text-muted-foreground">—</span> : displayParentName}
                             </div>
                           </TableCell>
                           <TableCell>

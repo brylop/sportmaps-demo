@@ -30,7 +30,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
-import { ChildSelectionModal } from '@/components/enrollment/ChildSelectionModal';
+import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
 
@@ -185,7 +185,7 @@ export default function SchoolDetailPage() {
     setChildSelectionOpen(true);
   };
 
-  const handleChildSelected = (childId: string) => {
+  const handleChildSelected = (childId: string, childName: string) => {
     setSelectedChildId(childId);
     setChildSelectionOpen(false);
     setPaymentModalOpen(true);
@@ -338,7 +338,7 @@ export default function SchoolDetailPage() {
       />
 
       {/* Child Selection Modal - NEW */}
-      <ChildSelectionModal
+      <ChildSelectorModal
         open={childSelectionOpen}
         onOpenChange={setChildSelectionOpen}
         onChildSelected={handleChildSelected}

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, School, Upload, FileCheck } from "lucide-react";
-import { SPORTS_LIST } from "@/lib/constants/sports";
+import { SPORTS_LIST } from "@/lib/constants/sportsCatalog";
 
 interface SchoolRegisterProps {
   onNavigate: (page: string) => void;
@@ -467,8 +467,8 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
               <div key={step} className="flex items-center">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step <= currentStep
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground'
                     }`}
                 >
                   {step}

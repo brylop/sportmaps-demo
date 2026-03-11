@@ -22,6 +22,17 @@ const CreateBillingEventSchema = z.object({
     notes: z.string().optional(),
 });
 
+const UpdateBillingEventSchema = z.object({
+    amount_paid: z.number().min(0).optional(),
+    late_fee_amount: z.number().min(0).optional(),
+    status: z.enum(['pending', 'partial', 'paid', 'overdue', 'cancelled']).optional(),
+    paid_date: z.string().optional(),
+    payment_id: z.string().uuid().optional(),
+    gateway: z.string().optional(),
+    gateway_reference: z.string().optional(),
+    notes: z.string().optional(),
+});
+
 /**
  * GET /api/v1/billing-events
  * Lista billing_events. Admin ve todos de la escuela, atleta/padre solo los suyos.
@@ -105,12 +116,17 @@ router.patch('/:id',
     requireRole('owner', 'admin', 'school_admin'),
     async (req: Request, res: Response) => {
         try {
+            const parsed = UpdateBillingEventSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+            }
+
             const { schoolId } = req;
             const { id } = req.params;
 
             const { data, error } = await supabase
                 .from('billing_events')
-                .update(req.body)
+                .update(parsed.data)
                 .eq('id', id)
                 .eq('school_id', schoolId)
                 .select()

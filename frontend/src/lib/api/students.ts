@@ -108,15 +108,20 @@ export interface StudentViewRow {
   emergency_contact?: string;
   parent_name?: string;
   parent_phone?: string;
+  parent_email?: string;
   parent_avatar?: string;
   enrollment_id?: string;
   program_id?: string;
+  branch_id?: string;
   enrollment_status?: string;
   program_name?: string;
+  team_name?: string;
   program_sport?: string;
   price_monthly?: number;
+  monthly_fee?: number;
   branch_name?: string;
   medical_info?: string | null;
+  display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
 }
 
@@ -178,98 +183,56 @@ class StudentsAPI {
   /**
    * Get enriched students data for School Management UI (uses 'students' VIEW)
    */
-  async getSchoolView(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentViewRow[]> {
-    try {
-      if (!schoolId || !isValidUUID(schoolId)) {
-        return [];
-      }
+  async getSchoolView(schoolId: string, teamId?: string) {
+    let query = supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true);
 
-      // Si se pasa coachId, filtrar por los equipos del coach (legacy + junction table)
-      if (coachId) {
-        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
-          supabase.from('teams').select('id').eq('coach_id', coachId),
-          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
-        ]);
-        const teamIds = [...new Set([
-          ...(legacyTeams || []).map(t => t.id),
-          ...(junctionTeams || []).map(t => t.team_id),
-        ])];
-        if (teamIds.length === 0) return [];
-
-        // Obtener child IDs desde enrollments activos Y desde children.team_id.
-        // El BFF asigna program_id y crea enrollments pero no siempre setea team_id,
-        // por lo que ambas fuentes son necesarias para no perder estudiantes.
-        const [{ data: enrolledChildren }, { data: directChildren }] = await Promise.all([
-          supabase.from('enrollments').select('child_id').in('program_id', teamIds).eq('status', 'active'),
-          supabase.from('children').select('id').eq('school_id', schoolId).in('team_id', teamIds),
-        ]);
-
-        const childIds = [...new Set([
-          ...(enrolledChildren || []).map(e => e.child_id).filter(Boolean),
-          ...(directChildren || []).map(c => c.id),
-        ])];
-        if (childIds.length === 0) return [];
-
-        const query = supabase
-          .from('students')
-          .select('*')
-          .eq('school_id', schoolId)
-          .in('id', childIds);
-
-        const { data, error } = await query.order('created_at', { ascending: false });
-        if (error) throw error;
-
-        // Deduplicar: un estudiante con múltiples inscripciones activas genera
-        // múltiples filas en la vista. Se unifica en un registro con los programas concatenados.
-        const byId = new Map<string, StudentViewRow>();
-        for (const row of (data || []) as StudentViewRow[]) {
-          if (!byId.has(row.id)) {
-            byId.set(row.id, { ...row });
-          } else {
-            const existing = byId.get(row.id)!;
-            if (row.program_name && !existing.program_name?.includes(row.program_name)) {
-              existing.program_name = existing.program_name
-                ? `${existing.program_name}, ${row.program_name}`
-                : row.program_name;
-            }
-          }
-        }
-        return Array.from(byId.values());
-      }
-
-      let query = supabase
-        .from('students')
-        .select('*')
-        .eq('school_id', schoolId);
-
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Deduplicar: la vista puede retornar múltiples filas por estudiante
-      // cuando tiene más de una inscripción activa. Se unifica en un registro.
-      const byId = new Map<string, StudentViewRow>();
-      for (const row of (data || []) as StudentViewRow[]) {
-        if (!byId.has(row.id)) {
-          byId.set(row.id, { ...row });
-        } else {
-          const existing = byId.get(row.id)!;
-          if (row.program_name && !existing.program_name?.includes(row.program_name)) {
-            existing.program_name = existing.program_name
-              ? `${existing.program_name}, ${row.program_name}`
-              : row.program_name;
-          }
-        }
-      }
-      return Array.from(byId.values());
-    } catch (error: any) {
-      console.error('Error fetching school students view:', error);
-      return [];
+    if (teamId) {
+      query = query.eq('enrolled_team_id', teamId);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /**
+   * Lista atletas de un equipo específico.
+   */
+  async getByTeam(schoolId: string, teamId: string) {
+    return this.getSchoolView(schoolId, teamId);
+  }
+
+  /**
+   * Busca atletas por nombre en la vista unificada.
+   */
+  async searchAthletes(schoolId: string, term: string) {
+    const { data, error } = await supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .ilike('full_name', `%${term}%`);
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /**
+   * Lista atletas SIN enrollment activo en el equipo dado.
+   * Usado por EnrollTeamStudentModal para mostrar quién puede inscribirse.
+   */
+  async getAvailableForTeam(schoolId: string, teamId: string) {
+    const { data, error } = await supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .or(`enrolled_team_id.is.null,enrolled_team_id.neq.${teamId}`);
+    if (error) throw error;
+    return data ?? [];
   }
 
   /**
@@ -635,17 +598,20 @@ class StudentsAPI {
         ])];
         if (teamIds.length === 0) return { total: 0, active: 0, inactive: 0, by_grade: {} };
 
-        const [{ data: enrolledChildren }, { data: directChildren }] = await Promise.all([
-          supabase.from('enrollments').select('child_id').in('program_id', teamIds).eq('status', 'active'),
-          isValidUUID(schoolId)
-            ? supabase.from('children').select('id').eq('school_id', schoolId).in('team_id', teamIds)
-            : Promise.resolve({ data: [] as { id: string }[] }),
-        ]);
+        // Build query — only filter by school_id if it's a valid UUID
+        let coachQuery = supabase
+          .from('school_athletes' as any)
+          .select('id')
+          .eq('is_active', true)
+          .in('enrolled_team_id', teamIds);
 
-        const uniqueCount = new Set([
-          ...(enrolledChildren || []).map(e => e.child_id).filter(Boolean),
-          ...(directChildren || []).map(c => c.id),
-        ]).size;
+        if (schoolId && isValidUUID(schoolId)) {
+          coachQuery = coachQuery.eq('school_id', schoolId);
+        }
+
+        const { data: coachAthletes } = await coachQuery;
+
+        const uniqueCount = coachAthletes?.length ?? 0;
 
         return { total: uniqueCount, active: uniqueCount, inactive: 0, by_grade: {} };
       } catch (error) {
@@ -658,32 +624,21 @@ class StudentsAPI {
       return { total: 0, active: 0, inactive: 0, by_grade: {} };
     }
     try {
-      let query = supabase
-        .from('children')
-        .select('*', { count: 'exact', head: true });
+      const { data: athletes, error: athletesErr } = await supabase
+        .from('school_athletes' as any)
+        .select('id, is_active')
+        .eq('school_id', schoolId);
 
-      if (schoolId) {
-        query = query.eq('school_id', schoolId);
-      }
+      if (athletesErr) throw athletesErr;
 
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      const { data: students, count: total } = await query;
-
-      const by_grade: Record<string, number> = {};
-      students?.forEach(s => {
-        if (s.grade) {
-          by_grade[s.grade] = (by_grade[s.grade] || 0) + 1;
-        }
-      });
+      const total = athletes?.length ?? 0;
+      const active = athletes?.filter((a: any) => a.is_active).length ?? 0;
 
       return {
-        total: total || 0,
-        active: total || 0,
-        inactive: 0,
-        by_grade,
+        total,
+        active,
+        inactive: total - active,
+        by_grade: {}, // Grade data might not be supported without joining properly, returning empty for now.
       };
     } catch (error) {
       console.warn('Error fetching student stats:', error);

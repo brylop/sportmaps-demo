@@ -58,7 +58,37 @@ export default function StudentsPage() {
         }
       }
 
-      const data = await studentsAPI.getSchoolView(schoolId, null, coachId);
+      let data;
+      if (coachId) {
+        // Filtrar por equipos del coach via school_staff
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase
+            .from('teams')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('coach_id', coachId),
+          supabase
+            .from('team_coaches')
+            .select('team_id')
+            .eq('coach_id', coachId),
+        ]);
+
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+
+        const { data: athletes } = await supabase
+          .from('school_athletes' as any)
+          .select('*')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .in('enrolled_team_id', teamIds.length ? teamIds : ['']);
+
+        data = athletes ?? [];
+      } else {
+        data = await studentsAPI.getSchoolView(schoolId);
+      }
       // Map to Student type if needed or adjust state type
       setStudents(data as any as Student[]);
     } catch (error: any) {
@@ -83,10 +113,10 @@ export default function StudentsPage() {
     });
   };
 
-  const filteredStudents = students.filter(student =>
+  const filteredStudents = students.filter((student: any) =>
     student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (student.parent_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (student.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+    (student.parent_email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
   const getStatusBadge = (status: string) => {

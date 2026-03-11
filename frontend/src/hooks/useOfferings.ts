@@ -77,11 +77,25 @@ export function useOfferings(type?: string) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onError: (error: any) => {
+            if (error?.status === 409) {
+                console.warn('Offering con inscripciones activas:', error.message);
+            }
+        },
     });
 
     const createPlan = useMutation({
         mutationFn: ({ offeringId, ...data }: Partial<OfferingPlan> & { offeringId: string }) =>
             bffClient.post<{ plan: OfferingPlan }>(`/api/v1/offerings/${offeringId}/plans`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+        },
+    });
+
+    const updatePlan = useMutation({
+        mutationFn: ({ offeringId, planId, ...data }: Partial<OfferingPlan> & { offeringId: string; planId: string }) =>
+            bffClient.patch<{ plan: OfferingPlan }>(`/api/v1/offerings/${offeringId}/plans/${planId}`, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
         },
@@ -95,5 +109,6 @@ export function useOfferings(type?: string) {
         updateOffering,
         deleteOffering,
         createPlan,
+        updatePlan,
     };
 }

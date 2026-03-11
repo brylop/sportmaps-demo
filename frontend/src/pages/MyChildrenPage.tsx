@@ -43,7 +43,15 @@ export default function MyChildrenPage() {
         console.error('Error fetching children:', error);
         throw error;
       }
-      return data;
+
+      // Deduplicar por child.id (Supabase puede retornar duplicados
+      // cuando hay JOINs a teams via children.team_id Y enrollments.program_id)
+      const seen = new Set<string>();
+      return (data || []).filter(child => {
+        if (seen.has(child.id)) return false;
+        seen.add(child.id);
+        return true;
+      });
     },
     enabled: !!user?.id,
   });

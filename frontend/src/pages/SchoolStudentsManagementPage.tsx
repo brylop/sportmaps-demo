@@ -102,7 +102,40 @@ export default function SchoolStudentsManagementPage() {
 
   const { data: students = [], isLoading } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId, coachId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId, coachId) : Promise.resolve([]),
+    queryFn: async () => {
+      if (!schoolId) return [];
+      let data;
+      if (coachId) {
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase
+            .from('teams')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('coach_id', coachId),
+          supabase
+            .from('team_coaches')
+            .select('team_id')
+            .eq('coach_id', coachId),
+        ]);
+
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+
+        const { data: athletes } = await supabase
+          .from('school_athletes' as any)
+          .select('*')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .in('enrolled_team_id', teamIds.length ? teamIds : ['']);
+
+        data = athletes ?? [];
+      } else {
+        data = await studentsAPI.getSchoolView(schoolId, activeBranchId);
+      }
+      return data as StudentViewRow[];
+    },
     enabled: !!schoolId && coachIdResolved,
   });
 
@@ -476,11 +509,11 @@ export default function SchoolStudentsManagementPage() {
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
-                        {student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
+                        {student.team_name || student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
                       </p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
-                          {student.price_monthly ? formatCurrency(student.price_monthly) : '-'}
+                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
                         </span>
                         {getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}
                       </div>
@@ -526,14 +559,14 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">{student.program_name || 'Sin equipo'}</Badge>
+                          <Badge variant="outline" className="text-xs">{student.team_name || student.program_name || 'Sin equipo'}</Badge>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
                         </TableCell>
-                        <TableCell>{student.display_parent_name || '-'}</TableCell>
+                        <TableCell>{(student as any).athlete_type === 'adult' ? '\u2014' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         <TableCell className="font-semibold text-primary">
-                          {student.price_monthly ? formatCurrency(student.price_monthly) : '-'}
+                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
                         </TableCell>
                         <TableCell>{getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}</TableCell>
                         <TableCell>
@@ -702,10 +735,10 @@ export default function SchoolStudentsManagementPage() {
               <div className="grid gap-2">
                 {[
                   { label: 'Escuela', value: schoolName },
-                  { label: 'Equipo', value: viewingStudent.program_name || '-' },
-                  { label: 'Mensualidad', value: viewingStudent.price_monthly ? formatCurrency(viewingStudent.price_monthly) : '-', bold: true },
-                  { label: 'Acudiente', value: viewingStudent.display_parent_name || '-' },
-                  { label: 'Teléfono', value: viewingStudent.display_parent_phone || '-' },
+                  { label: 'Equipo', value: (viewingStudent as any).team_name || viewingStudent.program_name || '-' },
+                  { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
+                  { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
+                  { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
                 ].map(({ label, value, bold }) => (
                   <div key={label} className="flex items-center justify-between p-2 rounded hover:bg-muted/50 gap-2">
                     <span className="text-sm font-medium shrink-0">{label}:</span>

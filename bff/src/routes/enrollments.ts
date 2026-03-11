@@ -127,40 +127,40 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
         const { data: enrollments, error } = await query;
         if (error) throw error;
 
-        // ── N+1 Eliminado ──────────────────────────────────────────────────
+        // ── IDs únicos para batch queries ──────────────────────────────
         const planIds = [...new Set((enrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
         const teamIds = [...new Set((enrollments || []).map((e: any) => e.team_id).filter(Boolean))];
 
         const [plansRes, teamsRes] = await Promise.all([
             planIds.length
-                ? supabase.from('offering_plans').select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id').in('id', planIds)
+                ? supabase
+                    .from('offering_plans')
+                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id, offering:offerings(id, name, offering_type, sport)')
+                    .in('id', planIds)
                 : Promise.resolve({ data: [], error: null }),
             teamIds.length
-                ? supabase.from('teams').select('id, name, sport').in('id', teamIds)
-                : Promise.resolve({ data: [], error: null })
+                ? supabase
+                    .from('teams')
+                    .select('id, name, sport')
+                    .in('id', teamIds)
+                : Promise.resolve({ data: [], error: null }),
         ]);
-
-        const offeringIds = [...new Set((plansRes.data || []).map((p: any) => p.offering_id).filter(Boolean))];
-        const offeringsRes = offeringIds.length
-            ? await supabase.from('offerings').select('id, name, offering_type, sport').in('id', offeringIds)
-            : { data: [], error: null };
 
         const planMap = Object.fromEntries((plansRes.data || []).map((p: any) => [p.id, p]));
         const teamMap = Object.fromEntries((teamsRes.data || []).map((t: any) => [t.id, t]));
-        const offeringMap = Object.fromEntries((offeringsRes.data || []).map((o: any) => [o.id, o]));
 
         const enriched = (enrollments || []).map((enrollment: any) => {
-            const offeringPlan = enrollment.offering_plan_id ? (planMap[enrollment.offering_plan_id] || null) : null;
-            const offering = offeringPlan?.offering_id ? (offeringMap[offeringPlan.offering_id] || null) : null;
-            const team = enrollment.team_id ? (teamMap[enrollment.team_id] || null) : null;
+            const offeringPlan = enrollment.offering_plan_id
+                ? planMap[enrollment.offering_plan_id] ?? null
+                : null;
+            const team = enrollment.team_id ? teamMap[enrollment.team_id] ?? null : null;
 
-            // Computar status
             const maxSessions = offeringPlan?.max_sessions ?? null;
             const used = enrollment.sessions_used || 0;
             const expiresAt = enrollment.expires_at;
             const now = new Date();
 
-            let planStatus: string = 'active';
+            let planStatus = 'active';
             let daysLeft: number | null = null;
             let percentUsed: number | null = null;
 
@@ -184,7 +184,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             return {
                 ...enrollment,
                 offering_plan: offeringPlan,
-                offering,
+                offering: offeringPlan?.offering ?? null,
                 team,
                 computed: {
                     plan_status: planStatus,

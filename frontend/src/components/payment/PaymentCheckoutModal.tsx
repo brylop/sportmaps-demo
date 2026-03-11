@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
+import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -74,8 +75,12 @@ export function PaymentCheckoutModal({
       setCheckingPending(true);
       setPendingPaymentDate(null);
       try {
-        const query = supabase.from('payments').select('id, payment_date, created_at')
-          .eq('child_id', studentId).eq('status', 'awaiting_approval').limit(1);
+        const response = await supabase.from('school_athletes' as any).select('athlete_type').eq('id', studentId).single();
+        const athleteData = response.data as unknown as { athlete_type: string } | null;
+        const idField = athleteData?.athlete_type === 'adult' ? 'user_id' : 'child_id';
+
+        const query = (supabase as any).from('payments').select('id, payment_date, created_at')
+          .eq(idField, studentId).eq('status', 'awaiting_approval').limit(1);
         if (mode === 'update' && paymentId) query.neq('id', paymentId);
         const { data, error } = await query;
         if (error) { console.error('[PaymentCheckoutModal]', error); return; }
@@ -112,7 +117,18 @@ export function PaymentCheckoutModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuario no autenticado');
 
-      const duplicateQuery = supabase.from('payments').select('id').eq('child_id', studentId).eq('status', 'awaiting_approval').limit(1);
+      const { data: athleteData } = await supabase
+        .from('school_athletes' as any)
+        .select('*')
+        .eq('id', studentId)
+        .single();
+      const athlete = athleteData as unknown as SchoolAthlete;
+      const payloadIds = getPaymentPayload(athlete);
+
+      const idColumn = athlete.athlete_type === 'adult' ? 'user_id' : 'child_id';
+      const duplicateQuery = (supabase as any).from('payments').select('id')
+        .eq(idColumn, athlete.id)
+        .eq('status', 'awaiting_approval').limit(1);
       if (mode === 'update' && paymentId) duplicateQuery.neq('id', paymentId);
       const { data: pendingPayments, error: pendingError } = await duplicateQuery;
       if (pendingError) throw pendingError;
@@ -131,8 +147,9 @@ export function PaymentCheckoutModal({
           const { error: updateError } = await supabase.from('payments').update({ status: 'awaiting_approval', payment_method: 'transfer', payment_date: new Date().toISOString(), receipt_url: proofUrl, updated_at: new Date().toISOString() }).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
-          const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
-          const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, child_id: studentId, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'awaiting_approval', payment_method: 'transfer', payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_url: proofUrl });
+          const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
+          const studentData = response.data as unknown as { branch_id: string } | null;
+          const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, ...payloadIds, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'awaiting_approval', payment_method: 'transfer', payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_url: proofUrl });
           if (insertError) throw insertError;
         }
         setPaymentStatus('awaiting_approval');
@@ -147,26 +164,28 @@ export function PaymentCheckoutModal({
         const { error: updateError } = await supabase.from('payments').update({ status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), receipt_number: receiptNumber, updated_at: new Date().toISOString() }).eq('id', paymentId);
         error = updateError;
       } else {
-        const { data: studentData } = await supabase.from('children').select('branch_id').eq('id', studentId).single();
-        const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, child_id: studentId, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_number: receiptNumber });
+        const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
+        const studentData = response.data as unknown as { branch_id: string } | null;
+        const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, ...payloadIds, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_number: receiptNumber });
         error = insertError;
       }
       if (error) throw error;
 
-      // Notificar al padre por email (fire-and-forget, no bloquea el flujo)
+      // Notificar al padre/atleta por email (fire-and-forget)
       supabase
-        .from('children')
-        .select('full_name, parent_email_temp')
+        .from('school_athletes' as any)
+        .select('full_name, parent_email')
         .eq('id', studentId)
         .single()
-        .then(({ data: child }) => {
-          const parentEmail = child?.parent_email_temp;
+        .then((response: any) => {
+          const child = response.data as { full_name: string; parent_email: string } | null;
+          const parentEmail = athlete.athlete_type === 'adult' ? user?.email : child?.parent_email;
           if (parentEmail) {
             emailClient.send({
               type: 'payment_confirmation',
               to: parentEmail,
               data: {
-                studentName: child.full_name || 'tu hijo/a',
+                studentName: child?.full_name || 'tu cuenta',
                 amount: formatCurrency(amount),
                 concept,
                 paymentMethod: selectedMethod === 'pse' ? 'PSE' : 'Tarjeta',

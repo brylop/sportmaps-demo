@@ -247,71 +247,17 @@ class ClassesAPI {
   }
 
   /**
-   * Enroll a student in a program — inserción directa en Supabase
-   * Reemplaza la llamada al BFF para evitar falsos positivos de duplicado
-   * con enrollments en status 'cancelled' o 'completed'.
+   * Enroll a student in a program using BFF endpoint
    */
-  async enrollStudent(classId: string, studentId: string, studentName: string): Promise<EnrollmentRecord> {
-    // Verificar si existe enrollment activo
-    const { data: existing } = await supabase
-      .from('enrollments')
-      .select('id, status')
-      .eq('program_id', classId)
-      .eq('child_id', studentId)
-      .eq('status', 'active')
-      .maybeSingle();
+  async enrollStudent(classId: string, studentId: string, studentName: string, isAdult: boolean = false): Promise<EnrollmentRecord> {
+    const payload = isAdult
+      ? { user_id: studentId, team_id: classId }
+      : { child_id: studentId, team_id: classId };
 
-    if (existing) {
-      throw new Error('El estudiante ya está inscrito en esta clase/equipo.');
-    }
-
-    // Verificar si existe un enrollment cancelado para reactivar
-    // (evita violar el unique constraint enrollments_child_program_unique)
-    const { data: cancelled } = await supabase
-      .from('enrollments')
-      .select('id')
-      .eq('program_id', classId)
-      .eq('child_id', studentId)
-      .in('status', ['cancelled', 'completed'])
-      .maybeSingle();
-
-    let data, error;
-
-    if (cancelled) {
-      // Reactivar el enrollment existente en lugar de insertar uno nuevo
-      ({ data, error } = await supabase
-        .from('enrollments')
-        .update({
-          status: 'active',
-          team_id: classId,
-          start_date: new Date().toISOString().split('T')[0],
-        })
-        .eq('id', cancelled.id)
-        .select('id, created_at')
-        .single());
-    } else {
-      // Insertar enrollment nuevo
-      const { data: team } = await supabase
-        .from('teams')
-        .select('school_id')
-        .eq('id', classId)
-        .single();
-
-      ({ data, error } = await supabase
-        .from('enrollments')
-        .insert({
-          program_id: classId,
-          team_id: classId,
-          child_id: studentId,
-          school_id: team?.school_id,
-          status: 'active',
-          start_date: new Date().toISOString().split('T')[0],
-        })
-        .select('id, created_at')
-        .single());
-    }
-
-    if (error) throw new Error(error.message || 'Error al inscribir estudiante.');
+    const data = await bffClient.post<{ id: string; created_at: string }>(
+      '/api/v1/enrollments',
+      payload
+    );
 
     return {
       id: data.id,
@@ -344,27 +290,44 @@ class ClassesAPI {
    */
   async getClassStudents(classId: string): Promise<any[]> {
     try {
-      const { data, error } = await supabase
+      // Obtener enrollments activos con user_id y child_id
+      const { data: enrollments, error } = await supabase
         .from('enrollments')
-        .select(`
-          id,
-          created_at,
-          child_id,
-          children:child_id(id, full_name, date_of_birth, avatar_url, parent_id)
-        `)
-        .eq('program_id', classId)
+        .select('id, created_at, child_id, user_id')
+        .eq('team_id', classId)
         .eq('status', 'active');
 
       if (error) {
         console.warn('Error fetching enrolled students:', error.message);
         return [];
       }
+      if (!enrollments || enrollments.length === 0) return [];
 
-      return (data || []).map((enrollment) => ({
-        enrollment_id: enrollment.id,
-        enrollment_date: enrollment.created_at,
-        student: enrollment.children as any, // Join results are still tricky for TS without complex nesting
-      }));
+      // Recopilar IDs de ambos tipos
+      const childIds = enrollments.map(e => e.child_id).filter(Boolean) as string[];
+      const userIds = enrollments.map(e => e.user_id).filter(Boolean) as string[];
+      const allIds = [...childIds, ...userIds];
+
+      if (allIds.length === 0) return [];
+
+      // Una sola query a school_athletes por ID
+      const { data: athletes } = await (supabase as any)
+        .from('school_athletes')
+        .select('id, full_name, date_of_birth, avatar_url, athlete_type, parent_name')
+        .in('id', allIds);
+
+      const athleteMap = Object.fromEntries(
+        (athletes || []).map((a: any) => [a.id, a])
+      );
+
+      return enrollments.map((enrollment: any) => {
+        const athleteId = enrollment.child_id ?? enrollment.user_id;
+        return {
+          enrollment_id: enrollment.id,
+          enrollment_date: enrollment.created_at,
+          student: athleteMap[athleteId] ?? null,
+        };
+      });
     } catch (error) {
       console.warn('Error fetching class students:', error);
       return [];
