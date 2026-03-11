@@ -11,8 +11,8 @@ export function useRealtimeNotifications(onNewNotification?: () => void) {
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('notifications-changes')
+    const channel = supabase
+      .channel(`notifications-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -29,7 +29,10 @@ export function useRealtimeNotifications(onNewNotification?: () => void) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
   }, [user]);
 }
@@ -42,8 +45,8 @@ export function useRealtimeMessages(onNewMessage?: () => void) {
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('messages-changes')
+    const channel = supabase
+      .channel(`messages-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -60,7 +63,10 @@ export function useRealtimeMessages(onNewMessage?: () => void) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
   }, [user]);
 }
@@ -73,8 +79,8 @@ export function useRealtimeCalendar(onCalendarUpdate?: () => void) {
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('calendar-changes')
+    const channel = supabase
+      .channel(`calendar-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -91,7 +97,10 @@ export function useRealtimeCalendar(onCalendarUpdate?: () => void) {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
   }, [user]);
 }

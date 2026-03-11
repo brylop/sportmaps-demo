@@ -8,8 +8,8 @@ const router = Router();
 const SportConfigSchema = z.object({
     sport: z.string().min(1),
     categorization_axis: z.enum(['age', 'weight', 'belt', 'level', 'division', 'none']),
-    rules: z.array(z.record(z.unknown())),
-    settings: z.record(z.unknown()).optional().default({}),
+    rules: z.array(z.record(z.string(), z.unknown())),
+    settings: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 /**

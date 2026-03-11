@@ -48,7 +48,7 @@ const UpdatePlanSchema = z.object({
     max_secondary_sessions: z.number().int().min(0).optional(),
     duration_days: z.number().int().positive().optional(),
     price: z.number().min(0).optional(),
-    currency: z.string().optional(),
+    currency: z.string().default('COP').optional(),
     slot_duration_minutes: z.number().int().positive().nullable().optional(),
     auto_renew: z.boolean().optional(),
     is_active: z.boolean().optional(),
