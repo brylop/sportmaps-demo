@@ -95,35 +95,36 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Resumen de tu actividad deportiva',
           stats: [
             {
-              title: 'Equipos Activos',
-              value: stats.activeEnrollments,
-              description: stats.activeEnrollments === 0 ? 'Sin inscripciones activas' : 'En curso actualmente',
-              icon: Trophy
+              title: 'Entrenamientos',
+              value: stats.completedActivities || 0,
+              description: 'Este mes',
+              icon: Activity
             },
             {
-              title: 'Próximos Eventos',
-              value: stats.upcomingEvents,
-              description: 'Esta semana',
+              title: 'Nivel actual',
+              value: stats.activeEnrollments > 0 ? 'Activo' : 'Sin nivel',
+              description: stats.activeEnrollments > 0 ? 'En progreso' : 'Inscríbete para empezar',
+              icon: TrendingUp
+            },
+            {
+              title: 'Próxima sesión',
+              value: stats.upcomingEvents > 0 ? `${stats.upcomingEvents}` : '—',
+              description: stats.upcomingEvents > 0 ? 'Eventos esta semana' : 'Sin sesiones programadas',
               icon: Calendar
             },
             {
-              title: 'Actividades Completadas',
-              value: stats.completedActivities,
-              description: 'Total histórico',
-              icon: Target
-            },
-            {
-              title: 'Asistencia',
-              value: `${stats.attendanceRate}%`,
-              description: 'Promedio general',
-              icon: BarChart3
+              title: 'Pagos pendientes',
+              value: stats.pendingPayments || 0,
+              description: stats.pendingPayments === 0 ? 'Al día ✓' : 'Requieren atención',
+              icon: TrendingUp
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
-            { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments', variant: 'outline' },
-            { label: 'Explorar Equipos', icon: Users, href: '/explore', variant: 'outline' }
+            { label: 'Explorar Escuelas', icon: Target, href: '/explore', variant: 'default' },
+            { label: 'Mi Calendario', icon: Calendar, href: '/calendar', variant: 'outline' },
+            { label: 'Mis Inscripciones', icon: Trophy, href: '/enrollments', variant: 'outline' },
+            { label: 'Estadísticas', icon: BarChart3, href: '/stats', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.athlete
         };

@@ -89,7 +89,7 @@ interface Facility {
 export default function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
 
   const [school, setSchool] = useState<School | null>(null);
@@ -181,7 +181,13 @@ export default function SchoolDetailPage() {
       return;
     }
 
-    // Usuario autenticado - Seleccionar hijo primero
+    // Si es atleta, se inscribe directamente (sin selección de hijo)
+    if (profile?.role === 'athlete') {
+      setPaymentModalOpen(true);
+      return;
+    }
+
+    // Padres u otros roles - seleccionar hijo primero
     setChildSelectionOpen(true);
   };
 

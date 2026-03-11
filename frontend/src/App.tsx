@@ -93,6 +93,7 @@ const ReporterDashboardPage = lazy(() => import("./pages/ReporterDashboardPage")
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
 const TrainingPage = lazy(() => import("./pages/TrainingPage"));
 const AthleteWellnessPage = lazy(() => import("./pages/AthleteWellnessPage"));
+const AthletePaymentsPage = lazy(() => import("./pages/AthletePaymentsPage"));
 
 // ─── Store pages (lazy) ───────────────────────────────────────────────────────
 const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
@@ -219,6 +220,7 @@ const App = () => (
                       <Route path="enrollments" element={<MyEnrollmentsPage />} />
                       <Route path="shop" element={<ShopPage />} />
                       <Route path="wellness" element={<AthleteWellnessPage />} />
+                      <Route path="athlete-payments" element={<AthletePaymentsPage />} />
 
                       {/* Parent routes */}
                       <Route path="children" element={<MyChildrenPage />} />

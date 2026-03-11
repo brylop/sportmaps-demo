@@ -44,11 +44,33 @@ export const getStepsForRole = (role: string, status: any) => {
                 { id: 'complete_profile', title: 'Perfil Profesional', description: 'Sube tu experiencia y certificaciones.', completed: status.has_professional_profile, href: '/profile', icon: UserCircle }
             ];
 
-        case USER_ROLES.ATHLETE:
-            return [
-                { id: 'complete_profile', title: 'Completar Perfil', description: 'Asegúrate de que tus datos estén al día.', completed: status.profile_complete, href: '/profile', icon: UserCircle },
-                { id: 'enroll_program', title: 'Inscribirse en Programa', description: 'Busca una academia y únete.', completed: status.has_accepted_invite, href: '/explore', icon: Trophy }
-            ];
+        case USER_ROLES.ATHLETE: {
+            const athleteSteps = [];
+
+            // Paso 1: Verificar correo (si está pendiente)
+            if (!status.email_verified) {
+                athleteSteps.push({ id: 'verify_email', title: 'Verifica tu correo', description: 'Confirma tu dirección de email para activar tu cuenta.', completed: false, href: '/settings', icon: Shield });
+            }
+
+            // Paso 2: Completar perfil deportivo
+            athleteSteps.push({ id: 'complete_profile', title: 'Completa tu perfil', description: 'Datos personales, documento y nivel de experiencia.', completed: status.profile_complete, href: '/profile', icon: UserCircle });
+
+            // Paso 3: Foto de perfil (opcional pero recomendado)
+            if (!status.has_avatar) {
+                athleteSteps.push({ id: 'upload_avatar', title: 'Foto de perfil', description: 'Sube una foto para que te reconozcan.', completed: false, href: '/profile', icon: UserCircle });
+            }
+
+            // Paso 4: Seleccionar deporte de interés
+            athleteSteps.push({ id: 'select_sport', title: 'Elige tu deporte', description: 'Selecciona los deportes que te interesan.', completed: status.has_sports_interest, href: '/profile', icon: Activity });
+
+            // Paso 5: Inscribirse o aceptar invitación
+            if (status.has_pending_invitation || status.has_accepted_invite) {
+                athleteSteps.push({ id: 'accept_invite', title: 'Aceptar invitación', description: 'Vincúlate con tu academia deportiva.', completed: status.has_accepted_invite, href: '/notifications', icon: Bell });
+            }
+            athleteSteps.push({ id: 'enroll_program', title: 'Inscribirse en programa', description: 'Busca una academia y únete a un equipo.', completed: status.has_accepted_invite || status.has_enrollment, href: '/explore', icon: Trophy });
+
+            return athleteSteps;
+        }
 
         default:
             return [];

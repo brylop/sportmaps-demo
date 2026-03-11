@@ -74,9 +74,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
+          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
-          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
     ],
