@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap } from 'lucide-react';
 import { useOfferings, Offering } from '@/hooks/useOfferings';
 import { useToast } from '@/hooks/use-toast';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { SPORTS_CATALOG, searchSports } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus } from 'lucide-react';
 
 const MIN_SEARCH_CHARS = 3;
 
@@ -251,15 +253,27 @@ function SportSearchCombobox({
 
 export function OfferingsManagement() {
     const { toast } = useToast();
-    const { offerings, isLoading, createOffering, updateOffering, createPlan, updatePlan } = useOfferings();
+    const { schoolId } = useSchoolContext();
+    const { offerings, isLoading, createOffering, updateOffering, deleteOffering, createPlan, updatePlan } = useOfferings();
 
     const [showCreate, setShowCreate] = useState(false);
     const [showCreatePlan, setShowCreatePlan] = useState<string | null>(null);
     const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
     const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
 
+    // Enroll state
+    const [enrollModal, setEnrollModal] = useState<{
+        open: boolean;
+        plan: any | null;
+        offering: Offering | null;
+    }>({
+        open: false,
+        plan: null,
+        offering: null,
+    });
+
     const [newOffering, setNewOffering] = useState({
-        name: '', description: '', offering_type: 'membership' as string, sports: [] as string[],
+        name: '', description: '', offering_type: 'membership' as string, sport: '' as string,
     });
 
     const [newPlan, setNewPlan] = useState({
@@ -268,7 +282,7 @@ export function OfferingsManagement() {
     });
 
     const resetOfferingForm = () => {
-        setNewOffering({ name: '', description: '', offering_type: 'membership', sports: [] });
+        setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '' });
         setEditingOfferingId(null);
     };
 
@@ -282,8 +296,8 @@ export function OfferingsManagement() {
             name: newOffering.name,
             offering_type: newOffering.offering_type as Offering['offering_type'],
             description: newOffering.description || undefined,
-            sport: newOffering.sports[0] || undefined,
-            metadata: newOffering.sports.length > 1 ? { sports: newOffering.sports } : {},
+            sport: newOffering.sport || undefined,
+            metadata: {}, // Assuming metadata for multiple sports is no longer needed with single `sport` field
         };
 
         if (editingOfferingId) {
@@ -326,23 +340,21 @@ export function OfferingsManagement() {
     };
 
     const handleEditOffering = (offering: Offering) => {
-        const allSports: string[] = offering.sport
-            ? [offering.sport, ...((offering.metadata?.sports as string[]) || []).filter(s => s !== offering.sport)]
-            : [];
         setNewOffering({
             name: offering.name,
             description: offering.description || '',
             offering_type: offering.offering_type,
-            sports: allSports,
+            sport: offering.sport || '',
         });
         setEditingOfferingId(offering.id);
         setShowCreate(true);
     };
 
-    const handleEditPlan = (planId: string) => {
-        const offering = offerings.find(o => o.offering_plans?.some(p => p.id === planId));
-        const plan = offering?.offering_plans?.find(p => p.id === planId);
-        if (plan && offering) {
+    const handleEditPlan = (offeringId: string, planId: string) => {
+        const offering = offerings.find((o) => o.id === offeringId);
+        const plan = offering?.offering_plans?.find((p) => p.id === planId);
+        if (plan) {
+            setEditingPlanId(planId);
             setNewPlan({
                 name: plan.name,
                 max_sessions: plan.max_sessions?.toString() || '',
@@ -352,9 +364,16 @@ export function OfferingsManagement() {
                 price: plan.price?.toString() || '',
                 auto_renew: plan.auto_renew || false,
             });
-            setEditingPlanId(plan.id);
-            setShowCreatePlan(offering.id);
+            setShowCreatePlan(offeringId);
         }
+    };
+
+    const handleOpenEnroll = (offering: Offering, plan: any) => {
+        setEnrollModal({
+            open: true,
+            offering,
+            plan,
+        });
     };
 
     if (isLoading) {
@@ -407,7 +426,8 @@ export function OfferingsManagement() {
                             offering={offering}
                             onEditOffering={() => handleEditOffering(offering)}
                             onAddPlan={() => { resetPlanForm(); setShowCreatePlan(offering.id); }}
-                            onEditPlan={handleEditPlan}
+                            onEditPlan={(planId) => handleEditPlan(offering.id, planId)}
+                            onEnroll={handleOpenEnroll}
                         />
                     ))}
                 </div>
@@ -427,38 +447,52 @@ export function OfferingsManagement() {
 
                     <div className="space-y-5 py-2 max-h-[70vh] overflow-y-auto pr-1">
                         <div className="space-y-2">
-                            <Label htmlFor="offering-name" className="text-sm font-medium">
-                                Nombre del plan <span className="text-destructive">*</span>
-                            </Label>
-                            <Input id="offering-name" placeholder="Ej: Membresía Mensual, Pack 10 Clases" value={newOffering.name} onChange={(e) => setNewOffering((p) => ({ ...p, name: e.target.value }))} className="h-9" />
+                            <Label className="text-sm font-medium">Nombre del Plan</Label>
+                            <Input
+                                placeholder="Ej: Membresía Elite, Pack 10 Sesiones"
+                                value={newOffering.name}
+                                onChange={(e) => setNewOffering((o) => ({ ...o, name: e.target.value }))}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Tipo de Oferta</Label>
+                                <Select
+                                    value={newOffering.offering_type}
+                                    onValueChange={(v: any) => setNewOffering((o) => ({ ...o, offering_type: v }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Seleccionar tipo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.entries(OFFERING_TYPE_LABELS).map(([val, label]) => (
+                                            <SelectItem key={val} value={val}>{label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Deporte</Label>
+                                <SportSearchCombobox
+                                    values={newOffering.sport ? [newOffering.sport] : []}
+                                    onChange={(sports) => setNewOffering((o) => ({ ...o, sport: sports[0] || '' }))}
+                                />
+                            </div>
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-medium">
-                                Tipo de plan <span className="text-destructive">*</span>
+                            <Label className="text-sm font-medium flex items-center justify-between">
+                                Descripción (Opcional)
+                                <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Atractivo para el cliente</span>
                             </Label>
-                            <Select value={newOffering.offering_type} onValueChange={(v) => setNewOffering((p) => ({ ...p, offering_type: v }))}>
-                                <SelectTrigger className="h-9"><SelectValue placeholder="Seleccionar tipo" /></SelectTrigger>
-                                <SelectContent>
-                                    {Object.entries(OFFERING_TYPE_LABELS).map(([k, v]) => (
-                                        <SelectItem key={k} value={k}>{v}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-sm font-medium">
-                                Deportes asociados <span className="text-muted-foreground font-normal text-xs">(opcional)</span>
-                            </Label>
-                            <SportSearchCombobox values={newOffering.sports} onChange={(sports) => setNewOffering((p) => ({ ...p, sports }))} />
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="offering-desc" className="text-sm font-medium">
-                                Descripción <span className="text-muted-foreground font-normal text-xs">(opcional)</span>
-                            </Label>
-                            <Textarea id="offering-desc" placeholder="Describe brevemente lo que incluye este plan..." rows={2} value={newOffering.description} onChange={(e) => setNewOffering((p) => ({ ...p, description: e.target.value }))} />
+                            <Textarea
+                                placeholder="Describe qué beneficios incluye esta membresía o paquete..."
+                                value={newOffering.description}
+                                onChange={(e) => setNewOffering((o) => ({ ...o, description: e.target.value }))}
+                                rows={3}
+                            />
                         </div>
                     </div>
 
@@ -586,6 +620,16 @@ export function OfferingsManagement() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Modal de Inscripción */}
+            <EnrollPlanStudentModal
+                open={enrollModal.open}
+                onClose={() => setEnrollModal({ ...enrollModal, open: false })}
+                onSuccess={() => { }}
+                schoolId={schoolId || ''}
+                plan={enrollModal.plan}
+                offeringName={enrollModal.offering?.name || ''}
+            />
         </div>
     );
 }
@@ -599,11 +643,13 @@ function OfferingCard({
     onEditOffering,
     onAddPlan,
     onEditPlan,
+    onEnroll,
 }: {
     offering: Offering;
     onEditOffering: () => void;
     onAddPlan: () => void;
     onEditPlan?: (planId: string) => void;
+    onEnroll?: (offering: Offering, plan: any) => void;
 }) {
     const plans = offering.offering_plans ?? [];
     const sportVisual = offering.sport ? getSportVisual(
@@ -613,35 +659,45 @@ function OfferingCard({
     return (
         <Card className="overflow-hidden border-border/60 hover:border-border transition-colors">
             {/* Card Header */}
-            <CardHeader className="pb-2 pt-3 px-4">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        {sportVisual && (
-                            <span className="text-lg shrink-0">{sportVisual.icon}</span>
-                        )}
-                        <CardTitle className="text-sm font-semibold truncate">{offering.name}</CardTitle>
-                        <Badge variant="outline" className="text-[10px] shrink-0">
-                            {OFFERING_TYPE_LABELS[offering.offering_type] ?? offering.offering_type}
-                        </Badge>
-                        {offering.sport && (
-                            <Badge variant="secondary" className="text-[10px] shrink-0">{offering.sport}</Badge>
-                        )}
+            <CardHeader className="pb-2 pt-4 px-5">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center shrink-0 border border-primary/10">
+                            {sportVisual ? (
+                                <span className="text-xl">{sportVisual.icon}</span>
+                            ) : (
+                                <Zap className="h-5 w-5 text-primary" />
+                            )}
+                        </div>
+                        <div className="min-w-0">
+                            <CardTitle className="text-sm font-bold truncate leading-tight">{offering.name}</CardTitle>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 py-0 bg-primary/5 text-primary border-primary/10 font-medium">
+                                    {OFFERING_TYPE_LABELS[offering.offering_type] ?? offering.offering_type}
+                                </Badge>
+                                {offering.sport && (
+                                    <Badge variant="outline" className="text-[10px] h-4.5 px-1.5 py-0 font-normal border-border/50 truncate max-w-[120px]">
+                                        {offering.sport}
+                                    </Badge>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={onEditOffering}
-                            className="h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary"
-                            title="Editar plan"
+                            className="h-8 w-8 p-0 hover:bg-primary/10 hover:text-primary rounded-md"
+                            title="Editar configuración"
                         >
-                            <Edit className="h-3.5 w-3.5" />
+                            <Edit className="h-4 w-4" />
                         </Button>
                         <Badge
                             variant={offering.is_active ? 'default' : 'secondary'}
-                            className={`text-[10px] ${offering.is_active ? 'bg-green-600/90' : ''}`}
+                            className={`text-[9px] h-5 uppercase tracking-wider font-bold ${offering.is_active ? 'bg-green-600/90' : ''}`}
                         >
-                            {offering.is_active ? '● Activo' : 'Inactivo'}
+                            {offering.is_active ? 'Activo' : 'Inactivo'}
                         </Badge>
                     </div>
                 </div>
@@ -660,39 +716,53 @@ function OfferingCard({
                         </p>
                         <div className="rounded-lg border border-border/50 divide-y divide-border/30 overflow-hidden">
                             {plans.map((plan) => (
-                                <div key={plan.id} className="flex items-center justify-between text-xs px-3 py-2.5 hover:bg-muted/30 transition-colors gap-2">
+                                <div key={plan.id} className="flex items-center justify-between text-xs px-3 py-3 hover:bg-muted/30 transition-colors gap-2 group/row">
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-xs">{plan.name}</div>
-                                        <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-0.5">
+                                        <div className="font-semibold text-xs text-foreground/90">{plan.name}</div>
+                                        <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-0.5 font-medium">
                                             <span className="flex items-center gap-0.5">
                                                 <Zap className="h-3 w-3 text-amber-500" />
-                                                {plan.max_sessions ? `${plan.max_sessions} ses.` : '∞'}
+                                                {plan.max_sessions ? `${plan.max_sessions} ses.` : '∞ ses.'}
                                             </span>
                                             {plan.max_secondary_sessions > 0 && (
-                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-amber-50 text-amber-700 border-amber-200">
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">
                                                     +{plan.max_secondary_sessions} {(plan.metadata?.secondary_session_label as string) || 'Sec.'}
                                                 </Badge>
                                             )}
-                                            <span className="font-semibold text-foreground">
-                                                ${formatCurrency(plan.price)}
-                                            </span>
-                                            <span className="flex items-center gap-0.5">
+                                            <span className="text-foreground/80 flex items-center gap-0.5">
                                                 <Clock className="h-3 w-3" />
                                                 {PLAN_DURATION_OPTIONS.find(opt => opt.value === plan.duration_days.toString())?.label || `${plan.duration_days}d`}
                                             </span>
+                                            <span className="font-bold text-primary ml-1">
+                                                ${formatCurrency(plan.price)}
+                                            </span>
                                         </div>
                                     </div>
-                                    {onEditPlan && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => onEditPlan(plan.id)}
-                                            className="shrink-0 h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary"
-                                            title="Editar tarifa"
-                                        >
-                                            <Edit className="h-3 w-3" />
-                                        </Button>
-                                    )}
+                                    <div className="flex items-center gap-1">
+                                        {onEnroll && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onEnroll(offering, plan)}
+                                                className="shrink-0 h-8 px-2 hover:bg-green-50 hover:text-green-600 border border-transparent hover:border-green-100 transition-all gap-1.5"
+                                                title="Inscribir deportista"
+                                            >
+                                                <UserPlus className="h-3.5 w-3.5" />
+                                                <span className="hidden sm:inline text-[10px]">Inscribir</span>
+                                            </Button>
+                                        )}
+                                        {onEditPlan && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onEditPlan(plan.id)}
+                                                className="shrink-0 h-8 w-8 p-0 hover:bg-primary/5 hover:text-primary"
+                                                title="Editar tarifa"
+                                            >
+                                                <Edit className="h-3.5 w-3.5" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
