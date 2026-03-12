@@ -19,6 +19,11 @@ export interface SettingsData {
     id: string;
     name: string;
     description: string | null;
+    city: string | null;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
     logo_url: string | null;
     branding_settings: {
       primary_color: string;
@@ -212,6 +217,52 @@ export function useSettings() {
     }
   };
 
+  const updateSchoolInfo = async (updates: { 
+    name: string; 
+    description: string; 
+    city: string; 
+    address: string; 
+    phone: string; 
+    email: string; 
+    website: string 
+  }) => {
+    if (!data?.school?.id) return;
+    setSaving(true);
+    try {
+      const { data: success, error } = await supabase.rpc('save_school_info', {
+        p_school_id: data.school.id,
+        p_name: updates.name,
+        p_description: updates.description,
+        p_city: updates.city,
+        p_address: updates.address,
+        p_phone: updates.phone,
+        p_email: updates.email,
+        p_website: updates.website
+      });
+      if (error) throw error;
+
+      if (success) {
+        setData(prev => prev ? {
+          ...prev,
+          school: prev.school ? { ...prev.school, ...updates } : undefined
+        } : null);
+        
+        toast({
+          title: "Información de academia actualizada",
+          description: "Los cambios han sido guardados correctamente.",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error al guardar información",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const changePassword = async (password: string) => {
     setSaving(true);
     try {
@@ -243,6 +294,7 @@ export function useSettings() {
     updateNotificationPreferences,
     updatePrivacyPreferences,
     updateBranding,
+    updateSchoolInfo,
     changePassword,
     refresh: fetchSettings
   };

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/hooks/useSettings';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProfileSection } from '@/components/settings/ProfileSection';
 import { NotificationsSection } from '@/components/settings/NotificationsSection';
@@ -8,6 +9,7 @@ import { SecuritySection } from '@/components/settings/SecuritySection';
 import { PrivacySection } from '@/components/settings/PrivacySection';
 import { ServicesSection } from '@/components/settings/ServicesSection';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
+import { SchoolInfoSection } from '@/components/settings/SchoolInfoSection';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
   User, 
@@ -16,6 +18,7 @@ import {
   Globe, 
   Palette, 
   Briefcase, 
+  Building2,
   Settings as SettingsIcon,
   ChevronRight,
   Sparkles
@@ -33,13 +36,18 @@ export default function SettingsPage() {
     updateNotificationPreferences, 
     updatePrivacyPreferences,
     updateBranding,
+    updateSchoolInfo,
     changePassword 
   } = useSettings();
+
+  const { currentUserRole } = useSchoolContext();
 
   const [activeTab, setActiveTab] = useState('profile');
 
   // Role check for school-related tabs
-  const isSchoolAdmin = ['owner', 'admin', 'school_admin', 'school'].includes(profile?.role || '');
+  // Priority: Use currentUserRole from context (which handles multi-tenancy and switching),
+  // Fallback: profile role from Auth
+  const isSchoolAdmin = ['owner', 'admin', 'school_admin', 'school', 'super_admin'].includes(currentUserRole || profile?.role || '');
 
   useEffect(() => {
     document.title = "Configuración - SportMaps";
@@ -129,6 +137,15 @@ export default function SettingsPage() {
                   </div>
                   
                   <TabsTrigger 
+                    value="school-info" 
+                    className="justify-start gap-3 h-12 px-4 rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-primary transition-all duration-200"
+                  >
+                    <Building2 className="h-4 w-4" />
+                    <span>Información Academia</span>
+                    <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'school-info' ? 'rotate-90' : ''}`} />
+                  </TabsTrigger>
+                  
+                  <TabsTrigger 
                     value="services" 
                     className="justify-start gap-3 h-12 px-4 rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-primary transition-all duration-200"
                   >
@@ -210,6 +227,10 @@ export default function SettingsPage() {
 
             {isSchoolAdmin && (
               <>
+                <TabsContent value="school-info" className="mt-0">
+                  <SchoolInfoSection data={data} saving={saving} onSave={updateSchoolInfo} />
+                </TabsContent>
+
                 <TabsContent value="services" className="mt-0">
                   <ServicesSection services={services} schoolName={data?.school?.name} />
                 </TabsContent>
