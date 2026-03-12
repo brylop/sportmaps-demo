@@ -63,6 +63,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
         const { schoolId } = req;
         const { type, active_only } = req.query;
 
+        // ✅ QUERY 1: Offerings + Plans
         let query = supabase
             .from('offerings')
             .select('*, offering_plans(*)')
@@ -76,13 +77,54 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
             query = query.eq('is_active', true);
         }
 
-        const { data, error } = await query;
-        if (error) throw error;
+        const { data: offerings, error: offeringError } = await query;
+        if (offeringError) throw offeringError;
 
-        res.json({ offerings: data });
+        // ✅ QUERY 2: Solo enrollments SIN join
+        const { data: allEnrollments, error: enrollmentError } = await supabase
+            .from('enrollments')
+            .select('id, user_id, offering_plan_id, status, sessions_used, secondary_sessions_used, expires_at')
+            .eq('school_id', schoolId)
+            .eq('status', 'active');
+
+        if (enrollmentError) throw enrollmentError;
+
+        // ✅ QUERY 3: Perfiles de los usuarios enrollados
+        const userIds = allEnrollments?.map(e => e.user_id).filter(Boolean) || [];
+        const uniqueUserIds = [...new Set(userIds)];
+
+        let profiles: any[] = [];
+        if (uniqueUserIds.length > 0) {
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('id, full_name, email')
+                .in('id', uniqueUserIds);
+
+            if (profileError) throw profileError;
+            profiles = profileData || [];
+        }
+
+        // ✅ COMBINAR en código (no en Supabase)
+        const profileMap = new Map(profiles.map(p => [p.id, p]));
+
+        const enrollmentsWithProfiles = (allEnrollments || []).map(e => ({
+            ...e,
+            profile: profileMap.get(e.user_id) || null
+        }));
+
+        const result = (offerings || []).map(offering => ({
+            ...offering,
+            offering_plans: (offering.offering_plans || []).map((plan: any) => ({
+                ...plan,
+                enrollments: enrollmentsWithProfiles.filter(e => e.offering_plan_id === plan.id)
+            }))
+        }));
+
+        res.json({ offerings: result });
     } catch (err) {
+        console.error('Error listing offerings:', err);
         (req as any).log?.error({ err }, 'Error listing offerings');
-        res.status(500).json({ error: 'Error al listar offerings' });
+        res.status(500).json({ error: 'Error al listar offerings', details: (err as any).message });
     }
 });
 
@@ -93,21 +135,57 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
         const { schoolId } = req;
         const { id } = req.params;
 
-        const { data, error } = await supabase
+        const { data: offering, error: offeringError } = await supabase
             .from('offerings')
             .select('*, offering_plans(*)')
             .eq('id', id)
             .eq('school_id', schoolId)
             .single();
 
-        if (error || !data) {
+        if (offeringError || !offering) {
             return res.status(404).json({ error: 'Offering no encontrado' });
         }
 
-        res.json({ offering: data });
+        // Sin join de Supabase
+        const planIds = offering.offering_plans?.map((p: any) => p.id) || [];
+        const { data: enrollments } = await supabase
+            .from('enrollments')
+            .select('id, user_id, offering_plan_id, status, sessions_used, secondary_sessions_used, expires_at')
+            .in('offering_plan_id', planIds)
+            .eq('school_id', schoolId)
+            .eq('status', 'active');
+
+        const userIds = enrollments?.map(e => e.user_id).filter(Boolean) || [];
+        const uniqueUserIds = [...new Set(userIds)];
+
+        let profiles: any[] = [];
+        if (uniqueUserIds.length > 0) {
+            const { data: profileData } = await supabase
+                .from('profiles')
+                .select('id, full_name, email')
+                .in('id', uniqueUserIds);
+            profiles = profileData || [];
+        }
+
+        const profileMap = new Map(profiles.map(p => [p.id, p]));
+        const enrollmentsWithProfiles = (enrollments || []).map(e => ({
+            ...e,
+            profile: profileMap.get(e.user_id) || null
+        }));
+
+        const result = {
+            ...offering,
+            offering_plans: offering.offering_plans?.map((plan: any) => ({
+                ...plan,
+                enrollments: enrollmentsWithProfiles.filter(e => e.offering_plan_id === plan.id)
+            })) || []
+        };
+
+        res.json({ offering: result });
     } catch (err) {
+        console.error('Error fetching offering:', err);
         (req as any).log?.error({ err }, 'Error fetching offering');
-        res.status(500).json({ error: 'Error al obtener offering' });
+        res.status(500).json({ error: 'Error al obtener offering', details: (err as any).message });
     }
 });
 

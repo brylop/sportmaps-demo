@@ -56,7 +56,14 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         try {
             setLoading(true);
             const data = await studentsAPI.getSchoolView(team.school_id);
-            setStudents(data as any);
+            
+            // ✅ DEDUPLICAR por ID
+            const uniqueStudents = Array.from(
+                new Map(data.map((s: any) => [s.id, s])).values()
+            ) as Student[];
+            
+            console.log(`Loaded ${data.length} records, ${uniqueStudents.length} unique students`);
+            setStudents(uniqueStudents);
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
@@ -137,7 +144,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             if (enrollment?.id) {
                 await supabase
                     .from('enrollments')
-                    .update({ status: 'inactive' })
+                    .update({ status: 'cancelled' })
                     .eq('id', enrollment.id);
             }
 

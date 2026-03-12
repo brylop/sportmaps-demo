@@ -18,6 +18,21 @@ export interface Offering {
     offering_plans?: OfferingPlan[];
 }
 
+export interface Enrollment {
+    id: string;
+    user_id: string;
+    offering_plan_id: string;
+    status: string;
+    sessions_used: number;
+    secondary_sessions_used: number;
+    expires_at: string | null;
+    profile?: {
+        id: string;
+        full_name: string;
+        email: string;
+    };
+}
+
 export interface OfferingPlan {
     id: string;
     offering_id: string;
@@ -36,6 +51,7 @@ export interface OfferingPlan {
     metadata: Record<string, unknown>;
     created_at: string;
     updated_at: string;
+    enrollments?: Enrollment[];
 }
 
 export function useOfferings(type?: string) {

@@ -17,11 +17,11 @@ import { SPORTS_CATALOG, searchSports } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus } from 'lucide-react';
 
-const MIN_SEARCH_CHARS = 3;
+const MIN_SEARCH_CHARS = 1;
 
 const OFFERING_TYPE_LABELS: Record<string, string> = {
     membership: 'Membresía',
-    session_pack: 'Pack de Sesiones',
+    session_pack: 'Pack de Clases',
     court_booking: 'Reserva de Cancha',
     tournament: 'Torneo',
     single_session: 'Clase Suelta',
@@ -199,7 +199,7 @@ function SportSearchCombobox({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <Input
                     ref={inputRef}
-                    placeholder={values.length > 0 ? 'Agregar otro deporte...' : 'Buscar deporte (mín. 3 letras)...'}
+                    placeholder={values.length > 0 ? 'Agregar otro deporte...' : 'Buscar deporte...'}
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); setIsOpen(e.target.value.trim().length >= MIN_SEARCH_CHARS); }}
                     onFocus={() => { if (query.trim().length >= MIN_SEARCH_CHARS) setIsOpen(true); }}
@@ -237,12 +237,7 @@ function SportSearchCombobox({
                 </div>
             )}
 
-            {query.length > 0 && query.length < MIN_SEARCH_CHARS && (
-                <div className="text-xs text-muted-foreground px-1 flex items-center gap-1">
-                    <Search className="h-3 w-3" />
-                    Escribe {MIN_SEARCH_CHARS - query.length} letra{MIN_SEARCH_CHARS - query.length !== 1 ? 's' : ''} más...
-                </div>
-            )}
+            {/* Search helper removed as threshold is 1 */}
         </div>
     );
 }
@@ -449,13 +444,13 @@ export function OfferingsManagement() {
                         <div className="space-y-2">
                             <Label className="text-sm font-medium">Nombre del Plan</Label>
                             <Input
-                                placeholder="Ej: Membresía Elite, Pack 10 Sesiones"
+                                placeholder="Ej: Membresía Elite, Pack 10 Clases"
                                 value={newOffering.name}
                                 onChange={(e) => setNewOffering((o) => ({ ...o, name: e.target.value }))}
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-4">
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium">Tipo de Oferta</Label>
                                 <Select
@@ -676,7 +671,7 @@ function OfferingCard({
                                     {OFFERING_TYPE_LABELS[offering.offering_type] ?? offering.offering_type}
                                 </Badge>
                                 {offering.sport && (
-                                    <Badge variant="outline" className="text-[10px] h-4.5 px-1.5 py-0 font-normal border-border/50 truncate max-w-[120px]">
+                                    <Badge variant="outline" className="text-[10px] h-4.5 px-1.5 py-0 font-normal border-border/50 whitespace-normal break-words">
                                         {offering.sport}
                                     </Badge>
                                 )}
@@ -718,7 +713,14 @@ function OfferingCard({
                             {plans.map((plan) => (
                                 <div key={plan.id} className="flex items-center justify-between text-xs px-3 py-3 hover:bg-muted/30 transition-colors gap-2 group/row">
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-semibold text-xs text-foreground/90">{plan.name}</div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="font-semibold text-xs text-foreground/90">{plan.name}</div>
+                                            {plan.enrollments && plan.enrollments.length > 0 && (
+                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-green-50 text-green-700 border-green-200">
+                                                    {plan.enrollments.length} {plan.enrollments.length === 1 ? 'inscrito' : 'inscritos'}
+                                                </Badge>
+                                            )}
+                                        </div>
                                         <div className="flex items-center gap-2 flex-wrap text-muted-foreground mt-0.5 font-medium">
                                             <span className="flex items-center gap-0.5">
                                                 <Zap className="h-3 w-3 text-amber-500" />
@@ -737,6 +739,7 @@ function OfferingCard({
                                                 ${formatCurrency(plan.price)}
                                             </span>
                                         </div>
+
                                     </div>
                                     <div className="flex items-center gap-1">
                                         {onEnroll && (
