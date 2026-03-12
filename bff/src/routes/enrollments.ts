@@ -43,11 +43,12 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         const studentId = data.user_id || data.child_id;
         const studentField = data.user_id ? 'user_id' : 'child_id';
 
+        const targetTable = data.user_id ? 'profiles' : 'children';
         const { data: student, error: studentError } = await supabase
-            .from('profiles')
+            .from(targetTable)
             .select('id')
             .eq('id', studentId)
-            .single();
+            .maybeSingle();
 
         if (studentError || !student) {
             return res.status(404).json({
