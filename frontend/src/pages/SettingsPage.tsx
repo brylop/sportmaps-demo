@@ -20,7 +20,7 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
-import { SEO } from '@/components/SEO';
+
 
 export default function SettingsPage() {
   const { profile } = useAuth();
@@ -41,6 +41,10 @@ export default function SettingsPage() {
   // Role check for school-related tabs
   const isSchoolAdmin = ['owner', 'admin', 'school_admin', 'school'].includes(profile?.role || '');
 
+  useEffect(() => {
+    document.title = "Configuración - SportMaps";
+  }, []);
+
   if (loading) {
     return (
       <div className="container max-w-6xl py-8 space-y-8 animate-pulse">
@@ -57,7 +61,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-muted/20 pb-20">
-      <SEO title="Configuración - SportMaps" />
+
       
       {/* Header Section */}
       <div className="bg-background border-b shadow-sm mb-8">
