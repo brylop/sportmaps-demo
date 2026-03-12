@@ -20,6 +20,28 @@ export type AuthenticatedRequest = Request;
 const PRIVILEGED_ROLES = ['owner', 'super_admin', 'admin'] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
+export const requireBasicAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+        
+        const token = authHeader.split(' ')[1];
+        // Solo necesitamos pasar el token al request para que los controladores hagan pass-through a BD
+        (req as any).userToken = token;
+        
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 export const requireAuth = async (
     req: Request,
     res: Response,
