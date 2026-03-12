@@ -363,7 +363,7 @@ export default function DashboardPage() {
       )}
 
       {/* Invitations and Onboarding Checklist */}
-      {invitation && (
+      {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (
         <InvitationBanner
           invitation={invitation}
           onAction={() => {
