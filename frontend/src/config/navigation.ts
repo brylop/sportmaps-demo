@@ -77,6 +77,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
     ],
@@ -199,7 +200,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Recursos',
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
-          { title: 'Reportes', href: '/wellness-reports', icon: FileText }
+          { title: 'Reportes', href: '/wellness-reports', icon: FileText },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -226,7 +228,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Clientes', href: '/customers', icon: Users },
           { title: 'Reportes', href: '/store-reports', icon: FileText },
-          { title: 'Promociones', href: '/promotions', icon: Trophy }
+          { title: 'Promociones', href: '/promotions', icon: Trophy },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
