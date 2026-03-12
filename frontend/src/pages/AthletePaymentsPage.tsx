@@ -33,17 +33,26 @@ export default function AthletePaymentsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [summary, setSummary] = useState<any>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
 
   useEffect(() => {
     if (user) fetchPayments();
-  }, [user]);
+  }, [user, activeTab]);
 
   const fetchPayments = async () => {
     try {
       setLoading(true);
-      const data = await getAthletePayments(user!.id);
-      setPayments(data || []);
+      const result = await getAthletePayments({
+        status: activeTab === 'pending' ? 'pending' : null,
+        page: 1,
+        limit: 100 // Temporarily 100 to show all without full pagination UI for now
+      });
+      setPayments(result.data || []);
+      setTotal(result.total);
+      setSummary(result.summary);
     } catch (err) {
       console.error('Error fetching payments:', err);
       toast({
@@ -56,9 +65,10 @@ export default function AthletePaymentsPage() {
     }
   };
 
-  const pendingPayments = payments.filter(p => p.status === 'pending');
-  const completedPayments = payments.filter(p => ['approved', 'rejected', 'refunded'].includes(p.status));
-  const totalPending = pendingPayments.reduce((sum, p) => sum + p.amount_cents, 0) / 100;
+  const pendingPaymentsCount = summary?.count_pending || 0;
+  const historyPaymentsCount = (summary?.count_total || 0) - pendingPaymentsCount;
+  const totalPending = (summary?.pending_cents || 0) / 100;
+  const totalApprovedCount = summary?.count_total - (summary?.count_pending || 0); // Simplified
 
   const formatCurrency = (cents: number) =>
     `$${(cents / 100).toLocaleString('es-CO')}`;
@@ -95,7 +105,7 @@ export default function AthletePaymentsPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pendientes</p>
-              <p className="text-xl font-bold">{pendingPayments.length}</p>
+              <p className="text-xl font-bold">{pendingPaymentsCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -119,27 +129,27 @@ export default function AthletePaymentsPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pagos realizados</p>
-              <p className="text-xl font-bold">{completedPayments.filter(p => p.status === 'approved').length}</p>
+              <p className="text-xl font-bold">{totalApprovedCount}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="pending">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
         <TabsList>
           <TabsTrigger value="pending" className="gap-1">
             <Clock className="h-4 w-4" />
-            Pendientes ({pendingPayments.length})
+            Pendientes ({pendingPaymentsCount})
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-1">
             <CheckCircle2 className="h-4 w-4" />
-            Historial ({completedPayments.length})
+            Historial ({historyPaymentsCount})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="pending" className="space-y-4">
-          {pendingPayments.length === 0 ? (
+          {payments.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="p-8 text-center">
                 <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-emerald-500" />
@@ -148,14 +158,14 @@ export default function AthletePaymentsPage() {
               </CardContent>
             </Card>
           ) : (
-            pendingPayments.map(payment => (
+            payments.map(payment => (
               <PaymentCard key={payment.id} payment={payment} formatCurrency={formatCurrency} formatDate={formatDate} />
             ))
           )}
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
-          {completedPayments.length === 0 ? (
+          {payments.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="p-8 text-center">
                 <CreditCard className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
@@ -164,7 +174,7 @@ export default function AthletePaymentsPage() {
               </CardContent>
             </Card>
           ) : (
-            completedPayments.map(payment => (
+            payments.map(payment => (
               <PaymentCard key={payment.id} payment={payment} formatCurrency={formatCurrency} formatDate={formatDate} />
             ))
           )}

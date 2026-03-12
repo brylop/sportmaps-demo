@@ -17,6 +17,7 @@ export async function getAthleteDashboardStats() {
     current_level: string | null;
     next_session_days: number | null;
     pending_payments_total: number;
+    pending_payments_count: number;
     active_enrollments: number;
     active_teams: number;
     age_category: string;
@@ -148,20 +149,28 @@ export async function getWellnessEvaluations(userId: string) {
 }
 
 // ─── Payments ────────────────────────────────────────────────
-export async function getAthletePayments(userId: string, status?: string) {
-  let query = supabase
-    .from('athlete_payments')
-    .select('*')
-    .eq('athlete_id', userId)
-    .order('created_at', { ascending: false });
+export async function getAthletePayments(params: {
+  status?: string | null;
+  page?: number;
+  limit?: number;
+}) {
+  const { data, error } = await supabase.rpc('get_athlete_payments', {
+    p_status: params.status || null,
+    p_page: params.page || 1,
+    p_limit: params.limit || 20
+  });
 
-  if (status) {
-    query = query.eq('status', status);
-  }
-
-  const { data, error } = await query;
   if (error) throw error;
-  return data;
+  return data as {
+    data: any[];
+    total: number;
+    summary: {
+      pending_cents: number;
+      count_pending: number;
+      total_cents: number;
+      count_total: number;
+    };
+  };
 }
 
 // ─── Calendar Events (unified) ──────────────────────────────
