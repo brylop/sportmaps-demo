@@ -61,6 +61,7 @@
     "dotenv": "^17.3.1",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
+    "jimp": "^0.16.1",
     "jspdf": "^4.1.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.462.0",

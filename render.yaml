@@ -68,7 +68,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: SUPABASE_URL
-        value: https://luebjarufsiadojhvxgi.supabase.co
+        value: https://detdmtzfnoqvopxrvask.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URL

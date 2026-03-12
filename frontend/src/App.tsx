@@ -12,6 +12,8 @@ import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { Suspense, lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { InstallBanner } from "./pwa/InstallBanner";
+import { UpdateBanner } from "./pwa/UpdateBanner";
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
 const PageLoader = () => (
@@ -37,6 +39,7 @@ const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
 const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
+const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
@@ -159,6 +162,8 @@ const App = () => (
               <Sonner />
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <EnvironmentBanner />
+                <UpdateBanner />
+                <InstallBanner />
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     {/* Public routes */}
@@ -166,6 +171,7 @@ const App = () => (
 
                     <Route path="/explore" element={<ExplorePage />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
+                    <Route path="/escuela/:id" element={<SchoolProfilePage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />

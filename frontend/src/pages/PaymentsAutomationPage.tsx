@@ -19,6 +19,9 @@ import { getUserFriendlyError } from '@/lib/error-translator';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
+import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
+import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
+import { AlertTriangle } from 'lucide-react';
 
 interface BillingSettings {
   school_id: string;
@@ -39,6 +42,10 @@ interface BillingSettings {
   bank_titular_name?: string | null;
   bank_titular_id?: string | null;
   payment_qr_url?: string | null;
+  allow_installments: boolean;
+  max_installments_per_payment: number;
+  min_installment_amount: number;
+  installment_require_proof: boolean;
 }
 
 const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
@@ -51,6 +58,10 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   late_fee_percentage: 5,
   allow_coach_messaging: true,
   require_payment_proof: true,
+  allow_installments: true,
+  max_installments_per_payment: 3,
+  min_installment_amount: 10000,
+  installment_require_proof: true,
 };
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -147,6 +158,10 @@ export default function PaymentsAutomationPage() {
         bank_titular_name: billing.bank_titular_name,
         bank_titular_id: billing.bank_titular_id,
         payment_qr_url: billing.payment_qr_url,
+        allow_installments: billing.allow_installments,
+        max_installments_per_payment: billing.max_installments_per_payment,
+        min_installment_amount: billing.min_installment_amount,
+        installment_require_proof: billing.installment_require_proof,
       };
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
       if (error) throw error;
@@ -902,6 +917,17 @@ export default function PaymentsAutomationPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Nueva Sección: Abonos */}
+              <InstallmentsConfigCard 
+                settings={{
+                  allow_installments: billing.allow_installments,
+                  max_installments_per_payment: billing.max_installments_per_payment,
+                  min_installment_amount: billing.min_installment_amount,
+                  installment_require_proof: billing.installment_require_proof,
+                }}
+                onChange={(updated) => setBilling({ ...billing, ...updated })}
+              />
             </div>
           )}
         </TabsContent>

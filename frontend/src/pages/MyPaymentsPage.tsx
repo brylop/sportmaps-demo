@@ -8,10 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Eye, Loader2 } from 'lucide-react';
+import { Eye, Loader2, Info, Percent } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 
 interface Enrollment {
   id: string;
@@ -91,6 +93,17 @@ export default function MyPaymentsPage() {
     amount: 0,
   });
 
+  const [showInstallment, setShowInstallment] = useState(false);
+  const [selectedInstallmentPayment, setSelectedInstallmentPayment] = useState<{
+    id: string;
+    schoolId: string;
+    balancePending: number;
+    concept: string;
+  } | null>(null);
+
+  const [installments, setInstallments] = useState<any[]>([]);
+  const [loadingInstallments, setLoadingInstallments] = useState(false);
+
   useEffect(() => {
     if (user) {
       fetchPaymentData();
@@ -101,17 +114,26 @@ export default function MyPaymentsPage() {
     try {
       setLoading(true);
 
-      // Fetch payments from Supabase
+      // Fetch enriched payments view from Supabase
       const { data: payments, error } = await supabase
-        .from('payments')
+        .from('payments_with_installments' as any)
         .select('*')
         .eq('parent_id', user?.id || '')
         .order('created_at', { ascending: false });
 
       if (!error && payments && payments.length > 0) {
-        const txns: Transaction[] = payments.map((p) => ({
+        const txns: (Transaction & { 
+          amount_paid?: number; 
+          balance_pending?: number; 
+          pct_paid?: number;
+          installments_pending?: number;
+        })[] = payments.map((p: any) => ({
           id: p.id,
           amount: p.amount,
+          amount_paid: p.amount_paid,
+          balance_pending: p.balance_pending,
+          pct_paid: p.pct_paid,
+          installments_pending: p.installments_pending,
           concept: p.concept,
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
@@ -253,6 +275,24 @@ export default function MyPaymentsPage() {
     }
   };
 
+  const fetchInstallments = async (paymentId: string) => {
+    try {
+      setLoadingInstallments(true);
+      const { data, error } = await supabase
+        .from('payment_installments')
+        .select('*')
+        .eq('payment_id', paymentId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setInstallments(data || []);
+    } catch (err) {
+      console.error('Error fetching installments:', err);
+    } finally {
+      setLoadingInstallments(false);
+    }
+  };
+
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
 
@@ -296,6 +336,10 @@ export default function MyPaymentsPage() {
         return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rechazado</Badge>;
       case 'awaiting_approval':
         return <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="h-3 w-3 mr-1" />Por Validar</Badge>;
+      case 'partial':
+        return <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200"><Percent className="h-3 w-3 mr-1" />Abono Recibido</Badge>;
+      case 'overdue':
+        return <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Vencido</Badge>;
       case 'pending':
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pendiente</Badge>;
       default:
@@ -446,26 +490,53 @@ export default function MyPaymentsPage() {
                             </span>
                           </TableCell>
                           <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
-                            {formatCurrency(txn.amount)}
+                            <div className="flex flex-col gap-1">
+                              <span>{formatCurrency(txn.amount)}</span>
+                              {txn.status === 'partial' && (
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  Pendiente: {formatCurrency((txn as any).balance_pending || 0)}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell>{getStatusBadge(txn.status)}</TableCell>
                           <TableCell>
-                            {txn.status === 'approved' && (
-                              <Button variant="ghost" size="sm" className="text-xs">
-                                Ver Recibo
-                              </Button>
-                            )}
-                            {txn.receipt_url && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                onClick={() => handleShowProof(txn.receipt_url!, txn.reference, txn.amount)}
-                              >
-                                <Eye className="h-4 w-4 mr-1" />
-                                Comprobante
-                              </Button>
-                            )}
+                            <div className="flex gap-2">
+                              {txn.status === 'approved' && (
+                                <Button variant="ghost" size="sm" className="text-xs">
+                                  Ver Recibo
+                                </Button>
+                              )}
+                              {txn.receipt_url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => handleShowProof(txn.receipt_url!, (txn as any).concept || '', txn.amount)}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  Comprobante
+                                </Button>
+                              )}
+                              {txn.status === 'partial' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs text-primary hover:text-primary/80"
+                                  onClick={() => {
+                                    setSelectedInstallmentPayment({
+                                      id: txn.id,
+                                      schoolId: (txn as any).school_id || '',
+                                      balancePending: (txn as any).balance_pending || 0,
+                                      concept: (txn as any).concept || ''
+                                    });
+                                    setShowInstallment(true);
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  Abonar
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -628,6 +699,19 @@ export default function MyPaymentsPage() {
         mode="create"
         onSuccess={fetchPaymentData}
       />
+
+      {/* Installment Checkout Modal */}
+      {selectedInstallmentPayment && (
+        <InstallmentCheckoutModal
+          open={showInstallment}
+          onOpenChange={setShowInstallment}
+          paymentId={selectedInstallmentPayment.id}
+          schoolId={selectedInstallmentPayment.schoolId}
+          parentId={user?.id || ''}
+          balancePending={selectedInstallmentPayment.balancePending}
+          onSuccess={fetchPaymentData}
+        />
+      )}
 
       {/* Proof Viewer Dialog for Parents */}
       <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>

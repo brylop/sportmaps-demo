@@ -17,6 +17,7 @@ import offeringsRouter from './routes/offerings';
 import sessionBookingsRouter from './routes/session-bookings';
 import sportConfigsRouter from './routes/sport-configs';
 import billingEventsRouter from './routes/billing-events';
+import explorarRoutes from './routes/explorar.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -93,6 +94,7 @@ app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/sport-configs', generalLimiter, sportConfigsRouter);
 app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
+app.use('/api/explorar', explorarRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

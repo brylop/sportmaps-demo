@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Slider } from '@/components/ui/slider';
 import {
   Select,
@@ -20,176 +20,428 @@ import {
   Trophy,
   X,
   DollarSign,
-  Target,
   Navigation,
   CheckCircle2,
   ArrowLeft,
-  Map
+  Map as MapIcon,
+  Filter,
+  LayoutGrid,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  Users,
+  Building2,
+  SlidersHorizontal,
+  Compass,
+  Heart,
 } from 'lucide-react';
-import { useSchools } from '@/hooks/useSchools';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { EmptyState } from '@/components/common/EmptyState';
-import { ErrorState } from '@/components/common/ErrorState';
+import { useExplorar, useCategorias, useEscuelasCerca, type School } from '@/hooks/useExplorar';
+import { SchoolMap } from '@/components/explore/SchoolMap';
 import { CompareSchools } from '@/components/explore/CompareSchools';
 import { SchoolReviews } from '@/components/explore/SchoolReviews';
-import { SearchModal } from '@/components/explore/SearchModal';
-import { SchoolMap } from '@/components/explore/SchoolMap';
 import { useToast } from '@/hooks/use-toast';
 
+// ─── School Card ──────────────────────────────────────────────────────────────
+
+function SchoolCard({ school, onClick }: { school: School; onClick: () => void }) {
+  return (
+    <Card
+      className="group overflow-hidden hover:shadow-2xl transition-all duration-500 cursor-pointer border border-border/50 hover:border-primary/40 bg-card/80 backdrop-blur-sm"
+      onClick={onClick}
+    >
+      {/* Cover */}
+      <div className="relative h-48 bg-gradient-to-br from-primary/10 via-primary/5 to-secondary/10 overflow-hidden">
+        {school.cover_image_url ? (
+          <img
+            src={school.cover_image_url}
+            alt={school.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+            loading="lazy"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/20">
+            <Trophy className="h-14 w-14 text-primary/30" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+        {/* Verified badge */}
+        {school.verified && (
+          <Badge className="absolute top-3 right-3 bg-white/95 text-primary border-0 shadow-lg text-xs font-semibold px-2.5 py-1">
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            Verificada
+          </Badge>
+        )}
+
+        {/* Logo */}
+        {school.logo_url && (
+          <div className="absolute bottom-3 left-3">
+            <img
+              src={school.logo_url}
+              alt=""
+              className="w-10 h-10 rounded-lg border-2 border-white shadow-lg object-cover bg-white"
+            />
+          </div>
+        )}
+
+        {/* Price chip */}
+        {school.min_price && (
+          <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">
+            Desde ${school.min_price.toLocaleString('es-CO')}
+          </div>
+        )}
+      </div>
+
+      <CardContent className="p-4 space-y-3">
+        {/* Name & city */}
+        <div>
+          <h3 className="font-bold text-base line-clamp-1 group-hover:text-primary transition-colors">
+            {school.name}
+          </h3>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+            <MapPin className="h-3 w-3" />
+            <span className="line-clamp-1">{school.city || 'Colombia'}</span>
+          </div>
+        </div>
+
+        {/* Rating + reviews */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+              {(school.avg_rating || 0).toFixed(1)}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {school.review_count || 0} reseñas
+          </span>
+          {school.program_count > 0 && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground">
+                {school.program_count} programas
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Sports tags */}
+        {school.sports && school.sports.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {school.sports.slice(0, 3).map((sport) => (
+              <Badge key={sport} variant="secondary" className="text-[10px] font-medium px-2 py-0.5">
+                {sport}
+              </Badge>
+            ))}
+            {school.sports.length > 3 && (
+              <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                +{school.sports.length - 3}
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* CTA */}
+        <Button className="w-full h-9 text-xs font-semibold shadow-sm group-hover:shadow-md transition-shadow" size="sm">
+          Ver programas
+          <Sparkles className="h-3.5 w-3.5 ml-1.5" />
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Skeleton Card ────────────────────────────────────────────────────────────
+
+function SchoolCardSkeleton() {
+  return (
+    <Card className="overflow-hidden">
+      <Skeleton className="h-48 w-full rounded-none" />
+      <CardContent className="p-4 space-y-3">
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-4 w-2/3" />
+        <div className="flex gap-1.5">
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <Skeleton className="h-9 w-full" />
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+function PaginationControls({
+  page,
+  pages,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  pages: number;
+  total: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (pages <= 1) return null;
+
+  const visiblePages = useMemo(() => {
+    const arr: number[] = [];
+    const start = Math.max(1, page - 2);
+    const end = Math.min(pages, page + 2);
+    for (let i = start; i <= end; i++) arr.push(i);
+    return arr;
+  }, [page, pages]);
+
+  return (
+    <div className="flex items-center justify-center gap-2 pt-6">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+        className="h-9"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+
+      {visiblePages[0] > 1 && (
+        <>
+          <Button variant="ghost" size="sm" className="h-9 w-9" onClick={() => onPageChange(1)}>1</Button>
+          {visiblePages[0] > 2 && <span className="text-muted-foreground text-sm">…</span>}
+        </>
+      )}
+
+      {visiblePages.map((p) => (
+        <Button
+          key={p}
+          variant={p === page ? 'default' : 'ghost'}
+          size="sm"
+          className="h-9 w-9"
+          onClick={() => onPageChange(p)}
+        >
+          {p}
+        </Button>
+      ))}
+
+      {visiblePages[visiblePages.length - 1] < pages && (
+        <>
+          {visiblePages[visiblePages.length - 1] < pages - 1 && <span className="text-muted-foreground text-sm">…</span>}
+          <Button variant="ghost" size="sm" className="h-9 w-9" onClick={() => onPageChange(pages)}>{pages}</Button>
+        </>
+      )}
+
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={page >= pages}
+        onClick={() => onPageChange(page + 1)}
+        className="h-9"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+
+      <span className="text-xs text-muted-foreground ml-3">
+        {total} resultados
+      </span>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function ExplorePage() {
-  const [searchParams] = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
-  const [selectedCity, setSelectedCity] = useState<string>(searchParams.get('city') || 'all');
-  const [selectedSport, setSelectedSport] = useState<string>(searchParams.get('sport') || 'all');
-  const [priceRange, setPriceRange] = useState<number[]>([0, 500000]);
-  const [selectedLevel, setSelectedLevel] = useState<string>('all');
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [nearMe, setNearMe] = useState(false);
-  const [selectedAgeRange, setSelectedAgeRange] = useState<string>('');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [showMap, setShowMap] = useState(true);
-  const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
 
-  const { schools, loading, error, cities, sports } = useSchools({
-    searchQuery,
-    city: selectedCity,
-    sport: selectedSport,
-  });
+  // Hooks
+  const {
+    schools,
+    pagination,
+    filters,
+    loading,
+    error,
+    updateFilter,
+    clearFilters,
+    goToPage,
+  } = useExplorar();
 
+  const { categorias } = useCategorias();
+
+  // Local UI state
+  const [showMap, setShowMap] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [nearMe, setNearMe] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>();
+  const [localSearch, setLocalSearch] = useState('');
+
+  // Sync URL params on mount
   useEffect(() => {
-    const search = searchParams.get('search');
+    const q = searchParams.get('search');
     const city = searchParams.get('city');
     const sport = searchParams.get('sport');
-    
-    if (search) setSearchQuery(search);
-    if (city) setSelectedCity(city);
-    if (sport) setSelectedSport(sport);
-  }, [searchParams]);
+    if (q) { setLocalSearch(q); updateFilter('query', q); }
+    if (city) updateFilter('city', city);
+    if (sport) updateFilter('sport', sport);
+  }, []); // eslint-disable-line
 
-  const handleNearMeToggle = () => {
+  // Popular sports for quick filters
+  const quickSports = ['Fútbol', 'Natación', 'Tenis', 'Cheerleading', 'Baloncesto', 'Karate', 'Gimnasia'];
+
+  const handleNearMe = () => {
     if (!nearMe) {
       if ('geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setUserLocation({
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-            });
+          (pos) => {
+            const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setUserLocation(loc);
             setNearMe(true);
-            toast({
-              title: 'Ubicación obtenida',
-              description: 'Mostrando escuelas cerca de ti',
-            });
+            updateFilter('lat', loc.lat);
+            updateFilter('lng', loc.lng);
+            updateFilter('distance_km', 10);
+            updateFilter('order_by', 'distance');
+            toast({ title: '📍 Ubicación obtenida', description: 'Mostrando escuelas cerca de ti' });
           },
-          (error) => {
-            toast({
-              title: 'Error de ubicación',
-              description: 'No se pudo obtener tu ubicación. Por favor, habilita los permisos de ubicación.',
-              variant: 'destructive',
-            });
+          () => {
+            toast({ title: 'Error de ubicación', description: 'Habilita permisos de ubicación', variant: 'destructive' });
           }
         );
-      } else {
-        toast({
-          title: 'Ubicación no disponible',
-          description: 'Tu navegador no soporta geolocalización',
-          variant: 'destructive',
-        });
       }
     } else {
       setNearMe(false);
       setUserLocation(null);
+      updateFilter('lat', undefined);
+      updateFilter('lng', undefined);
+      updateFilter('distance_km', undefined);
+      updateFilter('order_by', 'rating');
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner fullScreen text="Cargando escuelas..." />;
-  }
+  const hasActiveFilters = !!(
+    filters.query || filters.city || filters.sport || filters.price_max ||
+    filters.rating_min || filters.age || filters.verified || nearMe
+  );
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8">
-          <div className="max-w-md mx-auto">
-            <ErrorState
-              title="Error de conexión"
-              message="No se pudieron cargar las escuelas. Revisa tu conexión a internet e intenta nuevamente."
-              onRetry={() => window.location.reload()}
-              retryLabel="Recargar página"
-            />
+  // Map-compatible schools (need lat/lng fields mapped)
+  const mapSchools = useMemo(() =>
+    schools.map(s => ({
+      ...s,
+      latitude: s.main_lat,
+      longitude: s.main_lng,
+      address: s.city || '',
+      rating: s.avg_rating || 0,
+      total_reviews: s.review_count || 0,
+    })),
+    [schools]
+  );
+
+  // ── Age groups ──────────────────────────────────────────────────────────────
+  const ageGroups = [
+    { label: 'Todos', sublabel: 'Todas las edades', icon: '🏅', value: undefined },
+    { label: 'Primera infancia', sublabel: '0-5 años', icon: '👶', value: 3 },
+    { label: 'Niños', sublabel: '6-11 años', icon: '🧒', value: 8 },
+    { label: 'Adolescentes', sublabel: '12-17 años', icon: '🧑', value: 14 },
+    { label: 'Jóvenes', sublabel: '18-26 años', icon: '👱', value: 22 },
+    { label: 'Adultos', sublabel: '27+ años', icon: '🧔', value: 35 },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20">
+
+      {/* ── Back nav ─────────────────────────────────────────────────────── */}
+      <div className="bg-background/80 backdrop-blur-md border-b sticky top-0 z-40">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver
+          </Link>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showMap ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowMap(!showMap)}
+              className="h-8"
+            >
+              <MapIcon className="h-3.5 w-3.5 mr-1.5" />
+              {showMap ? 'Ocultar mapa' : 'Ver mapa'}
+            </Button>
           </div>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Search Modal */}
-      <SearchModal open={searchModalOpen} onOpenChange={setSearchModalOpen} />
+      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+      <div className="relative overflow-hidden">
+        {/* Animated gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-emerald-600" />
+        <div className="absolute inset-0 opacity-[0.07]" style={{
+          backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+          backgroundSize: '28px 28px',
+        }} />
+        {/* Decorative blobs */}
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-emerald-300/10 rounded-full blur-3xl" />
 
-      {/* Back to Dashboard Button */}
-      <div className="bg-background border-b">
-        <div className="container mx-auto px-4 py-4">
-          <Link 
-            to="/dashboard"
-            className="inline-flex items-center text-muted-foreground hover:text-primary transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Volver al inicio
-          </Link>
-        </div>
-      </div>
-
-      {/* Hero Header with Search - Compact */}
-      <div className="relative bg-gradient-to-br from-primary via-primary/90 to-secondary text-white py-8 overflow-hidden">
-        {/* Background pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
-            backgroundSize: '32px 32px'
-          }} />
-        </div>
-        
-        <div className="container mx-auto px-4 relative z-10">
-          <div className="max-w-4xl mx-auto space-y-4 text-center">
-            <div className="space-y-2">
-              <Badge variant="secondary" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
-                🏆 {schools.length} escuelas disponibles
+        <div className="container mx-auto px-4 py-10 md:py-14 relative z-10">
+          <div className="max-w-3xl mx-auto text-center space-y-5">
+            <div className="flex items-center justify-center gap-2">
+              <Compass className="h-6 w-6 text-white/70 animate-pulse" />
+              <Badge variant="secondary" className="bg-white/15 text-white border-white/20 hover:bg-white/25 text-xs backdrop-blur-sm">
+                {pagination ? `${pagination.total} escuelas` : 'Explora'}
               </Badge>
-              <h1 className="text-3xl md:text-4xl font-bold leading-tight">
-                Encuentra tu Escuela Deportiva
-              </h1>
             </div>
-            
-            {/* Main Search Bar */}
-            <div 
-              className="relative max-w-2xl mx-auto cursor-pointer group"
-              onClick={() => setSearchModalOpen(true)}
-            >
-              <div className="absolute inset-0 bg-white/20 rounded-2xl blur-xl group-hover:bg-white/30 transition-all" />
-              <div className="relative">
-                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  placeholder="Busca fútbol, natación, tenis..."
-                  className="pl-12 pr-4 h-12 text-base bg-white rounded-xl shadow-2xl border-0 focus:ring-4 focus:ring-white/50"
-                  readOnly
-                />
+
+            <h1 className="text-3xl md:text-5xl font-extrabold text-white leading-tight tracking-tight">
+              Encuentra tu Escuela
+              <span className="block bg-gradient-to-r from-amber-300 to-yellow-200 bg-clip-text text-transparent">
+                Deportiva Ideal
+              </span>
+            </h1>
+
+            <p className="text-white/70 text-sm md:text-base max-w-lg mx-auto">
+              Busca por deporte, ciudad, precio o ubicación. Compara programas e inscríbete al instante.
+            </p>
+
+            {/* ── Search bar ─────────────────────────────────────────────── */}
+            <div className="relative max-w-2xl mx-auto">
+              <div className="absolute inset-0 bg-white/10 rounded-2xl blur-xl" />
+              <div className="relative flex gap-2">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Busca fútbol, natación, cheerleading..."
+                    value={localSearch}
+                    onChange={(e) => setLocalSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') updateFilter('query', localSearch);
+                    }}
+                    className="pl-11 pr-4 h-12 text-sm bg-white rounded-xl border-0 shadow-2xl focus:ring-4 focus:ring-white/30"
+                  />
+                </div>
+                <Button
+                  onClick={() => updateFilter('query', localSearch)}
+                  className="h-12 px-6 rounded-xl shadow-2xl bg-amber-500 hover:bg-amber-600 text-white font-semibold"
+                >
+                  Buscar
+                </Button>
               </div>
             </div>
 
-            {/* Quick Search Suggestions */}
-            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-              {['Fútbol', 'Natación', 'Tenis', 'Baloncesto', 'Karate'].map((sport) => (
-                <Badge 
+            {/* Quick sport pills */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {quickSports.map((sport) => (
+                <Badge
                   key={sport}
-                  variant="outline" 
-                  className="border-white/30 text-white hover:bg-white/20 cursor-pointer text-xs"
-                  onClick={() => {
-                    setSelectedSport(sport);
-                  }}
+                  variant="outline"
+                  className={`border-white/25 text-white hover:bg-white/20 cursor-pointer text-xs transition-all ${
+                    filters.sport === sport ? 'bg-white/25 border-white/50' : ''
+                  }`}
+                  onClick={() => updateFilter('sport', filters.sport === sport ? undefined : sport)}
                 >
                   {sport}
                 </Badge>
@@ -199,61 +451,56 @@ export default function ExplorePage() {
         </div>
       </div>
 
-      {/* MAP SECTION - PROMINENTLY DISPLAYED */}
-      <div className="container mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Map className="h-6 w-6 text-primary" />
-            <h2 className="text-xl font-bold">Mapa de Escuelas</h2>
-            <Badge variant="secondary">{schools.length} ubicaciones</Badge>
+      {/* ── Map (toggle) ──────────────────────────────────────────────────── */}
+      {showMap && (
+        <div className="container mx-auto px-4 py-6 animate-in fade-in-0 slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <MapIcon className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-bold">Mapa</h2>
+              <Badge variant="secondary" className="text-xs">{schools.length} visibles</Badge>
+            </div>
+            <Button
+              variant={nearMe ? 'default' : 'outline'}
+              size="sm"
+              onClick={handleNearMe}
+              className="h-8"
+            >
+              <Navigation className="h-3.5 w-3.5 mr-1.5" />
+              {nearMe ? 'Ubicación activa' : 'Cerca de mí'}
+            </Button>
           </div>
-          <Button
-            variant={nearMe ? 'default' : 'outline'}
-            onClick={handleNearMeToggle}
-            size="sm"
-          >
-            <Navigation className="h-4 w-4 mr-2" />
-            {nearMe ? 'Ubicación activa' : 'Cerca de mí'}
-          </Button>
+          <SchoolMap
+            schools={mapSchools}
+            userLocation={userLocation}
+            selectedSchoolId={selectedSchoolId}
+            onSchoolSelect={setSelectedSchoolId}
+          />
         </div>
-        <SchoolMap
-          schools={schools}
-          userLocation={userLocation}
-          selectedSchoolId={selectedSchoolId}
-          onSchoolSelect={setSelectedSchoolId}
-        />
-      </div>
+      )}
 
-      {/* Age Groups Section */}
-      <div className="bg-muted/30 py-12 border-y">
+      {/* ── Age group selector ─────────────────────────────────────────── */}
+      <div className="bg-muted/30 py-8 border-y">
         <div className="container mx-auto px-4">
-          <h2 className="text-2xl font-bold text-center mb-8">Explora por edad</h2>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-            {[
-              { label: 'Familia', sublabel: 'Todas las edades', icon: '👨‍👩‍👧‍👦', range: '' },
-              { label: 'Primera infancia', sublabel: '0 - 5 años', icon: '👶', range: '0-5' },
-              { label: 'Niños', sublabel: '6 - 11 años', icon: '🧒', range: '6-11' },
-              { label: 'Adolescentes', sublabel: '12 - 17 años', icon: '🧑', range: '12-17' },
-              { label: 'Jóvenes', sublabel: '18 - 26 años', icon: '👱', range: '18-26' },
-              { label: 'Adultos', sublabel: '27 - 59 años', icon: '🧔', range: '27-59' },
-            ].map((group, index) => (
+          <h2 className="text-lg font-bold text-center mb-5 flex items-center justify-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            Explora por edad
+          </h2>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            {ageGroups.map((g) => (
               <button
-                key={index}
-                onClick={() => {
-                  setSelectedAgeRange(group.range);
-                  const element = document.getElementById('results-section');
-                  element?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className={`flex flex-col items-center gap-3 p-4 rounded-2xl bg-background hover:bg-accent transition-all group ${
-                  selectedAgeRange === group.range ? 'ring-2 ring-primary bg-accent' : ''
+                key={g.label}
+                onClick={() => updateFilter('age', filters.age === g.value ? undefined : g.value)}
+                className={`flex flex-col items-center gap-2 p-3 rounded-xl bg-background hover:bg-accent transition-all group border ${
+                  filters.age === g.value
+                    ? 'ring-2 ring-primary border-primary/50 bg-primary/5'
+                    : 'border-transparent'
                 }`}
               >
-                <div className="text-5xl group-hover:scale-110 transition-transform">
-                  {group.icon}
-                </div>
+                <div className="text-3xl md:text-4xl group-hover:scale-110 transition-transform">{g.icon}</div>
                 <div className="text-center">
-                  <p className="font-semibold text-sm">{group.label}</p>
-                  <p className="text-xs text-muted-foreground">{group.sublabel}</p>
+                  <p className="font-semibold text-xs">{g.label}</p>
+                  <p className="text-[10px] text-muted-foreground">{g.sublabel}</p>
                 </div>
               </button>
             ))}
@@ -261,327 +508,262 @@ export default function ExplorePage() {
         </div>
       </div>
 
-      <div id="results-section" className="container mx-auto px-4 py-8 space-y-6">
-        {/* Filters Section */}
-        <Card className="shadow-lg">
-          <CardContent className="p-6">
-            <div className="space-y-6">
-              {/* Primary Filters Row */}
-              <div className="flex items-center gap-3 mb-4">
-                <Trophy className="h-5 w-5 text-primary" />
-                <h3 className="font-semibold text-lg">Refina tu búsqueda</h3>
-              </div>
-              
-              <div className="grid gap-4 md:grid-cols-5">
-                {/* Near Me Button */}
-                <Button
-                  variant={nearMe ? 'default' : 'outline'}
-                  onClick={handleNearMeToggle}
-                  className="h-11"
-                >
-                  <Navigation className="h-4 w-4 mr-2" />
-                  Cerca de mí
-                </Button>
+      {/* ── Results ────────────────────────────────────────────────────── */}
+      <div className="container mx-auto px-4 py-8 space-y-6">
 
-                {/* City Filter */}
-                <Select value={selectedCity} onValueChange={setSelectedCity}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Ciudad" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas las ciudades</SelectItem>
-                    {cities.map((city) => (
-                      <SelectItem key={city} value={city}>
-                        {city}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        {/* Filters bar */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant={showFilters ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="h-9"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+            Filtros
+          </Button>
 
-                {/* Sport Filter */}
-                <Select value={selectedSport} onValueChange={setSelectedSport}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Deporte" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los deportes</SelectItem>
-                    {sports.map((sport) => (
-                      <SelectItem key={sport} value={sport}>
-                        {sport}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {!showMap && (
+            <Button
+              variant={nearMe ? 'default' : 'outline'}
+              size="sm"
+              onClick={handleNearMe}
+              className="h-9"
+            >
+              <Navigation className="h-3.5 w-3.5 mr-1.5" />
+              Cerca de mí
+            </Button>
+          )}
 
-                {/* Level Filter */}
-                <Select value={selectedLevel} onValueChange={setSelectedLevel}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Nivel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los niveles</SelectItem>
-                    <SelectItem value="principiante">Principiante</SelectItem>
-                    <SelectItem value="intermedio">Intermedio</SelectItem>
-                    <SelectItem value="avanzado">Avanzado</SelectItem>
-                    <SelectItem value="profesional">Profesional</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          <Select
+            value={filters.order_by || 'rating'}
+            onValueChange={(v) => updateFilter('order_by', v)}
+          >
+            <SelectTrigger className="w-[160px] h-9 text-xs">
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="rating">⭐ Mejor valoradas</SelectItem>
+              <SelectItem value="price">💰 Menor precio</SelectItem>
+              <SelectItem value="name">🔤 Nombre</SelectItem>
+              {nearMe && <SelectItem value="distance">📍 Más cerca</SelectItem>}
+            </SelectContent>
+          </Select>
 
-            {/* Price Range Filter */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Rango de Presupuesto Mensual
-              </Label>
-              <div className="px-2">
-                <Slider
-                  min={0}
-                  max={500000}
-                  step={10000}
-                  value={priceRange}
-                  onValueChange={setPriceRange}
-                  className="mb-2"
-                />
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>${priceRange[0].toLocaleString('es-CO')}</span>
-                  <span>${priceRange[1].toLocaleString('es-CO')}</span>
-                </div>
-              </div>
+          {/* Active filter badges */}
+          {hasActiveFilters && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {filters.query && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  "{filters.query}"
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => { updateFilter('query', undefined); setLocalSearch(''); }} />
+                </Badge>
+              )}
+              {filters.sport && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  {filters.sport}
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => updateFilter('sport', undefined)} />
+                </Badge>
+              )}
+              {filters.city && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  {filters.city}
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => updateFilter('city', undefined)} />
+                </Badge>
+              )}
+              {filters.age && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  Edad: {filters.age}
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => updateFilter('age', undefined)} />
+                </Badge>
+              )}
+              {filters.verified && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  Verificadas
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => updateFilter('verified', undefined)} />
+                </Badge>
+              )}
+              {nearMe && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  📍 Cerca de mí
+                  <X className="h-3 w-3 cursor-pointer" onClick={handleNearMe} />
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-muted-foreground"
+                onClick={() => { clearFilters(); setLocalSearch(''); setNearMe(false); setUserLocation(null); }}
+              >
+                Limpiar todo
+              </Button>
             </div>
-          </div>
-
-            {/* Active Filters */}
-            {(nearMe || selectedCity !== 'all' || selectedSport !== 'all' || selectedLevel !== 'all' || searchQuery || selectedAgeRange || priceRange[0] > 0 || priceRange[1] < 500000) && (
-              <div className="flex items-center gap-2 mt-4 flex-wrap">
-                <span className="text-sm text-muted-foreground">Filtros activos:</span>
-                {nearMe && (
-                  <Badge variant="secondary" className="gap-1">
-                    Cerca de mí
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => {
-                        setNearMe(false);
-                        setUserLocation(null);
-                      }}
-                    />
-                  </Badge>
-                )}
-                {searchQuery && (
-                  <Badge variant="secondary" className="gap-1">
-                    Búsqueda: {searchQuery}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setSearchQuery('')}
-                    />
-                  </Badge>
-                )}
-                {selectedCity !== 'all' && (
-                  <Badge variant="secondary" className="gap-1">
-                    Ciudad: {selectedCity}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setSelectedCity('all')}
-                    />
-                  </Badge>
-                )}
-                {selectedSport !== 'all' && (
-                  <Badge variant="secondary" className="gap-1">
-                    Deporte: {selectedSport}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setSelectedSport('all')}
-                    />
-                  </Badge>
-                )}
-                {selectedLevel !== 'all' && (
-                  <Badge variant="secondary" className="gap-1">
-                    Nivel: {selectedLevel}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setSelectedLevel('all')}
-                    />
-                  </Badge>
-                )}
-                {selectedAgeRange && (
-                  <Badge variant="secondary" className="gap-1">
-                    Edad: {selectedAgeRange} años
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setSelectedAgeRange('')}
-                    />
-                  </Badge>
-                )}
-                {(priceRange[0] > 0 || priceRange[1] < 500000) && (
-                  <Badge variant="secondary" className="gap-1">
-                    Precio: ${priceRange[0].toLocaleString()} - ${priceRange[1].toLocaleString()}
-                    <X
-                      className="h-3 w-3 cursor-pointer"
-                      onClick={() => setPriceRange([0, 500000])}
-                    />
-                  </Badge>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedCity('all');
-                    setSelectedSport('all');
-                    setSelectedLevel('all');
-                    setSelectedAgeRange('');
-                    setPriceRange([0, 500000]);
-                    setNearMe(false);
-                    setUserLocation(null);
-                  }}
-                >
-                  Limpiar todo
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Results Count and Actions */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <p className="text-sm text-muted-foreground">
-            {schools.length} {schools.length === 1 ? 'escuela encontrada' : 'escuelas encontradas'}
-            {nearMe && userLocation && ' cerca de ti'}
-          </p>
-          <CompareSchools schools={schools} />
+          )}
         </div>
 
-        {/* Schools Grid */}
-        {schools.length === 0 ? (
-          <EmptyState
-            icon={Trophy}
-            title="No se encontraron escuelas"
-            description="Intenta ajustar tus filtros de búsqueda"
-            actionLabel="Limpiar filtros"
-            onAction={() => {
-              setSearchQuery('');
-              setSelectedCity('all');
-              setSelectedSport('all');
-              setNearMe(false);
-              setUserLocation(null);
-            }}
-          />
+        {/* Expandable filters panel */}
+        {showFilters && (
+          <Card className="shadow-lg border-primary/10 animate-in slide-in-from-top-2 duration-200">
+            <CardContent className="p-5">
+              <div className="grid gap-4 md:grid-cols-4">
+                {/* City */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Ciudad</label>
+                  <Input
+                    placeholder="Ej: Bogotá"
+                    value={filters.city || ''}
+                    onChange={(e) => updateFilter('city', e.target.value || undefined)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {/* Sport */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Deporte</label>
+                  <Input
+                    placeholder="Ej: Fútbol"
+                    value={filters.sport || ''}
+                    onChange={(e) => updateFilter('sport', e.target.value || undefined)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {/* Price */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Precio máximo: ${(filters.price_max || 500000).toLocaleString('es-CO')}
+                  </label>
+                  <Slider
+                    min={0}
+                    max={500000}
+                    step={10000}
+                    value={[filters.price_max || 500000]}
+                    onValueChange={([v]) => updateFilter('price_max', v < 500000 ? v : undefined)}
+                  />
+                </div>
+
+                {/* Rating */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Rating mínimo</label>
+                  <Select
+                    value={filters.rating_min ? String(filters.rating_min) : 'all'}
+                    onValueChange={(v) => updateFilter('rating_min', v === 'all' ? undefined : Number(v))}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Cualquiera</SelectItem>
+                      <SelectItem value="3">⭐ 3.0+</SelectItem>
+                      <SelectItem value="4">⭐ 4.0+</SelectItem>
+                      <SelectItem value="4.5">⭐ 4.5+</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Toggle: verified */}
+              <div className="flex items-center gap-4 mt-4 pt-4 border-t">
+                <Button
+                  variant={filters.verified ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => updateFilter('verified', filters.verified ? undefined : true)}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Solo verificadas
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Results header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            <h2 className="text-xl font-bold">
+              {loading ? 'Buscando...' : `${pagination?.total ?? schools.length} Escuelas`}
+            </h2>
+          </div>
+          <CompareSchools schools={mapSchools} />
+        </div>
+
+        {/* ── Grid ─────────────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SchoolCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : error ? (
+          <Card className="p-12 text-center">
+            <div className="space-y-3">
+              <div className="h-14 w-14 mx-auto rounded-full bg-destructive/10 flex items-center justify-center">
+                <X className="h-7 w-7 text-destructive" />
+              </div>
+              <h3 className="font-semibold text-lg">Error de conexión</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">{error}</p>
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                Reintentar
+              </Button>
+            </div>
+          </Card>
+        ) : schools.length === 0 ? (
+          <Card className="p-12 text-center">
+            <div className="space-y-3">
+              <div className="h-14 w-14 mx-auto rounded-full bg-muted flex items-center justify-center">
+                <Trophy className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <h3 className="font-semibold text-lg">No se encontraron escuelas</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                Intenta ajustar tus filtros o busca con otros términos
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => { clearFilters(); setLocalSearch(''); }}
+              >
+                Limpiar filtros
+              </Button>
+            </div>
+          </Card>
         ) : (
           <>
-            {/* Schools Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold">Escuelas Disponibles</h2>
-                <p className="text-muted-foreground mt-1">
-                  Haz clic en una escuela para ver sus programas
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {schools.map((school) => (
-                <Card
+                <SchoolCard
                   key={school.id}
-                  className="group overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 hover:border-primary/50"
+                  school={school}
                   onClick={() => navigate(`/schools/${school.id}`)}
-                >
-                  {/* Cover Image */}
-                  <div className="relative h-56 bg-gradient-to-br from-primary/20 to-secondary/20 bg-cover bg-center overflow-hidden">
-                    {school.cover_image_url ? (
-                      <img 
-                        src={school.cover_image_url} 
-                        alt={school.name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Trophy className="h-16 w-16 text-white/40" />
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-
-                    {school.verified && (
-                      <Badge 
-                        className="absolute top-3 right-3 bg-white/90 text-foreground border-0"
-                      >
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Verificada
-                      </Badge>
-                    )}
-                  </div>
-
-                  <CardHeader className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 space-y-2">
-                        <CardTitle className="text-xl line-clamp-2 group-hover:text-primary transition-colors">
-                          {school.name}
-                        </CardTitle>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4" />
-                          <span className="line-clamp-1">{school.city}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Rating */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1 px-3 py-1 bg-yellow-50 rounded-full border border-yellow-200">
-                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-bold text-yellow-700">{school.rating.toFixed(1)}</span>
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        {school.total_reviews} reseñas
-                      </span>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    {/* Description */}
-                    {school.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">
-                        {school.description}
-                      </p>
-                    )}
-
-                    {/* Sports */}
-                    {school.sports && school.sports.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {school.sports.slice(0, 4).map((sport) => (
-                          <Badge key={sport} variant="secondary" className="text-xs font-medium">
-                            {sport}
-                          </Badge>
-                        ))}
-                        {school.sports.length > 4 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{school.sports.length - 4} más
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2 pt-2">
-                      <Button 
-                        className="flex-1 group-hover:shadow-md transition-shadow" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/schools/${school.id}`);
-                        }}
-                      >
-                        Ver Programas
-                        <Target className="h-4 w-4 ml-2" />
-                      </Button>
-                      <SchoolReviews 
-                        schoolId={school.id}
-                        schoolName={school.name}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                />
               ))}
             </div>
+
+            {/* Pagination */}
+            {pagination && (
+              <PaginationControls
+                page={pagination.page}
+                pages={pagination.pages}
+                total={pagination.total}
+                onPageChange={goToPage}
+              />
+            )}
           </>
         )}
+      </div>
+
+      {/* ── Footer CTA ─────────────────────────────────────────────────── */}
+      <div className="bg-gradient-to-r from-primary/5 via-primary/10 to-secondary/5 py-10 border-t">
+        <div className="container mx-auto px-4 text-center space-y-4">
+          <h3 className="text-xl font-bold">¿Tienes una escuela deportiva?</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Registra tu academia en SportMaps y conecta con miles de familias buscando deportes para sus hijos.
+          </p>
+          <Button onClick={() => navigate('/register')} size="lg" className="shadow-lg">
+            Registrar mi escuela
+            <Sparkles className="h-4 w-4 ml-2" />
+          </Button>
+        </div>
       </div>
     </div>
   );
