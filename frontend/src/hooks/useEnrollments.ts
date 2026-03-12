@@ -51,25 +51,10 @@ export function useEnrollments() {
       setLoading(true);
       setError(null);
 
-      const { data, error: fetchError } = await supabase
-        .from('enrollments')
-        .select(
-          `
-          *,
-          program:teams(
-            id,
-            name,
-            sport,
-            school_id,
-            school:schools(name, city)
-          )
-        `
-        )
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const { data, error: fetchError } = await supabase.rpc('get_athlete_enrollments');
 
       if (fetchError) throw fetchError;
-      setEnrollments((data as any) as EnrollmentWithProgram[] || []);
+      setEnrollments((data as any) || []);
     } catch (err: any) {
       console.error('Error fetching enrollments:', err);
       setError(err.message);

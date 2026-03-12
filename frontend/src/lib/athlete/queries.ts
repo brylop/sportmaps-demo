@@ -67,26 +67,10 @@ export async function getAthleteBookings(userId: string, filters?: { status?: st
 }
 
 // ─── Enrollments ─────────────────────────────────────────────
-export async function getAthleteEnrollments(userId: string, status?: string) {
-  let query = supabase
-    .from('enrollments')
-    .select(`
-      *,
-      programs:program_id (
-        name, sport, price_monthly,
-        schools:school_id (name, logo_url, city)
-      )
-    `)
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (status) {
-    query = query.eq('status', status);
-  }
-
-  const { data, error } = await query;
+export async function getAthleteEnrollments() {
+  const { data, error } = await supabase.rpc('get_athlete_enrollments');
   if (error) throw error;
-  return data;
+  return data as any[];
 }
 
 // ─── Teams ───────────────────────────────────────────────────
@@ -165,12 +149,31 @@ export async function getAthletePayments(params: {
     data: any[];
     total: number;
     summary: {
+      count_approved: number;
       pending_cents: number;
+      approved_cents: number;
       count_pending: number;
-      total_cents: number;
       count_total: number;
     };
   };
+}
+
+export async function submitAthleteInstallment(params: {
+  athlete_payment_id: string;
+  amount_cents: number;
+  receipt_url: string;
+  receipt_date: string;
+  payment_method: string;
+}) {
+  const { data, error } = await supabase.rpc('submit_athlete_installment', {
+    p_athlete_payment_id: params.athlete_payment_id,
+    p_amount_cents: params.amount_cents,
+    p_receipt_url: params.receipt_url,
+    p_receipt_date: params.receipt_date,
+    p_payment_method: params.payment_method
+  });
+  if (error) throw error;
+  return data;
 }
 
 // ─── Calendar Events (unified) ──────────────────────────────

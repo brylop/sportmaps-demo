@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Calendar, MapPin, Trophy, X, Building2 } from 'lucide-react';
+import { Calendar, MapPin, Trophy, X, Building2, DollarSign } from 'lucide-react';
 import { useEnrollments } from '@/hooks/useEnrollments';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -73,7 +73,7 @@ export default function MyEnrollmentsPage() {
           </div>
         )}
 
-        <div className="pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <Badge
             variant={
               enrollment.status === 'active'
@@ -89,6 +89,13 @@ export default function MyEnrollmentsPage() {
               ? 'Cancelado'
               : 'Completado'}
           </Badge>
+
+          {enrollment.has_pending_payment && (
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+              <DollarSign className="h-3 w-3 mr-1" />
+              Pago Pendiente: ${(enrollment.payment_amount_cents / 100).toLocaleString('es-CO')}
+            </Badge>
+          )}
         </div>
 
         {!isPast && (

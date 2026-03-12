@@ -4,9 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2 } from 'lucide-react';
-import { getAthletePayments } from '@/lib/athlete/queries';
+import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign } from 'lucide-react';
+import { getAthletePayments, submitAthleteInstallment } from '@/lib/athlete/queries';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Payment {
   id: string;
@@ -66,9 +70,9 @@ export default function AthletePaymentsPage() {
   };
 
   const pendingPaymentsCount = summary?.count_pending || 0;
-  const historyPaymentsCount = (summary?.count_total || 0) - pendingPaymentsCount;
+  const historyPaymentsCount = summary?.count_approved || 0;
   const totalPending = (summary?.pending_cents || 0) / 100;
-  const totalApprovedCount = summary?.count_total - (summary?.count_pending || 0); // Simplified
+  const totalApprovedCount = summary?.count_approved || 0;
 
   const formatCurrency = (cents: number) =>
     `$${(cents / 100).toLocaleString('es-CO')}`;
@@ -159,7 +163,13 @@ export default function AthletePaymentsPage() {
             </Card>
           ) : (
             payments.map(payment => (
-              <PaymentCard key={payment.id} payment={payment} formatCurrency={formatCurrency} formatDate={formatDate} />
+              <PaymentCard 
+                key={payment.id} 
+                payment={payment} 
+                formatCurrency={formatCurrency} 
+                formatDate={formatDate} 
+                onRefresh={fetchPayments}
+              />
             ))
           )}
         </TabsContent>
@@ -175,7 +185,13 @@ export default function AthletePaymentsPage() {
             </Card>
           ) : (
             payments.map(payment => (
-              <PaymentCard key={payment.id} payment={payment} formatCurrency={formatCurrency} formatDate={formatDate} />
+              <PaymentCard 
+                key={payment.id} 
+                payment={payment} 
+                formatCurrency={formatCurrency} 
+                formatDate={formatDate} 
+                onRefresh={fetchPayments} 
+              />
             ))
           )}
         </TabsContent>
@@ -184,49 +200,195 @@ export default function AthletePaymentsPage() {
   );
 }
 
-function PaymentCard({ payment, formatCurrency, formatDate }: {
-  payment: Payment;
+function PaymentCard({ payment, formatCurrency, formatDate, onRefresh }: {
+  payment: any;
   formatCurrency: (cents: number) => string;
   formatDate: (dateStr: string) => string;
+  onRefresh: () => void;
 }) {
+  const [showAbonar, setShowAbonar] = useState(false);
   const config = statusConfig[payment.status] || statusConfig.pending;
   const StatusIcon = config.icon;
 
   return (
-    <Card>
-      <CardContent className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${config.color.split(' ')[0]}`}>
-            <StatusIcon className={`h-5 w-5 ${config.color.split(' ')[1]}`} />
-          </div>
-          <div>
-            <p className="font-semibold">{formatCurrency(payment.amount_cents)}</p>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {payment.due_date && <span>Vence: {formatDate(payment.due_date)}</span>}
-              {payment.paid_at && <span>Pagado: {formatDate(payment.paid_at)}</span>}
+    <>
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 ${config.color.split(' ')[0]}`}>
+                <StatusIcon className={`h-6 w-6 ${config.color.split(' ')[1]}`} />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground leading-none">
+                  {payment.program_name || 'Servicio deportivo'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-lg">{formatCurrency(payment.amount_cents)}</p>
+                  <Badge variant="outline" className={config.color}>
+                    {config.label}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {payment.due_date && <span>Vence: {formatDate(payment.due_date)}</span>}
+                  {payment.paid_at && <span>Pagado: {formatDate(payment.paid_at)}</span>}
+                  {payment.school_name && <span className="flex items-center gap-1">• {payment.school_name}</span>}
+                </div>
+              </div>
             </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              {payment.receipt_url && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={payment.receipt_url} target="_blank" rel="noopener noreferrer">
+                    <Download className="h-4 w-4 mr-1" />
+                    Comprobante
+                  </a>
+                </Button>
+              )}
+              {payment.status === 'pending' && (
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setShowAbonar(true)}>
+                  <DollarSign className="h-4 w-4 mr-1" />
+                  Abonar / Pagar
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <PaymentAbonarModal 
+        open={showAbonar} 
+        onOpenChange={setShowAbonar} 
+        payment={payment} 
+        onSuccess={() => {
+          setShowAbonar(false);
+          onRefresh();
+        }} 
+      />
+    </>
+  );
+}
+
+function PaymentAbonarModal({ open, onOpenChange, payment, onSuccess }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  payment: any;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [amount, setAmount] = useState((payment.amount_cents / 100).toString());
+  const [method, setMethod] = useState('nequi');
+  const [receiptUrl, setReceiptUrl] = useState('');
+
+  const handleSubmit = async () => {
+    try {
+      setLoading(true);
+      const amountCents = parseFloat(amount) * 100;
+      
+      if (isNaN(amountCents) || amountCents <= 0 || amountCents > payment.amount_cents) {
+        toast({
+          title: 'Monto inválido',
+          description: 'Por favor ingresa un monto válido (no mayor a la deuda).',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      await submitAthleteInstallment({
+        athlete_payment_id: payment.id,
+        amount_cents: amountCents,
+        receipt_url: receiptUrl || 'https://placeholder-receipt.url', // Placeholder if not provided
+        receipt_date: new Date().toISOString().split('T')[0],
+        payment_method: method
+      });
+
+      toast({
+        title: '¡Pago enviado!',
+        description: 'Tu comprobante está siendo revisado por la escuela.',
+      });
+      onSuccess();
+    } catch (err) {
+      console.error('Error submitting installment:', err);
+      toast({
+        title: 'Error',
+        description: 'No se pudo registrar el pago.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Registrar Abono o Pago</DialogTitle>
+          <DialogDescription>
+            Informa a la escuela sobre un pago realizado para {payment.program_name || 'este servicio'}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <Label>Monto a pagar (COP)</Label>
+            <div className="relative">
+              <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+              <Input 
+                type="number" 
+                className="pl-8" 
+                value={amount} 
+                onChange={(e) => setAmount(e.target.value)} 
+                max={payment.amount_cents / 100}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Deuda total: ${(payment.amount_cents / 100).toLocaleString('es-CO')}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Método de Pago</Label>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un método" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nequi">Nequi</SelectItem>
+                <SelectItem value="daviplata">Daviplata</SelectItem>
+                <SelectItem value="transfer">Transferencia Bancaria</SelectItem>
+                <SelectItem value="cash">Efectivo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Link del Comprobante (Opcional)</Label>
+            <Input 
+              placeholder="https://..." 
+              value={receiptUrl} 
+              onChange={(e) => setReceiptUrl(e.target.value)} 
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Sube tu captura a Drive/Dropbox y pega el link aquí para agilizar la revisión.
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className={config.color}>
-            {config.label}
-          </Badge>
-          {payment.receipt_url && (
-            <Button variant="ghost" size="icon" asChild>
-              <a href={payment.receipt_url} target="_blank" rel="noopener noreferrer">
-                <Download className="h-4 w-4" />
-              </a>
-            </Button>
-          )}
-          {payment.status === 'pending' && (
-            <Button size="sm">
-              <CreditCard className="h-4 w-4 mr-1" />
-              Pagar
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button 
+            className="bg-emerald-600 hover:bg-emerald-700" 
+            onClick={handleSubmit} 
+            disabled={loading}
+          >
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Confirmar Pago
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
