@@ -191,8 +191,8 @@ export default function SettingsPage() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Premium Upsell Card */}
-            {!isSchoolAdmin && (
+            {/* Premium Upsell Card - Hidden for now as per user request */}
+            {false && !isSchoolAdmin && (
               <div className="mt-8 p-6 rounded-2xl bg-gradient-to-br from-primary to-primary-dark text-primary-foreground shadow-lg shadow-primary/20 relative overflow-hidden group">
                 <div className="relative z-10">
                   <div className="flex items-center gap-2 mb-3">
