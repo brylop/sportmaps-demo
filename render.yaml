@@ -1,6 +1,5 @@
 services:
   # ── Servicio existente: Python (Wompi webhooks) ───────────────────────────
-  # Upgradeado a Starter para eliminar cold starts en webhooks de pago
   - type: web
     name: sportmaps-demo
     runtime: python
@@ -12,25 +11,65 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.0
 
-  # ── Servicio nuevo: BFF Node.js ───────────────────────────────────────────
+  # ── BFF: Entorno de Desarrollo (Develop) ──────────────────────────────────
   - type: web
-    name: sportmaps-bff
+    name: sportmaps-bff-dev
     runtime: node
     plan: starter
+    branch: develop
     rootDir: bff
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm install && npm run build
     startCommand: npm start
-    healthCheckPath: /health
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: PORT
-        value: 10000
-      # Las siguientes se configuran manualmente en el dashboard de Render
-      # (nunca en el yaml — no commitear secrets)
+        value: 3000
+      - key: NODE_ENV
+        value: development
       - key: SUPABASE_URL
-        sync: false
+        value: https://luebjarufsiadojhvxgi.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URL
+        value: https://dev.sportmaps.co
+
+  # ── BFF: Entorno de Staging (Staging) ──────────────────────────────────────
+  - type: web
+    name: sportmaps-bff-stg
+    runtime: node
+    plan: starter
+    branch: staging
+    rootDir: bff
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: staging
+      - key: SUPABASE_URL
+        value: https://luebjarufsiadojhvxgi.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: FRONTEND_URL
+        value: https://stg.sportmaps.co
+
+  # ── BFF: Entorno de Producción (Main) ──────────────────────────────────────
+  - type: web
+    name: sportmaps-bff-prod
+    runtime: node
+    plan: starter
+    branch: main
+    rootDir: bff
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        value: https://luebjarufsiadojhvxgi.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://app.sportmaps.co
