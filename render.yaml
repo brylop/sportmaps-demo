@@ -18,7 +18,7 @@ services:
     plan: starter
     branch: develop
     rootDir: bff
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: PORT
@@ -39,7 +39,7 @@ services:
     plan: starter
     branch: staging
     rootDir: bff
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: PORT
@@ -60,7 +60,7 @@ services:
     plan: starter
     branch: main
     rootDir: bff
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: PORT
