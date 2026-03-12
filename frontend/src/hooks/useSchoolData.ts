@@ -312,6 +312,7 @@ export function useSchoolFacilities() {
     updateFacility: updateMutation.mutate,
     deleteFacility: deleteMutation.mutate,
     isCreating: createMutation.isPending,
+    isUpdating: updateMutation.isPending,
   };
 }
 

@@ -171,7 +171,9 @@ export default function SchoolFacilitiesPage() {
     isLoading: facilitiesLoading,
     createFacility,
     deleteFacility,
+    updateFacility,
     isCreating,
+    isUpdating: facilitiesUpdating,
   } = useSchoolFacilities();
 
   const {
@@ -192,6 +194,7 @@ export default function SchoolFacilitiesPage() {
 
   // UI state
   const [facilityDialogOpen, setFacilityDialogOpen] = useState(false);
+  const [editingFacility, setEditingFacility] = useState<any | null>(null);
   const [deleteFacilityId, setDeleteFacilityId] = useState<string | null>(null);
 
   // Reservation CRUD state
@@ -210,6 +213,26 @@ export default function SchoolFacilitiesPage() {
   const stableGetBookedSlots = useCallback(getBookedSlots, []);
 
   // Handlers
+  const handleFacilitySubmit = (data: any) => {
+    if (editingFacility) {
+      updateFacility({ id: editingFacility.id, ...data });
+    } else {
+      createFacility(data);
+    }
+    setFacilityDialogOpen(false);
+    setEditingFacility(null);
+  };
+
+  const handleOpenNewFacility = () => {
+    setEditingFacility(null);
+    setFacilityDialogOpen(true);
+  };
+
+  const handleEditFacility = (facility: any) => {
+    setEditingFacility(facility);
+    setFacilityDialogOpen(true);
+  };
+
   const handleDeleteFacility = () => {
     if (deleteFacilityId) { deleteFacility(deleteFacilityId); setDeleteFacilityId(null); }
   };
@@ -296,7 +319,7 @@ export default function SchoolFacilitiesPage() {
                 {facilities.length} espacio{facilities.length !== 1 ? 's' : ''} deportivo{facilities.length !== 1 ? 's' : ''} gestionado{facilities.length !== 1 ? 's' : ''}
               </p>
             </div>
-            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={() => setFacilityDialogOpen(true)}>
+            <Button className="font-bold h-11 shadow-lg shadow-primary/20" onClick={handleOpenNewFacility}>
               <Building2 className="w-4 h-4 mr-2" /> Agregar Instalación
             </Button>
           </div>
@@ -312,9 +335,14 @@ export default function SchoolFacilitiesPage() {
                       </div>
                       <h3 className="font-bold text-lg leading-tight">{facility.name}</h3>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteFacilityId(facility.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-primary hover:bg-primary/10" onClick={() => handleEditFacility(facility)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteFacilityId(facility.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                   
                   <div className="flex flex-wrap gap-2">
@@ -546,9 +574,13 @@ export default function SchoolFacilitiesPage() {
       {/* ── Facility form ── */}
       <FacilityFormDialog
         open={facilityDialogOpen}
-        onOpenChange={setFacilityDialogOpen}
-        onSubmit={createFacility}
-        isLoading={isCreating}
+        onOpenChange={(open) => {
+          setFacilityDialogOpen(open);
+          if (!open) setEditingFacility(null);
+        }}
+        onSubmit={handleFacilitySubmit}
+        isLoading={isCreating || facilitiesUpdating}
+        facility={editingFacility}
       />
 
       {/* ── Delete reservation confirm ── */}
