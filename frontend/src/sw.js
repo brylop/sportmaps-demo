@@ -1,3 +1,7 @@
+// Variable inyectada por vite-plugin-pwa en build time
+// Lo asignamos a self para evitar que el minificador (esbuild) lo borre
+self.__precacheManifest = [].concat(self.__WB_MANIFEST || []);
+
 const CACHE_NAME = 'sportmaps-v1'
 const STATIC_ASSETS = [
   '/',
