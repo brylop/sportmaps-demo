@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,13 +8,20 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { UserPlus } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const staffSchema = z.object({
   full_name: z.string().min(2, 'Nombre es requerido'),
   email: z.string().email('Email inválido'),
   phone: z.string().optional(),
   specialty: z.string().min(1, 'Especialidad es requerida'),
-  certifications: z.string().optional(),
 });
 
 type StaffFormData = z.infer<typeof staffSchema>;
@@ -22,7 +29,7 @@ type StaffFormData = z.infer<typeof staffSchema>;
 interface StaffFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { full_name: string; email: string; phone?: string; specialty?: string; certifications?: string[] }) => void;
+  onSubmit: (data: { full_name: string; email: string; phone?: string; specialty?: string }) => void;
   isLoading?: boolean;
 }
 
@@ -47,7 +54,6 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
       email: '',
       phone: '',
       specialty: '',
-      certifications: '',
     },
   });
 
@@ -57,7 +63,6 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
       email: data.email,
       phone: data.phone || undefined,
       specialty: data.specialty || undefined,
-      certifications: data.certifications ? data.certifications.split(',').map(c => c.trim()) : undefined,
     });
     form.reset();
     onOpenChange(false);
@@ -128,16 +133,6 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
             {form.formState.errors.specialty && (
               <p className="text-sm text-destructive">{form.formState.errors.specialty.message}</p>
             )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="certifications">Certificaciones</Label>
-            <Input
-              id="certifications"
-              placeholder="Ej: Licencia Pro, UEFA B, Preparador Físico"
-              {...form.register('certifications')}
-            />
-            <p className="text-xs text-muted-foreground">Separa las certificaciones con comas</p>
           </div>
 
           <DialogFooter>

@@ -11,7 +11,6 @@ interface Staff {
   email: string;
   phone: string | null;
   specialty: string | null;
-  certifications: string[] | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -34,7 +33,6 @@ interface StaffInput {
   email: string;
   phone?: string;
   specialty?: string;
-  certifications?: string[];
   status?: string;
 }
 
@@ -73,7 +71,7 @@ export function useSchoolStaff() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('school_staff')
-        .select('id, full_name, email, phone, specialty, certifications, status')
+        .select('id, full_name, email, phone, specialty, status')
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -93,7 +91,6 @@ export function useSchoolStaff() {
           email: input.email,
           phone: input.phone || null,
           specialty: input.specialty || null,
-          certifications: input.certifications || [],
         })
         .select()
         .single();
@@ -119,7 +116,6 @@ export function useSchoolStaff() {
           email: input.email,
           phone: input.phone || null,
           specialty: input.specialty || null,
-          certifications: input.certifications || [],
           ...(input.status ? { status: input.status } : {}),
         })
         .eq('id', id)

@@ -22,7 +22,24 @@ interface Plan {
     id: string;
     name: string;
     price: number;
-    max_sessions?: number | null;
+    max_sessions: number | null;
+    max_secondary_sessions: number;
+    duration_days: number;
+    metadata?: {
+        secondary_session_label?: string;
+        [key: string]: any;
+    };
+}
+
+interface Enrollment {
+    id: string;
+    user_id: string;
+    child_id?: string | null;
+    offering_plan_id: string;
+    status: string;
+    sessions_used: number;
+    secondary_sessions_used: number;
+    expires_at: string | null;
 }
 
 interface EnrollPlanStudentModalProps {
@@ -43,7 +60,7 @@ export function EnrollPlanStudentModal({
     offeringName,
 }: EnrollPlanStudentModalProps) {
     const [students, setStudents] = useState<Student[]>([]);
-    const [enrollmentMap, setEnrollmentMap] = useState<Map<string, string>>(new Map()); // ✅ Mapeo student -> enrollment_id
+    const [enrollmentMap, setEnrollmentMap] = useState<Map<string, Enrollment>>(new Map()); // ✅ studentId -> Enrollment object
     const [loading, setLoading] = useState(false);
     const [enrolling, setEnrolling] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -85,24 +102,33 @@ export function EnrollPlanStudentModal({
         }
     };
 
-    // ✅ CAMBIO: Filtrar por status: 'active' y crear mapeo
+    // ✅ CAMBIO: Obtener campos de sesiones y crear mapeo de objetos
     const loadEnrolledInPlan = async () => {
         if (!plan?.id) return;
         try {
             const { data, error } = await (supabase
                 .from('enrollments') as any)
-                .select('id, user_id, child_id')
+                .select('id, user_id, child_id, sessions_used, secondary_sessions_used, expires_at, status')
                 .eq('offering_plan_id', plan.id)
-                .eq('status', 'active');  // ✅ AGREGAR FILTRO
+                .eq('status', 'active');
 
             if (error) throw error;
 
-            // ✅ Crear mapeo: studentId -> enrollmentId
-            const map = new Map<string, string>();
+            // ✅ Crear mapeo: studentId -> Enrollment object
+            const map = new Map<string, Enrollment>();
             data?.forEach((enrollment: any) => {
                 const studentId = enrollment.child_id ?? enrollment.user_id;
                 if (studentId) {
-                    map.set(studentId, enrollment.id);
+                    map.set(studentId, {
+                        id: enrollment.id,
+                        user_id: enrollment.user_id || '',
+                        child_id: enrollment.child_id,
+                        offering_plan_id: plan.id,
+                        status: enrollment.status,
+                        sessions_used: enrollment.sessions_used || 0,
+                        secondary_sessions_used: enrollment.secondary_sessions_used || 0,
+                        expires_at: enrollment.expires_at,
+                    });
                 }
             });
 
@@ -144,9 +170,18 @@ export function EnrollPlanStudentModal({
                     description: `${student.full_name} ha sido inscrito en ${plan.name}.`,
                 });
 
-                // ✅ Actualizar mapeo localmente
+                // ✅ Actualizar mapeo localmente con datos iniciales
                 const newMap = new Map(enrollmentMap);
-                newMap.set(student.id, enrollmentId);
+                newMap.set(student.id, {
+                    id: enrollmentId,
+                    user_id: isAdult ? student.id : '',
+                    child_id: isAdult ? null : student.id,
+                    offering_plan_id: plan.id,
+                    status: 'active',
+                    sessions_used: 0,
+                    secondary_sessions_used: 0,
+                    expires_at: null,
+                });
                 setEnrollmentMap(newMap);
 
                 onSuccess();
@@ -169,9 +204,9 @@ export function EnrollPlanStudentModal({
 
         try {
             setEnrolling(student.id);
-            const enrollmentId = enrollmentMap.get(student.id);
+            const enrollment = enrollmentMap.get(student.id);
 
-            if (!enrollmentId) {
+            if (!enrollment) {
                 toast({
                     title: 'Error',
                     description: 'No se encontró el registro de inscripción',
@@ -184,7 +219,7 @@ export function EnrollPlanStudentModal({
             const { error } = await (supabase
                 .from('enrollments') as any)
                 .update({ status: 'cancelled' })
-                .eq('id', enrollmentId)
+                .eq('id', enrollment.id)
                 .eq('offering_plan_id', plan.id);
 
             if (error) throw error;
@@ -229,180 +264,193 @@ export function EnrollPlanStudentModal({
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-            <DialogContent className="max-w-2xl max-h-[90vh] z-[100]">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <UserPlus className="h-5 w-5 text-primary" />
-                        Inscribir en Plan
-                    </DialogTitle>
-                    <DialogDescription asChild>
-                        <div className="flex flex-col gap-2">
-                            <p>Asigna este plan a estudiantes de tu escuela.</p>
-                            <div className="flex flex-wrap gap-2 mt-1">
-                                <Badge variant="secondary" className="bg-primary/10 text-primary">
-                                    {offeringName}
+        <DialogContent className="max-w-2xl flex flex-col max-h-[95vh]">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <UserPlus className="h-5 w-5 text-primary" />
+                    Inscribir en Plan
+                </DialogTitle>
+                <DialogDescription asChild>
+                    <div className="flex flex-col gap-2">
+                        <p>Asigna este plan a estudiantes de tu escuela.</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                            <Badge variant="secondary" className="bg-primary/10 text-primary">
+                                {offeringName}
+                            </Badge>
+                            {plan && (
+                                <Badge variant="outline" className="font-bold">
+                                    {plan.name} - ${new Intl.NumberFormat('es-CO').format(plan.price)}
                                 </Badge>
-                                {plan && (
-                                    <Badge variant="outline" className="font-bold">
-                                        {plan.name} - ${new Intl.NumberFormat('es-CO').format(plan.price)}
-                                    </Badge>
-                                )}
-                            </div>
+                            )}
                         </div>
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-4 py-2">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Buscar por nombre o email..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10 h-9"
-                        />
                     </div>
+                </DialogDescription>
+            </DialogHeader>
 
-                    {plan && (
-                        <p className="text-[10px] text-muted-foreground px-1">
-                            {enrollmentMap.size} estudiante{enrollmentMap.size !== 1 ? 's' : ''} inscrito{enrollmentMap.size !== 1 ? 's' : ''}
-                        </p>
-                    )}
-
-                    <ScrollArea className="h-[400px] border rounded-md p-2">
-                        {loading ? (
-                            <div className="flex flex-col items-center justify-center py-12">
-                                <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                                <p className="text-muted-foreground text-sm">Cargando estudiantes...</p>
-                            </div>
-                        ) : students.length === 0 ? (
-                            <div className="text-center py-12">
-                                <Users className="h-12 w-12 mx-auto text-muted-foreground/20 mb-4" />
-                                <p className="text-muted-foreground text-sm">No hay estudiantes en la escuela</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-2">
-                                {/* Disponibles para inscribir */}
-                                {availableStudents.length > 0 && (
-                                    <>
-                                        <p className="text-xs font-semibold text-muted-foreground px-2 py-1">
-                                            Disponibles ({availableStudents.length})
-                                        </p>
-                                        {availableStudents.map((student) => {
-                                            const isCurrentlyEnrolling = enrolling === student.id;
-                                            return (
-                                                <Card
-                                                    key={student.id}
-                                                    className="border-border/50 hover:border-primary/30 transition-colors"
-                                                >
-                                                    <CardContent className="p-3">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="font-medium text-sm truncate">
-                                                                        {student.full_name}
-                                                                    </p>
-                                                                    <MedicalAlertBadge medicalInfo={student.medical_info} />
-                                                                </div>
-                                                                <p className="text-[11px] text-muted-foreground truncate">
-                                                                    {student.email || 'Sin email'}
-                                                                </p>
-                                                            </div>
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => handleEnroll(student)}
-                                                                disabled={isCurrentlyEnrolling}
-                                                                className="h-8 gap-1.5 shrink-0"
-                                                            >
-                                                                {isCurrentlyEnrolling ? (
-                                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                                ) : (
-                                                                    <>
-                                                                        <UserPlus className="h-3.5 w-3.5" />
-                                                                        <span>Inscribir</span>
-                                                                    </>
-                                                                )}
-                                                            </Button>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            );
-                                        })}
-                                    </>
-                                )}
-
-                                {/* Ya inscritos */}
-                                {alreadyEnrolled.length > 0 && (
-                                    <>
-                                        <p className="text-xs font-semibold text-muted-foreground px-2 py-1 mt-4">
-                                            Ya inscritos ({alreadyEnrolled.length})
-                                        </p>
-                                        {alreadyEnrolled.map((student) => {
-                                            const isCurrentlyEnrolling = enrolling === student.id;
-                                            return (
-                                                <Card
-                                                    key={student.id}
-                                                    className="bg-muted/50 opacity-70 border-border/50"
-                                                >
-                                                    <CardContent className="p-3">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="font-medium text-sm truncate">
-                                                                        {student.full_name}
-                                                                    </p>
-                                                                    <MedicalAlertBadge medicalInfo={student.medical_info} />
-                                                                </div>
-                                                                <p className="text-[11px] text-muted-foreground truncate">
-                                                                    {student.email || 'Sin email'}
-                                                                </p>
-                                                                {/* ✅ AGREGAR: Estadísticas */}
-                                                                <p className="text-[10px] text-blue-600 font-medium mt-1">
-                                                                    📅 Sesiones: 0/{plan.max_sessions || '∞'} usadas
-                                                                </p>
-                                                            </div>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => handleUnenroll(student)}
-                                                                disabled={isCurrentlyEnrolling}
-                                                                className="h-8 gap-1.5 shrink-0 text-destructive border-destructive hover:bg-destructive/10"
-                                                            >
-                                                                {isCurrentlyEnrolling ? (
-                                                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                                                ) : (
-                                                                    <>
-                                                                        <Trash2 className="h-3.5 w-3.5" />
-                                                                        <span>Remover</span>
-                                                                    </>
-                                                                )}
-                                                            </Button>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            );
-                                        })}
-                                    </>
-                                )}
-
-                                {/* Sin resultados */}
-                                {availableStudents.length === 0 && alreadyEnrolled.length === 0 && (
-                                    <div className="text-center py-12">
-                                        <Users className="h-12 w-12 mx-auto text-muted-foreground/20 mb-4" />
-                                        <p className="text-muted-foreground text-sm">No hay resultados</p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </ScrollArea>
+            <div className="flex-1 flex flex-col gap-4 py-2 overflow-hidden">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Buscar por nombre o email..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 h-9"
+                    />
                 </div>
 
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>
-                        Cerrar
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
+                {plan && (
+                    <p className="text-[10px] text-muted-foreground px-1">
+                        {enrollmentMap.size} estudiante{enrollmentMap.size !== 1 ? 's' : ''} inscrito{enrollmentMap.size !== 1 ? 's' : ''}
+                    </p>
+                )}
+
+                <ScrollArea className="flex-1 border rounded-md p-2">
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center py-12">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
+                            <p className="text-muted-foreground text-sm">Cargando estudiantes...</p>
+                        </div>
+                    ) : students.length === 0 ? (
+                        <div className="text-center py-12">
+                            <Users className="h-12 w-12 mx-auto text-muted-foreground/20 mb-4" />
+                            <p className="text-muted-foreground text-sm">No hay estudiantes en la escuela</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {/* Disponibles para inscribir */}
+                            {availableStudents.length > 0 && (
+                                <>
+                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">
+                                        Disponibles ({availableStudents.length})
+                                    </p>
+                                    {availableStudents.map((student) => {
+                                        const isCurrentlyEnrolling = enrolling === student.id;
+                                        return (
+                                            <Card
+                                                key={student.id}
+                                                className="border-border/50 hover:border-primary/30 transition-colors"
+                                            >
+                                                <CardContent className="p-3">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-medium text-sm truncate">
+                                                                    {student.full_name}
+                                                                </p>
+                                                                <MedicalAlertBadge medicalInfo={student.medical_info} />
+                                                            </div>
+                                                            <p className="text-[11px] text-muted-foreground truncate">
+                                                                {student.email || 'Sin email'}
+                                                            </p>
+                                                        </div>
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleEnroll(student)}
+                                                            disabled={isCurrentlyEnrolling}
+                                                            className="h-8 gap-1.5 shrink-0"
+                                                        >
+                                                            {isCurrentlyEnrolling ? (
+                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                            ) : (
+                                                                <>
+                                                                    <UserPlus className="h-3.5 w-3.5" />
+                                                                    <span>Inscribir</span>
+                                                                </>
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })}
+                                </>
+                            )}
+
+                            {/* Ya inscritos */}
+                            {plan && alreadyEnrolled.length > 0 && (
+                                <>
+                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1 mt-4">
+                                        📊 Ya inscritos ({alreadyEnrolled.length})
+                                    </p>
+                                    {alreadyEnrolled.map((student) => {
+                                        const isCurrentlyEnrolling = enrolling === student.id;
+                                        const enrollment = enrollmentMap.get(student.id);
+                                        return (
+                                            <Card
+                                                key={`enrollment-${enrollment?.id || student.id}`}
+                                                className="bg-muted/50 opacity-70 border-border/50"
+                                            >
+                                                <CardContent className="p-3">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-medium text-sm truncate">
+                                                                    {student.full_name}
+                                                                </p>
+                                                                <MedicalAlertBadge medicalInfo={student.medical_info} />
+                                                            </div>
+                                                            <p className="text-[11px] text-muted-foreground truncate">
+                                                                {student.email || 'Sin email'}
+                                                            </p>
+                                                            {/* ✅ Sesiones Dinámicas */}
+                                                            <div className="text-[10px] text-blue-600 font-medium mt-1 space-y-0.5">
+                                                                <p>
+                                                                    📅 Sesiones: {enrollment?.sessions_used || 0}/
+                                                                    {plan.max_sessions === null ? '∞' : plan.max_sessions || '0'} usadas
+                                                                </p>
+                                                                
+                                                                {/* ✅ Sesiones secundarias si existen */}
+                                                                {(plan.max_secondary_sessions || 0) > 0 && (
+                                                                    <p>
+                                                                        💪 {(plan.metadata?.secondary_session_label as string) || 'Sesiones secundarias'}: {enrollment?.secondary_sessions_used || 0}/
+                                                                        {plan.max_secondary_sessions}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleUnenroll(student)}
+                                                            disabled={isCurrentlyEnrolling}
+                                                            className="h-8 gap-1.5 shrink-0 text-destructive border-destructive hover:bg-destructive/10"
+                                                        >
+                                                            {isCurrentlyEnrolling ? (
+                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                            ) : (
+                                                                <>
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                    <span>Remover</span>
+                                                                </>
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })}
+                                </>
+                            )}
+
+                            {/* Sin resultados */}
+                            {availableStudents.length === 0 && alreadyEnrolled.length === 0 && (
+                                <div className="text-center py-12">
+                                    <Users className="h-12 w-12 mx-auto text-muted-foreground/20 mb-4" />
+                                    <p className="text-muted-foreground text-sm">No hay resultados</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </ScrollArea>
+            </div>
+
+            <DialogFooter>
+                <Button variant="outline" onClick={onClose}>
+                    Cerrar
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+
         </Dialog>
     );
 }

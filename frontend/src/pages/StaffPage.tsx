@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserPlus, Mail, Trash2, Users, UserMinus, UserCheck } from 'lucide-react';
+import { UserPlus, Mail, Trash2, Users, UserMinus, UserCheck, Clock } from 'lucide-react';
 import { useSchoolStaff } from '@/hooks/useSchoolData';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { StaffFormDialog } from '@/components/school/StaffFormDialog';
+import { AvailabilityModal } from '@/components/school/AvailabilityModal';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
 import {
@@ -22,9 +24,12 @@ import {
 
 export default function StaffPage() {
   const { staff, isLoading, createStaff, updateStaff, deleteStaff, isCreating } = useSchoolStaff();
+  const { schoolId } = useSchoolContext();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('active');
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [selectedCoach, setSelectedCoach] = useState<any>(null);
 
   const filteredStaff = staff.filter(member =>
     activeTab === 'active' ? member.status === 'active' : member.status !== 'active'
@@ -37,7 +42,6 @@ export default function StaffPage() {
       email: member.email,
       phone: member.phone,
       specialty: member.specialty,
-      certifications: member.certifications,
       status: member.status === 'active' ? 'inactive' : 'active'
     });
   };
@@ -47,6 +51,11 @@ export default function StaffPage() {
       deleteStaff(deleteId);
       setDeleteId(null);
     }
+  };
+
+  const handleOpenAvailability = (member: any) => {
+    setSelectedCoach(member);
+    setAvailabilityOpen(true);
   };
 
   if (isLoading) {
@@ -115,7 +124,6 @@ export default function StaffPage() {
                 <TableHead>Email</TableHead>
                 <TableHead>Teléfono</TableHead>
                 <TableHead>Especialidad</TableHead>
-                <TableHead>Certificaciones</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Acciones</TableHead>
               </TableRow>
@@ -123,7 +131,7 @@ export default function StaffPage() {
             <TableBody>
               {filteredStaff.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     No hay entrenadores en esta categoría.
                   </TableCell>
                 </TableRow>
@@ -137,20 +145,19 @@ export default function StaffPage() {
                       <Badge variant="secondary">{member.specialty || 'Sin asignar'}</Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1 flex-wrap max-w-[200px]">
-                        {member.certifications?.slice(0, 2).map((cert, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">{cert}</Badge>
-                        ))}
-                        {member.certifications && member.certifications.length > 2 && (
-                          <Badge variant="outline" className="text-xs">+{member.certifications.length - 2}</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
                       <Badge className="bg-primary">{member.status === 'active' ? 'Activo' : 'Inactivo'}</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Gestionar disponibilidad"
+                          onClick={() => handleOpenAvailability(member)}
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        >
+                          <Clock className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="sm">
                           <Mail className="h-4 w-4" />
                         </Button>
@@ -189,6 +196,16 @@ export default function StaffPage() {
         onSubmit={createStaff}
         isLoading={isCreating}
       />
+
+      {selectedCoach && (
+        <AvailabilityModal
+          open={availabilityOpen}
+          onOpenChange={setAvailabilityOpen}
+          coachId={selectedCoach.id}
+          coachName={selectedCoach.full_name}
+          schoolId={schoolId || ''}
+        />
+      )}
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

@@ -12,6 +12,7 @@ import {
 import { useOfferings, Offering } from '@/hooks/useOfferings';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { SPORTS_CATALOG, searchSports } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
@@ -249,6 +250,7 @@ function SportSearchCombobox({
 export function OfferingsManagement() {
     const { toast } = useToast();
     const { schoolId } = useSchoolContext();
+    const queryClient = useQueryClient();
     const { offerings, isLoading, createOffering, updateOffering, deleteOffering, createPlan, updatePlan } = useOfferings();
 
     const [showCreate, setShowCreate] = useState(false);
@@ -619,8 +621,10 @@ export function OfferingsManagement() {
             {/* Modal de Inscripción */}
             <EnrollPlanStudentModal
                 open={enrollModal.open}
-                onClose={() => setEnrollModal({ ...enrollModal, open: false })}
-                onSuccess={() => { }}
+                onClose={() => setEnrollModal({ open: false, offering: null, plan: null })}
+                onSuccess={() => {
+                    queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+                }}
                 schoolId={schoolId || ''}
                 plan={enrollModal.plan}
                 offeringName={enrollModal.offering?.name || ''}
