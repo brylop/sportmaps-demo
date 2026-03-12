@@ -4,13 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign } from 'lucide-react';
-import { getAthletePayments, submitAthleteInstallment } from '@/lib/athlete/queries';
+import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign, Building2, Plus } from 'lucide-react';
+import { getAthletePayments, submitAthleteInstallment, getAthleteEnrollments, AthleteEnrollment } from '@/lib/athlete/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 
 interface Payment {
   id: string;
@@ -42,6 +43,13 @@ export default function AthletePaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
 
+  // New Payment Flow State
+  const [enrollments, setEnrollments] = useState<AthleteEnrollment[]>([]);
+  const [showEnrollmentPicker, setShowEnrollmentPicker] = useState(false);
+  const [selectedEnrollment, setSelectedEnrollment] = useState<AthleteEnrollment | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [loadingEnrollments, setLoadingEnrollments] = useState(false);
+
   useEffect(() => {
     if (user) fetchPayments();
   }, [user, activeTab]);
@@ -67,6 +75,31 @@ export default function AthletePaymentsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOpenPicker = async () => {
+    try {
+      setLoadingEnrollments(true);
+      setShowEnrollmentPicker(true);
+      const data = await getAthleteEnrollments();
+      // Filter only active enrollments or those that might need payment
+      setEnrollments(data || []);
+    } catch (err) {
+      console.error('Error fetching enrollments:', err);
+      toast({
+        title: 'Error',
+        description: 'No se pudieron cargar tus inscripciones.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingEnrollments(false);
+    }
+  };
+
+  const handleSelectEnrollment = (enrollment: AthleteEnrollment) => {
+    setSelectedEnrollment(enrollment);
+    setShowEnrollmentPicker(false);
+    setShowPaymentModal(true);
   };
 
   const pendingPaymentsCount = summary?.count_pending || 0;
@@ -95,9 +128,18 @@ export default function AthletePaymentsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Mis Pagos</h1>
-        <p className="text-muted-foreground">Gestiona tus pagos y consulta tu historial.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Mis Pagos</h1>
+          <p className="text-muted-foreground">Gestiona tus pagos y consulta tu historial.</p>
+        </div>
+        <Button 
+          className="bg-emerald-600 hover:bg-emerald-700 w-full sm:w-auto"
+          onClick={handleOpenPicker}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Nuevo Pago
+        </Button>
       </div>
 
       {/* Summary cards */}
@@ -196,6 +238,77 @@ export default function AthletePaymentsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Enrollment Picker Dialog */}
+      <Dialog open={showEnrollmentPicker} onOpenChange={setShowEnrollmentPicker}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Selecciona qué deseas pagar</DialogTitle>
+            <DialogDescription>
+              Elige una de tus inscripciones activas para realizar un nuevo pago.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-4 max-h-[400px] overflow-y-auto">
+            {loadingEnrollments ? (
+              <div className="py-8 text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                <p className="text-sm text-muted-foreground mt-2">Cargando inscripciones...</p>
+              </div>
+            ) : enrollments.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm text-muted-foreground">No tienes inscripciones activas para pagar.</p>
+              </div>
+            ) : (
+              enrollments.map((enrollment) => (
+                <button
+                  key={enrollment.id}
+                  onClick={() => handleSelectEnrollment(enrollment)}
+                  className="w-full text-left p-4 rounded-xl border hover:border-emerald-500 hover:bg-emerald-50 transition-all group relative overflow-hidden"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0 group-hover:bg-emerald-200 transition-colors">
+                      <Building2 className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-foreground group-hover:text-emerald-700 transition-colors truncate">
+                        {enrollment.program_name}
+                      </p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {enrollment.school_name} • {enrollment.sport}
+                      </p>
+                      {enrollment.price_monthly > 0 && (
+                        <p className="text-xs font-medium text-emerald-600 mt-1">
+                          Mensualidad: ${enrollment.price_monthly.toLocaleString('es-CO')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Modal Integration */}
+      {selectedEnrollment && (
+        <PaymentCheckoutModal
+          open={showPaymentModal}
+          onOpenChange={setShowPaymentModal}
+          studentId={user?.id || ''} // Usamos el ID del usuario (atleta adulto)
+          schoolId={selectedEnrollment.school_id}
+          programId={selectedEnrollment.program_id || selectedEnrollment.team_id || ''}
+          amount={selectedEnrollment.price_monthly}
+          concept={`Pago mensualidad - ${selectedEnrollment.program_name}`}
+          mode="create"
+          onSuccess={() => {
+            fetchPayments();
+            setShowPaymentModal(false);
+            setSelectedEnrollment(null);
+          }}
+        />
+      )}
     </div>
   );
 }

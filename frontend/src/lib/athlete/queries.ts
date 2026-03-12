@@ -10,7 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 // ─── Dashboard Stats ────────────────────────────────────────
 export async function getAthleteDashboardStats() {
-  const { data, error } = await supabase.rpc('get_athlete_dashboard_stats');
+  const { data, error } = await (supabase as any).rpc('get_athlete_dashboard_stats');
   if (error) throw error;
   return data as {
     trainings_this_month: number;
@@ -45,7 +45,7 @@ export async function updateAthleteProfile(userId: string, updates: Record<strin
 
 // ─── Bookings ────────────────────────────────────────────────
 export async function getAthleteBookings(userId: string, filters?: { status?: string }) {
-  let query = supabase
+  let query = (supabase as any)
     .from('bookings')
     .select(`
       *,
@@ -66,16 +66,42 @@ export async function getAthleteBookings(userId: string, filters?: { status?: st
   return data;
 }
 
+export interface AthleteEnrollment {
+  id: string;
+  enrollment_status: string;
+  start_date: string;
+  end_date: string | null;
+  expires_at: string | null;
+  sessions_used: number;
+  program_id: string | null;
+  team_id: string | null;
+  program_name: string;
+  sport: string;
+  level: string;
+  image_url: string | null;
+  price_monthly: number;
+  school_id: string;
+  school_name: string;
+  school_logo: string | null;
+  school_primary_color: string;
+  payment_id: string | null;
+  payment_status: string | null;
+  payment_amount_cents: number | null;
+  payment_due_date: string | null;
+  has_pending_payment: boolean;
+  has_processing_payment: boolean;
+}
+
 // ─── Enrollments ─────────────────────────────────────────────
 export async function getAthleteEnrollments() {
-  const { data, error } = await supabase.rpc('get_athlete_enrollments');
+  const { data, error } = await (supabase as any).rpc('get_athlete_enrollments');
   if (error) throw error;
-  return data as any[];
+  return data as AthleteEnrollment[];
 }
 
 // ─── Teams ───────────────────────────────────────────────────
 export async function getAthleteTeams(userId: string) {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('team_members')
     .select(`
       *,
@@ -145,7 +171,7 @@ export async function getAthletePayments(params: {
   });
 
   if (error) throw error;
-  return data as {
+  return data as unknown as {
     data: any[];
     total: number;
     summary: {
@@ -165,7 +191,7 @@ export async function submitAthleteInstallment(params: {
   receipt_date: string;
   payment_method: string;
 }) {
-  const { data, error } = await supabase.rpc('submit_athlete_installment', {
+  const { data, error } = await (supabase as any).rpc('submit_athlete_installment', {
     p_athlete_payment_id: params.athlete_payment_id,
     p_amount_cents: params.amount_cents,
     p_receipt_url: params.receipt_url,
@@ -179,7 +205,7 @@ export async function submitAthleteInstallment(params: {
 // ─── Calendar Events (unified) ──────────────────────────────
 export async function getAthleteCalendarEvents(userId: string, startDate: string, endDate: string) {
   // 1. Bookings (trials + sessions)
-  const { data: bookings, error: bErr } = await supabase
+  const { data: bookings, error: bErr } = await (supabase as any)
     .from('bookings')
     .select(`
       id, scheduled_at, booking_type, status, notes,
