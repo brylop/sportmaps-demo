@@ -124,11 +124,11 @@ const EventManagementPage = lazy(() => import("./pages/organizer/EventManagement
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,        // 5 min de cache
-      gcTime: 10 * 60 * 1000,           // 10 min en memoria
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
       retry: 1,
-      refetchOnWindowFocus: false,      // Evita refetch innecesario al volver al tab
-      refetchOnReconnect: 'always',     // Siempre refetch al reconectar (crítico mobile)
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: 'always',
     },
   },
 });
@@ -152,14 +152,22 @@ const EnvironmentBanner = () => {
   );
 };
 
+// ─── Layout autenticado con SchoolProvider ────────────────────────────────────
+// SchoolProvider va AQUÍ — dentro de AuthProvider y BrowserRouter,
+// solo envuelve las rutas autenticadas donde realmente se necesita.
+const AuthenticatedLayout = () => (
+  <SchoolProvider>
+    <AuthLayout />
+  </SchoolProvider>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <ThemeProvider>
         <AuthProvider>
           <ErrorBoundary>
-            <SchoolProvider>
-              <CartProvider>
+            <CartProvider>
               <Toaster />
               <Sonner />
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -170,7 +178,6 @@ const App = () => (
                   <Routes>
                     {/* Public routes */}
                     <Route path="/" element={<Index />} />
-
                     <Route path="/explore" element={<ExplorePage />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
                     <Route path="/escuela/:id" element={<SchoolProfilePage />} />
@@ -180,19 +187,13 @@ const App = () => (
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
                     <Route path="/checkout" element={
-                      <ProtectedRoute>
-                        <CheckoutPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><CheckoutPage /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
-                      <ProtectedRoute>
-                        <SchoolSetupPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>
                     } />
                     <Route path="/parent-checkout" element={
-                      <ProtectedRoute>
-                        <ParentCheckoutPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><ParentCheckoutPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/unauthorized" element={<UnauthorizedPage />} />
@@ -202,10 +203,10 @@ const App = () => (
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
-                    {/* Main authenticated routes */}
+                    {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
                       <ProtectedRoute>
-                        <AuthLayout />
+                        <AuthenticatedLayout />  {/* ← SchoolProvider wrappea AuthLayout */}
                       </ProtectedRoute>
                     }>
                       <Route path="dashboard" element={<DashboardPage />} />
@@ -360,7 +361,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
 
-                      {/* Store routes (role-guarded) */}
+                      {/* Store routes */}
                       <Route path="products" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
                           <StoreProductsPage />
@@ -407,7 +408,7 @@ const App = () => (
                       <Route path="organizer/create-event" element={<CreateEventPage />} />
                       <Route path="organizer/event/:id" element={<EventManagementPage />} />
 
-                      {/* Admin routes — allowedRoles includes 'school' for the Global Admin (owner) */}
+                      {/* Admin routes */}
                       <Route path="admin/users" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminUsersPage />
@@ -440,21 +441,17 @@ const App = () => (
                       } />
                     </Route>
 
-                    {/* Catch-all route */}
+                    {/* Catch-all */}
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Suspense>
 
-                {/* Mobile Bottom Navigation */}
                 <MobileBottomNav />
-
-                {/* Global Cart Drawer */}
                 <CartDrawer />
               </BrowserRouter>
             </CartProvider>
-          </SchoolProvider>
-        </ErrorBoundary>
-      </AuthProvider>
+          </ErrorBoundary>
+        </AuthProvider>
       </ThemeProvider>
     </TooltipProvider>
   </QueryClientProvider>
