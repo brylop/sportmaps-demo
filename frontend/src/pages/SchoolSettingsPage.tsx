@@ -144,10 +144,11 @@ export default function SchoolSettingsPage() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* Identidad Visual (Logo y Colores) */}
+                {/* Identidad Visual (Logo y Colores) - Ocultado temporalmente
                 <div className="md:col-span-2">
                     <BrandingSettingsForm />
                 </div>
+                */}
 
                 {/* Basic Info */}
                 <Card>

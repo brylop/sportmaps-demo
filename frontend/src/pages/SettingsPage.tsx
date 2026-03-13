@@ -155,6 +155,7 @@ export default function SettingsPage() {
                     <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'services' ? 'rotate-90' : ''}`} />
                   </TabsTrigger>
 
+                  {/* Branding tab temporarily hidden as per user request
                   <TabsTrigger 
                     value="branding" 
                     className="justify-start gap-3 h-12 px-4 rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-md data-[state=active]:text-primary transition-all duration-200"
@@ -163,6 +164,7 @@ export default function SettingsPage() {
                     <span>Branding</span>
                     <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'branding' ? 'rotate-90' : ''}`} />
                   </TabsTrigger>
+                  */}
                 </>
               )}
 
@@ -236,9 +238,11 @@ export default function SettingsPage() {
                   <ServicesSection services={services} schoolName={data?.school?.name} />
                 </TabsContent>
                 
+                {/* Branding tab content temporarily hidden
                 <TabsContent value="branding" className="mt-0">
                     <BrandingSettingsForm />
                 </TabsContent>
+                */}
               </>
             )}
 
