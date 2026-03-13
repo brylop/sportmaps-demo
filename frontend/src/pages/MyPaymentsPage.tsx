@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
+import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
@@ -105,10 +105,14 @@ export default function MyPaymentsPage() {
   const [loadingInstallments, setLoadingInstallments] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (user && profile) {
+      if (profile.role === 'athlete') {
+        window.location.href = '/athlete-payments';
+        return;
+      }
       fetchPaymentData();
     }
-  }, [user]);
+  }, [user, profile]);
 
   const fetchPaymentData = async () => {
     try {

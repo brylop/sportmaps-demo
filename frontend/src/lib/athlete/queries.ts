@@ -185,18 +185,20 @@ export async function getAthletePayments(params: {
 }
 
 export async function submitAthleteInstallment(params: {
-  athlete_payment_id: string;
-  amount_cents: number;
-  receipt_url: string;
-  receipt_date: string;
-  payment_method: string;
+  athletePaymentId: string;
+  amountCents: number;
+  receiptUrl: string;
+  receiptDate: string;
+  paymentMethod: string;
+  notes?: string;
 }) {
   const { data, error } = await (supabase as any).rpc('submit_athlete_installment', {
-    p_athlete_payment_id: params.athlete_payment_id,
-    p_amount_cents: params.amount_cents,
-    p_receipt_url: params.receipt_url,
-    p_receipt_date: params.receipt_date,
-    p_payment_method: params.payment_method
+    p_athlete_payment_id: params.athletePaymentId,
+    p_amount_cents: params.amountCents,
+    p_receipt_url: params.receiptUrl,
+    p_receipt_date: params.receiptDate,
+    p_payment_method: params.paymentMethod,
+    ...(params.notes ? { p_notes: params.notes } : {})
   });
   if (error) throw error;
   return data;
