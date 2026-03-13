@@ -122,7 +122,7 @@ export function useSettings() {
   const updateNotificationPreferences = async (prefs: Record<string, boolean>) => {
     setSaving(true);
     try {
-      const { data: success, error } = await supabase.rpc('save_notification_preferences', {
+      const { data: success, error } = await (supabase.rpc as any)('save_notification_preferences', {
         p_preferences: prefs
       });
       if (error) throw error;
@@ -155,7 +155,7 @@ export function useSettings() {
   const updatePrivacyPreferences = async (prefs: Record<string, boolean>) => {
     setSaving(true);
     try {
-      const { data: success, error } = await supabase.rpc('save_privacy_preferences', {
+      const { data: success, error } = await (supabase.rpc as any)('save_privacy_preferences', {
         p_preferences: prefs
       });
       if (error) throw error;

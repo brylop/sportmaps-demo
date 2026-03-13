@@ -248,7 +248,7 @@ export default function PaymentsAutomationPage() {
 
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
-    const newStatus = action === 'approve' ? 'paid' : 'rejected';
+    const newStatus = action === 'approve' ? 'paid' : 'failed';
     try {
       const { error: updateError } = await supabase.from('payments').update({ status: newStatus }).eq('id', paymentId);
       if (updateError) throw updateError;
