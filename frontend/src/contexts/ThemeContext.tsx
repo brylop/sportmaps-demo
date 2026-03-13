@@ -76,12 +76,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const isBrandingRole = ['owner', 'admin', 'school_admin', 'school', 'parent', 'coach'].includes(currentUserRole || '');
 
   // Decide which branding to use.
-  // Priority: Preview > School Branding (only for restricted roles) > Default SportMaps
-  const branding: BrandingSettings = previewBranding || (
-    schoolId && isBrandingRole && schoolBranding?.branding_settings
-      ? { ...DEFAULT_BRANDING, ...schoolBranding.branding_settings }
-      : DEFAULT_BRANDING
-  );
+  // Temporarily overridden to strictly use DEFAULT_BRANDING while feature is fixed
+  const branding: BrandingSettings = previewBranding || DEFAULT_BRANDING;
 
   useEffect(() => {
     // Only apply institutional branding if there's a valid school context for the role OR if we are in preview mode
@@ -118,11 +114,8 @@ export function useTheme() {
 
 // === Branding Export ===
 export function useBranding(): BrandingSettings {
-  const { schoolBranding } = useSchoolContext();
-  return {
-    ...DEFAULT_BRANDING,
-    ...(schoolBranding?.branding_settings ?? {}),
-  };
+  // Temporarily overridden to strictly use DEFAULT_BRANDING while feature is fixed
+  return DEFAULT_BRANDING;
 }
 
 // === Helper Functions ===
