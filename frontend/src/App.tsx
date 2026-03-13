@@ -152,25 +152,24 @@ const EnvironmentBanner = () => {
   );
 };
 
-// ─── Layout autenticado con SchoolProvider ────────────────────────────────────
-// SchoolProvider va AQUÍ — dentro de AuthProvider y BrowserRouter,
-// solo envuelve las rutas autenticadas donde realmente se necesita.
+// ─── Layout autenticado ────────────────────────────────────
+// Removemos el SchoolProvider de aquí porque ThemeProvider y ProtectedRoute 
+// necesitan el contexto de la escuela (para colores y roles) ANTES de llegar aquí.
 const AuthenticatedLayout = () => (
-  <SchoolProvider>
-    <AuthLayout />
-  </SchoolProvider>
+  <AuthLayout />
 );
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <ErrorBoundary>
-            <CartProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
+        <SchoolProvider>
+          <ThemeProvider>
+            <ErrorBoundary>
+              <CartProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <EnvironmentBanner />
                 <UpdateBanner />
                 <InstallBanner />
@@ -451,10 +450,11 @@ const App = () => (
               </BrowserRouter>
             </CartProvider>
           </ErrorBoundary>
-        </AuthProvider>
-      </ThemeProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
+        </ThemeProvider>
+      </SchoolProvider>
+    </AuthProvider>
+  </TooltipProvider>
+</QueryClientProvider>
 );
 
 export default App;
