@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -70,21 +70,20 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   const [loadingBank, setLoadingBank] = useState(false);
 
   // Fetch school banking settings if we have a schoolId
-  useState(() => {
-    if (item.schoolId) {
-      const fetchBank = async () => {
-        setLoadingBank(true);
-        const { data } = await supabase
-          .from('school_settings')
-          .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id')
-          .eq('school_id', item.schoolId)
-          .maybeSingle();
-        if (data) setBankSettings(data);
-        setLoadingBank(false);
-      };
-      fetchBank();
-    }
-  });
+  useEffect(() => {
+    if (!item.schoolId) return;
+    const fetchBank = async () => {
+      setLoadingBank(true);
+      const { data } = await supabase
+        .from('school_settings')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id')
+        .eq('school_id', item.schoolId)
+        .maybeSingle();
+      if (data) setBankSettings(data);
+      setLoadingBank(false);
+    };
+    fetchBank();
+  }, [item.schoolId]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
