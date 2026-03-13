@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -80,16 +81,17 @@ export interface SchoolContext {
     refreshSchoolBranding: () => Promise<void>;
 }
 
+const SchoolContext = createContext<SchoolContext | undefined>(undefined);
+
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
 const DEMO_SCHOOL_EMAIL = import.meta.env.VITE_DEMO_SCHOOL_EMAIL || '';
 const DEFAULT_MONTHLY_FEE = 150000; // COP
 const STORAGE_KEY_ACTIVE_SCHOOL = 'sportmaps_active_school_id';
 
 /**
- * Hook reutilizable que resuelve el contexto de la escuela actual.
- * Soporta múltiples escuelas por usuario (Multitenancy).
+ * Internal hook that manages the school context state.
  */
-export function useSchoolContext(): SchoolContext {
+function useSchoolContextManager(): SchoolContext {
     const [activeSchoolId, setActiveSchoolId] = useState<string | null>(null);
     const [activeSchoolName, setActiveSchoolName] = useState('Escuela');
     const [currentUserRole, setCurrentUserRole] = useState<SchoolRole['role'] | null>(null);
@@ -459,6 +461,25 @@ export function useSchoolContext(): SchoolContext {
 }
 
 /**
+ * Provider component. Avoids JSX so this file stays as .ts
+ */
+export function SchoolProvider({ children }: { children: React.ReactNode }) {
+    const value = useSchoolContextManager();
+    return React.createElement(SchoolContext.Provider, { value }, children);
+}
+
+/**
+ * Hook to consume the school context from any component.
+ */
+export function useSchoolContext(): SchoolContext {
+    const context = useContext(SchoolContext);
+    if (context === undefined) {
+        throw new Error('useSchoolContext must be used within a <SchoolProvider>');
+    }
+    return context;
+}
+
+/**
  * Helper: Crea un estudiante y su pago pendiente de forma atómica.
  * Reutilizable desde cualquier flujo (modal, CSV, invitación).
  * 
@@ -561,11 +582,14 @@ export async function createStudentWithPendingPayment(params: {
                 p_monthly_fee: params.monthlyFee
             });
 
-            if (inviteError) {
-                console.error('Error recording invitation in DB:', inviteError.message);
+            if (inviteError || !inviteId) {
+                // Without a valid inviteId the registration link would be broken.
+                // Log and skip the email rather than sending a useless link.
+                console.error('Error recording invitation in DB — skipping email send:', inviteError?.message ?? 'No inviteId returned');
+                return { childId, success: true, childInserted: true, paymentInserted: !paymentError };
             }
 
-            const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId || ''}`;
+            const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId}`;
 
             await emailClient.send({
                 type: 'parent_invitation',

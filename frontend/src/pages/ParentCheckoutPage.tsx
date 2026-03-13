@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload, Eye, EyeOff, Copy } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,6 +15,7 @@ import { downloadReceipt } from '@/lib/receipt-generator';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
+import { maskSensitive } from '@/lib/utils';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ export default function ParentCheckoutPage() {
   const [receiptNumber, setReceiptNumber] = useState('');
   const [wompiTxId, setWompiTxId] = useState('');
   const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
+  const [showSensitive, setShowSensitive] = useState(false);
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
@@ -348,13 +350,88 @@ export default function ParentCheckoutPage() {
                       {paymentFlow === 'manual' && bankDetails && (
                         <div className="pl-7 pt-2 animate-in fade-in slide-in-from-top-2">
                           <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs mb-3">
-                            <p className="text-muted-foreground font-sans mb-2 font-semibold">Datos de Transferencia:</p>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-muted-foreground font-sans font-semibold">Datos de Transferencia:</p>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-[10px] font-sans" 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowSensitive(!showSensitive);
+                                }}
+                              >
+                                {showSensitive ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                                {showSensitive ? "Ocultar" : "Mostrar"}
+                              </Button>
+                            </div>
+                            
                             {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
-                            {bankDetails.bank_account_number && <p><strong>Número:</strong> {bankDetails.bank_account_number}</p>}
-                            {bankDetails.nequi_number && <p><strong>Nequi:</strong> {bankDetails.nequi_number}</p>}
-                            {bankDetails.daviplata_number && <p><strong>Daviplata:</strong> {bankDetails.daviplata_number}</p>}
+                            
+                            {bankDetails.bank_account_number && (
+                              <div className="flex justify-between items-center group">
+                                <p><strong>Número:</strong> {showSensitive ? bankDetails.bank_account_number : maskSensitive(bankDetails.bank_account_number)}</p>
+                                {showSensitive && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
+                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_account_number); }}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            
+                            {bankDetails.nequi_number && (
+                              <div className="flex justify-between items-center group">
+                                <p><strong>Nequi:</strong> {showSensitive ? bankDetails.nequi_number : maskSensitive(bankDetails.nequi_number)}</p>
+                                {showSensitive && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
+                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.nequi_number); }}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            
+                            {bankDetails.daviplata_number && (
+                              <div className="flex justify-between items-center group">
+                                <p><strong>Daviplata:</strong> {showSensitive ? bankDetails.daviplata_number : maskSensitive(bankDetails.daviplata_number)}</p>
+                                {showSensitive && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
+                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.daviplata_number); }}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            
                             {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
-                            {bankDetails.bank_titular_id && <p><strong>NIT/CC:</strong> {bankDetails.bank_titular_id}</p>}
+                            {bankDetails.bank_titular_id && (
+                              <div className="flex justify-between items-center group">
+                                <p><strong>NIT/CC:</strong> {showSensitive ? bankDetails.bank_titular_id : maskSensitive(bankDetails.bank_titular_id)}</p>
+                                {showSensitive && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
+                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_titular_id); }}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {bankDetails.payment_qr_url && (

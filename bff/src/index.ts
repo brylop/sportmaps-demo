@@ -95,8 +95,8 @@ app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/sport-configs', generalLimiter, sportConfigsRouter);
 app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
-app.use('/api/explorar', explorarRoutes);
-app.use('/api/favoritos', favoritosRoutes);
+app.use('/api/explorar',  generalLimiter, explorarRoutes);
+app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

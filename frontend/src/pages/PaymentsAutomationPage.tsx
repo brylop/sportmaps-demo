@@ -9,10 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2 } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { formatCurrency, getStoragePath } from '@/lib/utils';
+import { formatCurrency, getStoragePath, maskSensitive } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getUserFriendlyError } from '@/lib/error-translator';
@@ -83,6 +83,7 @@ interface PaymentTransaction {
   payment_type: string | null;
   receipt_url: string | null;
   concept: string;
+  program_id: string | null;
   parent: { full_name: string | null; email: string | null } | null;
   child: { full_name: string } | null;
   program: { name: string } | null;
@@ -103,7 +104,7 @@ interface TeamSubscription {
 export default function PaymentsAutomationPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
-  const { schoolId, activeBranchId } = useSchoolContext();
+  const { schoolId, activeBranchId, currentUserRole } = useSchoolContext();
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentTransaction[]>([]);
   const [teamSubscriptions, setTeamSubscriptions] = useState<TeamSubscription[]>([]);
@@ -113,6 +114,7 @@ export default function PaymentsAutomationPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
+  const [showSensitive, setShowSensitive] = useState(false);
 
   // Filtros Historial
   const [historySearch, setHistorySearch] = useState('');
@@ -183,7 +185,7 @@ export default function PaymentsAutomationPage() {
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id,
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
           program:teams!payments_program_id_fkey(name)`)
@@ -197,6 +199,7 @@ export default function PaymentsAutomationPage() {
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
+        program_id: p.program_id,
         parent: p.parent, child: p.child, program: p.program,
       })));
     } catch (error: unknown) {
@@ -243,7 +246,12 @@ export default function PaymentsAutomationPage() {
     }
   };
 
-  const isAuthorized = profile && ['school', 'admin', 'school_admin', 'super_admin', 'owner'].includes(profile.role);
+  // isAuthorized: profile.role handles regular users, currentUserRole handles school 'owner' role
+  // (profile.role never contains 'owner' - that's a school_members role, not a profile role)
+  const isAuthorized = profile && (
+    ['school', 'admin', 'school_admin', 'super_admin'].includes(profile.role) ||
+    ['owner', 'admin', 'school_admin', 'super_admin'].includes(currentUserRole || '')
+  );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
@@ -255,15 +263,14 @@ export default function PaymentsAutomationPage() {
       if (action === 'approve') {
         const payment = payments.find(p => p.id === paymentId);
         if (payment) {
-          const { data: fullPayment } = await supabase.from('payments').select('program_id, child_id, parent_id').eq('id', paymentId).single();
-          if (fullPayment?.program_id && (fullPayment.child_id || fullPayment.parent_id)) {
-            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', fullPayment.program_id).eq('status', 'pending');
-            if (fullPayment.child_id) enrollQuery = enrollQuery.eq('child_id', fullPayment.child_id);
-            else enrollQuery = enrollQuery.eq('user_id', fullPayment.parent_id);
+          if (payment.program_id && (payment.child_id || payment.parent_id)) {
+            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', payment.program_id).eq('status', 'pending');
+            if (payment.child_id) enrollQuery = enrollQuery.eq('child_id', payment.child_id);
+            else enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
             const { error: enrollError } = await enrollQuery;
             if (enrollError) console.warn('Could not auto-activate enrollment:', enrollError);
           }
-          if (fullPayment?.parent_id) {
+          if (payment.parent_id) {
             if (payment.parent?.email) {
               await emailClient.send({
                 type: 'payment_confirmation',
@@ -278,7 +285,7 @@ export default function PaymentsAutomationPage() {
               });
             }
             await supabase.rpc('notify_user', {
-              p_user_id: fullPayment.parent_id, p_title: '✅ Pago Aprobado',
+              p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
               p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
               p_type: 'success', p_link: '/history',
             });
@@ -287,17 +294,14 @@ export default function PaymentsAutomationPage() {
       }
       if (action === 'reject') {
         const payment = payments.find(p => p.id === paymentId);
-        if (payment) {
-          const { data: fullPayment } = await supabase.from('payments').select('parent_id').eq('id', paymentId).maybeSingle();
-          if (fullPayment?.parent_id) {
-            await supabase.rpc('notify_user', {
-              p_user_id: fullPayment.parent_id,
-              p_title: '❌ Pago Rechazado',
-              p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
-              p_type: 'error',
-              p_link: '/my-payments',
-            });
-          }
+        if (payment?.parent_id) {
+          await supabase.rpc('notify_user', {
+            p_user_id: payment.parent_id,
+            p_title: '❌ Pago Rechazado',
+            p_message: `Tu comprobante de ${formatCurrency(payment.amount)} no pudo ser validado. Contáctanos para más información.`,
+            p_type: 'error',
+            p_link: '/my-payments',
+          });
         }
       }
       toast({
@@ -875,16 +879,40 @@ export default function PaymentsAutomationPage() {
                       </select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="bank_account_number">Número de Cuenta</Label>
-                      <Input id="bank_account_number" placeholder="Ej: 123-456789-01" value={billing.bank_account_number || ''} onChange={e => updateBilling('bank_account_number', e.target.value)} />
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="bank_account_number">Número de Cuenta</Label>
+                        <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => setShowSensitive(!showSensitive)}>
+                          {showSensitive ? <EyeOff className="h-3.5 w-3.5 mr-1" /> : <Eye className="h-3.5 w-3.5 mr-1" />}
+                          {showSensitive ? "Ocultar" : "Mostrar"}
+                        </Button>
+                      </div>
+                      <Input 
+                        id="bank_account_number" 
+                        placeholder="Ej: 123-456789-01" 
+                        value={showSensitive ? (billing.bank_account_number || '') : maskSensitive(billing.bank_account_number)} 
+                        onChange={e => updateBilling('bank_account_number', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="nequi_number">Número Nequi (Opcional)</Label>
-                      <Input id="nequi_number" placeholder="Celular" value={billing.nequi_number || ''} onChange={e => updateBilling('nequi_number', e.target.value)} />
+                      <Input 
+                        id="nequi_number" 
+                        placeholder="Celular" 
+                        value={showSensitive ? (billing.nequi_number || '') : maskSensitive(billing.nequi_number)} 
+                        onChange={e => updateBilling('nequi_number', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="daviplata_number">Número Daviplata (Opcional)</Label>
-                      <Input id="daviplata_number" placeholder="Celular" value={billing.daviplata_number || ''} onChange={e => updateBilling('daviplata_number', e.target.value)} />
+                      <Input 
+                        id="daviplata_number" 
+                        placeholder="Celular" 
+                        value={showSensitive ? (billing.daviplata_number || '') : maskSensitive(billing.daviplata_number)} 
+                        onChange={e => updateBilling('daviplata_number', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
                     </div>
                   </div>
                   <Separator />
@@ -895,7 +923,13 @@ export default function PaymentsAutomationPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="bank_titular_id">NIT o Cédula del Titular</Label>
-                      <Input id="bank_titular_id" placeholder="Documento" value={billing.bank_titular_id || ''} onChange={e => updateBilling('bank_titular_id', e.target.value)} />
+                      <Input 
+                        id="bank_titular_id" 
+                        placeholder="Documento" 
+                        value={showSensitive ? (billing.bank_titular_id || '') : maskSensitive(billing.bank_titular_id)} 
+                        onChange={e => updateBilling('bank_titular_id', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
                     </div>
                   </div>
                   <Separator />

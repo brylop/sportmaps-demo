@@ -31,6 +31,8 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { transactionsAPI } from '@/lib/api/transactions';
+import { maskSensitive } from '@/lib/utils';
+import { Eye, EyeOff, Copy } from 'lucide-react';
 
 export interface PaymentItem {
   type: 'enrollment' | 'product' | 'appointment' | 'reservation';
@@ -63,6 +65,26 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   const { toast } = useToast();
   const { user, profile } = useAuth();
   const { schoolBranding } = useSchoolContext();
+  const [showSensitive, setShowSensitive] = useState(false);
+  const [bankSettings, setBankSettings] = useState<any>(null);
+  const [loadingBank, setLoadingBank] = useState(false);
+
+  // Fetch school banking settings if we have a schoolId
+  useState(() => {
+    if (item.schoolId) {
+      const fetchBank = async () => {
+        setLoadingBank(true);
+        const { data } = await supabase
+          .from('school_settings')
+          .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id')
+          .eq('school_id', item.schoolId)
+          .maybeSingle();
+        if (data) setBankSettings(data);
+        setLoadingBank(false);
+      };
+      fetchBank();
+    }
+  });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -317,14 +339,81 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
               {paymentMethod === 'manual' && (
                 <div className="animate-in slide-in-from-top-2 fade-in space-y-4">
                   <div className="bg-amber-50 text-amber-900 p-4 rounded-lg text-sm border border-amber-100">
-                    <h4 className="font-semibold mb-2 flex items-center gap-2">
-                      <Building2 className="h-4 w-4" /> Datos Bancarios
-                    </h4>
-                    <div className="space-y-1 text-xs sm:text-sm">
-                      <p>Banco: <span className="font-medium">Bancolombia</span></p>
-                      <p>Cuenta de Ahorros: <span className="font-medium">123-456789-00</span></p>
-                      <p>Titular: <span className="font-medium">{item.schoolName || 'SportMaps Academy'}</span></p>
-                      <p>Ref: <span className="font-medium">Pago {item.name}</span></p>
+                    <div className="space-y-2 text-xs sm:text-sm">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold flex items-center gap-2">
+                          <Building2 className="h-4 w-4" /> Datos Bancarios
+                        </h4>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-6 px-2 text-[10px]" 
+                          onClick={() => setShowSensitive(!showSensitive)}
+                        >
+                          {showSensitive ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                          {showSensitive ? "Ocultar" : "Mostrar"}
+                        </Button>
+                      </div>
+
+                      {loadingBank ? (
+                        <div className="flex items-center gap-2 py-2">
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                          <span className="text-[10px]">Cargando datos...</span>
+                        </div>
+                      ) : bankSettings ? (
+                        <>
+                          {bankSettings.bank_name && (
+                            <div className="flex justify-between items-center group">
+                              <p>Banco: <span className="font-medium">{bankSettings.bank_name} ({bankSettings.bank_account_type})</span></p>
+                            </div>
+                          )}
+                          {bankSettings.bank_account_number && (
+                            <div className="flex justify-between items-center group">
+                              <p>Cuenta: <span className="font-medium">{showSensitive ? bankSettings.bank_account_number : maskSensitive(bankSettings.bank_account_number)}</span></p>
+                              {showSensitive && (
+                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.bank_account_number)}>
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {bankSettings.nequi_number && (
+                            <div className="flex justify-between items-center group">
+                              <p>Nequi: <span className="font-medium">{showSensitive ? bankSettings.nequi_number : maskSensitive(bankSettings.nequi_number)}</span></p>
+                              {showSensitive && (
+                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.nequi_number)}>
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {bankSettings.daviplata_number && (
+                            <div className="flex justify-between items-center group">
+                              <p>Daviplata: <span className="font-medium">{showSensitive ? bankSettings.daviplata_number : maskSensitive(bankSettings.daviplata_number)}</span></p>
+                              {showSensitive && (
+                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.daviplata_number)}>
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {bankSettings.bank_titular_name && <p>Titular: <span className="font-medium">{bankSettings.bank_titular_name}</span></p>}
+                          {bankSettings.bank_titular_id && (
+                            <div className="flex justify-between items-center group">
+                              <p>NIT/CC: <span className="font-medium">{showSensitive ? bankSettings.bank_titular_id : maskSensitive(bankSettings.bank_titular_id)}</span></p>
+                              {showSensitive && (
+                                <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100" onClick={() => navigator.clipboard.writeText(bankSettings.bank_titular_id)}>
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="p-2 border border-dashed rounded text-[10px] text-muted-foreground">
+                          Contacta a la escuela para los datos de transferencia.
+                        </div>
+                      )}
                     </div>
                   </div>
 

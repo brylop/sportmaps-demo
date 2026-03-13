@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { CartProvider } from "@/contexts/CartContext";
+import { SchoolProvider } from "@/hooks/useSchoolContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
@@ -157,7 +158,8 @@ const App = () => (
       <ThemeProvider>
         <AuthProvider>
           <ErrorBoundary>
-            <CartProvider>
+            <SchoolProvider>
+              <CartProvider>
               <Toaster />
               <Sonner />
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -322,13 +324,41 @@ const App = () => (
                       } />
 
                       {/* Wellness routes */}
-                      <Route path="athletes" element={<WellnessPatientsPage />} />
-                      <Route path="schedule" element={<WellnessSchedulePage />} />
-                      <Route path="evaluations/new" element={<WellnessSchedulePage />} />
-                      <Route path="medical-history" element={<MedicalHistoryPage />} />
-                      <Route path="follow-ups" element={<WellnessPatientsPage />} />
-                      <Route path="nutrition" element={<NutritionPage />} />
-                      <Route path="wellness-reports" element={<ReportsPage />} />
+                      <Route path="athletes" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessPatientsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="schedule" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessSchedulePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="evaluations/new" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessSchedulePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="medical-history" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <MedicalHistoryPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="follow-ups" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessPatientsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="nutrition" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <NutritionPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="wellness-reports" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <ReportsPage />
+                        </ProtectedRoute>
+                      } />
 
                       {/* Store routes (role-guarded) */}
                       <Route path="products" element={
@@ -422,8 +452,9 @@ const App = () => (
                 <CartDrawer />
               </BrowserRouter>
             </CartProvider>
-          </ErrorBoundary>
-        </AuthProvider>
+          </SchoolProvider>
+        </ErrorBoundary>
+      </AuthProvider>
       </ThemeProvider>
     </TooltipProvider>
   </QueryClientProvider>
