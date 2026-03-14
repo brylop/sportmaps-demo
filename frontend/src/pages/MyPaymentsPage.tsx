@@ -592,7 +592,10 @@ export default function MyPaymentsPage() {
               <CardTitle>Pagos Pendientes</CardTitle>
             </CardHeader>
             <CardContent>
-              {transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval').length > 0 ? (
+              {transactions.filter(t => {
+                console.log('STATUS EN FILTRO (length checking):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                return t.status === 'pending' || t.status === 'awaiting_approval';
+              }).length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -603,7 +606,10 @@ export default function MyPaymentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval').map((txn) => (
+                    {transactions.filter(t => {
+                      console.log('STATUS EN FILTRO (mapping):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                      return t.status === 'pending' || t.status === 'awaiting_approval';
+                    }).map((txn) => (
                       <TableRow key={txn.id}>
                         <TableCell>
                           {new Date(txn.transaction_date).toLocaleDateString('es-CO')}

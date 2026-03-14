@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,10 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
-import { useEffect } from 'react';
+import { Loader2, Eye, EyeOff, Users, Mail, ArrowLeft, CheckCircle2, Lock, ArrowRight, School } from 'lucide-react';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { getUserFriendlyError } from '@/lib/error-translator';
+import { cn } from '@/lib/utils';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -54,6 +54,7 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
     defaultValues: {
       email: inviteEmail || '',
     }
@@ -69,7 +70,8 @@ export default function LoginPage() {
     try {
       await signIn(data.email, data.password);
     } catch (error) {
-      // Error is handled in the context
+      // Error is handled in the context OR show toast here if preferred
+      console.error("Login component error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -112,185 +114,245 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/20 via-background to-secondary/20 p-4">
-      <div className="w-full max-w-5xl mx-auto space-y-6">
-        <Card className="w-full max-w-md mx-auto border-2 shadow-lg">
-          {showForgotPassword ? (
-            /* ── Forgot Password View ── */
+    <div className="min-h-screen flex bg-[#0a1a0d] text-[#f5f7f2] font-['DM_Sans'] overflow-x-hidden">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        
+        .sportmaps-grid {
+          background-image:
+            linear-gradient(rgba(36,130,35,.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(36,130,35,.06) 1px, transparent 1px);
+          background-size: 52px 52px;
+        }
+
+        .hero-title { font-family: 'Syne', sans-serif; }
+        .logo-name { font-family: 'Syne', sans-serif; }
+        .syne { font-family: 'Syne', sans-serif; }
+
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: .5; transform: scale(.7); }
+        }
+
+        .animate-pulse-dot {
+          animation: pulse-dot 2s ease-in-out infinite;
+        }
+      `}</style>
+
+      {/* ── LEFT PANEL ── */}
+      <div className="hidden lg:flex w-[42%] min-h-screen bg-[#0f2614] relative flex-col justify-between p-12 overflow-hidden border-r border-white/5">
+        <div className="absolute inset-0 sportmaps-grid"></div>
+        
+        {/* Decorative Gradients */}
+        <div className="absolute -top-[120px] -right-[120px] w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.35)_0%,transparent_70%)] pointer-events-none"></div>
+        <div className="absolute -bottom-[80px] -left-[80px] w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.2)_0%,transparent_70%)] pointer-events-none"></div>
+
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-[38px] h-[38px] bg-[#248223] rounded-[10px] flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+          </div>
+          <span className="logo-name font-extrabold text-xl tracking-tight">SportMaps</span>
+        </div>
+
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 bg-[#248223]/10 border border-[#248223]/30 rounded-full px-4 py-1.5 mb-8">
+            <span className="w-1.5 h-1.5 bg-[#2ea82d] rounded-full animate-pulse-dot"></span>
+            <p className="text-[10px] text-[#4dcc4c] font-bold uppercase tracking-widest">Plataforma deportiva</p>
+          </div>
+          <h1 className="hero-title font-extrabold text-6xl leading-[1.05] tracking-tighter mb-6">
+            Tu mundo,<br />
+            <span className="text-[#2ea82d]">deportivamente</span><br />
+            conectado.
+          </h1>
+          <p className="text-sm text-[#8a9186] leading-relaxed max-w-[320px] font-light">
+            Inicia sesión para gestionar tus entrenamientos, equipos y progresos en la red deportiva más grande.
+          </p>
+        </div>
+
+        <div className="relative z-10 flex gap-4">
+           {/* Decorative avatars or indicators could go here */}
+           <div className="flex -space-x-3">
+             <div className="w-10 h-10 rounded-full border-2 border-[#0f2614] bg-[#248223] flex items-center justify-center text-[10px] font-bold">SM</div>
+             <div className="w-10 h-10 rounded-full border-2 border-[#0f2614] bg-[#FB9F1E] flex items-center justify-center text-[10px] font-bold text-black">GO</div>
+             <div className="w-10 h-10 rounded-full border-2 border-[#0f2614] bg-[#f5f7f2] flex items-center justify-center text-[10px] font-bold text-black">+2k</div>
+           </div>
+           <p className="text-[10px] text-[#8a9186] self-center">Más de 2,000 usuarios activos hoy</p>
+        </div>
+      </div>
+
+      {/* ── RIGHT PANEL ── */}
+      <div className="flex-1 flex items-center justify-center p-6 md:p-12">
+        <div className="w-full max-w-[420px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
+          
+          {/* Logo Mobile */}
+          <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
+            <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+            </div>
+            <span className="logo-name font-bold text-lg">SportMaps</span>
+          </div>
+
+          {!showForgotPassword ? (
+            /* ── LOGIN VIEW ── */
             <>
-              <CardHeader className="space-y-1">
-                <div className="flex justify-center mb-4">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                    {resetSent ? (
-                      <CheckCircle2 className="w-6 h-6 text-green-500" />
-                    ) : (
-                      <Mail className="w-6 h-6 text-primary" />
-                    )}
+              <div className="mb-10">
+                <h2 className="hero-title font-bold text-3xl tracking-tight mb-2">Bienvenido</h2>
+                <p className="text-sm text-[#8a9186] font-light">Ingresa tus credenciales para acceder a tu perfil.</p>
+              </div>
+
+              {/* Invitation Banner if exists */}
+              {inviteBranding && (
+                <div className="bg-[#248223]/10 border border-[#248223]/20 rounded-2xl p-4 mb-8 flex items-center gap-4">
+                  <div className="w-10 h-10 bg-[#248223]/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <School className="w-5 h-5 text-[#2ea82d]" />
+                  </div>
+                  <div>
+                      <p className="text-sm font-semibold">Invitación de <span className="text-[#2ea82d]">{inviteBranding.school_name}</span></p>
+                      <p className="text-xs text-[#8a9186]">Inicia sesión para aceptar</p>
                   </div>
                 </div>
-                <CardTitle className="text-2xl font-bold text-center">
-                  {resetSent ? '¡Correo Enviado!' : 'Recuperar Contraseña'}
-                </CardTitle>
-                <CardDescription className="text-center">
-                  {resetSent
-                    ? 'Revisa tu bandeja de entrada y haz clic en el enlace para restablecer tu contraseña.'
-                    : 'Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {resetSent ? (
-                  <div className="space-y-4">
-                    <div className="rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 text-center">
-                      <p className="text-sm text-green-700 dark:text-green-300">
-                        Se envió un enlace de recuperación a <strong>{resetEmail}</strong>.
-                        Puede tardar unos minutos en llegar. Revisa también tu carpeta de spam.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => {
-                        setShowForgotPassword(false);
-                        setResetSent(false);
-                        setResetEmail('');
-                      }}
-                    >
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Volver al inicio de sesión
-                    </Button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleResetPassword} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="reset-email">Correo Electrónico</Label>
-                      <Input
-                        id="reset-email"
+              )}
+
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                
+                <div className="space-y-4">
+                  {/* Email */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Correo electrónico</label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <Mail className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                      </div>
+                      <input
+                        {...register('email')}
                         type="email"
-                        autoComplete="email"
-                        placeholder="tu@email.com"
-                        value={resetEmail}
-                        onChange={(e) => setResetEmail(e.target.value)}
-                        disabled={resetSending}
+                        placeholder="tu@correo.com"
+                        className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-4 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
                       />
                     </div>
-
-                    <Button type="submit" className="w-full" disabled={resetSending}>
-                      {resetSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Enviar enlace de recuperación
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => {
-                        setShowForgotPassword(false);
-                        setResetEmail('');
-                      }}
-                    >
-                      <ArrowLeft className="mr-2 h-4 w-4" />
-                      Volver al inicio de sesión
-                    </Button>
-                  </form>
-                )}
-              </CardContent>
-            </>
-          ) : (
-            /* ── Login View ── */
-            <>
-              <CardHeader className="space-y-1">
-                <div className="flex justify-center mb-4">
-                  {inviteBranding?.logo_url ? (
-                    <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
-                  ) : (
-                    <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                      <Users className="w-6 h-6 text-primary" />
-                    </div>
-                  )}
-                </div>
-                <CardTitle className="text-2xl font-bold text-center">Iniciar Sesión</CardTitle>
-                <CardDescription className="text-center">
-                  Accede a tu cuenta de {inviteBranding?.school_name || 'SportMaps'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="tu@email.com"
-                      {...register('email')}
-                      className={errors.email ? 'border-destructive' : ''}
-                    />
-                    {errors.email && (
-                      <p className="text-sm text-destructive">{errors.email.message}</p>
-                    )}
+                    {errors.email && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.email.message}</p>}
                   </div>
 
+                  {/* Password */}
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="password">Contraseña</Label>
-                      <button
-                        type="button"
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Contraseña</label>
+                      <button 
+                        type="button" 
                         onClick={() => setShowForgotPassword(true)}
-                        className="text-xs text-primary hover:underline"
+                        className="text-[10px] font-bold text-[#4dcc4c] hover:text-[#2ea82d] transition-colors"
                       >
                         ¿Olvidaste tu contraseña?
                       </button>
                     </div>
-                    <div className="relative">
-                      <Input
-                        id="password"
-                        name="password"
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="current-password"
-                        placeholder="••••••••"
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <Lock className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                      </div>
+                      <input
                         {...register('password')}
-                        className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="••••••••"
+                        className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-4 pl-11 pr-12 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#4a5246] hover:text-[#f5f7f2]">
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
-                    {errors.password && (
-                      <p className="text-sm text-destructive">{errors.password.message}</p>
-                    )}
-                  </div>
-
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Iniciar Sesión
-                  </Button>
-                </form>
-
-                <div className="mt-6 text-center text-sm space-y-2">
-                  <div>
-                    ¿No tienes cuenta?{' '}
-                    <Link to="/register" className="text-primary hover:underline">
-                      Regístrate aquí
-                    </Link>
-                  </div>
-                  <div>
-                    <Link to="/" className="text-muted-foreground hover:underline">
-                      ← Volver al inicio
-                    </Link>
+                    {errors.password && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.password.message}</p>}
                   </div>
                 </div>
-              </CardContent>
+
+                <Button 
+                  type="submit" 
+                  className="w-full bg-[#248223] hover:bg-[#2ea82d] text-white py-8 rounded-2xl text-base font-bold syne tracking-wide shadow-xl shadow-[#248223]/15 transition-all group"
+                  disabled={isLoading}
+                >
+                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 mr-1 group-hover:translate-x-1 transition-transform" />}
+                  Entrar ahora
+                </Button>
+
+                <div className="text-center pt-4">
+                  <p className="text-sm text-[#8a9186]">
+                    ¿No tienes cuenta? <Link to="/register" className="text-[#4dcc4c] font-bold hover:underline">Regístrate</Link>
+                  </p>
+                </div>
+                
+              </form>
             </>
+          ) : (
+            /* ── FORGOT PASSWORD VIEW ── */
+            <div className="animate-in fade-in slide-in-from-right-4 duration-400">
+              <button 
+                onClick={() => { setShowForgotPassword(false); setResetSent(false); }}
+                className="flex items-center gap-2 text-xs text-[#8a9186] hover:text-[#2ea82d] mb-8 transition-colors group"
+              >
+                <ArrowLeft className="w-3 h-3 group-hover:-translate-x-1 transition-transform" /> Volver al inicio
+              </button>
+
+              <div className="mb-10">
+                <h2 className="hero-title font-bold text-3xl tracking-tight mb-2">Restablecer</h2>
+                <p className="text-sm text-[#8a9186] font-light">
+                  {resetSent 
+                    ? `Hemos enviado un enlace a ${resetEmail}.` 
+                    : "Ingresa tu correo y te enviaremos instrucciones."}
+                </p>
+              </div>
+
+              {resetSent ? (
+                <div className="space-y-8">
+                  <div className="bg-[#248223]/10 border border-[#248223]/20 rounded-2xl p-6 flex flex-col items-center text-center">
+                    <div className="w-16 h-16 bg-[#248223]/20 rounded-full flex items-center justify-center mb-4">
+                      <CheckCircle2 className="w-8 h-8 text-[#2ea82d]" />
+                    </div>
+                    <p className="text-sm leading-relaxed text-[#f5f7f2]">
+                      ¡Listo! Revisa tu bandeja de entrada y haz clic en el botón para cambiar tu contraseña.
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={() => { setShowForgotPassword(false); setResetSent(false); }}
+                    className="w-full bg-[#0f2614] hover:bg-white/5 border border-white/5 text-white py-8 rounded-2xl text-base font-bold"
+                  >
+                    Entendido
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleResetPassword} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Correo electrónico</label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <Mail className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                      </div>
+                      <input
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        type="email"
+                        placeholder="tu@correo.com"
+                        className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-4 pl-11 pr-4 text-sm focus:outline-none focus:border-[#FB9F1E] focus:ring-4 focus:ring-[#FB9F1E]/10 transition-all placeholder:text-[#4a5246]"
+                      />
+                    </div>
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-[#FB9F1E] hover:bg-[#e8911b] text-black py-8 rounded-2xl text-base font-bold syne tracking-wide shadow-xl shadow-[#FB9F1E]/15 transition-all"
+                    disabled={resetSending}
+                  >
+                    {resetSending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Enviar instrucciones"}
+                  </Button>
+                </form>
+              )}
+            </div>
           )}
-        </Card>
+
+          <div className="mt-12 text-center">
+            <Link to="/" className="text-[10px] font-bold uppercase tracking-widest text-[#4a5246] hover:text-[#2ea82d] transition-colors">
+              ← Sitio Principal
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );
-}
+}

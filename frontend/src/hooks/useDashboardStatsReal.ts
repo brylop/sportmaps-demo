@@ -93,7 +93,7 @@ export function useDashboardStatsReal() {
             .from('payments')
             .select('*', { count: 'exact', head: true })
             .eq('school_id', schoolId)
-            .eq('status', 'pending');
+            .in('status', ['pending', 'awaiting_approval']);
 
           if (activeBranchId) {
             pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
@@ -231,7 +231,7 @@ export function useDashboardStatsReal() {
           .from('payments') as any)
           .select('*', { count: 'exact', head: true })
           .eq('parent_id', profile.id)
-          .eq('status', 'pending');
+          .in('status', ['pending', 'awaiting_approval']);
 
         // Unread notifications
         const { count: unreadNotifications } = await (supabase
