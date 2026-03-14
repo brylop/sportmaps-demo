@@ -14,6 +14,7 @@ interface ReceiptData {
   programName?: string;
   subscriptionPeriod?: string;
   studentName?: string;
+  receiptUrl?: string;
   // White Label Branding
   logoUrl?: string | null;
   brandingSettings?: {

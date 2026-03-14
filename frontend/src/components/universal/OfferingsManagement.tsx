@@ -448,7 +448,7 @@ export function OfferingsManagement() {
                             <Input
                                 placeholder="Ej: Membresía Elite, Pack 10 Clases"
                                 value={newOffering.name}
-                                onChange={(e) => setNewOffering((o) => ({ ...o, name: e.target.value }))}
+                                onChange={(e) => setNewOffering((prev) => ({ ...prev, name: e.target.value }))}
                             />
                         </div>
 
@@ -457,7 +457,7 @@ export function OfferingsManagement() {
                                 <Label className="text-sm font-medium">Tipo de Oferta</Label>
                                 <Select
                                     value={newOffering.offering_type}
-                                    onValueChange={(v: any) => setNewOffering((o) => ({ ...o, offering_type: v }))}
+                                    onValueChange={(v: any) => setNewOffering((prev) => ({ ...prev, offering_type: v }))}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Seleccionar tipo" />
@@ -474,7 +474,7 @@ export function OfferingsManagement() {
                                 <Label className="text-sm font-medium">Deporte</Label>
                                 <SportSearchCombobox
                                     values={newOffering.sport ? [newOffering.sport] : []}
-                                    onChange={(sports) => setNewOffering((o) => ({ ...o, sport: sports[0] || '' }))}
+                                    onChange={(sports) => setNewOffering((prev) => ({ ...prev, sport: sports[0] || '' }))}
                                 />
                             </div>
                         </div>
@@ -487,7 +487,7 @@ export function OfferingsManagement() {
                             <Textarea
                                 placeholder="Describe qué beneficios incluye esta membresía o paquete..."
                                 value={newOffering.description}
-                                onChange={(e) => setNewOffering((o) => ({ ...o, description: e.target.value }))}
+                                onChange={(e) => setNewOffering((prev) => ({ ...prev, description: e.target.value }))}
                                 rows={3}
                             />
                         </div>
@@ -522,7 +522,7 @@ export function OfferingsManagement() {
                             <Label htmlFor="plan-name" className="text-sm font-medium">
                                 Nombre de la tarifa <span className="text-destructive">*</span>
                             </Label>
-                            <Input id="plan-name" placeholder="Ej: Básico, Premium, 2 veces/semana" value={newPlan.name} onChange={(e) => setNewPlan((p) => ({ ...p, name: e.target.value }))} className="h-9" />
+                            <Input id="plan-name" placeholder="Ej: Básico, Premium, 2 veces/semana" value={newPlan.name} onChange={(e) => setNewPlan((prev) => ({ ...prev, name: e.target.value }))} className="h-9" />
                         </div>
 
                         {/* Price + Duration row */}
@@ -534,7 +534,7 @@ export function OfferingsManagement() {
                                 <NumberStepper
                                     id="plan-price"
                                     value={newPlan.price}
-                                    onChange={(v) => setNewPlan((p) => ({ ...p, price: v }))}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, price: v }))}
                                     placeholder="0"
                                     prefix="$"
                                     step={5000}
@@ -547,7 +547,7 @@ export function OfferingsManagement() {
                                 </Label>
                                 <Select
                                     value={newPlan.duration_days}
-                                    onValueChange={(v) => setNewPlan((p) => ({ ...p, duration_days: v }))}
+                                    onValueChange={(v) => setNewPlan((prev) => ({ ...prev, duration_days: v }))}
                                 >
                                     <SelectTrigger className="h-9">
                                         <SelectValue placeholder="Seleccionar duración" />
@@ -572,7 +572,7 @@ export function OfferingsManagement() {
                                 <NumberStepper
                                     id="plan-sessions"
                                     value={newPlan.max_sessions}
-                                    onChange={(v) => setNewPlan((p) => ({ ...p, max_sessions: v }))}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, max_sessions: v }))}
                                     placeholder="∞"
                                     step={1}
                                 />
@@ -583,7 +583,7 @@ export function OfferingsManagement() {
                                 <Input
                                     placeholder="Ej: Cortesía, Bono, etc."
                                     value={newPlan.secondary_session_label}
-                                    onChange={(e) => setNewPlan((p) => ({ ...p, secondary_session_label: e.target.value }))}
+                                    onChange={(e) => setNewPlan((prev) => ({ ...prev, secondary_session_label: e.target.value }))}
                                     className="h-9"
                                 />
                             </div>
@@ -594,7 +594,7 @@ export function OfferingsManagement() {
                             <NumberStepper
                                 id="plan-secondary"
                                 value={newPlan.max_secondary_sessions}
-                                onChange={(v) => setNewPlan((p) => ({ ...p, max_secondary_sessions: v }))}
+                                onChange={(v) => setNewPlan((prev) => ({ ...prev, max_secondary_sessions: v }))}
                                 placeholder="0"
                                 step={1}
                             />
