@@ -111,6 +111,7 @@ export function PaymentCheckoutModal({
   ];
 
   const processPayment = async () => {
+    if (processing) return;
     setProcessing(true);
     setPaymentStatus('processing');
     try {

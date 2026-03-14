@@ -110,6 +110,8 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   };
 
   const handlePayment = async () => {
+    if (processing) return;
+
     if (paymentMethod === 'manual' && !proofUploaded) {
       toast({
         title: 'Comprobante requerido',
