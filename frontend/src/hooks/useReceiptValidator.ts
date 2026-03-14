@@ -261,7 +261,7 @@ export function useReceiptValidator() {
                 logger: import.meta.env.DEV
                     ? (msg: { status: string; progress?: number }) =>
                         console.log('[OCR]', msg.status, Math.round((msg.progress ?? 0) * 100) + '%')
-                    : undefined,
+                    : () => {},
             });
 
             const { data } = await worker.recognize(imageSource);
