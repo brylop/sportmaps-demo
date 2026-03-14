@@ -124,6 +124,10 @@ export default function ParentCheckoutPage() {
     });
   };
 
+  const childId = searchParams.get('child_id');
+  const teamId = searchParams.get('team_id');
+  const programId = searchParams.get('program_id');
+
   const recordPaymentWithTraceability = async (reference: string) => {
     // Resolve School ID (Robustly)
     let schoolId = null;
