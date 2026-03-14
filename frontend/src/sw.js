@@ -31,6 +31,9 @@ self.addEventListener('activate', (event) => {
 
 // Fetch — Network first para API, Cache first para assets
 self.addEventListener('fetch', (event) => {
+  // Solo interceptar peticiones GET. POST, PUT, DELETE, etc. no son soportados por la Cache API
+  if (event.request.method !== 'GET') return
+
   const url = new URL(event.request.url)
 
   // Supabase API y Edge Functions → siempre network, nunca cachear

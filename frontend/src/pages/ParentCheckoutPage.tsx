@@ -154,8 +154,11 @@ export default function ParentCheckoutPage() {
       return;
     }
 
-    await supabase.from('payments').insert({
-      parent_id: user!.id, 
+    const { error: insertError } = await supabase.from('payments').insert({
+      parent_id: user?.id, 
+      child_id: childId || null,
+      team_id: teamId || null,
+      program_id: programId || null,
       amount, 
       concept, 
       status: 'paid',
@@ -167,6 +170,12 @@ export default function ParentCheckoutPage() {
       school_id: schoolId,
       receipt_url: manualReceiptUrl
     });
+
+    if (insertError) {
+      console.error('Error inserting payment:', insertError);
+      toast({ title: 'Error', description: 'No se pudo registrar el pago en la base de datos', variant: 'destructive' });
+      return;
+    }
 
     const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
 

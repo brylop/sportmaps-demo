@@ -186,7 +186,8 @@ export function PaymentCheckoutModal({
             payment_type: 'one_time',
             payment_date: new Date().toISOString().split('T')[0], 
             due_date: new Date().toISOString().split('T')[0], 
-            receipt_url: proofUrl 
+            receipt_url: proofUrl,
+            reference: `TRF-${Date.now().toString(36).toUpperCase()}`
           });
           if (insertError) throw insertError;
         }

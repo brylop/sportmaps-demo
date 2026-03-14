@@ -188,7 +188,7 @@ export default function PaymentsAutomationPage() {
         .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
-          program:teams!payments_program_id_fkey(name)`)
+          program:programs!payments_program_id_fkey(name)`)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
         .limit(100);
