@@ -590,7 +590,7 @@ export default function MyPaymentsPage() {
               <CardTitle>Pagos Pendientes</CardTitle>
             </CardHeader>
             <CardContent>
-              {transactions.filter(t => t.status === 'pending').length > 0 ? (
+              {transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval').length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -601,7 +601,7 @@ export default function MyPaymentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.filter(t => t.status === 'pending').map((txn) => (
+                    {transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval').map((txn) => (
                       <TableRow key={txn.id}>
                         <TableCell>
                           {new Date(txn.transaction_date).toLocaleDateString('es-CO')}
@@ -609,9 +609,15 @@ export default function MyPaymentsPage() {
                         <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
                         <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
                         <TableCell>
-                          <Button size="sm" variant="outline">
-                            Completar Pago
-                          </Button>
+                          {txn.status === 'awaiting_approval' ? (
+                            <Button size="sm" variant="outline" disabled>
+                              En revisión
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="outline">
+                              Completar Pago
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
