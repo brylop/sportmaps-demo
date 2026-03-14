@@ -18,7 +18,8 @@ import { Progress } from '@/components/ui/progress';
 interface Enrollment {
   id: string;
   child_id: string;
-  program_id: string;
+  program_id: string | null;
+  team_id: string | null;
   school_id: string;
   children: {
     full_name: string;
@@ -72,18 +73,12 @@ export default function MyPaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
     childName: string;
-    programId: string;
+    programId?: string;
+    teamId?: string;
     programName: string;
     amount: number;
     schoolId: string;
-  }>({
-    childId: '',
-    childName: '',
-    programId: '',
-    programName: 'Programa de Formación',
-    amount: 0,
-    schoolId: '',
-  });
+  } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [viewingProof, setViewingProof] = useState<ViewingProof>({
@@ -214,6 +209,7 @@ export default function MyPaymentsPage() {
                 id: enroll.id,
                 child_id: child.id,
                 program_id: enroll.program_id,
+                team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
                 teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
@@ -222,12 +218,12 @@ export default function MyPaymentsPage() {
             });
           }
           // 2. FIX 2 — Asignación directa por team_id.
-          //    program_id del enrollment = child.team_id (sin mezclar con program_id).
           else if (child.teams) {
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id,
+              program_id: null,
+              team_id: child.team_id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -242,7 +238,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id || child.id,
+              program_id: null,
+              team_id: child.team_id || null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -257,7 +254,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: 'none',
+              program_id: null,
+              team_id: null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -648,8 +646,9 @@ export default function MyPaymentsPage() {
                     setSelectedPayment({
                       childId: enroll.child_id,
                       childName: enroll.children?.full_name || 'Estudiante',
-                      programId: enroll.program_id,
-                      programName: enroll.teams?.name || 'Programa de Formación',
+                      programId: enroll.program_id || undefined,
+                      teamId: enroll.team_id || undefined,
+                      programName: enroll.teams?.name || 'Mensualidad Estudiante',
                       amount: enroll.teams?.price_monthly || 0,
                       schoolId: enroll.school_id,
                     });
@@ -692,17 +691,21 @@ export default function MyPaymentsPage() {
       </Dialog>
 
       {/* Payment Checkout Modal */}
-      <PaymentCheckoutModal
-        open={showCheckout}
-        onOpenChange={setShowCheckout}
-        studentId={selectedPayment.childId}
-        programId={selectedPayment.programId}
-        schoolId={selectedPayment.schoolId}
-        amount={selectedPayment.amount}
-        concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
-        mode="create"
-        onSuccess={fetchPaymentData}
-      />
+      {selectedPayment && (
+        <PaymentCheckoutModal
+          open={showCheckout}
+          onOpenChange={setShowCheckout}
+          studentId={selectedPayment.childId}
+          childId={selectedPayment.childId}
+          programId={selectedPayment.programId}
+          teamId={selectedPayment.teamId}
+          schoolId={selectedPayment.schoolId}
+          amount={selectedPayment.amount}
+          concept={selectedPayment.programName}
+          mode="create"
+          onSuccess={fetchPaymentData}
+        />
+      )}
 
       {/* Installment Checkout Modal */}
       {selectedInstallmentPayment && (
