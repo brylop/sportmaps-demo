@@ -222,7 +222,7 @@ const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
 const TESSERACT_CDN = {
     workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/worker.min.js',
     langPath:   'https://tessdata.projectnaptha.com/4.0.0',
-    corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
+    corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@7/',
 } as const;
 
 // ── Hook principal ────────────────────────────────────────────────────────────

@@ -331,7 +331,7 @@ export default function AthletePaymentsPage() {
           onOpenChange={setShowPaymentModal}
           studentId={user?.id || undefined} 
           schoolId={selectedEnrollment.school_id}
-          programId={selectedEnrollment.program_id || selectedEnrollment.team_id || undefined}
+          programId={selectedEnrollment.program_id || undefined}
           amount={selectedEnrollment.price_monthly}
           concept={`Pago mensualidad - ${selectedEnrollment.program_name}`}
           mode="create"
