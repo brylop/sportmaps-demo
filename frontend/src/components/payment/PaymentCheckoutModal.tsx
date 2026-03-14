@@ -25,6 +25,8 @@ interface PaymentCheckoutModalProps {
   paymentId?: string;
   programId?: string;
   teamId?: string;
+  childId?: string;
+  branchId?: string;
   amount: number;
   concept: string;
   mode?: 'create' | 'update';
@@ -32,7 +34,7 @@ interface PaymentCheckoutModalProps {
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, programId, teamId, amount, concept, mode = 'update', onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, programId, teamId, childId, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -119,17 +121,32 @@ export function PaymentCheckoutModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuario no autenticado');
 
-      const { data: athleteData } = await supabase
-        .from('school_athletes' as any)
-        .select('*')
-        .eq('id', studentId)
-        .single();
-      const athlete = athleteData as unknown as SchoolAthlete;
-      const payloadIds = getPaymentPayload(athlete);
+      // Build the correct child/user IDs for the payment
+      // If childId is provided (from enrollment), use it directly.
+      // Otherwise fall back to lookup (legacy path for update mode).
+      let payloadChildId: string | null = childId || null;
+      let payloadBranchId: string | null = branchId || null;
 
-      const idColumn = athlete.athlete_type === 'adult' ? 'user_id' : 'child_id';
+      if (!payloadChildId && studentId) {
+        // Legacy path: try to look up from school_athletes
+        const { data: athleteData } = await supabase
+          .from('school_athletes' as any)
+          .select('*, branch_id')
+          .eq('id', studentId)
+          .single();
+        if (athleteData) {
+          const athlete = athleteData as unknown as SchoolAthlete;
+          const ids = getPaymentPayload(athlete);
+          payloadChildId = ids.child_id || null;
+          payloadBranchId = (athleteData as any).branch_id || null;
+        }
+      }
+
+      // Duplicate check
+      const idColumn = payloadChildId ? 'child_id' : 'user_id';
+      const idValue = payloadChildId || user.id;
       const duplicateQuery = (supabase as any).from('payments').select('id')
-        .eq(idColumn, athlete.id)
+        .eq(idColumn, idValue)
         .eq('status', 'awaiting_approval').limit(1);
       if (mode === 'update' && paymentId) duplicateQuery.neq('id', paymentId);
       const { data: pendingPayments, error: pendingError } = await duplicateQuery;
@@ -155,15 +172,13 @@ export function PaymentCheckoutModal({
           }).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
-          const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
-          const studentData = response.data as unknown as { branch_id: string } | null;
           const { error: insertError } = await supabase.from('payments').insert({ 
             parent_id: user?.id, 
-            ...payloadIds, 
+            child_id: payloadChildId, 
             program_id: (programId && programId !== '') ? programId : null, 
             team_id: (teamId && teamId !== '') ? teamId : null, 
             school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-            branch_id: studentData?.branch_id || null, 
+            branch_id: payloadBranchId, 
             amount, 
             concept, 
             status: 'awaiting_approval', 
@@ -193,15 +208,13 @@ export function PaymentCheckoutModal({
         }).eq('id', paymentId);
         error = updateError;
       } else {
-        const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
-        const studentData = response.data as unknown as { branch_id: string } | null;
         const { error: insertError } = await supabase.from('payments').insert({ 
           parent_id: user?.id, 
-          ...payloadIds, 
+          child_id: payloadChildId, 
           program_id: (programId && programId !== '') ? programId : null, 
           team_id: (teamId && teamId !== '') ? teamId : null, 
           school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-          branch_id: studentData?.branch_id || null, 
+          branch_id: payloadBranchId, 
           amount, 
           concept, 
           status: 'paid', 
@@ -223,7 +236,7 @@ export function PaymentCheckoutModal({
         .single()
         .then((response: any) => {
           const child = response.data as { full_name: string; parent_email: string } | null;
-          const parentEmail = athlete.athlete_type === 'adult' ? user?.email : child?.parent_email;
+          const parentEmail = (!payloadChildId) ? user?.email : child?.parent_email;
           if (parentEmail) {
             emailClient.send({
               type: 'payment_confirmation',

@@ -14,7 +14,11 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined
+        manualChunks: (id) => {
+          if (id.includes("tesseract.js") || id.includes("tesseract-core")) return "vendor-tesseract";
+          if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          if (id.includes("node_modules/react")) return "vendor-react";
+        },
       }
     }
   },
