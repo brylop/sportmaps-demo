@@ -131,6 +131,9 @@ export default defineConfig(({ mode }) => ({
   ].filter(Boolean),
   optimizeDeps: {
     include: ["react", "react-dom", "@tanstack/react-query", "@radix-ui/react-slider"],
+    // FIX: excluir tesseract.js del procesamiento de Vite para evitar que el
+    // minificador rompa los callbacks internos del worker (error "g is not a function")
+    exclude: ["tesseract.js"],
   },
   resolve: {
     alias: {
