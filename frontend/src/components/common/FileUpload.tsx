@@ -115,7 +115,7 @@ export function FileUpload({
   };
 
   const removeFile = (index: number) => {
-    setSelectedFiles(f => f.filter((_, i) => i !== index));
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     setValidation(null);
     setUploaded(false);
     setUploadedUrl(null);
