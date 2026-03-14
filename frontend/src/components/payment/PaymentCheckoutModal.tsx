@@ -136,7 +136,7 @@ export function PaymentCheckoutModal({
       if (pendingPayments && pendingPayments.length > 0)
         throw new Error('Ya existe un pago pendiente de aprobación para este estudiante.');
 
-      if (mode === 'update' && paymentId) {
+      if (mode === 'update' && paymentId && paymentId !== '') {
         const { data: existingPayment, error: fetchError } = await supabase.from('payments').select('school_id, status').eq('id', paymentId).single();
         if (fetchError || !existingPayment) throw new Error('No se encontró el pago pendiente.');
         if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
@@ -159,8 +159,8 @@ export function PaymentCheckoutModal({
           const { error: insertError } = await supabase.from('payments').insert({ 
             parent_id: user?.id, 
             ...payloadIds, 
-            program_id: programId, 
-            school_id: schoolId, 
+            program_id: (programId && programId !== '') ? programId : null, 
+            school_id: (schoolId && schoolId !== '') ? schoolId : null, 
             branch_id: studentData?.branch_id || null, 
             amount, 
             concept, 
@@ -196,8 +196,8 @@ export function PaymentCheckoutModal({
         const { error: insertError } = await supabase.from('payments').insert({ 
           parent_id: user?.id, 
           ...payloadIds, 
-          program_id: programId, 
-          school_id: schoolId, 
+          program_id: (programId && programId !== '') ? programId : null, 
+          school_id: (schoolId && schoolId !== '') ? schoolId : null, 
           branch_id: studentData?.branch_id || null, 
           amount, 
           concept, 
