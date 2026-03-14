@@ -144,6 +144,8 @@ export const bffClient = {
 
     delete: <T>(path: string, headers?: Record<string, string>) =>
         request<T>('DELETE', path, undefined, headers),
+
+    request,
 };
 
 export { BFFError };

@@ -10,11 +10,32 @@ export interface Enrollment {
   start_date: string;
   end_date: string | null;
   status: string;
+  team_id: string | null;
+  offering_plan_id: string | null;
+  offering_id: string | null;           // ← AÑADIR
+  secondary_sessions_used: number;      // ← AÑADIR
   created_at: string;
   updated_at: string;
 }
 
 export interface EnrollmentWithProgram extends Enrollment {
+  id: string;
+  enrollment_status: string;
+  program_name: string;
+  sport: string;
+  level: string;
+  image_url: string;
+  price_monthly: number;
+  school_id: string;
+  school_name: string;
+  school_logo: string;
+  school_primary_color: string;
+  payment_id: string | null;
+  payment_status: string | null;
+  payment_amount_cents: number | null;
+  payment_due_date: string | null;
+  has_pending_payment: boolean;
+  has_processing_payment: boolean;
   program: {
     id: string;
     name: string;

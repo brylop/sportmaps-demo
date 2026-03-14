@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { bffClient } from '@/lib/api/bffClient';
 
 // Types for staff and facilities
 interface Staff {
@@ -69,34 +70,16 @@ export function useSchoolStaff() {
   const { data: staff, isLoading, error, refetch } = useQuery({
     queryKey: ['school-staff', schoolId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('school_staff')
-        .select('id, full_name, email, phone, specialty, status')
-        .eq('school_id', schoolId)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as Staff[];
+      const res = await bffClient.get<Staff[]>('/api/v1/school-staff');
+      return res;
     },
     enabled: !!schoolId,
   });
-
+  
   // Create staff
   const createMutation = useMutation({
-    mutationFn: async (input: StaffInput) => {
-      const { data, error } = await supabase
-        .from('school_staff')
-        .insert({
-          school_id: schoolId,
-          full_name: input.full_name,
-          email: input.email,
-          phone: input.phone || null,
-          specialty: input.specialty || null,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (input: StaffInput) =>
+      bffClient.post<Staff>('/api/v1/school-staff', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-staff', schoolId] });
       toast({ title: '✅ Entrenador agregado', description: 'El entrenador se ha registrado correctamente' });
@@ -105,25 +88,11 @@ export function useSchoolStaff() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
-
+  
   // Update staff
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...input }: StaffInput & { id: string }) => {
-      const { data, error } = await supabase
-        .from('school_staff')
-        .update({
-          full_name: input.full_name,
-          email: input.email,
-          phone: input.phone || null,
-          specialty: input.specialty || null,
-          ...(input.status ? { status: input.status } : {}),
-        })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: ({ id, ...input }: StaffInput & { id: string }) =>
+      bffClient.patch<Staff>(`/api/v1/school-staff/${id}`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-staff', schoolId] });
       toast({ title: '✅ Entrenador actualizado' });
@@ -132,16 +101,11 @@ export function useSchoolStaff() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
-
+  
   // Delete staff
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('school_staff')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: (id: string) =>
+      bffClient.delete<{ success: boolean }>(`/api/v1/school-staff/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-staff', schoolId] });
       toast({ title: 'Entrenador eliminado' });

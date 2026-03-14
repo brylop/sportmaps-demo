@@ -2,7 +2,11 @@ export async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
 
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
+    const reg = await navigator.serviceWorker.register(swUrl, { 
+      scope: '/',
+      type: 'module'
+    });
     console.log('[PWA] SW registrado:', reg.scope);
 
     // Detectar actualización disponible

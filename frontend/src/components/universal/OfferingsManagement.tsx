@@ -9,6 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel,
+    AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+    AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useOfferings, Offering } from '@/hooks/useOfferings';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -16,7 +21,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { SPORTS_CATALOG, searchSports } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus } from 'lucide-react';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2 } from 'lucide-react';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -251,12 +256,24 @@ export function OfferingsManagement() {
     const { toast } = useToast();
     const { schoolId } = useSchoolContext();
     const queryClient = useQueryClient();
-    const { offerings, isLoading, createOffering, updateOffering, deleteOffering, createPlan, updatePlan } = useOfferings();
+    
+    const { 
+        offerings, 
+        isLoading,
+        createOffering,
+        updateOffering,
+        deleteOffering,
+        createPlan,
+        updatePlan,
+        deletePlan
+    } = useOfferings();
 
-    const [showCreate, setShowCreate] = useState(false);
-    const [showCreatePlan, setShowCreatePlan] = useState<string | null>(null);
-    const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
-    const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+    const isCreatingOffering = createOffering.isPending;
+    const isUpdatingOffering = updateOffering.isPending;
+    const isCreatingPlan = createPlan.isPending;
+    const isUpdatingPlan = updatePlan.isPending;
+    const isDeletingOffering = deleteOffering.isPending;
+    const isDeletingPlan = deletePlan.isPending;
 
     // Enroll state
     const [enrollModal, setEnrollModal] = useState<{
@@ -268,6 +285,16 @@ export function OfferingsManagement() {
         plan: null,
         offering: null,
     });
+
+    const [showCreate, setShowCreate] = useState(false);
+    const [showCreatePlan, setShowCreatePlan] = useState<string | null>(null);
+    const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
+    const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+    const [enrollPlanId, setEnrollPlanId] = useState<string | null>(null);
+
+    // -- Deletion State --
+    const [planToDelete, setPlanToDelete] = useState<{ planId: string; offeringId: string } | null>(null);
+    const [offeringToDelete, setOfferingToDelete] = useState<string | null>(null);
 
     const [newOffering, setNewOffering] = useState({
         name: '', description: '', offering_type: 'membership' as string, sport: '' as string,
@@ -373,6 +400,46 @@ export function OfferingsManagement() {
         });
     };
 
+    const handleEnrollStudent = (planId: string) => {
+        setEnrollPlanId(planId);
+    };
+
+    const handleDeletePlan = () => {
+        if (!planToDelete) return;
+        deletePlan.mutate(planToDelete, {
+            onSuccess: () => {
+                toast({ title: '✅ Tarifa eliminada', description: 'La tarifa ha sido eliminada exitosamente.' });
+                setPlanToDelete(null);
+            },
+            onError: (err: any) => {
+                const code = err?.body?.code || err?.code;
+                const msg = code === 'PLAN_HAS_ACTIVE_ENROLLMENTS'
+                    ? 'No puedes eliminar una tarifa con estudiantes activos. Cancela las inscripciones primero.'
+                    : err?.body?.error || err?.message || 'No se pudo eliminar la tarifa.';
+                toast({ title: '❌ Error al eliminar tarifa', description: msg, variant: 'destructive' });
+                setPlanToDelete(null);
+            }
+        });
+    };
+
+    const handleDeleteOffering = () => {
+        if (!offeringToDelete) return;
+        deleteOffering.mutate(offeringToDelete, {
+            onSuccess: () => {
+                toast({ title: '✅ Plan eliminado', description: 'El plan y sus tarifas han sido eliminados.' });
+                setOfferingToDelete(null);
+            },
+            onError: (err: any) => {
+                const code = err?.body?.code || err?.code;
+                const msg = code === 'OFFERING_HAS_ACTIVE_ENROLLMENTS'
+                    ? 'No puedes eliminar un plan con estudiantes activos. Cancela las inscripciones primero.'
+                    : err?.body?.error || err?.message || 'No se pudo eliminar el plan.';
+                toast({ title: '❌ Error al eliminar plan', description: msg, variant: 'destructive' });
+                setOfferingToDelete(null);
+            }
+        });
+    };
+
     if (isLoading) {
         return (
             <div className="space-y-4">
@@ -383,8 +450,8 @@ export function OfferingsManagement() {
         );
     }
 
-    const isSavingOffering = createOffering.isPending || updateOffering.isPending;
-    const isSavingPlan = createPlan.isPending || updatePlan.isPending;
+    const isSavingOffering = isCreatingOffering || isUpdatingOffering;
+    const isSavingPlan = isCreatingPlan || isUpdatingPlan;
 
     return (
         <div className="space-y-5">
@@ -425,6 +492,8 @@ export function OfferingsManagement() {
                             onAddPlan={() => { resetPlanForm(); setShowCreatePlan(offering.id); }}
                             onEditPlan={(planId) => handleEditPlan(offering.id, planId)}
                             onEnroll={handleOpenEnroll}
+                            onDeleteOffering={() => setOfferingToDelete(offering.id)}
+                            onDeletePlan={(planId) => setPlanToDelete({ offeringId: offering.id, planId })}
                         />
                     ))}
                 </div>
@@ -629,6 +698,64 @@ export function OfferingsManagement() {
                 plan={enrollModal.plan}
                 offeringName={enrollModal.offering?.name || ''}
             />
+
+            {enrollPlanId && (
+                <EnrollPlanStudentModal
+                    open={!!enrollPlanId}
+                    plan={offerings.flatMap(o => o.offering_plans ?? []).find(p => p.id === enrollPlanId)}
+                    onClose={() => setEnrollPlanId(null)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+                    }}
+                    schoolId={schoolId || ''}
+                    offeringName={offerings.find(o => o.offering_plans?.some(p => p.id === enrollPlanId))?.name || ''}
+                />
+            )}
+
+            {/* -- Deletion Confirmation Dialogs -- */}
+            <AlertDialog open={!!planToDelete} onOpenChange={(o) => !o && setPlanToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar tarifa?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acción eliminará la tarifa permanentemente. 
+                            Solo posible si no hay inscripciones activas.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeletePlan}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeletingPlan}
+                        >
+                            {isDeletingPlan ? 'Eliminando...' : 'Eliminar Tarifa'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!offeringToDelete} onOpenChange={(o) => !o && setOfferingToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar plan completo?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Se eliminará el plan y todas sus tarifas. 
+                            Solo posible si no hay estudiantes inscritos.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteOffering}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeletingOffering}
+                        >
+                            {isDeletingOffering ? 'Eliminando...' : 'Eliminar Plan'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
@@ -643,12 +770,16 @@ function OfferingCard({
     onAddPlan,
     onEditPlan,
     onEnroll,
+    onDeleteOffering,
+    onDeletePlan,
 }: {
     offering: Offering;
     onEditOffering: () => void;
     onAddPlan: () => void;
     onEditPlan?: (planId: string) => void;
     onEnroll?: (offering: Offering, plan: any) => void;
+    onDeleteOffering?: () => void;
+    onDeletePlan?: (planId: string) => void;
 }) {
     const plans = offering.offering_plans ?? [];
     const sportVisual = offering.sport ? getSportVisual(
@@ -668,8 +799,8 @@ function OfferingCard({
                                 <Zap className="h-5 w-5 text-primary" />
                             )}
                         </div>
-                        <div className="min-w-0">
-                            <CardTitle className="text-sm font-bold truncate leading-tight">{offering.name}</CardTitle>
+                        <div className="min-w-0 flex-1">
+                            <CardTitle className="text-sm font-bold leading-tight break-words">{offering.name}</CardTitle>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 py-0 bg-primary/5 text-primary border-primary/10 font-medium">
                                     {OFFERING_TYPE_LABELS[offering.offering_type] ?? offering.offering_type}
@@ -683,6 +814,20 @@ function OfferingCard({
                         </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {onDeleteOffering && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteOffering();
+                                }}
+                                className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive rounded-md"
+                                title="Eliminar plan"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             size="sm"
@@ -767,6 +912,17 @@ function OfferingCard({
                                                 title="Editar tarifa"
                                             >
                                                 <Edit className="h-3.5 w-3.5" />
+                                            </Button>
+                                        )}
+                                        {onDeletePlan && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onDeletePlan(plan.id)}
+                                                className="shrink-0 h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                                title="Eliminar tarifa"
+                                            >
+                                                <Trash2 className="h-3 w-3" />
                                             </Button>
                                         )}
                                     </div>

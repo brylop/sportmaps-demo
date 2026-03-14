@@ -19,6 +19,7 @@ import sportConfigsRouter from './routes/sport-configs';
 import billingEventsRouter from './routes/billing-events';
 import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
+import schoolStaffRouter from './routes/school-staff';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -93,10 +94,12 @@ app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
+app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/sport-configs', generalLimiter, sportConfigsRouter);
 app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
+app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

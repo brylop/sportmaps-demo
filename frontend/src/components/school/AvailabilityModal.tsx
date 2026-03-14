@@ -28,8 +28,8 @@ interface AvailabilityModalProps {
   schoolId: string;
 }
 
-const DAYS_OF_WEEK = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-const DAYS_SHORT = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+const DAYS_OF_WEEK = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAYS_SHORT = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
 // Generar horas en formato 12h (00:00-01:00, 01:00-02:00, etc.)
 const HOURS = Array.from({ length: 24 }, (_, i) => {
