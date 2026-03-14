@@ -293,7 +293,7 @@ export function useReceiptValidator() {
             }
 
             const { data } = await Tesseract.recognize(imageSource, 'spa+eng', {
-                logger: process.env.NODE_ENV === 'development' ? (m) => console.log('[OCR]', m.status, Math.round((m.progress || 0) * 100) + '%') : undefined,
+                logger: import.meta.env.DEV ? (msg) => console.log('[OCR]', msg.status, Math.round((msg.progress || 0) * 100) + '%') : undefined,
             });
 
             const text = data.text || '';
@@ -307,7 +307,7 @@ export function useReceiptValidator() {
                 'exitosa', 'realizada', 'confirmado',
             ];
 
-            const isReceipt = receiptKeywords.some(kw => textLower.includes(kw));
+            const isReceipt = receiptKeywords.some(keyword => textLower.includes(keyword));
 
             if (!isReceipt && text.length < 50) {
                 return {

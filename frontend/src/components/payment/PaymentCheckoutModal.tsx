@@ -145,12 +145,32 @@ export function PaymentCheckoutModal({
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
         if (mode === 'update' && paymentId) {
-          const { error: updateError } = await supabase.from('payments').update({ status: 'awaiting_approval', payment_method: 'transfer', payment_date: new Date().toISOString(), receipt_url: proofUrl, updated_at: new Date().toISOString() }).eq('id', paymentId);
+          const { error: updateError } = await supabase.from('payments').update({ 
+            status: 'awaiting_approval', 
+            payment_method: 'transfer', 
+            payment_date: new Date().toISOString().split('T')[0], 
+            receipt_url: proofUrl, 
+            updated_at: new Date().toISOString() 
+          }).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
           const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
           const studentData = response.data as unknown as { branch_id: string } | null;
-          const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, ...payloadIds, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'awaiting_approval', payment_method: 'transfer', payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_url: proofUrl });
+          const { error: insertError } = await supabase.from('payments').insert({ 
+            parent_id: user?.id, 
+            ...payloadIds, 
+            program_id: programId, 
+            school_id: schoolId, 
+            branch_id: studentData?.branch_id || null, 
+            amount, 
+            concept, 
+            status: 'awaiting_approval', 
+            payment_method: 'transfer', 
+            payment_type: 'one_time',
+            payment_date: new Date().toISOString().split('T')[0], 
+            due_date: new Date().toISOString().split('T')[0], 
+            receipt_url: proofUrl 
+          });
           if (insertError) throw insertError;
         }
         setPaymentStatus('awaiting_approval');
@@ -162,12 +182,32 @@ export function PaymentCheckoutModal({
       const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let error = null;
       if (mode === 'update' && paymentId) {
-        const { error: updateError } = await supabase.from('payments').update({ status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), receipt_number: receiptNumber, updated_at: new Date().toISOString() }).eq('id', paymentId);
+        const { error: updateError } = await supabase.from('payments').update({ 
+          status: 'paid', 
+          payment_method: selectedMethod, 
+          payment_date: new Date().toISOString().split('T')[0], 
+          receipt_number: receiptNumber, 
+          updated_at: new Date().toISOString() 
+        }).eq('id', paymentId);
         error = updateError;
       } else {
         const response = await supabase.from('school_athletes' as any).select('branch_id').eq('id', studentId).maybeSingle();
         const studentData = response.data as unknown as { branch_id: string } | null;
-        const { error: insertError } = await supabase.from('payments').insert({ parent_id: user?.id, ...payloadIds, program_id: programId, school_id: schoolId, branch_id: studentData?.branch_id || null, amount, concept, status: 'paid', payment_method: selectedMethod, payment_date: new Date().toISOString(), due_date: new Date().toISOString(), receipt_number: receiptNumber });
+        const { error: insertError } = await supabase.from('payments').insert({ 
+          parent_id: user?.id, 
+          ...payloadIds, 
+          program_id: programId, 
+          school_id: schoolId, 
+          branch_id: studentData?.branch_id || null, 
+          amount, 
+          concept, 
+          status: 'paid', 
+          payment_method: selectedMethod, 
+          payment_type: 'one_time',
+          payment_date: new Date().toISOString().split('T')[0], 
+          due_date: new Date().toISOString().split('T')[0], 
+          receipt_number: receiptNumber 
+        });
         error = insertError;
       }
       if (error) throw error;

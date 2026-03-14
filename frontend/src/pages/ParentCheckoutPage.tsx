@@ -155,10 +155,15 @@ export default function ParentCheckoutPage() {
     }
 
     await supabase.from('payments').insert({
-      parent_id: user!.id, amount, concept, status: 'paid',
-      payment_date: new Date().toISOString(),
+      parent_id: user!.id, 
+      amount, 
+      concept, 
+      status: 'paid',
+      payment_date: new Date().toISOString().split('T')[0],
       due_date: new Date().toISOString().split('T')[0],
-      receipt_number: reference, payment_type: 'monthly',
+      receipt_number: reference, 
+      payment_type: 'one_time',
+      payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       school_id: schoolId,
       receipt_url: manualReceiptUrl
     });
