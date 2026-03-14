@@ -126,8 +126,10 @@ export default function MyPaymentsPage() {
           balance_pending?: number; 
           pct_paid?: number;
           installments_pending?: number;
+          school_id?: string;
         })[] = payments.map((p: any) => ({
           id: p.id,
+          school_id: p.school_id,
           amount: p.amount,
           amount_paid: p.amount_paid,
           balance_pending: p.balance_pending,
@@ -614,9 +616,43 @@ export default function MyPaymentsPage() {
                               En revisión
                             </Button>
                           ) : (
-                            <Button size="sm" variant="outline">
-                              Completar Pago
-                            </Button>
+                            <div className="flex gap-2 items-center">
+                              {txn.balance_pending !== undefined && txn.balance_pending > 0 && txn.balance_pending < txn.amount && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="border-primary text-primary hover:bg-primary/10"
+                                  onClick={() => {
+                                    setSelectedInstallmentPayment({
+                                      id: txn.id,
+                                      schoolId: txn.school_id || '',
+                                      balancePending: txn.balance_pending!,
+                                      concept: txn.concept
+                                    });
+                                    setShowInstallment(true);
+                                  }}
+                                >
+                                  Abonar
+                                </Button>
+                              )}
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                onClick={() => {
+                                  setSelectedPayment({
+                                    childId: '', 
+                                    childName: '',
+                                    programName: txn.concept,
+                                    amount: txn.balance_pending || txn.amount,
+                                    schoolId: txn.school_id || '',
+                                    paymentId: txn.id,
+                                  });
+                                  setShowCheckout(true);
+                                }}
+                              >
+                                {txn.balance_pending && txn.balance_pending < txn.amount ? 'Pagar Resto' : 'Completar Pago'}
+                              </Button>
+                            </div>
                           )}
                         </TableCell>
                       </TableRow>
@@ -706,9 +742,10 @@ export default function MyPaymentsPage() {
           programId={selectedPayment.programId}
           teamId={selectedPayment.teamId}
           schoolId={selectedPayment.schoolId}
+          paymentId={selectedPayment.paymentId}
           amount={selectedPayment.amount}
           concept={selectedPayment.programName}
-          mode="create"
+          mode={selectedPayment.paymentId ? 'update' : 'create'}
           onSuccess={fetchPaymentData}
         />
       )}
