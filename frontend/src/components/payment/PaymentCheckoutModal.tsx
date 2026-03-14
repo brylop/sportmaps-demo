@@ -24,6 +24,7 @@ interface PaymentCheckoutModalProps {
   schoolId: string;
   paymentId?: string;
   programId?: string;
+  teamId?: string;
   amount: number;
   concept: string;
   mode?: 'create' | 'update';
@@ -31,7 +32,7 @@ interface PaymentCheckoutModalProps {
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, programId, amount, concept, mode = 'update', onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, programId, teamId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -160,6 +161,7 @@ export function PaymentCheckoutModal({
             parent_id: user?.id, 
             ...payloadIds, 
             program_id: (programId && programId !== '') ? programId : null, 
+            team_id: (teamId && teamId !== '') ? teamId : null, 
             school_id: (schoolId && schoolId !== '') ? schoolId : null, 
             branch_id: studentData?.branch_id || null, 
             amount, 
@@ -197,6 +199,7 @@ export function PaymentCheckoutModal({
           parent_id: user?.id, 
           ...payloadIds, 
           program_id: (programId && programId !== '') ? programId : null, 
+          team_id: (teamId && teamId !== '') ? teamId : null, 
           school_id: (schoolId && schoolId !== '') ? schoolId : null, 
           branch_id: studentData?.branch_id || null, 
           amount, 
