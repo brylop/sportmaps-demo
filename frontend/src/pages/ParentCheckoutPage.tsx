@@ -16,6 +16,7 @@ import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
+import { FileUpload } from '@/components/common/FileUpload';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -31,6 +32,7 @@ export default function ParentCheckoutPage() {
   const [wompiTxId, setWompiTxId] = useState('');
   const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
   const [showSensitive, setShowSensitive] = useState(false);
+  const [manualReceiptUrl, setManualReceiptUrl] = useState('');
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
@@ -118,8 +120,13 @@ export default function ParentCheckoutPage() {
       studentName,
       logoUrl: schoolBranding?.logo_url,
       brandingSettings: schoolBranding?.branding_settings,
+      receiptUrl: manualReceiptUrl,
     });
   };
+
+  const childId = searchParams.get('child_id');
+  const teamId = searchParams.get('team_id');
+  const programId = searchParams.get('program_id');
 
   const recordPaymentWithTraceability = async (reference: string) => {
     // Resolve School ID (Robustly)
@@ -151,13 +158,28 @@ export default function ParentCheckoutPage() {
       return;
     }
 
-    await supabase.from('payments').insert({
-      parent_id: user!.id, amount, concept, status: 'paid',
-      payment_date: new Date().toISOString(),
+    const { error: insertError } = await supabase.from('payments').insert({
+      parent_id: user?.id, 
+      child_id: childId || null,
+      team_id: teamId || null,
+      program_id: programId || null,
+      amount, 
+      concept, 
+      status: 'paid',
+      payment_date: new Date().toISOString().split('T')[0],
       due_date: new Date().toISOString().split('T')[0],
-      receipt_number: reference, payment_type: 'monthly',
-      school_id: schoolId
+      receipt_number: reference, 
+      payment_type: 'one_time',
+      payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
+      school_id: schoolId,
+      receipt_url: manualReceiptUrl
     });
+
+    if (insertError) {
+      console.error('Error inserting payment:', insertError);
+      toast({ title: 'Error', description: 'No se pudo registrar el pago en la base de datos', variant: 'destructive' });
+      return;
+    }
 
     const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
 
@@ -232,6 +254,11 @@ export default function ParentCheckoutPage() {
       return;
     }
 
+    if (!manualReceiptUrl) {
+      toast({ title: 'Sube tu comprobante', description: 'Debes subir la imagen de tu transferencia para continuar.', variant: 'destructive' });
+      return;
+    }
+  
     setProcessing(true);
     const reference = generatePaymentReference();
     setReceiptNumber(reference);
@@ -440,6 +467,17 @@ export default function ParentCheckoutPage() {
                               <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-24 h-24 rounded-lg object-cover shadow-sm border" />
                             </div>
                           )}
+                          
+                          <div className="mt-4 pt-4 border-t">
+                            <Label className="text-xs font-semibold mb-2 block">Sube tu Comprobante:</Label>
+                            <FileUpload
+                              bucket="payment-receipts"
+                              path={`manual-payments/${user?.id}`}
+                              accept="image/*,application/pdf"
+                              onUploadComplete={(url) => setManualReceiptUrl(url)}
+                              validateReceipt={true}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

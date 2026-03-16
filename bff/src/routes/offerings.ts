@@ -401,4 +401,43 @@ router.patch('/:offeringId/plans/:planId',
     }
 );
 
+// ── DELETE /api/v1/offerings/:offeringId/plans/:planId ───────────────
+
+router.delete('/:offeringId/plans/:planId',
+    requireAuth,
+    requireRole('owner', 'admin', 'school_admin'),
+    async (req: Request, res: Response) => {
+        try {
+            const { schoolId } = req;
+            const { planId } = req.params;
+
+            // Verificar si hay enrollments activos para este plan
+            const { count } = await supabase
+                .from('enrollments')
+                .select('id', { count: 'exact', head: true })
+                .eq('offering_plan_id', planId)
+                .eq('status', 'active');
+
+            if (count && count > 0) {
+                return res.status(409).json({
+                    error: 'No se puede eliminar un plan con inscripciones activas',
+                    code: 'PLAN_HAS_ACTIVE_ENROLLMENTS'
+                });
+            }
+
+            const { error } = await supabase
+                .from('offering_plans')
+                .delete()
+                .eq('id', planId)
+                .eq('school_id', schoolId);
+
+            if (error) throw error;
+            res.json({ success: true });
+        } catch (err) {
+            (req as any).log?.error({ err }, 'Error deleting plan');
+            res.status(500).json({ error: 'Error al eliminar plan' });
+        }
+    }
+);
+
 export default router;

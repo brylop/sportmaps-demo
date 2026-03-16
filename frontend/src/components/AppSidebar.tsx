@@ -36,11 +36,15 @@ export function AppSidebar() {
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
 
-  let navigationRole: UserRole = (profile.role as UserRole) || 'athlete';
-  if (currentUserRole) {
-    switch (currentUserRole) {
+  // Normalize role for navigation mapping
+  const effectiveRole = currentUserRole || profile.role;
+  let navigationRole: UserRole = 'athlete';
+
+  if (effectiveRole) {
+    switch (effectiveRole) {
       case 'owner':
       case 'super_admin':
+      case 'school':
         navigationRole = 'school';
         break;
       case 'admin':
@@ -63,6 +67,7 @@ export function AppSidebar() {
         navigationRole = 'athlete';
         break;
       default:
+        navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
     }
   }

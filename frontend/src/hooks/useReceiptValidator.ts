@@ -4,10 +4,13 @@
  * Validador de comprobantes de pago usando OCR en el navegador.
  * Usa Tesseract.js para extraer texto de imágenes y pdfjs-dist para PDFs.
  * 100% gratuito, sin llamadas a APIs externas.
+ *
+ * FIX: usa createWorker con workerPath/corePath via CDN para que Vite no
+ * minifique los workers internos de Tesseract (evita error "g is not a function").
  */
 
 import { useState } from 'react';
-import Tesseract from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
 
 export interface ReceiptValidationResult {
     valid: boolean;
@@ -31,14 +34,12 @@ const WEEKDAY_ABBREV_ES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 
 // ── Helpers de fecha ──────────────────────────────────────────────────────────
 
-/** Día del año (1 = 1 enero). */
 const getDayOfYear = (date: Date): number => {
     const start = new Date(Date.UTC(date.getFullYear(), 0, 1));
     const current = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     return Math.floor((current.getTime() - start.getTime()) / 86_400_000) + 1;
 };
 
-/** Semana ISO (week) y día ISO (1=lun … 7=dom). */
 const getISOWeek = (date: Date): { week: number; day: number } => {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     const isoDow = d.getUTCDay() || 7;
@@ -58,9 +59,9 @@ const getTodayVariants = () => {
     const mm    = String(month).padStart(2, '0');
     const yy    = String(year).slice(2);
 
-    const monthName  = MONTH_NAMES_ES[today.getMonth()];
-    const mAbbES     = MONTH_ABBREV_ES[today.getMonth()];
-    const mAbbEN     = MONTH_ABBREV_EN[today.getMonth()];
+    const monthName    = MONTH_NAMES_ES[today.getMonth()];
+    const mAbbES       = MONTH_ABBREV_ES[today.getMonth()];
+    const mAbbEN       = MONTH_ABBREV_EN[today.getMonth()];
     const weekdayName  = WEEKDAY_NAMES_ES[today.getDay()];
     const weekdayAbbr  = WEEKDAY_ABBREV_ES[today.getDay()];
 
@@ -69,58 +70,42 @@ const getTodayVariants = () => {
     const { week, day: isoDay } = getISOWeek(today);
     const ww = String(week).padStart(2, '0');
 
-    // Rango Unix UTC del día actual (para validar @timestamp)
     const unixStart = Math.floor(Date.UTC(year, today.getMonth(), day,  0,  0,  0) / 1000);
     const unixEnd   = Math.floor(Date.UTC(year, today.getMonth(), day, 23, 59, 59) / 1000);
 
     return {
-        // ── Formatos originales ───────────────────────────────────────────────
-        iso:              `${year}-${mm}-${dd}`,           // AAAA-MM-DD
-        slash:            `${dd}/${mm}/${year}`,            // DD/MM/AAAA
-        slashShort:       `${dd}/${mm}/${yy}`,              // DD/MM/AA
-        dash:             `${dd}-${mm}-${year}`,            // DD-MM-AAAA
-        dot:              `${dd}.${mm}.${year}`,            // DD.MM.AAAA
-        human:            `${day} de ${monthName} de ${year}`,  // D de MMMM de AAAA
-        humanShort:       `${day} ${monthName} ${year}`,   // D MMMM AAAA
-        dayMonth:         `${dd}/${mm}`,                    // DD/MM
-        dayMonthDash:     `${dd}-${mm}`,                    // DD-MM
-
-        // ── ISO extendidos ───────────────────────────────────────────────────
-        compact:          `${year}${mm}${dd}`,              // AAAAMMDD (ISO básico)
-        slashISO:         `${year}/${mm}/${dd}`,            // AAAA/MM/DD
-        julian:           `${year}-${ddd}`,                 // AAAA-DDD (día ordinal)
-        isoWeek:          `${year}-W${ww}-${isoDay}`,       // AAAA-Www-D (semana ISO)
-
-        // ── Formato EE.UU. ───────────────────────────────────────────────────
-        slashUS:          `${mm}/${dd}/${year}`,            // MM/DD/AAAA
-        mSlashDSlashYY:   `${month}/${day}/${yy}`,          // M/D/AA
-
-        // ── Mes abreviado (español) ──────────────────────────────────────────
-        dashMMMes:        `${dd}-${mAbbES}-${year}`,        // DD-mmm-AAAA
-        dashMMMesShort:   `${dd}-${mAbbES}-${yy}`,          // DD-mmm-AA
-        noSepMMes:        `${dd}${mAbbES}${year}`,          // DDmmmAAAA
-        humanAbbr:        `${day} ${mAbbES} ${year}`,       // D mmm AAAA
-        humanAbbrDot:     `${day} ${mAbbES}. ${year}`,      // D mmm. AAAA
-
-        // ── Mes abreviado (inglés) ───────────────────────────────────────────
-        dashMMMen:        `${dd}-${mAbbEN}-${year}`,        // DD-MMM-AAAA
-        dashMMMenuShort:  `${dd}-${mAbbEN}-${yy}`,          // DD-MMM-AA
-        noSepMMen:        `${dd}${mAbbEN}${year}`,          // DDMMMAAAA
-        humanAbbrEN:      `${day} ${mAbbEN} ${year}`,       // D MMM AAAA
-
-        // ── Con coma / día de semana ─────────────────────────────────────────
-        humanComma:         `${day} de ${monthName}, ${year}`,                   // D de MMMM, AAAA
-        humanWeekday:       `${weekdayName}, ${day} de ${monthName} de ${year}`, // EEEE, D de MMMM de AAAA
-        humanWeekdayAbbr:   `${weekdayAbbr}, ${day} ${mAbbES} ${year}`,          // ddd, D mmm AAAA
-
-        // ── Compactos cortos ─────────────────────────────────────────────────
-        ddmmyy:           `${dd}${mm}${yy}`,               // DDMMAA
-        ddmmyydash:       `${dd}-${mm}-${yy}`,             // DD-MM-AA
-        mmddyy:           `${mm}${dd}${yy}`,               // MMDDAA
-        mmddyydash:       `${mm}-${dd}-${yy}`,             // MM-DD-AA
-        yymmdd:           `${yy}${mm}${dd}`,               // AAMMDD
-
-        // ── Metadatos (uso interno) ──────────────────────────────────────────
+        iso:              `${year}-${mm}-${dd}`,
+        slash:            `${dd}/${mm}/${year}`,
+        slashShort:       `${dd}/${mm}/${yy}`,
+        dash:             `${dd}-${mm}-${year}`,
+        dot:              `${dd}.${mm}.${year}`,
+        human:            `${day} de ${monthName} de ${year}`,
+        humanShort:       `${day} ${monthName} ${year}`,
+        dayMonth:         `${dd}/${mm}`,
+        dayMonthDash:     `${dd}-${mm}`,
+        compact:          `${year}${mm}${dd}`,
+        slashISO:         `${year}/${mm}/${dd}`,
+        julian:           `${year}-${ddd}`,
+        isoWeek:          `${year}-W${ww}-${isoDay}`,
+        slashUS:          `${mm}/${dd}/${year}`,
+        mSlashDSlashYY:   `${month}/${day}/${yy}`,
+        dashMMMes:        `${dd}-${mAbbES}-${year}`,
+        dashMMMesShort:   `${dd}-${mAbbES}-${yy}`,
+        noSepMMes:        `${dd}${mAbbES}${year}`,
+        humanAbbr:        `${day} ${mAbbES} ${year}`,
+        humanAbbrDot:     `${day} ${mAbbES}. ${year}`,
+        dashMMMen:        `${dd}-${mAbbEN}-${year}`,
+        dashMMMenuShort:  `${dd}-${mAbbEN}-${yy}`,
+        noSepMMen:        `${dd}${mAbbEN}${year}`,
+        humanAbbrEN:      `${day} ${mAbbEN} ${year}`,
+        humanComma:       `${day} de ${monthName}, ${year}`,
+        humanWeekday:     `${weekdayName}, ${day} de ${monthName} de ${year}`,
+        humanWeekdayAbbr: `${weekdayAbbr}, ${day} ${mAbbES} ${year}`,
+        ddmmyy:           `${dd}${mm}${yy}`,
+        ddmmyydash:       `${dd}-${mm}-${yy}`,
+        mmddyy:           `${mm}${dd}${yy}`,
+        mmddyydash:       `${mm}-${dd}-${yy}`,
+        yymmdd:           `${yy}${mm}${dd}`,
         unixStart,
         unixEnd,
         day, month, year, monthName, yy,
@@ -133,48 +118,17 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
     const today = getTodayVariants();
     const lower = text.toLowerCase();
 
-    // Orden: de más específico/largo a más corto para reducir falsos positivos
     const patterns = [
-        // Con día de semana (más largo → menos ambiguo)
-        today.humanWeekday,
-        today.humanWeekdayAbbr,
-        // Formato largo con mes escrito
-        today.human,
-        today.humanComma,
-        today.humanShort,
-        today.humanAbbr,
-        today.humanAbbrDot,
-        today.humanAbbrEN,
-        // ISO y variantes con año completo
-        today.iso,
-        today.slashISO,
-        today.compact,
-        today.julian,
-        today.isoWeek,
-        // DD/MM/AAAA y variantes
-        today.slash,
-        today.slashUS,
-        today.dash,
-        today.dot,
-        // Con mes abreviado
-        today.dashMMMes,
-        today.dashMMMen,
-        today.noSepMMes,
-        today.noSepMMen,
-        // Año corto
-        today.slashShort,
-        today.dashMMMesShort,
-        today.dashMMMenuShort,
-        today.ddmmyydash,
-        today.mmddyydash,
-        today.mSlashDSlashYY,
-        // Compactos sin separador (mayor riesgo de falso positivo — van al final)
-        today.ddmmyy,
-        today.mmddyy,
-        today.yymmdd,
-        // Solo día/mes
-        today.dayMonth,
-        today.dayMonthDash,
+        today.humanWeekday, today.humanWeekdayAbbr,
+        today.human, today.humanComma, today.humanShort,
+        today.humanAbbr, today.humanAbbrDot, today.humanAbbrEN,
+        today.iso, today.slashISO, today.compact, today.julian, today.isoWeek,
+        today.slash, today.slashUS, today.dash, today.dot,
+        today.dashMMMes, today.dashMMMen, today.noSepMMes, today.noSepMMen,
+        today.slashShort, today.dashMMMesShort, today.dashMMMenuShort,
+        today.ddmmyydash, today.mmddyydash, today.mSlashDSlashYY,
+        today.ddmmyy, today.mmddyy, today.yymmdd,
+        today.dayMonth, today.dayMonthDash,
     ];
 
     for (const pattern of patterns) {
@@ -183,7 +137,6 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
-    // Unix timestamp: @XXXXXXXXXX o número de 10 dígitos suelto
     const unixMatch = /@(\d{9,10})\b|\b(\d{10})\b/.exec(text);
     if (unixMatch) {
         const ts = parseInt(unixMatch[1] || unixMatch[2], 10);
@@ -192,7 +145,6 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
-    // Fallback: extraer cualquier fecha presente en el texto
     const dateRegex = /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}[/-]\d{2}[/-]\d{2})\b/g;
     const matches = text.match(dateRegex);
     const humanDateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\s+(?:de\s+)?(\d{4})\b/gi;
@@ -215,9 +167,7 @@ const extractAmount = (text: string): string | null => {
         if (match) {
             const raw = match[1] || match[0];
             const numeric = parseFloat(raw.replace(/[.,]/g, ''));
-            if (numeric > 1000) {
-                return raw.trim();
-            }
+            if (numeric > 1000) return raw.trim();
         }
     }
     return null;
@@ -267,6 +217,14 @@ const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
     return new Promise(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'));
 };
 
+// ── Worker CDN paths (evita que Vite minifique los internals de Tesseract) ────
+
+const TESSERACT_CDN = {
+    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/worker.min.js',
+    langPath:   'https://tessdata.projectnaptha.com/4.0.0',
+    corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@7/',
+} as const;
+
 // ── Hook principal ────────────────────────────────────────────────────────────
 
 export function useReceiptValidator() {
@@ -274,6 +232,8 @@ export function useReceiptValidator() {
 
     const validate = async (file: File): Promise<ReceiptValidationResult> => {
         setValidating(true);
+        let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+
         try {
             let imageSource: File | Blob = file;
 
@@ -292,10 +252,19 @@ export function useReceiptValidator() {
                 }
             }
 
-            const { data } = await Tesseract.recognize(imageSource, 'spa+eng', {
-                logger: process.env.NODE_ENV === 'development' ? (m) => console.log('[OCR]', m.status, Math.round((m.progress || 0) * 100) + '%') : undefined,
+            // FIX: createWorker con paths CDN → Vite no toca estos workers
+            // Antes: Tesseract.recognize() creaba workers internos que el
+            // minificador renombraba rompiendo sus callbacks ("g is not a function")
+            worker = await createWorker('spa+eng', 1, {
+                ...TESSERACT_CDN,
+                // logger solo en dev para no exponer el callback al minificador en prod
+                logger: import.meta.env.DEV
+                    ? (msg: { status: string; progress?: number }) =>
+                        console.log('[OCR]', msg.status, Math.round((msg.progress ?? 0) * 100) + '%')
+                    : () => {},
             });
 
+            const { data } = await worker.recognize(imageSource);
             const text = data.text || '';
             const textLower = text.toLowerCase();
 
@@ -307,7 +276,7 @@ export function useReceiptValidator() {
                 'exitosa', 'realizada', 'confirmado',
             ];
 
-            const isReceipt = receiptKeywords.some(kw => textLower.includes(kw));
+            const isReceipt = receiptKeywords.some(keyword => textLower.includes(keyword));
 
             if (!isReceipt && text.length < 50) {
                 return {
@@ -316,7 +285,8 @@ export function useReceiptValidator() {
                     extractedAmount: null,
                     extractedReference: null,
                     rejectionReason:
-                        'No pudimos leer el comprobante o no parece ser un soporte válido. Por favor, asegúrate de que la imagen sea nítida o que el PDF sea legible e inténtalo de nuevo.',
+                        'No pudimos leer el comprobante o no parece ser un soporte válido. ' +
+                        'Por favor, asegúrate de que la imagen sea nítida o que el PDF sea legible e inténtalo de nuevo.',
                     rawText: text,
                 };
             }
@@ -348,6 +318,7 @@ export function useReceiptValidator() {
                 rejectionReason: null,
                 rawText: text,
             };
+
         } catch (err) {
             console.error('Error en OCR:', err);
             return {
@@ -358,6 +329,8 @@ export function useReceiptValidator() {
                 rejectionReason: 'Error al analizar el archivo. Intenta de nuevo.',
             };
         } finally {
+            // Siempre terminar el worker para liberar memoria
+            if (worker) await worker.terminate();
             setValidating(false);
         }
     };

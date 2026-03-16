@@ -57,8 +57,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Mi Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Mis Equipos', href: '/teams', icon: Users }
+          { title: 'Mi Calendario', href: '/calendar', icon: Calendar }
         ]
       },
       {

@@ -9,14 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel,
+    AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+    AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useOfferings, Offering } from '@/hooks/useOfferings';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
-import { SPORTS_CATALOG, searchSports } from '@/lib/constants/sportsCatalog';
+import sportsData from '@/lib/constants/deportes_globales_categorias.json';
 import { getSportVisual } from '@/lib/sportVisuals';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus } from 'lucide-react';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight } from 'lucide-react';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -138,13 +143,19 @@ function SportSearchCombobox({
 }) {
     const [query, setQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
-    const inputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const allSports = useMemo(() => (sportsData as any).deportes || [], []);
+
     const results = useMemo(() => {
-        if (query.trim().length < MIN_SEARCH_CHARS) return [];
-        return searchSports(query).slice(0, 15).filter(s => !values.includes(s.nombre));
-    }, [query, values]);
+        if (!query.trim()) return [];
+        const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return allSports.filter((s: any) => {
+            const name = s.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const nameEn = (s.nombre_ingles || "").toLowerCase();
+            return (name.includes(q) || nameEn.includes(q)) && !values.includes(s.nombre);
+        }).slice(0, 10);
+    }, [query, values, allSports]);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -157,36 +168,30 @@ function SportSearchCombobox({
     }, []);
 
     const handleAdd = (sportName: string) => {
-        if (!values.includes(sportName)) {
-            onChange([...values, sportName]);
-        }
-        // ✅ Limpiar búsqueda después de seleccionar
+        onChange([sportName]); // Currently OfferingsManagement seems to expect single sport per offering
         setQuery('');
         setIsOpen(false);
-        inputRef.current?.focus();
     };
 
-    const handleRemove = (sportName: string) => {
-        onChange(values.filter(v => v !== sportName));
+    const handleRemove = () => {
+        onChange([]);
     };
-
-    const shouldShowDropdown = isOpen && query.trim().length >= MIN_SEARCH_CHARS;
 
     return (
         <div ref={containerRef} className="space-y-2">
             {values.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2 mb-2">
                     {values.map((name) => {
-                        const entry = SPORTS_CATALOG.find(s => s.nombre === name);
-                        const visual = getSportVisual(entry?.slug ?? name);
+                        const sport = allSports.find((s: any) => s.nombre === name);
+                        const visual = getSportVisual(sport?.nombre?.toLowerCase() || 'default');
                         return (
-                            <div key={name} className="group flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full border border-primary/20 bg-primary/5 text-sm animate-in fade-in-0 zoom-in-95 hover:border-primary/40 transition-colors">
-                                <span className="text-sm">{visual.icon}</span>
-                                <span className="font-medium max-w-[130px] truncate text-xs">{name}</span>
+                            <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[#248223]/30 bg-[#248223]/5 shadow-sm animate-in fade-in zoom-in-95">
+                                <span className="text-base">{visual.icon}</span>
+                                <span className="text-xs font-bold text-[#f5f7f2]">{name}</span>
                                 <button
                                     type="button"
-                                    onClick={() => handleRemove(name)}
-                                    className="ml-0.5 p-0.5 rounded-full hover:bg-destructive/15 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                                    onClick={handleRemove}
+                                    className="p-0.5 hover:bg-red-500/10 hover:text-red-400 rounded-full transition-colors"
                                 >
                                     <X className="h-3 w-3" />
                                 </button>
@@ -196,49 +201,50 @@ function SportSearchCombobox({
                 </div>
             )}
 
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
                 <Input
-                    ref={inputRef}
-                    placeholder={values.length > 0 ? 'Agregar otro deporte...' : 'Buscar deporte...'}
+                    placeholder={values.length > 0 ? 'Cambiar deporte...' : 'Buscar deporte (ej: Fútbol, Tenis)...'}
                     value={query}
-                    onChange={(e) => { setQuery(e.target.value); setIsOpen(e.target.value.trim().length >= MIN_SEARCH_CHARS); }}
-                    onFocus={() => { if (query.trim().length >= MIN_SEARCH_CHARS) setIsOpen(true); }}
-                    className="pl-9 pr-8 w-full h-9"
+                    onChange={(e) => { 
+                        setQuery(e.target.value); 
+                        setIsOpen(e.target.value.trim().length > 0); 
+                    }}
+                    onFocus={() => { if (query.trim().length > 0) setIsOpen(true); }}
+                    className="pl-10 h-11 bg-[#0f2614] border-white/5 rounded-xl focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all text-sm"
                 />
-                <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none transition-transform duration-200 ${shouldShowDropdown ? 'rotate-180' : ''}`} />
+                
+                {isOpen && results.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0a1a0d] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
+                        <div className="max-h-60 overflow-y-auto py-1">
+                            {results.map((sport: any) => {
+                                const visual = getSportVisual(sport.nombre.toLowerCase());
+                                return (
+                                    <button
+                                        key={sport.id}
+                                        type="button"
+                                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#248223]/10 text-left transition-colors border-b border-white/5 last:border-0"
+                                        onClick={() => handleAdd(sport.nombre)}
+                                    >
+                                        <span className="text-xl">{visual.icon}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold text-[#f5f7f2] truncate">{sport.nombre}</p>
+                                            <p className="text-[10px] text-[#8a9186] truncate">{sport.federacion_internacional || sport.federacion}</p>
+                                        </div>
+                                        <ArrowRight className="w-3 h-3 text-[#4a5246] opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {isOpen && query.trim() && results.length === 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#0a1a0d] border border-white/10 rounded-xl p-6 text-center z-[100] animate-in fade-in slide-in-from-top-2">
+                        <p className="text-xs text-[#8a9186]">No se encontraron resultados para "{query}"</p>
+                    </div>
+                )}
             </div>
-
-            {shouldShowDropdown && (
-                <div className="max-h-52 overflow-y-auto rounded-lg border bg-popover shadow-md animate-in fade-in-0 slide-in-from-top-1 z-50">
-                    {results.length === 0 ? (
-                        <div className="p-4 text-sm text-center text-muted-foreground">No se encontraron deportes</div>
-                    ) : (
-                        results.map((sport) => {
-                            const visual = getSportVisual(sport.slug);
-                            return (
-                                <button
-                                    type="button"
-                                    key={sport.id}
-                                    className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent/80 hover:text-accent-foreground transition-colors text-left border-b border-border/20 last:border-0"
-                                    onClick={() => handleAdd(sport.nombre)}
-                                >
-                                    <span className="text-base shrink-0">{visual.icon}</span>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium truncate text-xs">{sport.nombre}</div>
-                                        <div className="text-[10px] text-muted-foreground truncate">{sport.nombreIngles} · {sport.federacion}</div>
-                                    </div>
-                                    <Badge variant="outline" className="text-[8px] shrink-0 whitespace-nowrap hidden sm:inline-flex opacity-60">
-                                        {sport.categoriaGlobal === 'olimpicos_verano' ? 'Olímpico' : sport.categoriaGlobal === 'paralimpicos' ? 'Paralímpico' : sport.categoriaGlobal === 'artes_marciales_y_combate' ? 'Combate' : 'Otro'}
-                                    </Badge>
-                                </button>
-                            );
-                        })
-                    )}
-                </div>
-            )}
-
-            {/* Search helper removed as threshold is 1 */}
         </div>
     );
 }
@@ -251,12 +257,24 @@ export function OfferingsManagement() {
     const { toast } = useToast();
     const { schoolId } = useSchoolContext();
     const queryClient = useQueryClient();
-    const { offerings, isLoading, createOffering, updateOffering, deleteOffering, createPlan, updatePlan } = useOfferings();
+    
+    const { 
+        offerings, 
+        isLoading,
+        createOffering,
+        updateOffering,
+        deleteOffering,
+        createPlan,
+        updatePlan,
+        deletePlan
+    } = useOfferings();
 
-    const [showCreate, setShowCreate] = useState(false);
-    const [showCreatePlan, setShowCreatePlan] = useState<string | null>(null);
-    const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
-    const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+    const isCreatingOffering = createOffering.isPending;
+    const isUpdatingOffering = updateOffering.isPending;
+    const isCreatingPlan = createPlan.isPending;
+    const isUpdatingPlan = updatePlan.isPending;
+    const isDeletingOffering = deleteOffering.isPending;
+    const isDeletingPlan = deletePlan.isPending;
 
     // Enroll state
     const [enrollModal, setEnrollModal] = useState<{
@@ -268,6 +286,16 @@ export function OfferingsManagement() {
         plan: null,
         offering: null,
     });
+
+    const [showCreate, setShowCreate] = useState(false);
+    const [showCreatePlan, setShowCreatePlan] = useState<string | null>(null);
+    const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
+    const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+    const [enrollPlanId, setEnrollPlanId] = useState<string | null>(null);
+
+    // -- Deletion State --
+    const [planToDelete, setPlanToDelete] = useState<{ planId: string; offeringId: string } | null>(null);
+    const [offeringToDelete, setOfferingToDelete] = useState<string | null>(null);
 
     const [newOffering, setNewOffering] = useState({
         name: '', description: '', offering_type: 'membership' as string, sport: '' as string,
@@ -373,6 +401,46 @@ export function OfferingsManagement() {
         });
     };
 
+    const handleEnrollStudent = (planId: string) => {
+        setEnrollPlanId(planId);
+    };
+
+    const handleDeletePlan = () => {
+        if (!planToDelete) return;
+        deletePlan.mutate(planToDelete, {
+            onSuccess: () => {
+                toast({ title: '✅ Tarifa eliminada', description: 'La tarifa ha sido eliminada exitosamente.' });
+                setPlanToDelete(null);
+            },
+            onError: (err: any) => {
+                const code = err?.body?.code || err?.code;
+                const msg = code === 'PLAN_HAS_ACTIVE_ENROLLMENTS'
+                    ? 'No puedes eliminar una tarifa con estudiantes activos. Cancela las inscripciones primero.'
+                    : err?.body?.error || err?.message || 'No se pudo eliminar la tarifa.';
+                toast({ title: '❌ Error al eliminar tarifa', description: msg, variant: 'destructive' });
+                setPlanToDelete(null);
+            }
+        });
+    };
+
+    const handleDeleteOffering = () => {
+        if (!offeringToDelete) return;
+        deleteOffering.mutate(offeringToDelete, {
+            onSuccess: () => {
+                toast({ title: '✅ Plan eliminado', description: 'El plan y sus tarifas han sido eliminados.' });
+                setOfferingToDelete(null);
+            },
+            onError: (err: any) => {
+                const code = err?.body?.code || err?.code;
+                const msg = code === 'OFFERING_HAS_ACTIVE_ENROLLMENTS'
+                    ? 'No puedes eliminar un plan con estudiantes activos. Cancela las inscripciones primero.'
+                    : err?.body?.error || err?.message || 'No se pudo eliminar el plan.';
+                toast({ title: '❌ Error al eliminar plan', description: msg, variant: 'destructive' });
+                setOfferingToDelete(null);
+            }
+        });
+    };
+
     if (isLoading) {
         return (
             <div className="space-y-4">
@@ -383,8 +451,8 @@ export function OfferingsManagement() {
         );
     }
 
-    const isSavingOffering = createOffering.isPending || updateOffering.isPending;
-    const isSavingPlan = createPlan.isPending || updatePlan.isPending;
+    const isSavingOffering = isCreatingOffering || isUpdatingOffering;
+    const isSavingPlan = isCreatingPlan || isUpdatingPlan;
 
     return (
         <div className="space-y-5">
@@ -425,6 +493,8 @@ export function OfferingsManagement() {
                             onAddPlan={() => { resetPlanForm(); setShowCreatePlan(offering.id); }}
                             onEditPlan={(planId) => handleEditPlan(offering.id, planId)}
                             onEnroll={handleOpenEnroll}
+                            onDeleteOffering={() => setOfferingToDelete(offering.id)}
+                            onDeletePlan={(planId) => setPlanToDelete({ offeringId: offering.id, planId })}
                         />
                     ))}
                 </div>
@@ -448,7 +518,7 @@ export function OfferingsManagement() {
                             <Input
                                 placeholder="Ej: Membresía Elite, Pack 10 Clases"
                                 value={newOffering.name}
-                                onChange={(e) => setNewOffering((o) => ({ ...o, name: e.target.value }))}
+                                onChange={(e) => setNewOffering((prev) => ({ ...prev, name: e.target.value }))}
                             />
                         </div>
 
@@ -457,7 +527,7 @@ export function OfferingsManagement() {
                                 <Label className="text-sm font-medium">Tipo de Oferta</Label>
                                 <Select
                                     value={newOffering.offering_type}
-                                    onValueChange={(v: any) => setNewOffering((o) => ({ ...o, offering_type: v }))}
+                                    onValueChange={(v: any) => setNewOffering((prev) => ({ ...prev, offering_type: v }))}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Seleccionar tipo" />
@@ -474,7 +544,7 @@ export function OfferingsManagement() {
                                 <Label className="text-sm font-medium">Deporte</Label>
                                 <SportSearchCombobox
                                     values={newOffering.sport ? [newOffering.sport] : []}
-                                    onChange={(sports) => setNewOffering((o) => ({ ...o, sport: sports[0] || '' }))}
+                                    onChange={(sports) => setNewOffering((prev) => ({ ...prev, sport: sports[0] || '' }))}
                                 />
                             </div>
                         </div>
@@ -487,7 +557,7 @@ export function OfferingsManagement() {
                             <Textarea
                                 placeholder="Describe qué beneficios incluye esta membresía o paquete..."
                                 value={newOffering.description}
-                                onChange={(e) => setNewOffering((o) => ({ ...o, description: e.target.value }))}
+                                onChange={(e) => setNewOffering((prev) => ({ ...prev, description: e.target.value }))}
                                 rows={3}
                             />
                         </div>
@@ -522,7 +592,43 @@ export function OfferingsManagement() {
                             <Label htmlFor="plan-name" className="text-sm font-medium">
                                 Nombre de la tarifa <span className="text-destructive">*</span>
                             </Label>
-                            <Input id="plan-name" placeholder="Ej: Básico, Premium, 2 veces/semana" value={newPlan.name} onChange={(e) => setNewPlan((p) => ({ ...p, name: e.target.value }))} className="h-9" />
+                            <Input id="plan-name" placeholder="Ej: Básico, Premium, 2 veces/semana" value={newPlan.name} onChange={(e) => setNewPlan((prev) => ({ ...prev, name: e.target.value }))} className="h-9" />
+                            
+                            {/* Suggested Categories logic */}
+                            {(() => {
+                                const parentOffering = offerings.find(o => o.id === (showCreatePlan || editingPlanId));
+                                const sportName = parentOffering?.sport;
+                                if (!sportName) return null;
+                                
+                                const sport = (sportsData as any).deportes?.find((s: any) => s.nombre.toLowerCase() === sportName.toLowerCase());
+                                if (!sport || !sport.categorias_competencia) return null;
+                                
+                                const cats: string[] = [];
+                                Object.values(sport.categorias_competencia).forEach((val: any) => {
+                                    if (Array.isArray(val)) cats.push(...val);
+                                });
+                                const uniqueCats = Array.from(new Set(cats)).slice(0, 12);
+                                
+                                if (uniqueCats.length === 0) return null;
+
+                                return (
+                                    <div className="pt-1.5">
+                                        <p className="text-[10px] text-muted-foreground mb-1.5 uppercase font-bold tracking-tight">Sugerencias {sport.nombre}:</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {uniqueCats.map(cat => (
+                                                <button
+                                                    key={cat}
+                                                    type="button"
+                                                    onClick={() => setNewPlan(prev => ({ ...prev, name: cat }))}
+                                                    className="px-2 py-0.5 text-[10px] rounded-full border border-white/5 bg-white/5 hover:bg-[#248223]/20 hover:border-[#248223]/30 transition-all text-[#8a9186] hover:text-[#f5f7f2]"
+                                                >
+                                                    {cat}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* Price + Duration row */}
@@ -534,7 +640,7 @@ export function OfferingsManagement() {
                                 <NumberStepper
                                     id="plan-price"
                                     value={newPlan.price}
-                                    onChange={(v) => setNewPlan((p) => ({ ...p, price: v }))}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, price: v }))}
                                     placeholder="0"
                                     prefix="$"
                                     step={5000}
@@ -547,7 +653,7 @@ export function OfferingsManagement() {
                                 </Label>
                                 <Select
                                     value={newPlan.duration_days}
-                                    onValueChange={(v) => setNewPlan((p) => ({ ...p, duration_days: v }))}
+                                    onValueChange={(v) => setNewPlan((prev) => ({ ...prev, duration_days: v }))}
                                 >
                                     <SelectTrigger className="h-9">
                                         <SelectValue placeholder="Seleccionar duración" />
@@ -572,7 +678,7 @@ export function OfferingsManagement() {
                                 <NumberStepper
                                     id="plan-sessions"
                                     value={newPlan.max_sessions}
-                                    onChange={(v) => setNewPlan((p) => ({ ...p, max_sessions: v }))}
+                                    onChange={(v) => setNewPlan((prev) => ({ ...prev, max_sessions: v }))}
                                     placeholder="∞"
                                     step={1}
                                 />
@@ -583,7 +689,7 @@ export function OfferingsManagement() {
                                 <Input
                                     placeholder="Ej: Cortesía, Bono, etc."
                                     value={newPlan.secondary_session_label}
-                                    onChange={(e) => setNewPlan((p) => ({ ...p, secondary_session_label: e.target.value }))}
+                                    onChange={(e) => setNewPlan((prev) => ({ ...prev, secondary_session_label: e.target.value }))}
                                     className="h-9"
                                 />
                             </div>
@@ -594,7 +700,7 @@ export function OfferingsManagement() {
                             <NumberStepper
                                 id="plan-secondary"
                                 value={newPlan.max_secondary_sessions}
-                                onChange={(v) => setNewPlan((p) => ({ ...p, max_secondary_sessions: v }))}
+                                onChange={(v) => setNewPlan((prev) => ({ ...prev, max_secondary_sessions: v }))}
                                 placeholder="0"
                                 step={1}
                             />
@@ -629,6 +735,64 @@ export function OfferingsManagement() {
                 plan={enrollModal.plan}
                 offeringName={enrollModal.offering?.name || ''}
             />
+
+            {enrollPlanId && (
+                <EnrollPlanStudentModal
+                    open={!!enrollPlanId}
+                    plan={offerings.flatMap(o => o.offering_plans ?? []).find(p => p.id === enrollPlanId)}
+                    onClose={() => setEnrollPlanId(null)}
+                    onSuccess={() => {
+                        queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+                    }}
+                    schoolId={schoolId || ''}
+                    offeringName={offerings.find(o => o.offering_plans?.some(p => p.id === enrollPlanId))?.name || ''}
+                />
+            )}
+
+            {/* -- Deletion Confirmation Dialogs -- */}
+            <AlertDialog open={!!planToDelete} onOpenChange={(o) => !o && setPlanToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar tarifa?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta acción eliminará la tarifa permanentemente. 
+                            Solo posible si no hay inscripciones activas.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeletePlan}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeletingPlan}
+                        >
+                            {isDeletingPlan ? 'Eliminando...' : 'Eliminar Tarifa'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!offeringToDelete} onOpenChange={(o) => !o && setOfferingToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar plan completo?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Se eliminará el plan y todas sus tarifas. 
+                            Solo posible si no hay estudiantes inscritos.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleDeleteOffering}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={isDeletingOffering}
+                        >
+                            {isDeletingOffering ? 'Eliminando...' : 'Eliminar Plan'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
@@ -643,17 +807,19 @@ function OfferingCard({
     onAddPlan,
     onEditPlan,
     onEnroll,
+    onDeleteOffering,
+    onDeletePlan,
 }: {
     offering: Offering;
     onEditOffering: () => void;
     onAddPlan: () => void;
     onEditPlan?: (planId: string) => void;
     onEnroll?: (offering: Offering, plan: any) => void;
+    onDeleteOffering?: () => void;
+    onDeletePlan?: (planId: string) => void;
 }) {
     const plans = offering.offering_plans ?? [];
-    const sportVisual = offering.sport ? getSportVisual(
-        SPORTS_CATALOG.find(s => s.nombre === offering.sport)?.slug ?? offering.sport
-    ) : null;
+    const sportVisual = offering.sport ? getSportVisual(offering.sport.toLowerCase()) : null;
 
     return (
         <Card className="overflow-hidden border-border/60 hover:border-border transition-colors">
@@ -668,8 +834,8 @@ function OfferingCard({
                                 <Zap className="h-5 w-5 text-primary" />
                             )}
                         </div>
-                        <div className="min-w-0">
-                            <CardTitle className="text-sm font-bold truncate leading-tight">{offering.name}</CardTitle>
+                        <div className="min-w-0 flex-1">
+                            <CardTitle className="text-sm font-bold leading-tight break-words">{offering.name}</CardTitle>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 py-0 bg-primary/5 text-primary border-primary/10 font-medium">
                                     {OFFERING_TYPE_LABELS[offering.offering_type] ?? offering.offering_type}
@@ -683,6 +849,20 @@ function OfferingCard({
                         </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {onDeleteOffering && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteOffering();
+                                }}
+                                className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive rounded-md"
+                                title="Eliminar plan"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             size="sm"
@@ -767,6 +947,17 @@ function OfferingCard({
                                                 title="Editar tarifa"
                                             >
                                                 <Edit className="h-3.5 w-3.5" />
+                                            </Button>
+                                        )}
+                                        {onDeletePlan && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onDeletePlan(plan.id)}
+                                                className="shrink-0 h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                                title="Eliminar tarifa"
+                                            >
+                                                <Trash2 className="h-3 w-3" />
                                             </Button>
                                         )}
                                     </div>

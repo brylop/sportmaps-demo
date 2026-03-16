@@ -60,7 +60,7 @@ export function FileUpload({
     setUploaded(false);
     setUploadedUrl(null);
 
-    const validSized = files.filter(f => f.size / (1024 * 1024) <= maxSizeMB);
+    const validSized = files.filter(file => file.size / (1024 * 1024) <= maxSizeMB);
     const toUse = multiple ? validSized : validSized.slice(0, 1);
     setSelectedFiles(toUse);
 

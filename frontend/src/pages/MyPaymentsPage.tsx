@@ -18,7 +18,8 @@ import { Progress } from '@/components/ui/progress';
 interface Enrollment {
   id: string;
   child_id: string;
-  program_id: string;
+  program_id: string | null;
+  team_id: string | null;
   school_id: string;
   children: {
     full_name: string;
@@ -72,18 +73,12 @@ export default function MyPaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
     childName: string;
-    programId: string;
+    programId?: string;
+    teamId?: string;
     programName: string;
     amount: number;
     schoolId: string;
-  }>({
-    childId: '',
-    childName: '',
-    programId: '',
-    programName: 'Programa de Formación',
-    amount: 0,
-    schoolId: '',
-  });
+  } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [viewingProof, setViewingProof] = useState<ViewingProof>({
@@ -131,8 +126,10 @@ export default function MyPaymentsPage() {
           balance_pending?: number; 
           pct_paid?: number;
           installments_pending?: number;
+          school_id?: string;
         })[] = payments.map((p: any) => ({
           id: p.id,
+          school_id: p.school_id,
           amount: p.amount,
           amount_paid: p.amount_paid,
           balance_pending: p.balance_pending,
@@ -214,6 +211,7 @@ export default function MyPaymentsPage() {
                 id: enroll.id,
                 child_id: child.id,
                 program_id: enroll.program_id,
+                team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
                 teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
@@ -222,12 +220,12 @@ export default function MyPaymentsPage() {
             });
           }
           // 2. FIX 2 — Asignación directa por team_id.
-          //    program_id del enrollment = child.team_id (sin mezclar con program_id).
           else if (child.teams) {
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id,
+              program_id: null,
+              team_id: child.team_id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -242,7 +240,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id || child.id,
+              program_id: null,
+              team_id: child.team_id || null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -257,7 +256,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: 'none',
+              program_id: null,
+              team_id: null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -592,7 +592,10 @@ export default function MyPaymentsPage() {
               <CardTitle>Pagos Pendientes</CardTitle>
             </CardHeader>
             <CardContent>
-              {transactions.filter(t => t.status === 'pending').length > 0 ? (
+              {transactions.filter(t => {
+                console.log('STATUS EN FILTRO (length checking):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                return t.status === 'pending' || t.status === 'awaiting_approval';
+              }).length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -603,7 +606,10 @@ export default function MyPaymentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.filter(t => t.status === 'pending').map((txn) => (
+                    {transactions.filter(t => {
+                      console.log('STATUS EN FILTRO (mapping):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                      return t.status === 'pending' || t.status === 'awaiting_approval';
+                    }).map((txn) => (
                       <TableRow key={txn.id}>
                         <TableCell>
                           {new Date(txn.transaction_date).toLocaleDateString('es-CO')}
@@ -611,9 +617,49 @@ export default function MyPaymentsPage() {
                         <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
                         <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
                         <TableCell>
-                          <Button size="sm" variant="outline">
-                            Completar Pago
-                          </Button>
+                          {txn.status === 'awaiting_approval' ? (
+                            <Button size="sm" variant="outline" disabled>
+                              En revisión
+                            </Button>
+                          ) : (
+                            <div className="flex gap-2 items-center">
+                              {txn.balance_pending !== undefined && txn.balance_pending > 0 && txn.balance_pending < txn.amount && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="border-primary text-primary hover:bg-primary/10"
+                                  onClick={() => {
+                                    setSelectedInstallmentPayment({
+                                      id: txn.id,
+                                      schoolId: txn.school_id || '',
+                                      balancePending: txn.balance_pending!,
+                                      concept: txn.concept
+                                    });
+                                    setShowInstallment(true);
+                                  }}
+                                >
+                                  Abonar
+                                </Button>
+                              )}
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                onClick={() => {
+                                  setSelectedPayment({
+                                    childId: '', 
+                                    childName: '',
+                                    programName: txn.concept,
+                                    amount: txn.balance_pending || txn.amount,
+                                    schoolId: txn.school_id || '',
+                                    paymentId: txn.id,
+                                  });
+                                  setShowCheckout(true);
+                                }}
+                              >
+                                {txn.balance_pending && txn.balance_pending < txn.amount ? 'Pagar Resto' : 'Completar Pago'}
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -648,8 +694,9 @@ export default function MyPaymentsPage() {
                     setSelectedPayment({
                       childId: enroll.child_id,
                       childName: enroll.children?.full_name || 'Estudiante',
-                      programId: enroll.program_id,
-                      programName: enroll.teams?.name || 'Programa de Formación',
+                      programId: enroll.program_id || undefined,
+                      teamId: enroll.team_id || undefined,
+                      programName: enroll.teams?.name || 'Mensualidad Estudiante',
                       amount: enroll.teams?.price_monthly || 0,
                       schoolId: enroll.school_id,
                     });
@@ -692,17 +739,22 @@ export default function MyPaymentsPage() {
       </Dialog>
 
       {/* Payment Checkout Modal */}
-      <PaymentCheckoutModal
-        open={showCheckout}
-        onOpenChange={setShowCheckout}
-        studentId={selectedPayment.childId}
-        programId={selectedPayment.programId}
-        schoolId={selectedPayment.schoolId}
-        amount={selectedPayment.amount}
-        concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
-        mode="create"
-        onSuccess={fetchPaymentData}
-      />
+      {selectedPayment && (
+        <PaymentCheckoutModal
+          open={showCheckout}
+          onOpenChange={setShowCheckout}
+          studentId={selectedPayment.childId}
+          childId={selectedPayment.childId}
+          programId={selectedPayment.programId}
+          teamId={selectedPayment.teamId}
+          schoolId={selectedPayment.schoolId}
+          paymentId={selectedPayment.paymentId}
+          amount={selectedPayment.amount}
+          concept={selectedPayment.programName}
+          mode={selectedPayment.paymentId ? 'update' : 'create'}
+          onSuccess={fetchPaymentData}
+        />
+      )}
 
       {/* Installment Checkout Modal */}
       {selectedInstallmentPayment && (

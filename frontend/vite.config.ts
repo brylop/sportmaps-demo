@@ -14,7 +14,11 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined
+        manualChunks: (id) => {
+          if (id.includes("tesseract.js") || id.includes("tesseract-core")) return "vendor-tesseract";
+          if (id.includes("pdfjs-dist")) return "vendor-pdfjs";
+          if (id.includes("node_modules/react")) return "vendor-react";
+        },
       }
     }
   },
@@ -126,11 +130,18 @@ export default defineConfig(({ mode }) => ({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module',
       }
     })
   ].filter(Boolean),
   optimizeDeps: {
     include: ["react", "react-dom", "@tanstack/react-query", "@radix-ui/react-slider"],
+    // FIX: excluir tesseract.js del procesamiento de Vite para evitar que el
+    // minificador rompa los callbacks internos del worker (error "g is not a function")
+    exclude: ["tesseract.js"],
   },
   resolve: {
     alias: {

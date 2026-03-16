@@ -114,10 +114,21 @@ export function useOfferings(type?: string) {
             bffClient.patch<{ plan: OfferingPlan }>(`/api/v1/offerings/${offeringId}/plans/${planId}`, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
+            queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+            queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions'] });
+        },
+    });
+
+    const deletePlan = useMutation({
+        mutationFn: ({ offeringId, planId }: { offeringId: string; planId: string }) =>
+            bffClient.delete<{ success: boolean }>(`/api/v1/offerings/${offeringId}/plans/${planId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['offerings', schoolId] });
         },
     });
 
     return {
+        query,
         offerings: query.data ?? [],
         isLoading: query.isLoading,
         error: query.error,
@@ -126,5 +137,6 @@ export function useOfferings(type?: string) {
         deleteOffering,
         createPlan,
         updatePlan,
+        deletePlan,
     };
 }

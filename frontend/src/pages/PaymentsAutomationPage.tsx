@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2 } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, getStoragePath, maskSensitive } from '@/lib/utils';
@@ -21,7 +21,6 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
-import { AlertTriangle } from 'lucide-react';
 
 interface BillingSettings {
   school_id: string;
@@ -84,9 +83,11 @@ interface PaymentTransaction {
   receipt_url: string | null;
   concept: string;
   program_id: string | null;
+  team_id: string | null;
   parent: { full_name: string | null; email: string | null } | null;
   child: { full_name: string } | null;
   program: { name: string } | null;
+  team: { name: string } | null;
   child_id?: string | null;
   parent_id?: string | null;
 }
@@ -185,10 +186,11 @@ export default function PaymentsAutomationPage() {
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id,
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id, team_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
-          program:teams!payments_program_id_fkey(name)`)
+          program:programs!payments_program_id_fkey(name),
+          team:teams!payments_team_id_fkey(name)`)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -199,8 +201,8 @@ export default function PaymentsAutomationPage() {
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
-        program_id: p.program_id,
-        parent: p.parent, child: p.child, program: p.program,
+        program_id: p.program_id, team_id: p.team_id,
+        parent: p.parent, child: p.child, program: p.program, team: p.team,
       })));
     } catch (error: unknown) {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
@@ -257,11 +259,20 @@ export default function PaymentsAutomationPage() {
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'failed';
+    const payment = payments.find(p => p.id === paymentId);
+
     try {
-      const { error: updateError } = await supabase.from('payments').update({ status: newStatus }).eq('id', paymentId);
+      const updatePayload: any = { status: newStatus };
+      
+      if (action === 'approve' && profile && payment) {
+        updatePayload.approved_by = profile.id;
+        updatePayload.approved_at = new Date().toISOString();
+        updatePayload.amount_paid = payment.amount;
+      }
+
+      const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
       if (updateError) throw updateError;
       if (action === 'approve') {
-        const payment = payments.find(p => p.id === paymentId);
         if (payment) {
           if (payment.program_id && (payment.child_id || payment.parent_id)) {
             let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', payment.program_id).eq('status', 'pending');
@@ -360,7 +371,8 @@ export default function PaymentsAutomationPage() {
     return p.child?.full_name?.toLowerCase().includes(term) ||
       p.parent?.full_name?.toLowerCase().includes(term) ||
       p.concept?.toLowerCase().includes(term) ||
-      p.program?.name?.toLowerCase().includes(term);
+      p.program?.name?.toLowerCase().includes(term) ||
+      p.team?.name?.toLowerCase().includes(term);
   });
 
   // Filtrar historial
@@ -370,7 +382,8 @@ export default function PaymentsAutomationPage() {
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.concept?.toLowerCase().includes(historySearch.toLowerCase()) ||
-      p.program?.name?.toLowerCase().includes(historySearch.toLowerCase());
+      p.program?.name?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      p.team?.name?.toLowerCase().includes(historySearch.toLowerCase());
     const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
     return searchMatch && statusMatch;
   });
@@ -483,7 +496,7 @@ export default function PaymentsAutomationPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-bold text-sm truncate">{payment.child?.full_name || 'Sin estudiante'}</p>
-                            <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.concept}</p>
+                            <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
                             <p className="text-xs text-muted-foreground">{payment.parent?.full_name || 'Desconocido'}</p>
                           </div>
                           <div className="text-right shrink-0">
@@ -529,7 +542,7 @@ export default function PaymentsAutomationPage() {
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-bold">{payment.child?.full_name || 'Sin estudiante'}</span>
-                                <span className="text-xs text-muted-foreground">{payment.program?.name || payment.concept}</span>
+                                <span className="text-xs text-muted-foreground">{payment.program?.name || payment.team?.name || payment.concept}</span>
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span></TableCell>
@@ -675,7 +688,7 @@ export default function PaymentsAutomationPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-medium text-sm truncate">{payment.child?.full_name || payment.parent?.full_name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.concept}</p>
+                          <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
@@ -719,7 +732,8 @@ export default function PaymentsAutomationPage() {
                           <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
                           <TableCell className="text-sm">
                             <div className="font-medium text-blue-600">{payment.concept}</div>
-                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">{payment.program.name}</div>}
+                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">P: {payment.program.name}</div>}
+                            {payment.team?.name && <div className="text-xs text-muted-foreground mt-0.5">T: {payment.team.name}</div>}
                           </TableCell>
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>

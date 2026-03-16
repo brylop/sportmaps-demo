@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { Progress } from '@/components/ui/progress';
+import { FileUpload } from '@/components/common/FileUpload';
 
 interface Payment {
   id: string;
@@ -328,9 +329,10 @@ export default function AthletePaymentsPage() {
         <PaymentCheckoutModal
           open={showPaymentModal}
           onOpenChange={setShowPaymentModal}
-          studentId={user?.id || ''} // Usamos el ID del usuario (atleta)
+          studentId={user?.id || undefined} 
           schoolId={selectedEnrollment.school_id}
-          programId={selectedEnrollment.program_id || selectedEnrollment.team_id || ''}
+          programId={selectedEnrollment.program_id || undefined}
+          teamId={selectedEnrollment.team_id || undefined}
           amount={selectedEnrollment.price_monthly}
           concept={`Pago mensualidad - ${selectedEnrollment.program_name}`}
           mode="create"
@@ -502,6 +504,7 @@ function PaymentAbonarModal({ open, onOpenChange, selectedPayments, formatCurren
   formatCurrency: (cents: number) => string;
   onSuccess: () => void;
 }) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   
@@ -669,12 +672,13 @@ function PaymentAbonarModal({ open, onOpenChange, selectedPayments, formatCurren
                   </div>
 
                   <div className="space-y-2 sm:col-span-2">
-                    <Label className="text-xs">Link del Comprobante (Opcional)</Label>
-                    <Input 
-                      placeholder="https://drive.google.com/..." 
-                      className="h-9 text-sm"
-                      value={form.receiptUrl} 
-                      onChange={(e) => handleUpdateForm(payment.id, 'receiptUrl', e.target.value)} 
+                    <Label className="text-xs">Comprobante de Pago</Label>
+                    <FileUpload
+                      bucket="payment-receipts"
+                      path={`athletes/${user?.id}`}
+                      accept="image/*,application/pdf"
+                      onUploadComplete={(url) => handleUpdateForm(payment.id, 'receiptUrl', url)}
+                      validateReceipt={true}
                     />
                   </div>
 

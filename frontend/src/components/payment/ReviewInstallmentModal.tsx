@@ -35,6 +35,7 @@ export function ReviewInstallmentModal({
       return;
     }
 
+    if (processing) return;
     setProcessing(true);
     try {
       const { error } = await supabase.rpc('review_payment_installment' as any, {

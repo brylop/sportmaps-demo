@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,12 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Eye, EyeOff, MailCheck, Mail, School } from 'lucide-react';
+import { Loader2, Eye, EyeOff, MailCheck, Mail, School, Check, ChevronsUpDown, Search, User, Phone, Lock, Calendar as CalendarIcon, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { USER_ROLES } from '@/constants/roles';
 import { Controller } from 'react-hook-form';
 import { useToast } from '@/hooks/use-toast';
-import { AlertCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
@@ -23,11 +23,12 @@ import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { getUserFriendlyError } from '@/lib/error-translator';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import sportsData from '@/lib/constants/deportes_globales_categorias.json';
 
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
 
-// Relaxed schema to allow dynamic roles
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
@@ -38,6 +39,7 @@ const registerSchema = z.object({
   code: z.string().optional(),
   role: z.string().min(1, 'Selecciona un rol'),
   schoolName: z.string().optional(),
+  sportId: z.number().optional(), // New field for schools
   acceptTerms: z.boolean().refine(val => val === true, {
     message: 'Debes aceptar los términos y condiciones para continuar',
   }),
@@ -62,6 +64,15 @@ const registerSchema = z.object({
 }, {
   message: 'El nombre de la academia es requerido',
   path: ['schoolName'],
+}).refine((data) => {
+  // Deporte solo requerido al crear una escuela nueva (role=school)
+  if (data.role === 'school' && !data.sportId) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'El deporte es requerido para academias',
+  path: ['sportId'],
 });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
@@ -98,7 +109,22 @@ export default function RegisterPage() {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
+  // Password Strength Logic
+  const [pwStrength, setPwStrength] = useState(0);
+  const checkPw = (val: string) => {
+    let strength = 0;
+    if (val.length >= 8) strength++;
+    if (val.length >= 12) strength++;
+    if (/[A-Z]/.test(val) && /[0-9]/.test(val)) strength++;
+    if (/[^A-Za-z0-9]/.test(val)) strength++;
+    setPwStrength(strength);
+  };
 
+  // Sport Search Logic
+  const [sportOpen, setSportOpen] = useState(false);
+  const allSports = useMemo(() => sportsData.deportes || [], []);
+  
   // Invitation data from URL
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');
@@ -127,8 +153,15 @@ export default function RegisterPage() {
     defaultValues: {
       code: searchParams.get('code') || '',
       role: searchParams.get('role') || '',
+      sportId: undefined,
     }
   });
+
+  const selectedSportId = watch('sportId');
+  const selectedSport = useMemo(() => 
+    allSports.find(s => s.id === selectedSportId), 
+    [selectedSportId, allSports]
+  );
 
   useEffect(() => {
     const roleParam = searchParams.get('role');
@@ -208,20 +241,38 @@ export default function RegisterPage() {
     setIsLoading(true);
     setEmailForDisplay(data.email);
     try {
-      // 1. Attempt Registration
-      await signUp(data.email, data.password, {
+      // 1. Prepare categories to auto-populate if it's a school
+      let metadata: any = {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
-        role: data.role as any, // Auth metadata is often dynamic, keeping as any or casting to a wider type
+        role: data.role as any,
         invitation_code: data.code,
         school_name: data.schoolName,
-      });
+      };
 
-      // 2. Set submitted state to show success message
+      if (data.role === 'school' && selectedSport) {
+        metadata.sport_id = selectedSport.id;
+        metadata.sport_name = selectedSport.nombre;
+        // Flatten categories for the backend to use
+        const defaultCategories = [];
+        if (selectedSport.categorias_competencia) {
+          for (const key in selectedSport.categorias_competencia) {
+            if (Array.isArray(selectedSport.categorias_competencia[key])) {
+              defaultCategories.push(...selectedSport.categorias_competencia[key]);
+            }
+          }
+        }
+        metadata.suggested_categories = defaultCategories.slice(0, 10); // Limit to first 10
+      }
+
+      // 2. Attempt Registration
+      await signUp(data.email, data.password, metadata);
+
+      // 3. Set submitted state to show success message
       setIsSubmitted(true);
 
-      // 3. Save invite ID for auto-accept after email verification + login
+      // 4. Save invite ID for auto-accept after email verification + login
       if (inviteId) {
         localStorage.setItem('pending_invite_id', inviteId);
       }
@@ -280,26 +331,26 @@ export default function RegisterPage() {
   // VISTA PARA USUARIOS YA REGISTRADOS
   if (user && inviteId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
-        <Card className="w-full max-w-md shadow-2xl border-t-8 border-primary animate-in fade-in zoom-in duration-300">
+      <div className="min-h-screen flex items-center justify-center bg-[#0a1a0d] p-4 font-poppins">
+        <Card className="w-full max-w-md shadow-2xl border-t-8 border-[#248223] bg-[#0f2614] text-[#f5f7f2] animate-in fade-in zoom-in duration-300">
           <CardContent className="pt-10 flex flex-col items-center text-center">
             <div className="flex justify-center mb-6">
               {inviteBranding?.logo_url ? (
                 <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
               ) : (
-                <div className="bg-primary/10 p-4 rounded-full">
-                  <School className="w-12 h-12 text-primary" />
+                <div className="bg-[#248223]/20 p-4 rounded-full">
+                  <School className="w-12 h-12 text-[#2ea82d]" />
                 </div>
               )}
             </div>
 
-            <h2 className="text-2xl font-bold font-poppins text-foreground mb-2">Invitación Pendiente</h2>
+            <h2 className="text-2xl font-bold mb-2">Invitación Pendiente</h2>
 
             {invitationInfo ? (
               <>
-                <p className="text-muted-foreground font-poppins mb-6">
-                  Ya tienes una sesión activa como <strong className="text-primary">{user.email}</strong>.<br />
-                  ¿Deseas aceptar la invitación de <strong className="text-primary">{invitationInfo.school_name}</strong> para el perfil de <strong>{
+                <p className="text-[#8a9186] mb-6">
+                  Ya tienes una sesión activa como <strong className="text-[#2ea82d]">{user.email}</strong>.<br />
+                  ¿Deseas aceptar la invitación de <strong className="text-[#2ea82d]">{invitationInfo.school_name}</strong> para el perfil de <strong>{
                     invitationInfo.role_to_assign === 'parent' ? 'Padre' :
                       invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
                         invitationInfo.role_to_assign === 'athlete' ? 'Atleta' :
@@ -312,7 +363,7 @@ export default function RegisterPage() {
                   <Button
                     onClick={handleAcceptLoggedIn}
                     disabled={isLoading}
-                    className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-12 text-lg font-bold"
+                    className="w-full bg-[#248223] hover:bg-[#2ea82d] text-white shadow-lg shadow-[#248223]/20 h-12 text-lg font-bold"
                   >
                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                     Aceptar Invitación Ahora
@@ -321,7 +372,7 @@ export default function RegisterPage() {
                   <Button
                     asChild
                     variant="ghost"
-                    className="w-full text-muted-foreground hover:text-primary"
+                    className="w-full text-[#8a9186] hover:text-[#2ea82d] hover:bg-white/5"
                   >
                     <Link to="/dashboard">Ir al Dashboard directamente</Link>
                   </Button>
@@ -329,8 +380,8 @@ export default function RegisterPage() {
               </>
             ) : (
               <div className="flex flex-col items-center gap-4 py-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Validando invitación...</p>
+                <Loader2 className="w-8 h-8 animate-spin text-[#2ea82d]" />
+                <p className="text-sm text-[#8a9186]">Validando invitación...</p>
               </div>
             )}
           </CardContent>
@@ -338,6 +389,7 @@ export default function RegisterPage() {
       </div>
     );
   }
+  
   if (user && !inviteId) {
     return <Navigate to="/dashboard" />;
   }
@@ -345,11 +397,11 @@ export default function RegisterPage() {
   // VISTA DE ÉXITO (POST-REGISTRO)
   if (isSubmitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/10 via-background to-[#FB9F1E]/10 p-4">
-        <Card className="w-full max-w-md shadow-2xl border-t-8 border-[#248223] animate-in fade-in zoom-in duration-300">
+      <div className="min-h-screen flex items-center justify-center bg-[#0a1a0d] p-4 font-poppins">
+        <Card className="w-full max-w-md shadow-2xl border-t-8 border-[#248223] bg-[#0f2614] text-[#f5f7f2] animate-in fade-in zoom-in duration-300">
           <CardContent className="pt-10 flex flex-col items-center text-center">
-            <div className="bg-[#248223]/10 p-4 rounded-full mb-6">
-              <MailCheck className="w-12 h-12 text-[#248223]" />
+            <div className="bg-[#248223]/20 p-4 rounded-full mb-6">
+              <MailCheck className="w-12 h-12 text-[#2ea82d]" />
             </div>
 
             <img
@@ -358,19 +410,19 @@ export default function RegisterPage() {
               className="w-32 mb-6 rounded-lg"
             />
 
-            <h2 className="text-2xl font-bold font-poppins text-[#248223] mb-4">¡Casi listo!</h2>
+            <h2 className="text-2xl font-bold text-[#2ea82d] mb-4">¡Casi listo!</h2>
 
-            <p className="text-muted-foreground font-poppins mb-6">
+            <p className="text-[#8a9186] mb-6 text-center">
               Hemos enviado un enlace de verificación a:<br />
-              <span className="text-foreground font-semibold">{emailForDisplay}</span>
+              <span className="text-[#f5f7f2] font-semibold">{emailForDisplay}</span>
             </p>
 
-            <div className="bg-[#FB9F1E]/10 border border-[#FB9F1E]/20 p-4 rounded-xl mb-8 text-sm text-[#8a5710]">
+            <div className="bg-[#FB9F1E]/10 border border-[#FB9F1E]/20 p-4 rounded-xl mb-8 text-sm text-[#FB9F1E]">
               <p className="font-medium">¿No ves el correo?</p>
-              <p>Revisa tu carpeta de <strong>Spam</strong> o Promociones. El enlace es necesario para activar tu perfil de {watch('role')}.</p>
+              <p>Revisa tu carpeta de <strong>Spam</strong> o Promociones. El enlace es necesario para activar tu perfil.</p>
             </div>
 
-            <Button asChild variant="outline" className="w-full border-[#248223] text-[#248223] hover:bg-[#248223] hover:text-white transition-colors">
+            <Button asChild variant="outline" className="w-full border-[#248223] text-[#248223] hover:bg-[#248223] hover:text-white transition-colors bg-transparent h-12">
               <Link to="/login">Volver al Inicio de Sesión</Link>
             </Button>
           </CardContent>
@@ -379,331 +431,379 @@ export default function RegisterPage() {
     );
   }
 
+  const roleValue = watch('role');
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#248223]/5 via-background to-[#FB9F1E]/5 p-4 font-poppins">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="space-y-1">
-          <div className="flex justify-center mb-4">
-            {inviteBranding?.logo_url ? (
-              <img src={inviteBranding.logo_url} alt="Logo de la Academia" className="h-16 w-auto object-contain" />
-            ) : null}
+    <div className="min-h-screen flex bg-[#0a1a0d] text-[#f5f7f2] font-['DM_Sans'] overflow-x-hidden">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+        
+        .sportmaps-grid {
+          background-image:
+            linear-gradient(rgba(36,130,35,.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(36,130,35,.06) 1px, transparent 1px);
+          background-size: 52px 52px;
+        }
+
+        .hero-title { font-family: 'Syne', sans-serif; }
+        .logo-name { font-family: 'Syne', sans-serif; }
+        .syne { font-family: 'Syne', sans-serif; }
+
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: .5; transform: scale(.7); }
+        }
+
+        .animate-pulse-dot {
+          animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        /* Roles Selection */
+        .role-card-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+        }
+        @media (min-width: 400px) {
+          .role-card-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+      `}</style>
+
+      {/* ── LEFT PANEL ── */}
+      <div className="hidden lg:flex w-[42%] min-h-screen bg-[#0f2614] relative flex-col justify-between p-12 overflow-hidden border-r border-white/5">
+        <div className="absolute inset-0 sportmaps-grid"></div>
+        
+        {/* Decorative Gradients */}
+        <div className="absolute -top-[120px] -right-[120px] w-[420px] h-[420px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.35)_0%,transparent_70%)] pointer-events-none"></div>
+        <div className="absolute -bottom-[80px] -left-[80px] w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,rgba(36,130,35,.2)_0%,transparent_70%)] pointer-events-none"></div>
+
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-[38px] h-[38px] bg-[#248223] rounded-[10px] flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
           </div>
-          <CardTitle className="text-2xl font-bold text-center text-primary">Crear Cuenta</CardTitle>
-          <CardDescription className="text-center">
-            Únete a {inviteBranding?.school_name || 'la comunidad SportMaps'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* Invitation Banner */}
+          <span className="logo-name font-extrabold text-xl tracking-tight">SportMaps</span>
+        </div>
+
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 bg-[#248223]/10 border border-[#248223]/30 rounded-full px-4 py-1.5 mb-8">
+            <span className="w-1.5 h-1.5 bg-[#2ea82d] rounded-full animate-pulse-dot"></span>
+            <p className="text-[10px] text-[#4dcc4c] font-bold uppercase tracking-widest">Plataforma deportiva</p>
+          </div>
+          <h1 className="hero-title font-extrabold text-6xl leading-[1.05] tracking-tighter mb-6">
+            El deporte,<br />
+            <span className="text-[#2ea82d]">mejor</span><br />
+            organizado.
+          </h1>
+          <p className="text-sm text-[#8a9186] leading-relaxed max-w-[320px] font-light">
+            Conectamos academias, entrenadores, atletas y familias en un solo ecosistema diseñado para el deporte latinoamericano.
+          </p>
+        </div>
+
+        <div className="relative z-10 flex border border-white/5 rounded-2xl overflow-hidden bg-white/5 backdrop-blur-sm">
+          <div className="flex-1 p-5 border-r border-white/5">
+            <div className="hero-title font-bold text-2xl">+120<span className="text-[#2ea82d]">k</span></div>
+            <div className="text-[10px] text-[#8a9186] uppercase tracking-wider font-medium">Atletas</div>
+          </div>
+          <div className="flex-1 p-5 border-r border-white/5">
+            <div className="hero-title font-bold text-2xl">+800</div>
+            <div className="text-[10px] text-[#8a9186] uppercase tracking-wider font-medium">Escuelas</div>
+          </div>
+          <div className="flex-1 p-5">
+            <div className="hero-title font-bold text-2xl">32<span className="text-[#2ea82d]">+</span></div>
+            <div className="text-[10px] text-[#8a9186] uppercase tracking-wider font-medium">Ciudades</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT PANEL ── */}
+      <div className="flex-1 flex items-center justify-center p-6 md:p-12">
+        <div className="w-full max-w-[480px] animate-in slide-in-from-bottom-6 duration-500 ease-out">
+          
+          {/* Logo Mobile */}
+          <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
+            <div className="w-8 h-8 bg-[#248223] rounded-lg flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white"><path d="M12 2C8.5 2 6 5 6 8c0 4 6 12 6 12s6-8 6-12c0-3-2.5-6-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z"/></svg>
+            </div>
+            <span className="logo-name font-bold text-lg">SportMaps</span>
+          </div>
+
+          <div className="mb-10">
+            <h2 className="hero-title font-bold text-3xl tracking-tight mb-2">Crear cuenta</h2>
+            <p className="text-sm text-[#8a9186] font-light">Únete a la comunidad líder en gestión deportiva.</p>
+          </div>
+
+          {/* Invitation Banner if exists */}
           {invitationInfo && (
-            <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-top-2">
-              <div className="flex items-center gap-3">
-                <div className="bg-primary/10 p-2 rounded-lg">
-                  <School className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground text-sm">
-                    Invitación de <strong className="text-primary">{invitationInfo.school_name}</strong>
-                  </p>
-                  <p className="text-xs text-primary/80">
-                    Te invitan como <strong>{
-                      invitationInfo.role_to_assign === 'parent' ? 'Padre/Madre' :
-                        invitationInfo.role_to_assign === 'coach' ? 'Entrenador' :
-                          invitationInfo.role_to_assign === 'athlete' ? 'Atleta' :
-                            invitationInfo.role_to_assign === 'school_admin' ? 'Administrador de Sede' :
-                              invitationInfo.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'
-                    }</strong>
-                    {invitationInfo.child_name && <> para <strong className="text-primary">{invitationInfo.child_name}</strong></>}
-                  </p>
-                  {invitationInfo.program_name && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Equipo asignado: <strong>{invitationInfo.program_name}</strong>
-                    </p>
-                  )}
-                  {invitationInfo.monthly_fee != null && invitationInfo.monthly_fee > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Mensualidad: <strong>{new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(invitationInfo.monthly_fee)}/mes</strong>
-                    </p>
-                  )}
-                </div>
-              </div>
+            <div className="bg-[#248223]/10 border border-[#248223]/20 rounded-2xl p-4 mb-8 flex items-center gap-4">
+               <div className="w-10 h-10 bg-[#248223]/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                 <School className="w-5 h-5 text-[#2ea82d]" />
+               </div>
+               <div>
+                  <p className="text-sm font-semibold">Invitación de <span className="text-[#2ea82d]">{invitationInfo.school_name}</span></p>
+                  <p className="text-xs text-[#8a9186]">{invitationInfo.program_name || 'Nuevo Ingreso'}</p>
+               </div>
             </div>
           )}
 
           {userExistsError && (
-            <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 mb-4 animate-in fade-in zoom-in duration-300">
-              <div className="flex items-center gap-2 text-destructive mb-2">
-                <AlertCircle className="w-5 h-5" />
-                <p className="font-semibold">Cuenta ya registrada</p>
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Este correo electrónico ya existe en SportMaps. Por favor, inicia sesión para continuar y aceptar la invitación.
-              </p>
-              <Button asChild className="w-full bg-primary text-white hover:bg-primary/90 shadow-md">
-                <Link to={`/login?email=${encodeURIComponent(watch('email'))}${inviteId ? `&invite=${inviteId}` : ''}`}>
-                  Inicia sesión para continuar
-                </Link>
-              </Button>
+            <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-5 mb-8 animate-in zoom-in duration-300">
+               <div className="flex items-center gap-2 text-red-500 font-bold text-sm mb-2">
+                 <AlertCircle className="w-4 h-4" /> Cuenta registrada
+               </div>
+               <p className="text-xs text-[#8a9186] mb-4">Este correo ya tiene un perfil. Por favor inicia sesión.</p>
+               <Button asChild className="w-full bg-red-500 hover:bg-red-600 text-white border-none py-6 rounded-xl font-bold">
+                 <Link to={`/login?email=${encodeURIComponent(watch('email'))}${inviteId ? `&invite=${inviteId}` : ''}`}>
+                   Ir al inicio de sesión
+                 </Link>
+               </Button>
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className={cn("space-y-4", userExistsError ? "opacity-50 pointer-events-none" : "")}>
-            <div className="space-y-2">
-              <Label htmlFor="fullName">Nombre Completo</Label>
-              <Input
-                id="fullName"
-                autoComplete="name"
-                placeholder="Tu nombre completo"
-                {...register('fullName')}
-                className={errors.fullName ? 'border-destructive' : ''}
-              />
-              {errors.fullName && (
-                <p className="text-sm text-destructive">{errors.fullName.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="tu@email.com"
-                {...register('email')}
-                className={errors.email ? 'border-destructive' : ''}
-                readOnly={!!inviteEmail}
-                disabled={!!inviteEmail}
-              />
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">Teléfono (Opcional)</Label>
-              <Input
-                id="phone"
-                type="tel"
-                autoComplete="tel"
-                placeholder="+57 300 123 4567"
-                {...register('phone')}
-              />
-            </div>
-
-            {!INSTITUTION_ROLES.includes(watch('role')) && (
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Fecha de Nacimiento</Label>
-                <Controller
-                  name="dateOfBirth"
-                  control={control}
-                  render={({ field }) => (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !field.value && "text-muted-foreground",
-                            errors.dateOfBirth && "border-destructive"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {field.value ? (
-                            format(new Date(field.value + 'T00:00:00'), "PPP", { locale: es })
-                          ) : (
-                            <span>Selecciona tu fecha</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value ? new Date(field.value + 'T00:00:00') : undefined}
-                          onSelect={(date) => {
-                            if (date) {
-                              // Save as YYYY-MM-DD
-                              const year = date.getFullYear();
-                              const month = String(date.getMonth() + 1).padStart(2, '0');
-                              const day = String(date.getDate()).padStart(2, '0');
-                              field.onChange(`${year}-${month}-${day}`);
-                            }
-                          }}
-                          captionLayout="dropdown-buttons"
-                          fromYear={1920}
-                          toYear={new Date().getFullYear()}
-                          locale={es}
-                          disabled={(date) =>
-                            date > new Date() || date < new Date("1920-01-01")
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                />
-                {errors.dateOfBirth && (
-                  <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="role">Tipo de Usuario</Label>
-              {inviteRole ? (
-                /* When coming from an invitation, lock the role */
-                <div className="flex items-center gap-2 p-3 rounded-md border bg-muted/50">
-                  <span className="text-sm font-medium">
-                    {ROLE_DISPLAY_NAMES[inviteRole] || inviteRole}
-                  </span>
-                  <Badge variant="outline" className="ml-auto text-xs">Asignado por invitación</Badge>
+          <form onSubmit={handleSubmit(onSubmit)} className={cn("space-y-6", (userExistsError || isLoading) && "opacity-50 pointer-events-none")}>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Email */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Correo electrónico</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Mail className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                  </div>
+                  <input
+                    {...register('email')}
+                    type="email"
+                    placeholder="tu@correo.com"
+                    readOnly={!!inviteEmail}
+                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                  />
                 </div>
-              ) : (
-                <Controller
-                  name="role"
-                  control={control}
-                  render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <SelectTrigger id="role" className={errors.role ? 'border-destructive' : ''}>
-                        <SelectValue placeholder="Selecciona tu rol" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {roles.length > 0 ? (
-                          roles
-                            .filter(r => !['admin', 'super_admin', 'reporter', 'school_admin'].includes(r.name))
-                            .map((role) => (
-                              <SelectItem key={role.id} value={role.name}>
-                                {role.display_name}
-                              </SelectItem>
-                            ))
-                        ) : (
-                          <>
-                            <SelectItem value={USER_ROLES.ATHLETE}>🏃 Deportista/Atleta</SelectItem>
-                            <SelectItem value={USER_ROLES.PARENT}>👨‍👩‍👧 Padre/Madre</SelectItem>
-                            <SelectItem value={USER_ROLES.COACH}>🎓 Entrenador/Coach</SelectItem>
-                            <SelectItem value="school">🏫 Escuela/Centro Deportivo</SelectItem>
-                          </>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              )}
-              {errors.role && (
-                <p className="text-sm text-destructive">{errors.role.message}</p>
+                {errors.email && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.email.message}</p>}
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Contraseña</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Lock className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                  </div>
+                  <input
+                    {...register('password')}
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Min. 8 caracteres"
+                    onInput={(e) => checkPw(e.currentTarget.value)}
+                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-12 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                  />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#4a5246] hover:text-[#f5f7f2]">
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="flex gap-1 px-1 mt-2">
+                  {[1,2,3,4].map(i => (
+                    <div key={i} className={cn("h-1 flex-1 rounded-full bg-[#163a1c] transition-all", 
+                      i <= pwStrength && (pwStrength <= 1 ? "bg-red-500" : pwStrength <= 2 ? "bg-orange-400" : "bg-[#2ea82d]"))} 
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Confirm Password */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Confirmar</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Check className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                  </div>
+                  <input
+                    {...register('confirmPassword')}
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Repetir"
+                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-12 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                  />
+                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#4a5246] hover:text-[#f5f7f2]">
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {errors.confirmPassword && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.confirmPassword.message}</p>}
+              </div>
+
+              <div className="h-4 md:col-span-2"></div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Nombre Completo</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <User className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                  </div>
+                  <input
+                    {...register('fullName')}
+                    type="text"
+                    placeholder="Ej: Carlos Ortiz"
+                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                  />
+                </div>
+                {errors.fullName && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.fullName.message}</p>}
+              </div>
+
+              {/* Phone */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Teléfono</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Phone className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                  </div>
+                  <input
+                    {...register('phone')}
+                    type="tel"
+                    placeholder="+57..."
+                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                  />
+                </div>
+              </div>
+
+              {/* Role Selection */}
+              <div className="space-y-3 md:col-span-2 mt-4">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#4a5246]">Soy...</label>
+                <div className="role-card-grid">
+                  {[
+                    { id: 'athlete', icon: '⚽', label: 'Atleta' },
+                    { id: 'parent', icon: '👨‍👧', label: 'Padre' },
+                    { id: 'coach', icon: '📋', label: 'Coach' },
+                    { id: 'school', icon: '🏫', label: 'Escuela' }
+                  ].map((role) => (
+                    <div 
+                      key={role.id}
+                      onClick={() => !inviteRole && setValue('role', role.id)}
+                      className={cn(
+                        "relative flex flex-col items-center justify-center p-3 rounded-xl border transition-all cursor-pointer group",
+                        inviteRole && inviteRole !== role.id && "hidden",
+                        roleValue === role.id 
+                          ? "bg-[#248223]/15 border-[#248223] ring-2 ring-[#248223]/20" 
+                          : "bg-[#0f2614] border-white/5 hover:border-[#248223]/50"
+                      )}
+                    >
+                      <span className="text-xl mb-1">{role.icon}</span>
+                      <span className="text-[9px] font-bold uppercase tracking-tight text-[#d4d8d0]">{role.label}</span>
+                      {roleValue === role.id && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#2ea82d] rounded-full"></div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* School Specific Fields */}
+              {roleValue === 'school' && !inviteId && (
+                <div className="md:col-span-2 space-y-6 pt-4 animate-in slide-in-from-top-4 duration-300">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Nombre de la Academia</label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                        <School className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
+                      </div>
+                      <input
+                        {...register('schoolName')}
+                        type="text"
+                        placeholder="Ej: Academy Los Tigres"
+                        className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
+                      />
+                    </div>
+                    {errors.schoolName && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.schoolName.message}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Deporte Principal</label>
+                    <Controller
+                      name="sportId"
+                      control={control}
+                      render={({ field }) => (
+                        <Popover open={sportOpen} onOpenChange={setSportOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={sportOpen}
+                              className={cn(
+                                "w-full justify-between bg-[#0f2614] border-white/5 hover:bg-[#0f2614] hover:border-[#248223]/50 text-sm font-normal py-6 rounded-xl",
+                                !field.value && "text-[#4a5246]",
+                                errors.sportId && "border-red-500"
+                              )}
+                            >
+                              <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                              {field.value
+                                ? allSports.find((s) => s.id === field.value)?.nombre
+                                : "Buscar Deporte..."}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-full p-0 bg-[#0f2614] border-white/10" align="start">
+                            <Command className="bg-transparent">
+                              <CommandInput placeholder="Filtrar por nombre..." className="text-sm h-11" />
+                              <CommandEmpty>No se encontró el deporte.</CommandEmpty>
+                              <CommandGroup className="max-h-[300px] overflow-y-auto">
+                                {allSports.map((sport) => (
+                                  <CommandItem
+                                    key={sport.id}
+                                    value={sport.nombre}
+                                    onSelect={() => {
+                                      setValue('sportId', sport.id);
+                                      setSportOpen(false);
+                                    }}
+                                    className="data-[selected=true]:bg-[#248223]/20 data-[selected=true]:text-[#f5f7f2]"
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        field.value === sport.id ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    {sport.nombre}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                    />
+                    {errors.sportId && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.sportId.message}</p>}
+                    <p className="text-[9px] text-[#8a9186] px-1 italic">Este deporte autogenerará categorías sugeridas para tu academia.</p>
+                  </div>
+                </div>
               )}
             </div>
 
-            {(watch('role') === USER_ROLES.SCHOOL || watch('role') === 'school') && !inviteId && (
-              <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                <Label htmlFor="schoolName">Nombre de la Academia</Label>
-                <Input
-                  id="schoolName"
-                  placeholder="Ej: Academia de Tenis Tigres"
-                  {...register('schoolName')}
-                  className={errors.schoolName ? 'border-destructive' : ''}
-                />
-                {errors.schoolName && (
-                  <p className="text-sm text-destructive">{errors.schoolName.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Crearemos automáticamente tu espacio de trabajo con este nombre.
-                </p>
+            <div className="flex items-start gap-4 pt-4">
+              <div 
+                className={cn("w-5 h-5 rounded-md border flex items-center justify-center cursor-pointer transition-all", 
+                  watch('acceptTerms') ? "bg-[#248223] border-[#248223]" : "bg-[#0f2614] border-white/10")}
+                onClick={() => setValue('acceptTerms', !watch('acceptTerms'))}
+              >
+                {watch('acceptTerms') && <Check className="w-3.5 h-3.5 text-white" />}
               </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  {...register('password')}
-                  className={errors.password ? 'border-destructive pr-10' : 'pr-10'}
-                />
-                <button
-                  type="button"
-                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
-              )}
+              <p className="text-xs text-[#8a9186] leading-relaxed select-none">
+                Acepto los <a href="#" className="text-[#4dcc4c] hover:underline font-bold">Términos y Condiciones</a> y la <a href="#" className="text-[#4dcc4c] hover:underline font-bold">Política de Privacidad</a> de SportMaps.
+              </p>
             </div>
+            {errors.acceptTerms && <p className="text-[10px] text-red-500 font-medium px-1 -mt-4">{errors.acceptTerms.message}</p>}
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirmar Contraseña</Label>
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  {...register('confirmPassword')}
-                  className={errors.confirmPassword ? 'border-destructive pr-10' : 'pr-10'}
-                />
-                <button
-                  type="button"
-                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-start gap-3">
-                <input
-                  id="acceptTerms"
-                  type="checkbox"
-                  {...register('acceptTerms')}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 accent-[#248223] cursor-pointer"
-                />
-                <label htmlFor="acceptTerms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                  Acepto los{' '}
-                  <a href="/terminos-y-condiciones" target="_blank" className="text-[#248223] font-semibold hover:underline">
-                    Términos y Condiciones
-                  </a>{' '}
-                  y la{' '}
-                  <a href="/politica-de-privacidad" target="_blank" className="text-[#248223] font-semibold hover:underline">
-                    Política de Privacidad
-                  </a>{' '}
-                  de SportMaps.
-                </label>
-              </div>
-              {errors.acceptTerms && (
-                <p className="text-sm text-destructive">{errors.acceptTerms.message}</p>
-              )}
-            </div>
-
-            <Button type="submit" className="w-full bg-[#248223] hover:bg-[#1a5d19] transition-all" disabled={isLoading}>
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Crear Cuenta
+            <Button 
+              type="submit" 
+              className="w-full bg-[#248223] hover:bg-[#2ea82d] text-white py-8 rounded-2xl text-base font-bold syne tracking-wide shadow-xl shadow-[#248223]/15 transition-all group"
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 mr-1 group-hover:translate-x-1 transition-transform" />}
+              Crear mi cuenta
             </Button>
+
+            <div className="text-center pt-2">
+              <p className="text-sm text-[#8a9186]">
+                ¿Ya tienes cuenta? <Link to="/login" className="text-[#4dcc4c] font-bold hover:underline">Inicia sesión</Link>
+              </p>
+            </div>
+            
           </form>
-
-          <div className="mt-4 text-center text-sm">
-            ¿Ya tienes cuenta?{' '}
-            <Link to="/login" className="text-[#248223] font-semibold hover:underline">
-              Inicia sesión aquí
-            </Link>
-          </div>
-
-          <div className="mt-2 text-center">
-            <Link to="/" className="text-sm text-muted-foreground hover:underline">
-              ← Volver al inicio
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

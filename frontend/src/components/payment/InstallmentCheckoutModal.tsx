@@ -98,6 +98,7 @@ export function InstallmentCheckoutModal({
       return;
     }
 
+    if (processing) return;
     setProcessing(true);
     try {
       // 1. Cargar settings de la escuela
