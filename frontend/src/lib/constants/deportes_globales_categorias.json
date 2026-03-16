@@ -1,0 +1,4284 @@
+{
+  "metadata": {
+    "titulo": "Deportes Globales con Categorías Oficiales de Competencia",
+    "fuente": "IOC, ASOIF, AIOWF, ARISF, AIMS, IPC, Federaciones Internacionales",
+    "fecha_generacion": "2026-03-10",
+    "total_deportes": 121,
+    "descripcion": "Listado completo de todos los deportes reconocidos internacionalmente con sus categorías oficiales de competencia. Incluye deportes olímpicos de verano, invierno, paralímpicos, reconocidos por el COI y no olímpicos."
+  },
+  "categorias_globales": [
+    "olimpicos_verano",
+    "olimpicos_invierno",
+    "paralimpicos",
+    "reconocidos_COI_no_olimpicos",
+    "no_olimpicos_federacion_internacional",
+    "deportes_mentales_y_estrategia",
+    "deportes_motorizados",
+    "artes_marciales_y_combate",
+    "deportes_de_naturaleza"
+  ],
+  "deportes": [
+    {
+      "id": 1,
+      "nombre": "Atletismo",
+      "nombre_ingles": "Athletics",
+      "federacion_internacional": "World Athletics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "pruebas_pista": [
+          "100m",
+          "200m",
+          "400m",
+          "800m",
+          "1500m",
+          "3000m obstáculos",
+          "5000m",
+          "10000m",
+          "110m vallas (H)",
+          "100m vallas (M)",
+          "400m vallas",
+          "4x100m relevos",
+          "4x400m relevos",
+          "4x400m relevos mixto"
+        ],
+        "pruebas_campo": [
+          "Salto de altura",
+          "Salto con garrocha",
+          "Salto de longitud",
+          "Triple salto",
+          "Lanzamiento de peso",
+          "Lanzamiento de disco",
+          "Lanzamiento de martillo",
+          "Lanzamiento de jabalina"
+        ],
+        "pruebas_combinadas": [
+          "Decatlón (H)",
+          "Heptatlón (M)"
+        ],
+        "pruebas_ruta": [
+          "Maratón",
+          "Marcha 20km",
+          "Marcha 35km"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Sub-23",
+          "Senior",
+          "Masters (35+, 40+, 45+, 50+, 55+, 60+, 65+, 70+, 75+, 80+, 85+, 90+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevos)"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "nombre": "Natación",
+      "nombre_ingles": "Swimming",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "distancias_estilos": [
+          "50m libre",
+          "100m libre",
+          "200m libre",
+          "400m libre",
+          "800m libre (M)",
+          "1500m libre (H)",
+          "100m espalda",
+          "200m espalda",
+          "100m pecho",
+          "200m pecho",
+          "100m mariposa",
+          "200m mariposa",
+          "200m combinado individual",
+          "400m combinado individual",
+          "4x100m libre",
+          "4x200m libre",
+          "4x100m combinado",
+          "4x100m combinado mixto"
+        ],
+        "categorias_edad": [
+          "Sub-14",
+          "Sub-16",
+          "Sub-18 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Senior",
+          "Masters (25+, 30+, 35+, 40+, 45+, 50+, 55+, 60+, 65+, 70+, 75+, 80+, 85+, 90+, 95+, 100+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevos)"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "nombre": "Natación en Aguas Abiertas",
+      "nombre_ingles": "Open Water Swimming",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "distancias": [
+          "5km",
+          "10km",
+          "25km"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "nombre": "Saltos Acuáticos",
+      "nombre_ingles": "Diving",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Trampolín 1m (H/M)",
+          "Trampolín 3m (H/M)",
+          "Trampolín 3m sincronizado (H/M)",
+          "Plataforma 10m (H/M)",
+          "Plataforma 10m sincronizado (H/M)",
+          "Trampolín 3m sincronizado mixto",
+          "Plataforma 10m sincronizado mixto"
+        ],
+        "categorias_edad": [
+          "Sub-14",
+          "Sub-16",
+          "Sub-18 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "nombre": "Waterpolo",
+      "nombre_ingles": "Water Polo",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Equipos de 13 jugadores (7 en agua)"
+        ],
+        "categorias_edad": [
+          "Sub-15",
+          "Sub-17",
+          "Sub-19 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "nombre": "Natación Artística (Sincronizada)",
+      "nombre_ingles": "Artistic Swimming",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Dúo técnico",
+          "Dúo libre",
+          "Equipo técnico (8)",
+          "Equipo libre (8)",
+          "Rutina de acrobacia mixta"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Juvenil)",
+          "Sub-19 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Femenino",
+          "Mixto (acrobacia)"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "nombre": "Tiro con Arco",
+      "nombre_ingles": "Archery",
+      "federacion_internacional": "World Archery Federation",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Recurvo individual (H/M)",
+          "Recurvo por equipos (H/M)",
+          "Recurvo mixto",
+          "Compuesto individual (H/M)",
+          "Compuesto por equipos (H/M)",
+          "Compuesto mixto",
+          "Bare bow individual (H/M)",
+          "Instintivo"
+        ],
+        "distancias": [
+          "18m (indoor)",
+          "25m (indoor)",
+          "50m (outdoor)",
+          "70m (outdoor)"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Cadet)",
+          "Sub-21 (Junior)",
+          "Senior",
+          "Masters (50+, 60+, 70+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "nombre": "Bádminton",
+      "nombre_ingles": "Badminton",
+      "federacion_internacional": "Badminton World Federation",
+      "acronimo_fi": "BWF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Singles masculino",
+          "Singles femenino",
+          "Dobles masculino",
+          "Dobles femenino",
+          "Dobles mixto"
+        ],
+        "categorias_edad": [
+          "Sub-15",
+          "Sub-17",
+          "Sub-19 (Junior)",
+          "Sub-22",
+          "Senior",
+          "Para-bádminton"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "nombre": "Baloncesto",
+      "nombre_ingles": "Basketball",
+      "federacion_internacional": "FIBA",
+      "acronimo_fi": "FIBA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "5x5 (Basketball)",
+          "3x3 (3x3 Basketball)"
+        ],
+        "categorias_edad": [
+          "Sub-14",
+          "Sub-16",
+          "Sub-17",
+          "Sub-18",
+          "Sub-19 (U19 World Cup)",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "nombre": "Boxeo",
+      "nombre_ingles": "Boxing",
+      "federacion_internacional": "World Boxing",
+      "acronimo_fi": "WB",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "categorias_peso_masculino": [
+          "48kg (Mínimo/Mini Mosca)",
+          "51kg (Peso Mosca)",
+          "54kg (Peso Gallo)",
+          "57kg (Peso Pluma)",
+          "60kg (Peso Ligero)",
+          "63.5kg (Superligero/Jr Welter)",
+          "67kg (Peso Welter)",
+          "71kg (Super Welter/Jr Medio)",
+          "75kg (Peso Medio)",
+          "80kg (Super Medio/Jr Semipesado)",
+          "86kg (Peso Semipesado)",
+          "92kg (Jr Pesado/Crucero)",
+          "+92kg (Peso Pesado)"
+        ],
+        "categorias_peso_femenino": [
+          "48kg",
+          "50kg",
+          "52kg",
+          "54kg",
+          "57kg",
+          "60kg",
+          "63kg",
+          "66kg",
+          "70kg",
+          "75kg",
+          "81kg",
+          "+81kg"
+        ],
+        "categorias_edad": [
+          "Youth (17-18)",
+          "Junior (19-22)",
+          "Elite (Senior)",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "nombre": "Piragüismo Esprint",
+      "nombre_ingles": "Canoe Sprint",
+      "federacion_internacional": "International Canoe Federation",
+      "acronimo_fi": "ICF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "embarcaciones": [
+          "Kayak 1 (K1)",
+          "Kayak 2 (K2)",
+          "Kayak 4 (K4)",
+          "Canoa 1 (C1)",
+          "Canoa 2 (C2)"
+        ],
+        "distancias": [
+          "200m",
+          "500m",
+          "1000m",
+          "5000m",
+          "Maratón (36km)"
+        ],
+        "categorias_edad": [
+          "Sub-23 (Junior)",
+          "Sub-26 (U26)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "nombre": "Piragüismo Eslalon",
+      "nombre_ingles": "Canoe Slalom",
+      "federacion_internacional": "International Canoe Federation",
+      "acronimo_fi": "ICF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Kayak (K1)",
+          "Canoa (C1)",
+          "Kayak Cross (KX)",
+          "Canoa Cross (CX)"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Sub-23 (U23)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (team event)"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "nombre": "Ciclismo en Ruta",
+      "nombre_ingles": "Road Cycling",
+      "federacion_internacional": "Union Cycliste Internationale",
+      "acronimo_fi": "UCI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "pruebas": [
+          "Carrera en línea",
+          "Contrarreloj individual",
+          "Contrarreloj por equipos"
+        ],
+        "categorias_edad": [
+          "Sub-17",
+          "Sub-19 (Junior)",
+          "Sub-23 (Espoir)",
+          "Elite/Senior",
+          "Masters (30+, 40+, 50+, 60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "nombre": "Ciclismo en Pista",
+      "nombre_ingles": "Track Cycling",
+      "federacion_internacional": "Union Cycliste Internationale",
+      "acronimo_fi": "UCI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "pruebas": [
+          "Sprint individual",
+          "Sprint por equipos",
+          "Keirin",
+          "Velocidad por equipos",
+          "Omnium",
+          "Madison",
+          "Persecución individual",
+          "Persecución por equipos",
+          "1km contrarreloj",
+          "500m contrarreloj"
+        ],
+        "categorias_edad": [
+          "Sub-17",
+          "Sub-19 (Junior)",
+          "Sub-23",
+          "Elite/Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (madison mixto)"
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "nombre": "BMX Racing",
+      "nombre_ingles": "BMX Racing",
+      "federacion_internacional": "Union Cycliste Internationale",
+      "acronimo_fi": "UCI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "categorias_edad": [
+          "5-6 (Mini)",
+          "7-8",
+          "9-10",
+          "11-12",
+          "13-14 (Cadet)",
+          "15-16 (Junior)",
+          "17-24 (Elite Junior)",
+          "25+ (Elite)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "nombre": "BMX Freestyle",
+      "nombre_ingles": "BMX Freestyle",
+      "federacion_internacional": "Union Cycliste Internationale",
+      "acronimo_fi": "UCI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Park",
+          "Flatland",
+          "Street",
+          "Vert",
+          "Dirt"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Elite/Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "nombre": "Mountain Bike",
+      "nombre_ingles": "Mountain Bike",
+      "federacion_internacional": "Union Cycliste Internationale",
+      "acronimo_fi": "UCI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Cross Country (XCO)",
+          "Downhill (DH)",
+          "Enduro",
+          "Four Cross (4X)",
+          "E-MTB"
+        ],
+        "categorias_edad": [
+          "Sub-17",
+          "Sub-19 (Junior)",
+          "Sub-23 (U23)",
+          "Elite/Senior",
+          "Masters (30+, 40+, 50+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "nombre": "Hípica - Doma",
+      "nombre_ingles": "Dressage",
+      "federacion_internacional": "Fédération Equestre Internationale",
+      "acronimo_fi": "FEI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "niveles": [
+          "Introductorio",
+          "Preliminar",
+          "Novice",
+          "Elementary",
+          "Medium",
+          "Advanced",
+          "PSG",
+          "Inter I",
+          "Inter II",
+          "Grand Prix"
+        ],
+        "modalidades_olimpicas": [
+          "Gran Premio",
+          "Gran Premio Especial",
+          "Gran Premio Freestyle (Kür)",
+          "Equipo"
+        ],
+        "categorias_edad": [
+          "Pony (hasta 148cm)",
+          "Junior (14-21)",
+          "Young Riders (16-21)",
+          "Under 25",
+          "Senior"
+        ],
+        "genero": [
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "nombre": "Hípica - Concurso Completo",
+      "nombre_ingles": "Eventing",
+      "federacion_internacional": "Fédération Equestre Internationale",
+      "acronimo_fi": "FEI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "niveles": [
+          "1*",
+          "2*",
+          "3*",
+          "4*",
+          "5*"
+        ],
+        "fases": [
+          "Dressage",
+          "Cross-country",
+          "Salto"
+        ],
+        "modalidades": [
+          "Individual",
+          "Equipos"
+        ],
+        "categorias_edad": [
+          "Junior (14-18)",
+          "Young Riders (16-21)",
+          "Senior"
+        ],
+        "genero": [
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "nombre": "Hípica - Salto",
+      "nombre_ingles": "Show Jumping",
+      "federacion_internacional": "Fédération Equestre Internationale",
+      "acronimo_fi": "FEI",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "niveles": [
+          "1* (1.20m)",
+          "2* (1.30m)",
+          "3* (1.40m)",
+          "4* (1.50m)",
+          "5* (1.60m+)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Equipos",
+          "Nations Cup"
+        ],
+        "categorias_edad": [
+          "Children (12-14)",
+          "Junior (14-18)",
+          "Young Riders (16-21)",
+          "Senior",
+          "Amateur"
+        ],
+        "genero": [
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "nombre": "Esgrima",
+      "nombre_ingles": "Fencing",
+      "federacion_internacional": "Fédération Internationale d'Escrime",
+      "acronimo_fi": "FIE",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "armas": [
+          "Florete",
+          "Espada",
+          "Sable"
+        ],
+        "modalidades": [
+          "Individual masculino",
+          "Individual femenino",
+          "Por equipos masculino",
+          "Por equipos femenino"
+        ],
+        "categorias_edad": [
+          "M11-12 (Pupilles)",
+          "M13-14 (Minimes)",
+          "M15-16 (Cadets)",
+          "M17-20 (Juniors)",
+          "Senior",
+          "Veterans (50+, 60+, 70+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "nombre": "Fútbol",
+      "nombre_ingles": "Football (Soccer)",
+      "federacion_internacional": "FIFA",
+      "acronimo_fi": "FIFA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "11v11 (Fútbol)",
+          "Fútbol Sala (Futsal)",
+          "Fútbol Playa"
+        ],
+        "categorias_edad": [
+          "Sub-11",
+          "Sub-13",
+          "Sub-15",
+          "Sub-17",
+          "Sub-20",
+          "Sub-23 (Olímpico masculino)",
+          "Sub-17 femenino",
+          "Sub-20 femenino",
+          "Senior (Femenino sin límite en JJOO)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "nombre": "Golf",
+      "nombre_ingles": "Golf",
+      "federacion_internacional": "R&A / USGA (World Golf)",
+      "acronimo_fi": "IGF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "formatos": [
+          "72 hoyos stroke play individual",
+          "Match play",
+          "Stableford",
+          "Four-ball",
+          "Foursomes",
+          "Scramble"
+        ],
+        "modalidades": [
+          "Individual",
+          "Por equipos",
+          "Mixtos"
+        ],
+        "categorias_edad": [
+          "Amateur (Sub-18)",
+          "Sub-25 (Amateur Elite)",
+          "Profesional",
+          "Senior PGA (50+)",
+          "Super Senior (60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "nombre": "Gimnasia Artística",
+      "nombre_ingles": "Artistic Gymnastics",
+      "federacion_internacional": "Fédération Internationale de Gymnastique",
+      "acronimo_fi": "FIG",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "aparatos_masculinos": [
+          "Suelo",
+          "Caballo con arcos",
+          "Anillas",
+          "Salto de potro",
+          "Barras paralelas",
+          "Barra fija",
+          "All-around"
+        ],
+        "aparatos_femeninos": [
+          "Salto de potro",
+          "Barras asimétricas",
+          "Barra de equilibrio",
+          "Suelo",
+          "All-around"
+        ],
+        "modalidades": [
+          "Individual All-around",
+          "Por aparatos",
+          "Por equipos"
+        ],
+        "categorias_edad": [
+          "Sub-10 (Beginners)",
+          "Sub-12",
+          "Sub-14 (Junior International)",
+          "Sub-16 (Senior Junior)",
+          "Senior (16+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "nombre": "Gimnasia Rítmica",
+      "nombre_ingles": "Rhythmic Gymnastics",
+      "federacion_internacional": "Fédération Internationale de Gymnastique",
+      "acronimo_fi": "FIG",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "aparatos": [
+          "Aro",
+          "Pelota",
+          "Mazas",
+          "Cinta",
+          "Sin aparato"
+        ],
+        "modalidades": [
+          "Individual All-around",
+          "Individual por aparatos",
+          "Grupos (5 gimnastas)"
+        ],
+        "categorias_edad": [
+          "Junior (hasta 15)",
+          "Senior (15+)"
+        ],
+        "genero": [
+          "Femenino",
+          "Mixto (grupos mixtos en algunas federaciones)"
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "nombre": "Trampolín",
+      "nombre_ingles": "Trampoline",
+      "federacion_internacional": "Fédération Internationale de Gymnastique",
+      "acronimo_fi": "FIG",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Trampolín individual",
+          "Doble mini-trampolín (DMT)",
+          "Tumbling",
+          "Sincronizado"
+        ],
+        "categorias_edad": [
+          "Age Groups (7-8, 9-10, 11-12, 13-14, 15-16, 17-21)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 27,
+      "nombre": "Balonmano",
+      "nombre_ingles": "Handball",
+      "federacion_internacional": "International Handball Federation",
+      "acronimo_fi": "IHF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "7v7 (Indoor)",
+          "Beach Handball (4v4)",
+          "Mini-handball"
+        ],
+        "categorias_edad": [
+          "Mini (Sub-8)",
+          "Sub-12",
+          "Sub-14",
+          "Sub-16",
+          "Sub-18 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Sub-21 masculino",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 28,
+      "nombre": "Hockey sobre Hierba",
+      "nombre_ingles": "Field Hockey",
+      "federacion_internacional": "International Hockey Federation",
+      "acronimo_fi": "FIH",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "11v11 (Field Hockey)",
+          "Hockey 5s (Indoor reducido)",
+          "Hockey en sala (Indoor 6v6)"
+        ],
+        "categorias_edad": [
+          "Sub-17 (Junior)",
+          "Sub-21 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 29,
+      "nombre": "Judo",
+      "nombre_ingles": "Judo",
+      "federacion_internacional": "International Judo Federation",
+      "acronimo_fi": "IJF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "categorias_peso_masculino": [
+          "-60kg",
+          "-66kg",
+          "-73kg",
+          "-81kg",
+          "-90kg",
+          "-100kg",
+          "+100kg"
+        ],
+        "categorias_peso_femenino": [
+          "-48kg",
+          "-52kg",
+          "-57kg",
+          "-63kg",
+          "-70kg",
+          "-78kg",
+          "+78kg"
+        ],
+        "modalidades_adicionales": [
+          "Por equipos mixto",
+          "Por equipos masculino",
+          "Por equipos femenino",
+          "Kata (Nage-no-kata, Katame-no-kata, Kime-no-kata, Ju-no-kata, Kodokan Goshin-jutsu, Itsutsu-no-kata, Koshiki-no-kata, Seiryoku-zen'yo-kokumin-taiiku-no-kata, Joshi-judo-randori-no-kata)"
+        ],
+        "categorias_edad": [
+          "Pre-Mini (Sub-10)",
+          "Mini (Sub-12)",
+          "Cadet (Sub-15)",
+          "Junior (Sub-18)",
+          "U21",
+          "Senior",
+          "Masters (30+, 40+, 50+, 60+, 70+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (equipos)"
+        ]
+      }
+    },
+    {
+      "id": 30,
+      "nombre": "Lucha Libre",
+      "nombre_ingles": "Freestyle Wrestling",
+      "federacion_internacional": "United World Wrestling",
+      "acronimo_fi": "UWW",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "categorias_peso_masculino": [
+          "-57kg",
+          "-65kg",
+          "-74kg",
+          "-86kg",
+          "-97kg",
+          "-125kg"
+        ],
+        "categorias_peso_femenino": [
+          "-50kg",
+          "-53kg",
+          "-57kg",
+          "-62kg",
+          "-68kg",
+          "-76kg"
+        ],
+        "categorias_edad": [
+          "Cadet (Sub-17)",
+          "Junior (Sub-20)",
+          "U23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "nombre": "Lucha Grecorromana",
+      "nombre_ingles": "Greco-Roman Wrestling",
+      "federacion_internacional": "United World Wrestling",
+      "acronimo_fi": "UWW",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "categorias_peso": [
+          "-60kg",
+          "-67kg",
+          "-77kg",
+          "-87kg",
+          "-97kg",
+          "-130kg"
+        ],
+        "categorias_edad": [
+          "Cadet (Sub-17)",
+          "Junior (Sub-20)",
+          "U23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino"
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "nombre": "Pentatlón Moderno",
+      "nombre_ingles": "Modern Pentathlon",
+      "federacion_internacional": "Union Internationale de Pentathlon Moderne",
+      "acronimo_fi": "UIPM",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": false,
+      "nota_la_2028": "Reemplazado por Obstacle Course Racing en LA2028",
+      "categorias_competencia": {
+        "disciplinas": [
+          "Esgrima (épée)",
+          "Natación (200m)",
+          "Equitación (show jumping)",
+          "Carrera láser (run & shoot)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Por equipos mixto"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-19)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relay)"
+        ]
+      }
+    },
+    {
+      "id": 33,
+      "nombre": "Remo",
+      "nombre_ingles": "Rowing",
+      "federacion_internacional": "World Rowing Federation",
+      "acronimo_fi": "FISA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Single scull (1x)",
+          "Double scull (2x)",
+          "Quadruple scull (4x)",
+          "Pair (2-)",
+          "Four (4-)",
+          "Eight (8+)",
+          "Lightweight double scull (2x LW)",
+          "Coxless pair (2- LW)"
+        ],
+        "distancias": [
+          "2000m (estándar)",
+          "1000m (Junior)",
+          "500m (Sprint)",
+          "Remo costero"
+        ],
+        "categorias_edad": [
+          "Sub-19 (Junior)",
+          "Sub-23 (U23)",
+          "Senior",
+          "Masters (27+, 43+, 50+, 55+, 60+, 65+, 70+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (coxed four mixto)"
+        ]
+      }
+    },
+    {
+      "id": 34,
+      "nombre": "Rugby 7",
+      "nombre_ingles": "Rugby Sevens",
+      "federacion_internacional": "World Rugby",
+      "acronimo_fi": "WR",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Rugby 7 (7 jugadores)",
+          "Rugby 15 (no olímpico)",
+          "Rugby League",
+          "Touch Rugby",
+          "Flag Rugby"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Sub-20 (U20)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 35,
+      "nombre": "Vela",
+      "nombre_ingles": "Sailing",
+      "federacion_internacional": "World Sailing",
+      "acronimo_fi": "WS",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "clases_olimpicas": [
+          "Dinghy (ILCA 6, ILCA 7)",
+          "Skiff (49er, 49erFX)",
+          "Windsurfer (iQFOiL)",
+          "Nacra 17 (Catamarán mixto)",
+          "470 mixto"
+        ],
+        "clases_no_olimpicas": [
+          "Optimist",
+          "Laser Radial",
+          "Sunfish",
+          "420",
+          "Snipe",
+          "Finn",
+          "Star",
+          "Soling",
+          "Offshore (Volvo Ocean Race)"
+        ],
+        "categorias_edad": [
+          "Sub-16",
+          "Sub-19 (Youth)",
+          "U21",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 36,
+      "nombre": "Tiro Deportivo",
+      "nombre_ingles": "Shooting",
+      "federacion_internacional": "International Shooting Sport Federation",
+      "acronimo_fi": "ISSF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades_rifle": [
+          "10m aire (carabina)",
+          "50m 3x40 (carabina)",
+          "50m 60 disparos (carabina)",
+          "10m aire mixto"
+        ],
+        "modalidades_pistola": [
+          "10m aire (pistola)",
+          "25m pistola rápida (H)",
+          "25m pistola fuego (M)",
+          "10m aire mixto pistola"
+        ],
+        "modalidades_escopeta": [
+          "Foso olímpico (Trap)",
+          "Foso doble (Double Trap)",
+          "Plato (Skeet)",
+          "Trap mixto",
+          "Skeet mixto"
+        ],
+        "categorias_edad": [
+          "Sub-21 (Junior)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 37,
+      "nombre": "Skateboarding",
+      "nombre_ingles": "Skateboarding",
+      "federacion_internacional": "World Skate",
+      "acronimo_fi": "WS",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Street (callejero)",
+          "Park (parque)",
+          "Vert (vertical)",
+          "Bowl",
+          "Downhill",
+          "Slalom"
+        ],
+        "categorias_edad": [
+          "Sub-14",
+          "Sub-18 (Junior)",
+          "Open/Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 38,
+      "nombre": "Escalada Deportiva",
+      "nombre_ingles": "Sport Climbing",
+      "federacion_internacional": "International Federation of Sport Climbing",
+      "acronimo_fi": "IFSC",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Velocidad (Speed)",
+          "Bloque (Bouldering)",
+          "Dificultad (Lead)",
+          "Combinado"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth B)",
+          "Sub-18 (Youth A)",
+          "Sub-20 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 39,
+      "nombre": "Surf",
+      "nombre_ingles": "Surfing",
+      "federacion_internacional": "International Surfing Association",
+      "acronimo_fi": "ISA",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Shortboard",
+          "Longboard",
+          "SUP (Stand Up Paddle)",
+          "Bodyboard",
+          "Bodysurf"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Juniors)",
+          "Sub-18",
+          "Open/Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 40,
+      "nombre": "Tenis de Mesa",
+      "nombre_ingles": "Table Tennis",
+      "federacion_internacional": "International Table Tennis Federation",
+      "acronimo_fi": "ITTF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Singles masculino",
+          "Singles femenino",
+          "Dobles masculino",
+          "Dobles femenino",
+          "Dobles mixto",
+          "Por equipos"
+        ],
+        "categorias_edad": [
+          "Sub-13",
+          "Sub-15",
+          "Sub-19 (Junior)",
+          "Sub-21 (U21)",
+          "Senior",
+          "Veterans (40+, 50+, 60+, 70+, 80+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 41,
+      "nombre": "Taekwondo",
+      "nombre_ingles": "Taekwondo",
+      "federacion_internacional": "World Taekwondo",
+      "acronimo_fi": "WT",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "kyorugi_masculino": [
+          "-54kg (Fin)",
+          "-58kg (Mosca)",
+          "-63kg (Gallo)",
+          "-68kg (Pluma)",
+          "-74kg (Ligero)",
+          "-80kg (Welter)",
+          "-87kg (Medio)",
+          "+87kg (Pesado)"
+        ],
+        "kyorugi_femenino": [
+          "-46kg (Fin)",
+          "-49kg (Mosca)",
+          "-53kg (Gallo)",
+          "-57kg (Pluma)",
+          "-62kg (Ligero)",
+          "-67kg (Welter)",
+          "-73kg (Medio)",
+          "+73kg (Pesado)"
+        ],
+        "poomsae": [
+          "Individual masculino",
+          "Individual femenino",
+          "Pares",
+          "Equipo (3)",
+          "Freeestyle individual M",
+          "Freestyle individual F",
+          "Freestyle pares",
+          "Freestyle equipo"
+        ],
+        "categorias_edad": [
+          "Sub-14 (Cadet)",
+          "Sub-17 (Junior)",
+          "Sub-30 (Under 30)",
+          "Senior (+14)",
+          "Masters (17-30, 31-40, 41-50, 51-60, 61+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (pares poomsae)"
+        ]
+      }
+    },
+    {
+      "id": 42,
+      "nombre": "Tenis",
+      "nombre_ingles": "Tennis",
+      "federacion_internacional": "International Tennis Federation",
+      "acronimo_fi": "ITF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Singles masculino",
+          "Singles femenino",
+          "Dobles masculino",
+          "Dobles femenino",
+          "Dobles mixto"
+        ],
+        "superficies": [
+          "Tierra batida (Clay)",
+          "Hierba (Grass)",
+          "Pista dura (Hard court)",
+          "Alfombra (Carpet - descontinuada)"
+        ],
+        "categorias_edad": [
+          "Sub-10",
+          "Sub-12",
+          "Sub-14",
+          "Sub-16",
+          "Sub-18 (Junior)",
+          "Senior (ATP/WTA)",
+          "Senior (45+, 55+, 65+, 75+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 43,
+      "nombre": "Triatlón",
+      "nombre_ingles": "Triathlon",
+      "federacion_internacional": "World Triathlon",
+      "acronimo_fi": "WT",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "distancias": [
+          "Sprint (750m nat + 20km bici + 5km carrera)",
+          "Olímpico (1.5km + 40km + 10km)",
+          "70.3 (Half-Ironman: 1.9km + 90km + 21km)",
+          "Ironman (3.8km + 180km + 42.2km)",
+          "Super Sprint",
+          "Duatlón",
+          "Acuatlón",
+          "Triatló de invierno"
+        ],
+        "modalidades": [
+          "Individual",
+          "Relevo mixto por equipos"
+        ],
+        "categorias_edad": [
+          "Youth (15-19)",
+          "Junior (20-23)",
+          "Elite/Senior",
+          "Age Group (25-29, 30-34, ..., 80-84, 85+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 44,
+      "nombre": "Voleibol",
+      "nombre_ingles": "Volleyball",
+      "federacion_internacional": "Fédération Internationale de Volleyball",
+      "acronimo_fi": "FIVB",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Voleibol indoor (6v6)",
+          "Voleibol playa (2v2)",
+          "Snow volleyball",
+          "Sitting volleyball (Paralímpico)"
+        ],
+        "categorias_edad": [
+          "Sub-19 (Junior World Championship)",
+          "Sub-21 (Norceca)",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 45,
+      "nombre": "Halterofilia",
+      "nombre_ingles": "Weightlifting",
+      "federacion_internacional": "International Weightlifting Federation",
+      "acronimo_fi": "IWF",
+      "estado_olimpico": "Olímpico de Verano",
+      "incluido_paris_2024": true,
+      "incluido_la_2028": true,
+      "categorias_competencia": {
+        "levantamientos": [
+          "Arranque (Snatch)",
+          "Dos tiempos (Clean & Jerk)",
+          "Total"
+        ],
+        "categorias_peso_masculino": [
+          "-55kg",
+          "-61kg",
+          "-67kg",
+          "-73kg",
+          "-81kg",
+          "-89kg",
+          "-96kg",
+          "-102kg",
+          "-109kg",
+          "+109kg"
+        ],
+        "categorias_peso_femenino": [
+          "-45kg",
+          "-49kg",
+          "-55kg",
+          "-59kg",
+          "-64kg",
+          "-71kg",
+          "-76kg",
+          "-81kg",
+          "-87kg",
+          "+87kg"
+        ],
+        "categorias_edad": [
+          "Sub-17 (Youth)",
+          "Sub-20 (Junior)",
+          "Senior",
+          "Masters (35-39, 40-44, 45-49, 50-54, 55-59, 60-64, 65-69, 70-74, 75-79, 80+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 46,
+      "nombre": "Biatlón",
+      "nombre_ingles": "Biathlon",
+      "federacion_internacional": "International Biathlon Union",
+      "acronimo_fi": "IBU",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "pruebas": [
+          "Sprint (7.5km M / 10km H)",
+          "Persecución (10km M / 12.5km H)",
+          "Individual (15km M / 20km H)",
+          "Salida en masa (12.5km M / 15km H)",
+          "Relevos (4x6km M / 4x7.5km H)",
+          "Relevos mixtos (2x6km + 2x7.5km)",
+          "Súper sprint (4.5km M / 6km H)"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-21)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevos)"
+        ]
+      }
+    },
+    {
+      "id": 47,
+      "nombre": "Bobsleigh",
+      "nombre_ingles": "Bobsleigh",
+      "federacion_internacional": "International Bobsleigh and Skeleton Federation",
+      "acronimo_fi": "IBSF",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Monobob (1 tripulante)",
+          "Bobs 2 (2 tripulantes)",
+          "Bobs 4 (4 tripulantes - solo masculino)"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-26)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 48,
+      "nombre": "Skeleton",
+      "nombre_ingles": "Skeleton",
+      "federacion_internacional": "International Bobsleigh and Skeleton Federation",
+      "acronimo_fi": "IBSF",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Individual"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-26)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 49,
+      "nombre": "Curling",
+      "nombre_ingles": "Curling",
+      "federacion_internacional": "World Curling Federation",
+      "acronimo_fi": "WCF",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "4v4 estándar",
+          "Dobles mixtos"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-21)",
+          "Senior",
+          "Masters (60+)",
+          "Wheelchair curling"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 50,
+      "nombre": "Hockey sobre Hielo",
+      "nombre_ingles": "Ice Hockey",
+      "federacion_internacional": "International Ice Hockey Federation",
+      "acronimo_fi": "IIHF",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "6v6 (Hockey sobre hielo)",
+          "3v3 (3x3 Ice Hockey)"
+        ],
+        "categorias_edad": [
+          "Sub-16 (U16)",
+          "Sub-18 (U18)",
+          "Sub-20 (U20/Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 51,
+      "nombre": "Luge",
+      "nombre_ingles": "Luge",
+      "federacion_internacional": "International Luge Federation",
+      "acronimo_fi": "FIL",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Individual masculino",
+          "Individual femenino",
+          "Dobles",
+          "Relevo por equipos"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Juvenil)",
+          "Sub-21 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevo)"
+        ]
+      }
+    },
+    {
+      "id": 52,
+      "nombre": "Patinaje Artístico",
+      "nombre_ingles": "Figure Skating",
+      "federacion_internacional": "International Skating Union",
+      "acronimo_fi": "ISU",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Individual masculino",
+          "Individual femenino",
+          "Patinaje en pareja",
+          "Danza sobre hielo"
+        ],
+        "programas": [
+          "Programa corto",
+          "Programa libre"
+        ],
+        "categorias_edad": [
+          "Básico (Sub-12)",
+          "Pre-Novice",
+          "Novice (Sub-15)",
+          "Junior (Sub-19)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (pareja, danza)"
+        ]
+      }
+    },
+    {
+      "id": 53,
+      "nombre": "Patinaje de Velocidad",
+      "nombre_ingles": "Speed Skating",
+      "federacion_internacional": "International Skating Union",
+      "acronimo_fi": "ISU",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "distancias_masculino": [
+          "500m",
+          "1000m",
+          "1500m",
+          "5000m",
+          "10000m",
+          "Persecución por equipos",
+          "Mass start"
+        ],
+        "distancias_femenino": [
+          "500m",
+          "1000m",
+          "1500m",
+          "3000m",
+          "5000m",
+          "Persecución por equipos",
+          "Mass start"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth)",
+          "Junior (Sub-23)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevo)"
+        ]
+      }
+    },
+    {
+      "id": 54,
+      "nombre": "Patinaje en Pista Corta",
+      "nombre_ingles": "Short Track Speed Skating",
+      "federacion_internacional": "International Skating Union",
+      "acronimo_fi": "ISU",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "distancias": [
+          "500m",
+          "1000m",
+          "1500m",
+          "Relevo 3000m (F)",
+          "Relevo 5000m (H)",
+          "Relevo mixto"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Youth)",
+          "Junior (Sub-19)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 55,
+      "nombre": "Esquí Alpino",
+      "nombre_ingles": "Alpine Skiing",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "pruebas": [
+          "Descenso (DH)",
+          "Super Gigante (SG)",
+          "Gigante (GS)",
+          "Slalom (SL)",
+          "Combinada alpina",
+          "Paralelo",
+          "Equipo mixto"
+        ],
+        "categorias_edad": [
+          "Sub-14 (D-race)",
+          "Sub-16 (Children)",
+          "Sub-18 (Junior)",
+          "Sub-21 (U21)",
+          "Senior (FIS)/Adulto",
+          "Masters (30-35, 36-40, 41-45, 46-50, 51-55, 56-60, 61-65, 66-70, 71-75, 76-80, 81+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (paralelo equipo)"
+        ]
+      }
+    },
+    {
+      "id": 56,
+      "nombre": "Esquí de Fondo",
+      "nombre_ingles": "Cross-Country Skiing",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "pruebas_masculino": [
+          "Sprint libre",
+          "Sprint clásico",
+          "Sprint por equipos",
+          "10km",
+          "15km",
+          "20km",
+          "30km",
+          "50km",
+          "Skiathlon 15+15km",
+          "4x10km relevos"
+        ],
+        "pruebas_femenino": [
+          "Sprint libre",
+          "Sprint clásico",
+          "Sprint por equipos",
+          "7.5km",
+          "10km",
+          "15km",
+          "30km",
+          "Skiathlon 7.5+7.5km",
+          "4x5km relevos"
+        ],
+        "tecnicas": [
+          "Clásico",
+          "Libre (patinaje)"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth/Juvenil)",
+          "Sub-20 (Junior)",
+          "Senior/Adulto",
+          "Masters (30+, 40+, 50+, 60+, 70+, 80+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 57,
+      "nombre": "Esquí Acrobático",
+      "nombre_ingles": "Freestyle Skiing",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Moguls (baches)",
+          "Dual Moguls",
+          "Aerials (saltos acrobáticos)",
+          "Ski Cross",
+          "Halfpipe",
+          "Slopestyle",
+          "Big Air"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (aerials por equipos)"
+        ]
+      }
+    },
+    {
+      "id": 58,
+      "nombre": "Salto de Esquí",
+      "nombre_ingles": "Ski Jumping",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "trampolines": [
+          "Normal Hill (NH/K90)",
+          "Large Hill (LH/K120)",
+          "Flying Hill (K185-200)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Por equipos (4)",
+          "Por equipos mixto"
+        ],
+        "categorias_edad": [
+          "Sub-16 (COC)",
+          "Sub-22 (Continental Cup)",
+          "Senior (World Cup)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 59,
+      "nombre": "Combinada Nórdica",
+      "nombre_ingles": "Nordic Combined",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "formatos": [
+          "Gundersen (salto + 10km fondo)",
+          "Sprint (salto + 7.5km fondo)",
+          "Individual Gundersen Large Hill",
+          "Individual Gundersen Normal Hill",
+          "Por equipos 4x5km"
+        ],
+        "categorias_edad": [
+          "Sub-20 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 60,
+      "nombre": "Snowboard",
+      "nombre_ingles": "Snowboard",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno",
+      "incluido_milan_2026": true,
+      "categorias_competencia": {
+        "modalidades": [
+          "Halfpipe",
+          "Slopestyle",
+          "Big Air",
+          "Snowboard Cross (SBX)",
+          "Paralelo Gigante (PSL)",
+          "Paralelo Slalom Gigante (PGS)",
+          "Banked Slalom"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth)",
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (SBX equipos)"
+        ]
+      }
+    },
+    {
+      "id": 61,
+      "nombre": "Béisbol / Sóftbol",
+      "nombre_ingles": "Baseball / Softball",
+      "federacion_internacional": "World Baseball Softball Confederation",
+      "acronimo_fi": "WBSC",
+      "estado_olimpico": "Olímpico LA2028 (aprobado)",
+      "categorias_competencia": {
+        "modalidades_beisbol": [
+          "9 entradas (estándar)",
+          "7 entradas (amateur/youth)",
+          "Béisbol 5 (urbano)"
+        ],
+        "modalidades_softball": [
+          "Softball femenino (pitcheo rápido)",
+          "Softball masculino (pitcheo lento)",
+          "Softball 5"
+        ],
+        "categorias_edad": [
+          "Sub-12",
+          "Sub-15",
+          "Sub-18 (Juvenil)",
+          "Sub-21 (Junior)",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino (béisbol)",
+          "Femenino (sóftbol)",
+          "Mixto (béisbol 5)"
+        ]
+      }
+    },
+    {
+      "id": 62,
+      "nombre": "Críquet",
+      "nombre_ingles": "Cricket",
+      "federacion_internacional": "International Cricket Council",
+      "acronimo_fi": "ICC",
+      "estado_olimpico": "Olímpico LA2028 (T20 aprobado)",
+      "categorias_competencia": {
+        "formatos": [
+          "Test (5 días)",
+          "One Day International (ODI - 50 overs)",
+          "Twenty20 (T20 - 20 overs)",
+          "T10",
+          "The Hundred (100 bolas)",
+          "Blind Cricket"
+        ],
+        "categorias_edad": [
+          "Sub-19 (U19 World Cup)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 63,
+      "nombre": "Flag Football",
+      "nombre_ingles": "Flag Football",
+      "federacion_internacional": "International Federation of American Football",
+      "acronimo_fi": "IFAF",
+      "estado_olimpico": "Olímpico LA2028 (aprobado)",
+      "categorias_competencia": {
+        "modalidades": [
+          "5v5 (estándar)",
+          "4v4",
+          "7v7"
+        ],
+        "categorias_edad": [
+          "Sub-14",
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 64,
+      "nombre": "Lacrosse",
+      "nombre_ingles": "Lacrosse",
+      "federacion_internacional": "World Lacrosse",
+      "acronimo_fi": "WL",
+      "estado_olimpico": "Olímpico LA2028 (Sixes, aprobado)",
+      "categorias_competencia": {
+        "modalidades": [
+          "Field Lacrosse (10v10)",
+          "Box Lacrosse (6v6)",
+          "Lacrosse Sixes (6v6)",
+          "Women's Lacrosse (12v12)"
+        ],
+        "categorias_edad": [
+          "Sub-15",
+          "Sub-19 (U19)",
+          "Sub-21 (U21)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 65,
+      "nombre": "Squash",
+      "nombre_ingles": "Squash",
+      "federacion_internacional": "World Squash Federation",
+      "acronimo_fi": "WSF",
+      "estado_olimpico": "Olímpico LA2028 (aprobado)",
+      "categorias_competencia": {
+        "modalidades": [
+          "Singles masculino",
+          "Singles femenino",
+          "Dobles masculino",
+          "Dobles femenino",
+          "Dobles mixto"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Juvenil)",
+          "Sub-19 (Junior)",
+          "Sub-23 (U23)",
+          "Senior",
+          "Masters (35+, 45+, 55+, 65+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 66,
+      "nombre": "Automovilismo",
+      "nombre_ingles": "Motorsport",
+      "federacion_internacional": "Fédération Internationale de l'Automobile",
+      "acronimo_fi": "FIA",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Formula 1",
+          "Formula E",
+          "Formula 2",
+          "Formula 3",
+          "IndyCar",
+          "NASCAR",
+          "Rally (WRC)",
+          "Dakar Rally",
+          "GT3/GT4",
+          "Endurance (WEC/Le Mans)",
+          "Karting",
+          "Drift"
+        ],
+        "categorias_edad": [
+          "Karting (Sub-8 a 18)",
+          "F4 (Sub-18)",
+          "F3/F2 (18-25)",
+          "Elite/Senior"
+        ],
+        "genero": [
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 67,
+      "nombre": "Ajedrez",
+      "nombre_ingles": "Chess",
+      "federacion_internacional": "FIDE",
+      "acronimo_fi": "FIDE",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "formatos": [
+          "Clásico",
+          "Rápido (Rapid)",
+          "Blitz",
+          "Bullet",
+          "960 (Fischer Random)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Por equipos (Olimpiada)",
+          "Correspondencia"
+        ],
+        "categorias_edad": [
+          "Sub-8",
+          "Sub-10",
+          "Sub-12",
+          "Sub-14",
+          "Sub-16",
+          "Sub-18 (Junior)",
+          "Senior",
+          "Senior (50+)"
+        ],
+        "genero": [
+          "Abierto/Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 68,
+      "nombre": "Bolos (Bowling)",
+      "nombre_ingles": "Bowling",
+      "federacion_internacional": "World Bowling",
+      "acronimo_fi": "WB",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Ten-pin (10 pinos)",
+          "Nine-pin (9 pinos)",
+          "Duckpin",
+          "Candlepin",
+          "5-pin"
+        ],
+        "formatos": [
+          "Singles",
+          "Dobles",
+          "Trios",
+          "Cuartetos",
+          "Quintetos",
+          "Masters"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Juvenil)",
+          "Sub-21 (Junior)",
+          "Senior",
+          "Senior (50+, 60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 69,
+      "nombre": "Billar",
+      "nombre_ingles": "Billiards / Cue Sports",
+      "federacion_internacional": "World Billiards Sport Federation",
+      "acronimo_fi": "WBSF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Carom (libre, 3 bandas, cadete)",
+          "Pool (8-ball, 9-ball, 10-ball, 14.1 continuo)",
+          "Snooker",
+          "English billiards"
+        ],
+        "categorias_edad": [
+          "Sub-21 (Junior)",
+          "Senior",
+          "Senior (40+, 50+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 70,
+      "nombre": "Orientación",
+      "nombre_ingles": "Orienteering",
+      "federacion_internacional": "International Orienteering Federation",
+      "acronimo_fi": "IOF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Carrera a pie",
+          "Mountain bike (MTBO)",
+          "Ski-O",
+          "Trail-O"
+        ],
+        "distancias": [
+          "Sprint",
+          "Middle",
+          "Long",
+          "Relay",
+          "Night"
+        ],
+        "categorias_edad": [
+          "Sub-13 (Preteen)",
+          "Sub-16 (Youth)",
+          "Sub-20 (Junior)",
+          "Sub-23 (U23)",
+          "Senior",
+          "Veterans (35-40, 40-45, 45-50, ..., 90+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relay)"
+        ]
+      }
+    },
+    {
+      "id": 71,
+      "nombre": "Pelota Vasca",
+      "nombre_ingles": "Basque Pelota",
+      "federacion_internacional": "Federación Internacional de Pelota Vasca",
+      "acronimo_fi": "FIPV",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Cesta punta (Jai alai)",
+          "Pelota a mano",
+          "Pala",
+          "Paleta goma",
+          "Frontón",
+          "Remonte",
+          "Xare"
+        ],
+        "categorias_edad": [
+          "Alevín",
+          "Infantil",
+          "Juvenil",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 72,
+      "nombre": "Motociclismo",
+      "nombre_ingles": "Motorcycling",
+      "federacion_internacional": "Fédération Internationale de Motocyclisme",
+      "acronimo_fi": "FIM",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "MotoGP (Moto1, Moto2, Moto3)",
+          "Superbike (WSBK)",
+          "Enduro",
+          "Motocross (MXGP, MX2)",
+          "Trial",
+          "Speedway",
+          "Flat track",
+          "Hill climb",
+          "Sidecar"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Juniors)",
+          "Sub-18",
+          "Elite/Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino (en expansión)"
+        ]
+      }
+    },
+    {
+      "id": 73,
+      "nombre": "Pesca Deportiva",
+      "nombre_ingles": "Sport Fishing",
+      "federacion_internacional": "Confédération Internationale de la Pêche Sportive",
+      "acronimo_fi": "CIPS",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Pesca en agua dulce",
+          "Pesca en mar (Surf Casting)",
+          "Fly Fishing (mosca)",
+          "Pesca submarina",
+          "Carpa (Carp fishing)"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-23)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 74,
+      "nombre": "Dardos",
+      "nombre_ingles": "Darts",
+      "federacion_internacional": "World Darts Federation",
+      "acronimo_fi": "WDF",
+      "estado_olimpico": "Reconocido - No Olímpico",
+      "categorias_competencia": {
+        "formatos": [
+          "501 (Individual)",
+          "Dobles",
+          "Triples",
+          "Por equipos (naciones)"
+        ],
+        "modalidades": [
+          "Electrónico (Soft tip)",
+          "Acero (Steel tip)"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Youth)",
+          "Sub-21 (Junior)",
+          "Senior",
+          "Veterans (50+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 75,
+      "nombre": "Karate",
+      "nombre_ingles": "Karate",
+      "federacion_internacional": "World Karate Federation",
+      "acronimo_fi": "WKF",
+      "estado_olimpico": "Fue Olímpico en Tokyo 2020 - No en LA2028",
+      "categorias_competencia": {
+        "kumite_masculino": [
+          "-60kg",
+          "-67kg",
+          "-75kg",
+          "-84kg",
+          "+84kg"
+        ],
+        "kumite_femenino": [
+          "-50kg",
+          "-55kg",
+          "-61kg",
+          "-68kg",
+          "+68kg"
+        ],
+        "kata": [
+          "Kata masculino individual",
+          "Kata femenino individual",
+          "Kata por equipos masculino",
+          "Kata por equipos femenino"
+        ],
+        "categorias_edad": [
+          "Sub-14 (Cadetes)",
+          "Sub-21 (Junior)",
+          "Senior",
+          "Veteran (35+, 45+, 55+, 65+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 76,
+      "nombre": "Muay Thai",
+      "nombre_ingles": "Muay Thai",
+      "federacion_internacional": "World Muaythai Federation / IFMA",
+      "acronimo_fi": "WMF/IFMA",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "categorias_peso_masculino": [
+          "-51kg",
+          "-54kg",
+          "-57kg",
+          "-60kg",
+          "-63.5kg",
+          "-67kg",
+          "-71kg",
+          "-75kg",
+          "-81kg",
+          "-86kg",
+          "-91kg",
+          "+91kg"
+        ],
+        "categorias_peso_femenino": [
+          "-48kg",
+          "-51kg",
+          "-54kg",
+          "-57kg",
+          "-60kg",
+          "-63.5kg",
+          "-67kg",
+          "-71kg",
+          "-75kg",
+          "+75kg"
+        ],
+        "modalidades": [
+          "Amateur (A-Class)",
+          "Semiprofesional",
+          "Profesional"
+        ],
+        "categorias_edad": [
+          "Micro (Sub-8)",
+          "Sub-10",
+          "Sub-12",
+          "Sub-14 (Cadet)",
+          "Sub-18 (Youth)",
+          "Sub-21 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 77,
+      "nombre": "Kickboxing",
+      "nombre_ingles": "Kickboxing",
+      "federacion_internacional": "World Association of Kickboxing Organizations",
+      "acronimo_fi": "WAKO",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Full Contact",
+          "Low Kick",
+          "K1 Rules",
+          "Light Contact",
+          "Semi Contact",
+          "Musical Forms",
+          "Kick Light",
+          "Pointfighting"
+        ],
+        "categorias_peso": [
+          "-52kg",
+          "-56kg",
+          "-60kg",
+          "-65kg",
+          "-70kg",
+          "-74kg",
+          "-79kg",
+          "-84kg",
+          "-89kg",
+          "+89kg (varía por modalidad)"
+        ],
+        "categorias_edad": [
+          "Sub-14 (Cadet)",
+          "Sub-18 (Junior)",
+          "Sub-21 (U21)",
+          "Senior",
+          "Veterans"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 78,
+      "nombre": "Sambo",
+      "nombre_ingles": "Sambo",
+      "federacion_internacional": "International Sambo Federation",
+      "acronimo_fi": "FIAS",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Sport Sambo",
+          "Combat Sambo",
+          "Freestyle Sambo"
+        ],
+        "categorias_peso_masculino": [
+          "-52kg",
+          "-57kg",
+          "-62kg",
+          "-68kg",
+          "-74kg",
+          "-82kg",
+          "-90kg",
+          "-100kg",
+          "+100kg"
+        ],
+        "categorias_peso_femenino": [
+          "-50kg",
+          "-54kg",
+          "-59kg",
+          "-64kg",
+          "-70kg",
+          "-75kg",
+          "-80kg",
+          "+80kg"
+        ],
+        "categorias_edad": [
+          "Cadet (Sub-18)",
+          "Junior (Sub-21)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 79,
+      "nombre": "Wushu / Kung Fu",
+      "nombre_ingles": "Wushu",
+      "federacion_internacional": "International Wushu Federation",
+      "acronimo_fi": "IWUF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Taolu (formas/katas): Changquan, Nanquan, Taijiquan, Jianshu, Daoshu, Gunshu, Qiangshu, Nandao, Nangun",
+          "Sanda/Sanshou (combate)"
+        ],
+        "categorias_peso_sanda_masculino": [
+          "-48kg",
+          "-52kg",
+          "-56kg",
+          "-60kg",
+          "-65kg",
+          "-70kg",
+          "-75kg",
+          "-80kg",
+          "-85kg",
+          "+85kg"
+        ],
+        "categorias_peso_sanda_femenino": [
+          "-48kg",
+          "-52kg",
+          "-56kg",
+          "-60kg",
+          "-65kg",
+          "+65kg"
+        ],
+        "categorias_edad": [
+          "Sub-14 (Juvenil)",
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 80,
+      "nombre": "Ju-Jitsu",
+      "nombre_ingles": "Ju-Jitsu",
+      "federacion_internacional": "Ju-Jitsu International Federation",
+      "acronimo_fi": "JJIF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Ne-waza (grappling)",
+          "Fighting system (combate)",
+          "Duo system (kata en pareja)"
+        ],
+        "categorias_peso": [
+          "-55kg",
+          "-62kg",
+          "-69kg",
+          "-77kg",
+          "-85kg",
+          "-94kg",
+          "+94kg (varía por modalidad)"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Youth)",
+          "Sub-18 (Cadet)",
+          "Sub-21 (Junior)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (duo)"
+        ]
+      }
+    },
+    {
+      "id": 81,
+      "nombre": "Sumo",
+      "nombre_ingles": "Sumo",
+      "federacion_internacional": "International Sumo Federation",
+      "acronimo_fi": "IFS",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "categorias_peso": [
+          "-85kg (ligero)",
+          "-115kg (medio)",
+          "+115kg (pesado)",
+          "Sin límite (absoluto)"
+        ],
+        "categorias_edad": [
+          "Sub-20 (Junior)",
+          "Sub-25 (U25)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 82,
+      "nombre": "Lucha Olímpica (Grappling)",
+      "nombre_ingles": "Grappling",
+      "federacion_internacional": "United World Wrestling",
+      "acronimo_fi": "UWW",
+      "estado_olimpico": "No Olímpico - Federado",
+      "categorias_competencia": {
+        "modalidades": [
+          "Grappling sin kimono (nogi)",
+          "Grappling con kimono"
+        ],
+        "categorias_peso": [
+          "-57kg",
+          "-65kg",
+          "-74kg",
+          "-86kg",
+          "-97kg",
+          "-125kg (varía por organización)"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-20)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 83,
+      "nombre": "MMA (Artes Marciales Mixtas)",
+      "nombre_ingles": "Mixed Martial Arts",
+      "federacion_internacional": "International Mixed Martial Arts Federation",
+      "acronimo_fi": "IMMAF",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "categorias_peso_masculino": [
+          "Fresa (-52.2kg)",
+          "Mosca (-56.7kg)",
+          "Gallo (-61.2kg)",
+          "Pluma (-65.8kg)",
+          "Ligero (-70.3kg)",
+          "Superligero (-77.1kg)",
+          "Welter (-83.9kg)",
+          "Superwelter (-83.9kg)",
+          "Medio (-83.9kg)",
+          "Semipesado (-93kg)",
+          "Pesado (-120.2kg)",
+          "Superpesado (+120.2kg)"
+        ],
+        "categorias_peso_femenino": [
+          "Átomo (-47.6kg)",
+          "Fresa (-52.2kg)",
+          "Mosca (-56.7kg)",
+          "Gallo (-61.2kg)",
+          "Pluma (-65.8kg)",
+          "Ligero (-70.3kg)",
+          "Paja (-52.2kg)"
+        ],
+        "categorias_edad": [
+          "Amateur (Sub-18, Sub-21)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 84,
+      "nombre": "Polo Acuático de Playa",
+      "nombre_ingles": "Beach Water Polo",
+      "federacion_internacional": "World Aquatics",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "No Olímpico - Federado",
+      "categorias_competencia": {
+        "modalidades": [
+          "4v4"
+        ],
+        "categorias_edad": [
+          "Sub-15",
+          "Sub-18",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 85,
+      "nombre": "Piragüismo Maratón",
+      "nombre_ingles": "Canoe Marathon",
+      "federacion_internacional": "International Canoe Federation",
+      "acronimo_fi": "ICF",
+      "estado_olimpico": "No Olímpico - Federado",
+      "categorias_competencia": {
+        "distancias": [
+          "K1 (15-35km)",
+          "K2",
+          "C1",
+          "C2",
+          "Kayak Ocean Racing"
+        ],
+        "categorias_edad": [
+          "Sub-23 (Junior)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 86,
+      "nombre": "Dragon Boat (Bote Dragón)",
+      "nombre_ingles": "Dragon Boat",
+      "federacion_internacional": "International Dragon Boat Federation",
+      "acronimo_fi": "IDBF",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "distancias": [
+          "200m",
+          "500m",
+          "1000m",
+          "2000m"
+        ],
+        "tamaños_bote": [
+          "Standard (20 remadores)",
+          "Small (10 remadores)",
+          "Premier"
+        ],
+        "categorias_edad": [
+          "Sub-24 (Junior)",
+          "Senior",
+          "Masters (40+, 50+, 60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 87,
+      "nombre": "Pádel",
+      "nombre_ingles": "Padel",
+      "federacion_internacional": "International Padel Federation",
+      "acronimo_fi": "FIP",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Dobles (estándar)",
+          "Singles (menos común)"
+        ],
+        "categorias_edad": [
+          "Sub-12 (Benjamín)",
+          "Sub-14 (Alevín)",
+          "Sub-16 (Infantil)",
+          "Sub-18 (Cadete)",
+          "Sub-23 (Junior)",
+          "Senior",
+          "Veteranos (35+, 45+, 55+, 65+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 88,
+      "nombre": "Ráquetbol",
+      "nombre_ingles": "Racquetball",
+      "federacion_internacional": "International Racquetball Federation",
+      "acronimo_fi": "IRF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Singles",
+          "Dobles",
+          "Dobles mixto"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Sub-22 (College)",
+          "Senior",
+          "Senior (40+, 50+, 55+, 60+, 65+, 70+, 75+, 80+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 89,
+      "nombre": "Frontón (Handball Mural)",
+      "nombre_ingles": "Handball (Wall)",
+      "federacion_internacional": "International Handball Federation (WH)",
+      "acronimo_fi": "IHF/WH",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "1v1 (Singles)",
+          "2v2 (Dobles)",
+          "4-Wall",
+          "1-Wall",
+          "3-Wall"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Senior",
+          "Masters (40+, 50+, 60+, 70+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 90,
+      "nombre": "Deportes Aéreos",
+      "nombre_ingles": "Air Sports",
+      "federacion_internacional": "Fédération Aéronautique Internationale",
+      "acronimo_fi": "FAI",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Paracaidismo (formación relativa, estilo libre, canopy piloting, wingsuit)",
+          "Ala delta",
+          "Parapente",
+          "Globo aerostático",
+          "Planeadores/Aeromodelismo",
+          "Acrobacia aérea",
+          "Carreras de aviones (Red Bull Air Race)",
+          "Vuelo en base (BASE jumping)"
+        ],
+        "categorias_edad": [
+          "Junior",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 91,
+      "nombre": "Tiro con Arco (Compound / Field / 3D)",
+      "nombre_ingles": "Field Archery / 3D Archery",
+      "federacion_internacional": "World Archery Federation",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "No Olímpico (estas modalidades específicas)",
+      "categorias_competencia": {
+        "modalidades": [
+          "Field (campo)",
+          "3D (tiro a figuras animales 3D)",
+          "Clout (larga distancia)"
+        ],
+        "arcos": [
+          "Recurvo",
+          "Compuesto",
+          "Longbow",
+          "Barebow"
+        ],
+        "categorias_edad": [
+          "Cub (Sub-12)",
+          "Cadet (Sub-18)",
+          "Junior (Sub-21)",
+          "Senior",
+          "Masters (50+, 60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 92,
+      "nombre": "Petanca / Bocce / Pétanque",
+      "nombre_ingles": "Bocce / Pétanque",
+      "federacion_internacional": "Confédération Mondiale Sports Boules",
+      "acronimo_fi": "CMSB",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Pétanque (dobles, tríos, mano a mano)",
+          "Bocce (precision, volo, raffa)",
+          "Boules Lyonnaises",
+          "Bocce Ball"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Juvenil)",
+          "Sub-23 (Junior)",
+          "Senior",
+          "Veterans (60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 93,
+      "nombre": "Esquí de Montaña (Ski Alpinism)",
+      "nombre_ingles": "Ski Mountaineering",
+      "federacion_internacional": "International Ski and Snowboard Federation",
+      "acronimo_fi": "FIS",
+      "estado_olimpico": "Olímpico de Invierno 2026 (primera vez)",
+      "categorias_competencia": {
+        "modalidades": [
+          "Individual",
+          "Sprint",
+          "Relevos (mixto)",
+          "Vertical"
+        ],
+        "categorias_edad": [
+          "Sub-23 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevo)"
+        ]
+      }
+    },
+    {
+      "id": 94,
+      "nombre": "Patinaje de Velocidad en Línea",
+      "nombre_ingles": "Inline Speed Skating",
+      "federacion_internacional": "World Skate",
+      "acronimo_fi": "WS",
+      "estado_olimpico": "No Olímpico - Federado",
+      "categorias_competencia": {
+        "distancias": [
+          "100m",
+          "200m",
+          "300m (TT)",
+          "500m",
+          "1000m",
+          "1500m",
+          "3000m eliminación",
+          "5000m",
+          "10000m",
+          "15000m",
+          "20000m",
+          "Maratón (42km)",
+          "Relevos"
+        ],
+        "superficies": [
+          "Pista (500m)",
+          "Carretera",
+          "Maratón"
+        ],
+        "categorias_edad": [
+          "Sub-13",
+          "Sub-16 (Juvenil)",
+          "Sub-18 (Junior)",
+          "Sub-23 (Promesas)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 95,
+      "nombre": "Remo Costero / Surf Ski",
+      "nombre_ingles": "Coastal Rowing / Surf Ski",
+      "federacion_internacional": "World Rowing / ICF",
+      "acronimo_fi": "WRF/ICF",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Single (1x)",
+          "Dobles (2x)",
+          "Mixed Double (2x mixto)",
+          "Beach Sprint"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-19)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 96,
+      "nombre": "Alpinismo / Escalada de Alta Montaña",
+      "nombre_ingles": "Alpinism",
+      "federacion_internacional": "Union Internationale des Associations d'Alpinisme",
+      "acronimo_fi": "UIAA",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Ice climbing",
+          "Escalada mixta",
+          "Speed ice climbing",
+          "Dificultad en hielo"
+        ],
+        "categorias_edad": [
+          "Youth (Sub-16)",
+          "Junior (Sub-19)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 97,
+      "nombre": "Fútbol Americano",
+      "nombre_ingles": "American Football",
+      "federacion_internacional": "International Federation of American Football",
+      "acronimo_fi": "IFAF",
+      "estado_olimpico": "No Olímpico (flag football sí en LA2028)",
+      "categorias_competencia": {
+        "modalidades": [
+          "11v11 (estándar)",
+          "9v9",
+          "8v8",
+          "7v7",
+          "Flag Football"
+        ],
+        "categorias_edad": [
+          "Sub-12",
+          "Sub-14",
+          "Sub-17 (Junior)",
+          "Sub-19 (College/University)",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 98,
+      "nombre": "Fútbol Australiano",
+      "nombre_ingles": "Australian Rules Football",
+      "federacion_internacional": "AFL International",
+      "acronimo_fi": "AFLINT",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "18v18 (estándar)",
+          "9v9 (modified)",
+          "5v5 (NAB League)"
+        ],
+        "categorias_edad": [
+          "Sub-12 (Auskick)",
+          "Sub-16",
+          "Sub-18",
+          "Sub-23",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 99,
+      "nombre": "Netball",
+      "nombre_ingles": "Netball",
+      "federacion_internacional": "International Netball Federation",
+      "acronimo_fi": "INF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "7v7 (estándar)",
+          "5-a-side (Fast5)",
+          "Mixed netball"
+        ],
+        "categorias_edad": [
+          "Sub-17 (Junior)",
+          "Sub-21 (U21)",
+          "Senior"
+        ],
+        "genero": [
+          "Femenino (principal)",
+          "Masculino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 100,
+      "nombre": "Korfbal",
+      "nombre_ingles": "Korfball",
+      "federacion_internacional": "International Korfball Federation",
+      "acronimo_fi": "IKF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Indoor (6v6 indoor)",
+          "Outdoor (8v8 grass)",
+          "Beach Korfball"
+        ],
+        "categorias_edad": [
+          "Sub-15 (Youth)",
+          "Sub-19 (U19)",
+          "Senior"
+        ],
+        "genero": [
+          "Mixto (siempre 4H+4M o 3H+3M)"
+        ]
+      }
+    },
+    {
+      "id": 101,
+      "nombre": "Ultimate Frisbee",
+      "nombre_ingles": "Ultimate Frisbee",
+      "federacion_internacional": "World Flying Disc Federation",
+      "acronimo_fi": "WFDF",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Open (7v7)",
+          "Women (7v7)",
+          "Mixed (7v7 mixto)",
+          "Beach Ultimate (5v5)",
+          "Indoor Ultimate",
+          "Goaltimate"
+        ],
+        "categorias_edad": [
+          "Sub-17 (Youth)",
+          "Sub-20 (U20)",
+          "Sub-24 (U24)",
+          "Senior",
+          "Masters (30+, 40+)"
+        ],
+        "genero": [
+          "Masculino (Open)",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 102,
+      "nombre": "Rodeo / Vaquejada",
+      "nombre_ingles": "Rodeo",
+      "federacion_internacional": "Professional Rodeo Cowboys Association / International Professional Rodeo Association",
+      "acronimo_fi": "PRCA/IPRA",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Bull riding (monta de toros)",
+          "Bareback riding (monta sin montura)",
+          "Saddle bronc riding",
+          "Steer wrestling (derribo de toro)",
+          "Team roping",
+          "Tie-down roping",
+          "Barrel racing",
+          "Breakaway roping"
+        ],
+        "categorias_edad": [
+          "Youth",
+          "Junior",
+          "Senior",
+          "Pro"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 103,
+      "nombre": "Polo",
+      "nombre_ingles": "Polo",
+      "federacion_internacional": "Federation of International Polo",
+      "acronimo_fi": "FIP",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Grass polo (4v4)",
+          "Arena polo (3v3)",
+          "Snow polo",
+          "Elephant polo (no oficial)"
+        ],
+        "handicap": [
+          "-2 a +10 goles (sistema de hándicap)"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-18)",
+          "Sub-25 (U25)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 104,
+      "nombre": "Go (Juego de Mesa)",
+      "nombre_ingles": "Go / Baduk / Weiqi",
+      "federacion_internacional": "International Go Federation",
+      "acronimo_fi": "IGF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "formatos": [
+          "Tablero 19x19 (estándar)",
+          "9x9 (principiantes)",
+          "13x13 (intermedio)"
+        ],
+        "sistema_rangos": [
+          "30 Kyu (principiante) hasta 9 Dan (profesional)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Por equipos (naciones)"
+        ],
+        "categorias_edad": [
+          "Sub-12 (Youth)",
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Abierto/Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 105,
+      "nombre": "Bridge",
+      "nombre_ingles": "Bridge",
+      "federacion_internacional": "World Bridge Federation",
+      "acronimo_fi": "WBF",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Teams (equipos)",
+          "Pairs (parejas)",
+          "Individual"
+        ],
+        "formatos": [
+          "Swiss Teams",
+          "Knockout Teams",
+          "Round Robin",
+          "Board-a-match"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth)",
+          "Sub-20 (Junior)",
+          "Sub-25 (U25)",
+          "Senior",
+          "Senior (55+)"
+        ],
+        "genero": [
+          "Abierto",
+          "Femenino",
+          "Mixto (parejas mixtas)"
+        ]
+      }
+    },
+    {
+      "id": 106,
+      "nombre": "Deportes Electrónicos (Esports)",
+      "nombre_ingles": "Esports",
+      "federacion_internacional": "Global Esports Federation",
+      "acronimo_fi": "GEF",
+      "estado_olimpico": "Olímpicos Esports 2025 (primera edición autónoma)",
+      "categorias_competencia": {
+        "juegos_olimpicos_esports_2025": [
+          "Archery (tiro con arco simulado)",
+          "Baseball (béisbol simulado)",
+          "Chess (ajedrez online)",
+          "Cycling (ciclismo simulado)",
+          "Dance (dance game)",
+          "Formula E Racing (automovilismo simulado)",
+          "Mobile Legends: Bang Bang (MOBA)",
+          "Sailing (vela simulada)",
+          "Street Fighter 6 (juego de lucha)",
+          "Tennis (tenis simulado)"
+        ],
+        "generos_esports": [
+          "Battle Royale",
+          "MOBA",
+          "FPS",
+          "RTS",
+          "Sports simulation",
+          "Fighting games",
+          "Racing"
+        ],
+        "categorias_edad": [
+          "Sub-18",
+          "Open/Senior"
+        ],
+        "genero": [
+          "Mixto (en su mayoría)"
+        ]
+      }
+    },
+    {
+      "id": 107,
+      "nombre": "Atletismo Paralímpico",
+      "nombre_ingles": "Para Athletics",
+      "federacion_internacional": "World Para Athletics",
+      "acronimo_fi": "WPA",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "clases_funcionamiento": [
+          "T11-T13 (visual)",
+          "T20 (intelectual)",
+          "T31-T38 (cerebral)",
+          "T40-T41 (estatura baja)",
+          "T42-T47 (amputados/miembros)",
+          "T51-T54 (silla de ruedas)",
+          "T61-T64 (prótesis)"
+        ],
+        "pruebas": [
+          "100m-1500m pista",
+          "5000m-10000m (clases en silla)",
+          "Maratón",
+          "Salto de longitud",
+          "Lanzamientos"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 108,
+      "nombre": "Natación Paralímpica",
+      "nombre_ingles": "Para Swimming",
+      "federacion_internacional": "World Para Swimming (World Aquatics)",
+      "acronimo_fi": "WPS",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "clases": [
+          "S1-S14 (estilo libre/espalda/mariposa)",
+          "SB1-SB14 (pecho)",
+          "SM1-SM14 (combinado)"
+        ],
+        "clasificacion": [
+          "S1-S10: discapacidades físicas",
+          "S11-S13: discapacidades visuales",
+          "S14: discapacidades intelectuales"
+        ],
+        "distancias": [
+          "50m",
+          "100m",
+          "200m",
+          "400m",
+          "800m",
+          "1500m",
+          "Relevos"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 109,
+      "nombre": "Boccia",
+      "nombre_ingles": "Boccia",
+      "federacion_internacional": "Boccia International Sports Federation",
+      "acronimo_fi": "BISFed",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "clases": [
+          "BC1 (parálisis cerebral/uso brazo asistido)",
+          "BC2 (parálisis cerebral leve)",
+          "BC3 (severa discapacidad - usa rampa)",
+          "BC4 (otras discapacidades no cerebrales)"
+        ],
+        "modalidades": [
+          "Individual",
+          "Parejas (BC3)",
+          "Equipos (BC1/BC2)"
+        ],
+        "genero": [
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 110,
+      "nombre": "Goalball",
+      "nombre_ingles": "Goalball",
+      "federacion_internacional": "International Blind Sports Federation",
+      "acronimo_fi": "IBSA",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "3v3 (estándar)"
+        ],
+        "clasificacion": [
+          "B1-B3 (todos los atletas llevan antifaz)"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth)",
+          "Sub-20 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 111,
+      "nombre": "Tenis en Silla de Ruedas",
+      "nombre_ingles": "Wheelchair Tennis",
+      "federacion_internacional": "International Tennis Federation (WTF)",
+      "acronimo_fi": "ITF",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "clases": [
+          "Open (discapacidad en piernas)",
+          "Quad (discapacidad en brazos y piernas)"
+        ],
+        "modalidades": [
+          "Singles",
+          "Dobles"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-18)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (dobles)"
+        ]
+      }
+    },
+    {
+      "id": 112,
+      "nombre": "Baloncesto en Silla de Ruedas",
+      "nombre_ingles": "Wheelchair Basketball",
+      "federacion_internacional": "International Wheelchair Basketball Federation",
+      "acronimo_fi": "IWBF",
+      "estado_olimpico": "Paralímpico",
+      "categorias_competencia": {
+        "sistema_puntos": [
+          "Clasificación funcional 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5 (máx 14 pts por 5 jugadores en cancha)"
+        ],
+        "modalidades": [
+          "5v5"
+        ],
+        "categorias_edad": [
+          "Sub-23 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 113,
+      "nombre": "Breakdance (Breaking)",
+      "nombre_ingles": "Breaking / B-boying",
+      "federacion_internacional": "World DanceSport Federation",
+      "acronimo_fi": "WDSF",
+      "estado_olimpico": "Olímpico en Paris 2024 - No en LA2028",
+      "categorias_competencia": {
+        "modalidades": [
+          "1v1 Battle",
+          "Crew Battle (equipos)",
+          "Cypher (eliminatorias)"
+        ],
+        "categorias_edad": [
+          "Youth (Sub-18)",
+          "Senior"
+        ],
+        "genero": [
+          "B-boys (masculino)",
+          "B-girls (femenino)"
+        ]
+      }
+    },
+    {
+      "id": 114,
+      "nombre": "Parkour / Freerunning",
+      "nombre_ingles": "Parkour",
+      "federacion_internacional": "International Gymnastics Federation (FIG)",
+      "acronimo_fi": "FIG",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Speed run (velocidad)",
+          "Freestyle/Freerunning (creatividad)",
+          "Street",
+          "Competition parcours"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Youth)",
+          "Sub-18 (Junior)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 115,
+      "nombre": "Acrobacias / Cheerleading / Tumbling",
+      "nombre_ingles": "Acrobatic Sports",
+      "federacion_internacional": "Fédération Internationale de Gymnastique",
+      "acronimo_fi": "FIG",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Acrobática gimnasia (parejas M, parejas F, parejas mixtas, tríos F, cuartetos M)",
+          "Cheerleading (Stunt, Pyramid)",
+          "Acrobacias en telas aéreas",
+          "Cyr wheel (rueda)"
+        ],
+        "categorias_edad": [
+          "Age Groups (Sub-16, Sub-19)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      },
+      "nota_cheerleading": "Las categorías específicas de Cheerleading All Stars Colombia 2026 están en el deporte id 121"
+    },
+    {
+      "id": 116,
+      "nombre": "Lucha Tradicional",
+      "nombre_ingles": "Traditional Wrestling",
+      "federacion_internacional": "United World Wrestling",
+      "acronimo_fi": "UWW",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "estilos": [
+          "Lucha canaria",
+          "Schwingen (suiza)",
+          "Glima (nórdica)",
+          "Yagli güreş (turca - aceite)",
+          "Mongolian wrestling (Bökh)",
+          "Ssireum (coreana)",
+          "Shuai jiao (china)",
+          "Kushti (iraní)",
+          "Laamb (senegalesa)"
+        ],
+        "categorias_edad": [
+          "Juvenil",
+          "Junior",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 117,
+      "nombre": "Tiro con Arco Tradicional",
+      "nombre_ingles": "Traditional Archery",
+      "federacion_internacional": "World Archery Federation / Traditional Archery",
+      "acronimo_fi": "WA",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "arcos": [
+          "Longbow",
+          "Horse bow (arco a caballo)",
+          "Yumi (arco japonés)",
+          "Turkish bow",
+          "Instintivo"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-18)",
+          "Senior",
+          "Masters (50+, 60+)"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 118,
+      "nombre": "Piragüismo Polo Acuático",
+      "nombre_ingles": "Canoe Polo",
+      "federacion_internacional": "International Canoe Federation",
+      "acronimo_fi": "ICF",
+      "estado_olimpico": "No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "5v5 (estándar)"
+        ],
+        "categorias_edad": [
+          "Sub-18 (Junior)",
+          "Sub-21 (U21)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto"
+        ]
+      }
+    },
+    {
+      "id": 119,
+      "nombre": "Motonáutica",
+      "nombre_ingles": "Powerboat Racing",
+      "federacion_internacional": "Union Internationale Motonautique",
+      "acronimo_fi": "UIM",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Offshore Racing",
+          "Inshore Racing",
+          "Drag Boat Racing",
+          "Jet Ski / Moto acuática (Aquabike)",
+          "Formula 1 H2O (F1 powerboat)"
+        ],
+        "clases_barcos": [
+          "F1",
+          "F2",
+          "F4",
+          "GT30",
+          "Offshore Class"
+        ],
+        "categorias_edad": [
+          "Junior (Sub-18)",
+          "Senior"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino"
+        ]
+      }
+    },
+    {
+      "id": 120,
+      "nombre": "Natación con Aletas",
+      "nombre_ingles": "Finswimming",
+      "federacion_internacional": "CMAS - Confédération Mondiale des Activités Subaquatiques",
+      "acronimo_fi": "CMAS",
+      "estado_olimpico": "Reconocido COI - No Olímpico",
+      "categorias_competencia": {
+        "modalidades": [
+          "Surface (monofin)",
+          "Bifin",
+          "Apnea (piscina)",
+          "Orientación subacuática"
+        ],
+        "distancias_piscina": [
+          "50m",
+          "100m",
+          "200m",
+          "400m",
+          "800m",
+          "1500m",
+          "Relevos"
+        ],
+        "categorias_edad": [
+          "Sub-16 (Juvenil)",
+          "Sub-20 (Junior)",
+          "Senior",
+          "Masters"
+        ],
+        "genero": [
+          "Masculino",
+          "Femenino",
+          "Mixto (relevos)"
+        ]
+      }
+    },
+    {
+      "id": 121,
+      "nombre": "Cheerleading All Stars",
+      "nombre_ingles": "All Star Cheerleading",
+      "federacion_internacional": "International Cheer Union / ICU",
+      "acronimo_fi": "ICU",
+      "federacion_colombia": "Capital Cheer Colombia",
+      "estado_olimpico": "No Olímpico - Reconocido COI",
+      "nota": "Las categorías Colombia 2026 se rigen por el reglamento IASF 2025-2028 (actualización julio 16 de 2025) y los sistemas UNITED NOVICE, UNITED PREP, UNITED ELITE e IASF 2025-2026.",
+      "disposiciones_generales": {
+        "ALL_STAR_NOVICE": "Categorías para equipos novatos. Tiempo máximo de rutina: 1:30 minutos. Se califican con el sistema UNITED NOVICE 2025-2026. Tienen restricciones diferentes a nivel 1 tradicional.",
+        "ALL_STAR_PREP": "Categorías para equipos preparatorios. Tiempo máximo de rutina: 2:00 minutos. Se califican con el sistema UNITED PREP 2025-2026.",
+        "ALL_STAR_ELITE": "Categorías para equipos avanzados. Tiempo máximo de rutina: 2:30 minutos. Se califican con el sistema UNITED ELITE 2025-2026.",
+        "ALL_STAR_IASF_WORLDS": "Categorías para equipos que compiten por un BID para IASF WORLDS. Tiempo máximo de rutina: 2:30 minutos. Se califican con sistema IASF 2025-2026.",
+        "ALL_STAR_ADAPTADO": "Habilidades Especiales. Categoría dirigida a equipos que incluyan deportistas en condición de discapacidad. El equipo debe contar con al menos 50% de deportistas diagnosticados con discapacidad intelectual en combinación con otros deportistas. Sigue reglamento ICU 2026 para Special Olympics Unified NOVICE. Pueden presentar habilidades hasta nivel 1.",
+        "REGLA_EDADES": "Se permite participación según el año de nacimiento. Un deportista puede competir en una categoría mientras haya tenido la edad requerida en algún momento del año vigente."
+      },
+      "categorias_competencia": {
+        "CHEER_ALL_STAR_NOVICE": {
+          "descripcion": "Categorías para equipos novatos",
+          "niveles": [
+            {
+              "nivel": 1,
+              "categorias": [
+                {
+                  "categoria": "Tiny",
+                  "rama": "Única",
+                  "edad": "5 a 6 años",
+                  "anio_nacimiento": "2019 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Mini",
+                  "rama": "Única",
+                  "edad": "5 a 8 años",
+                  "anio_nacimiento": "2017 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Youth",
+                  "rama": "Única",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Única",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            }
+          ]
+        },
+        "CHEER_ALL_STAR_PREP": {
+          "descripcion": "Categorías para equipos preparatorios",
+          "niveles": [
+            {
+              "nivel": "1.1",
+              "categorias": [
+                {
+                  "categoria": "Tiny",
+                  "rama": "Única",
+                  "edad": "5 a 6 años",
+                  "anio_nacimiento": "2019 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Mini",
+                  "rama": "Única",
+                  "edad": "5 a 8 años",
+                  "anio_nacimiento": "2017 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Youth",
+                  "rama": "Única",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Única",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Única",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Única",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": "2.1",
+              "categorias": [
+                {
+                  "categoria": "Youth",
+                  "rama": "Única",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Única",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Única",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Única",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": "2.2",
+              "categorias": [
+                {
+                  "categoria": "Junior",
+                  "rama": "Única",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Única",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Única",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            }
+          ]
+        },
+        "CHEER_ALL_STAR_ELITE": {
+          "descripcion": "Categorías para equipos avanzados",
+          "niveles": [
+            {
+              "nivel": 1,
+              "categorias": [
+                {
+                  "categoria": "Tiny",
+                  "rama": "Única",
+                  "edad": "5 a 6 años",
+                  "anio_nacimiento": "2019 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Mini",
+                  "rama": "Única",
+                  "edad": "5 a 8 años",
+                  "anio_nacimiento": "2017 – 2021",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Youth",
+                  "rama": "Femenino/Mixto",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": 2,
+              "categorias": [
+                {
+                  "categoria": "Youth",
+                  "rama": "Única",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Femenino/Mixto",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": 3,
+              "categorias": [
+                {
+                  "categoria": "Youth",
+                  "rama": "Única",
+                  "edad": "8 a 12 años",
+                  "anio_nacimiento": "2013 – 2018",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Junior",
+                  "rama": "Única",
+                  "edad": "12 a 16 años",
+                  "anio_nacimiento": "2009 – 2014",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Senior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Femenino/Mixto",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": "4.2",
+              "categorias": [
+                {
+                  "categoria": "Open",
+                  "rama": "Femenino/Mixto",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                }
+              ]
+            },
+            {
+              "nivel": 4,
+              "categorias": [
+                {
+                  "categoria": "Senior",
+                  "rama": "Única",
+                  "edad": "14 a 18 años",
+                  "anio_nacimiento": "2007 – 2012",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Femenino",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 30"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Mixto Medium (Max 8 hombres)",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 24"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Mixto Large (Min 9 hombres)",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "12 a 30"
+                }
+              ]
+            }
+          ]
+        },
+        "CHEER_ALL_STAR_IASF_WORLDS": {
+          "descripcion": "Categorías para equipos que compiten por BID para IASF WORLDS",
+          "niveles": [
+            {
+              "nivel": 5,
+              "categorias": [
+                {
+                  "categoria": "Senior",
+                  "rama": "Femenino/Mixto",
+                  "edad": "13 a 17 años",
+                  "anio_nacimiento": "2008 – 2013",
+                  "integrantes": "10 a 24"
+                },
+                {
+                  "categoria": "Open",
+                  "rama": "Femenino/Mixto",
+                  "edad": "15 años +",
+                  "anio_nacimiento": "Hasta 2011",
+                  "integrantes": "10 a 24"
+                }
+              ]
+            },
+            {
+              "nivel": 6,
+              "categorias": [
+                {
+                  "categoria": "Open",
+                  "rama": "Mixto",
+                  "edad": "15 años +",
+                  "anio_nacimiento": "Hasta 2011",
+                  "integrantes": "10 a 24"
+                }
+              ]
+            },
+            {
+              "nivel": 7,
+              "categorias": [
+                {
+                  "categoria": "Open",
+                  "rama": "Mixto",
+                  "edad": "16 años +",
+                  "anio_nacimiento": "Hasta 2010",
+                  "integrantes": "10 a 24"
+                }
+              ]
+            }
+          ]
+        },
+        "CHEER_ALL_STAR_ADAPTADO": {
+          "descripcion": "Habilidades Especiales - Categoría para deportistas en condición de discapacidad",
+          "requisito": "El equipo debe contar con al menos 50% de deportistas con discapacidad intelectual en combinación con otros deportistas diagnosticados con otras condiciones.",
+          "condiciones_diagnosticadas": [
+            "Potencia muscular deteriorada",
+            "Rango de movimiento deteriorado",
+            "Ausencia de extremidades",
+            "Diferencia en longitud de las piernas",
+            "Baja estatura",
+            "Hipertonía",
+            "Atetosis",
+            "Impedimento Visual",
+            "Impedimento Intelectual",
+            "Impedimento Auditivo"
+          ],
+          "reglamento": "ICU 2026 para Special Olympics Unified NOVICE",
+          "niveles": [
+            {
+              "nivel": 1,
+              "categorias": [
+                {
+                  "categoria": "Habs. Especiales",
+                  "rama": "Única",
+                  "edad": "8 años +",
+                  "anio_nacimiento": "Hasta 2018",
+                  "integrantes": "10 a 24"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

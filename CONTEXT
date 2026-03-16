@@ -1,0 +1,1677 @@
+
+
+import { useState } from 'react'; import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'; import { Button } from '@/components/ui/button'; import { Badge } from '@/components/ui/badge'; import { CreditCard, Building2, Smartphone, Loader2, Che
+
+pasted
+
+[
+  {
+    "policyname": "Parents can view their children enrollments",
+    "cmd": "SELECT",
+    "qual": "(child_id IN ( SELECT children.id\n   FROM children\n  WHERE (children.parent_id = auth.uid())))"
+  },
+  {
+    "policyname": "Staff can manage enrollments",
+    "cmd": "ALL",
+    "qual": "(is_school_admin(school_id) OR is_school_coach(school_id))"
+  },
+  {
+    "policyname": "Coaches can view enrollments of their teams",
+    "cmd": "SELECT",
+    "qual": "(team_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  }
+]
+
+[
+  {
+    "policyname": "Coaches can view children in their teams",
+    "cmd": "SELECT",
+    "qual": "(team_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  },
+  {
+    "policyname": "Children: select staff",
+    "cmd": "SELECT",
+    "qual": "(school_id = ANY (user_school_ids()))"
+  },
+  {
+    "policyname": "Children: select parent",
+    "cmd": "SELECT",
+    "qual": "(auth.uid() = parent_id)"
+  },
+  {
+    "policyname": "Children: manage staff",
+    "cmd": "ALL",
+    "qual": "is_school_admin(school_id)"
+  },
+  {
+    "policyname": "Children: update parent",
+    "cmd": "UPDATE",
+    "qual": "(auth.uid() = parent_id)"
+  },
+  {
+    "policyname": "Children: insert parent",
+    "cmd": "INSERT",
+    "qual": null
+  }
+]
+
+Ya habia creado las policitas que me dijiste, pero al guardar me informa lo siguiente: 
+
+@supabase_supabase-js.js?v=b51606fe:11298  POST https://luebjarufsiadojhvxgi.supabase.co/rest/v1/attendance_records?on_conflict=child_id%2Cprogram_id%2Cattendance_date&columns=%22school_id%22%2C%22program_id%22%2C%22child_id%22%2C%22attendance_date%22%2C%22status%22%2C%22marked_by%22 400 (Bad Request)
+(anonymous) @ @supabase_supabase-js.js?v=b51606fe:11298
+(anonymous) @ @supabase_supabase-js.js?v=b51606fe:11312
+await in (anonymous)
+then @ @supabase_supabase-js.js?v=b51606fe:274
+CoachAttendancePage.tsx:153 [CoachAttendance] Error guardando: {code: '42P10', details: null, hint: null, message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification'}
+onError @ CoachAttendancePage.tsx:153
+execute @ @tanstack_react-query.js?v=b51606fe:2117
+await in execute
+mutate @ @tanstack_react-query.js?v=b51606fe:2420
+(anonymous) @ @tanstack_react-query.js?v=b51606fe:3646
+handleSave @ CoachAttendancePage.tsx:164
+callCallback2 @ chunk-XQLYTHWV.js?v=b51606fe:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=b51606fe:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=b51606fe:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=b51606fe:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=b51606fe:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=b51606fe:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=b51606fe:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=b51606fe:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=b51606fe:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=b51606fe:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=b51606fe:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=b51606fe:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=b51606fe:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=b51606fe:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=b51606fe:5449
+
+Mostrar más
+15:55
+El error 42P10 significa que la tabla attendance_records no tiene un constraint UNIQUE sobre (child_id, program_id, attendance_date). El onConflict del upsert requiere que ese constraint exista en la BD.
+
+Corre esto en el SQL Editor de Supabase:
+
+sql
+ALTER TABLE attendance_records
+ADD CONSTRAINT attendance_records_child_program_date_unique
+UNIQUE (child_id, program_id, attendance_date);
+Si ya existe un índice único con otro nombre o quieres verificar primero:
+
+sql
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'attendance_records';
+Comparte el resultado si el ALTER falla y vemos si hay un constraint existente con diferente nombre o columnas.
+
+Hice el alter y cuando fui a guardar, ahora muestra esto:
+
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'attendance_records';
+
+15:56
+Parece que pegaste el SELECT en lugar del resultado. ¿Puedes compartir el output de esa query? Se vería algo así:
+
+indexname                                      | indexdef
+-----------------------------------------------|--------------------------------------------------
+attendance_records_pkey                        | CREATE UNIQUE INDEX ... ON attendance_records(id)
+attendance_records_child_program_date_unique   | CREATE UNIQUE INDEX ...
+También comparte el nuevo error que apareció al guardar (el mensaje del console después de hacer el ALTER), para atacar ambos a la vez.
+
+@supabase_supabase-js.js?v=b51606fe:11298  POST https://luebjarufsiadojhvxgi.supabase.co/rest/v1/attendance_records?on_conflict=child_id%2Cprogram_id%2Cattendance_date&columns=%22school_id%22%2C%22program_id%22%2C%22child_id%22%2C%22attendance_date%22%2C%22status%22%2C%22marked_by%22 403 (Forbidden)
+(anonymous) @ @supabase_supabase-js.js?v=b51606fe:11298
+(anonymous) @ @supabase_supabase-js.js?v=b51606fe:11312
+await in (anonymous)
+then @ @supabase_supabase-js.js?v=b51606fe:274
+CoachAttendancePage.tsx:153 [CoachAttendance] Error guardando: {code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "attendance_records"'}
+onError @ CoachAttendancePage.tsx:153
+execute @ @tanstack_react-query.js?v=b51606fe:2117
+await in execute
+mutate @ @tanstack_react-query.js?v=b51606fe:2420
+(anonymous) @ @tanstack_react-query.js?v=b51606fe:3646
+handleSave @ CoachAttendancePage.tsx:164
+callCallback2 @ chunk-XQLYTHWV.js?v=b51606fe:3674
+invokeGuardedCallbackDev @ chunk-XQLYTHWV.js?v=b51606fe:3699
+invokeGuardedCallback @ chunk-XQLYTHWV.js?v=b51606fe:3733
+invokeGuardedCallbackAndCatchFirstError @ chunk-XQLYTHWV.js?v=b51606fe:3736
+executeDispatch @ chunk-XQLYTHWV.js?v=b51606fe:7014
+processDispatchQueueItemsInOrder @ chunk-XQLYTHWV.js?v=b51606fe:7034
+processDispatchQueue @ chunk-XQLYTHWV.js?v=b51606fe:7043
+dispatchEventsForPlugins @ chunk-XQLYTHWV.js?v=b51606fe:7051
+(anonymous) @ chunk-XQLYTHWV.js?v=b51606fe:7174
+batchedUpdates$1 @ chunk-XQLYTHWV.js?v=b51606fe:18913
+batchedUpdates @ chunk-XQLYTHWV.js?v=b51606fe:3579
+dispatchEventForPluginEventSystem @ chunk-XQLYTHWV.js?v=b51606fe:7173
+dispatchEventWithEnableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay @ chunk-XQLYTHWV.js?v=b51606fe:5478
+dispatchEvent @ chunk-XQLYTHWV.js?v=b51606fe:5472
+dispatchDiscreteEvent @ chunk-XQLYTHWV.js?v=b51606fe:5449
+
+Mostrar más
+15:57
+El constraint ya quedó bien (el 400 desapareció). Ahora el problema es RLS — el entrenador no tiene política de INSERT/UPDATE en attendance_records.
+
+Corre esto en el SQL Editor:
+
+sql
+SELECT policyname, cmd, qual
+FROM pg_policies
+WHERE tablename = 'attendance_records';
+Y comparte el resultado. Mientras tanto, casi seguro falta esta política — puedes agregarla directamente:
+
+sql
+CREATE POLICY "Coaches can manage attendance of their teams"
+ON attendance_records
+FOR ALL
+USING (
+  team_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+)
+WITH CHECK (
+  team_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+);
+Nota importante: el upsert está enviando program_id en lugar de team_id. Si attendance_records tiene columna team_id, también hay que ajustar la mutation en CoachAttendancePage.tsx para incluirla. Comparte el resultado del SELECT de políticas y el schema de attendance_records si el error persiste después de agregar la política.
+
+[
+  {
+    "policyname": "attendance_records_admin_all",
+    "cmd": "ALL",
+    "qual": "is_school_admin(school_id)"
+  }
+]
+
+15:57
+Solo existe la política del admin. Faltan las del coach. Corre esto:
+
+sql
+CREATE POLICY "Coaches can insert attendance for their teams"
+ON attendance_records
+FOR INSERT
+WITH CHECK (
+  program_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+);
+
+CREATE POLICY "Coaches can update attendance for their teams"
+ON attendance_records
+FOR UPDATE
+USING (
+  program_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+)
+WITH CHECK (
+  program_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+);
+
+CREATE POLICY "Coaches can view attendance for their teams"
+ON attendance_records
+FOR SELECT
+USING (
+  program_id IN (
+    SELECT id FROM teams
+    WHERE coach_id = auth.uid()
+  )
+);
+Usé program_id (no team_id) porque el upsert que está enviando el frontend usa ese campo como referencia al equipo. Si después de agregar estas políticas sigue dando 403, corre:
+
+sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'attendance_records';
+Y compartimos el listado para confirmar los nombres exactos de columnas.
+
+Ya me permite guardar, pero quiero que guarde una sola vez, ya que cada vez que quiero, puedo tomar asistencia y guardar, que solo se pueda guardar una vez y si se requiere ajustar para editarla, y otro boton para que tan pronto se necesite, se finalice la sesion y esos son los datos que quedaran guardados para validar en reportes
+
+16:10
+Buena decisión de diseño. Antes de escribir el código necesito ver el estado actual del componente. Comparte el código de CoachAttendancePage.tsx que tienes ahora para no pisar los cambios que ya hiciste.
+
+
+import { useState } from 'react'; import { useQuery, useMutation } from '@tanstack/react-query'; import { supabase } from '@/integrations/supabase/client'; import { useAuth } from '@/contexts/AuthContext'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; import {
+
+pasted
+
+16:10
+Tengo el código completo. La lógica que voy a implementar es:
+
+Al cargar el equipo+fecha → consulta si ya existe asistencia guardada hoy para ese equipo
+Si no existe → modo toma de asistencia normal → botón "Guardar" (solo una vez)
+Si ya existe y no está finalizada → modo edición → botón "Guardar cambios" + botón "Finalizar sesión"
+Si está finalizada → solo lectura, no se puede modificar
+Para esto necesito una columna session_status en attendance_records o una tabla separada de sesiones. Lo más limpio es una tabla attendance_sessions:
+
+sql
+CREATE TABLE attendance_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  school_id UUID REFERENCES schools(id),
+  team_id UUID REFERENCES teams(id),
+  session_date DATE NOT NULL,
+  finalized BOOLEAN DEFAULT FALSE,
+  finalized_at TIMESTAMPTZ,
+  finalized_by UUID REFERENCES profiles(id),
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (team_id, session_date)
+);
+
+-- RLS
+ALTER TABLE attendance_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Coaches can manage their sessions"
+ON attendance_sessions FOR ALL
+USING (
+  team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid())
+)
+WITH CHECK (
+  team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid())
+);
+
+CREATE POLICY "Admins can manage all sessions"
+ON attendance_sessions FOR ALL
+USING (is_school_admin(school_id));
+Corre eso primero y confirma, luego te entrego el componente actualizado.
+
+Y si tengo bff?
+
+16:11
+Si tienes un BFF (Backend for Frontend), la tabla attendance_sessions sigue siendo necesaria en Supabase — el BFF simplemente la consulta y muta a través de sus endpoints en lugar de que el frontend llame a Supabase directamente.
+
+Dos preguntas para darte el código correcto:
+
+P: ¿Cómo está estructurado tu BFF?
+R: API REST separada (Node/Express/etc)
+
+P: ¿Qué prefieres para manejar el estado de la sesión?
+R: Crear tabla attendance_sessions (recomendado)
+
+16:12
+Perfecto. Primero crea la tabla en Supabase:
+
+sql
+CREATE TABLE attendance_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  school_id UUID REFERENCES schools(id),
+  team_id UUID REFERENCES teams(id),
+  session_date DATE NOT NULL,
+  finalized BOOLEAN DEFAULT FALSE,
+  finalized_at TIMESTAMPTZ,
+  finalized_by UUID REFERENCES profiles(id),
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (team_id, session_date)
+);
+
+ALTER TABLE attendance_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Coaches can manage their sessions"
+ON attendance_sessions FOR ALL
+USING (
+  team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid())
+)
+WITH CHECK (
+  team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid())
+);
+
+CREATE POLICY "Admins can manage all sessions"
+ON attendance_sessions FOR ALL
+USING (is_school_admin(school_id));
+Luego necesito saber cómo está organizado tu BFF para darte los endpoints correctos:
+
+¿Tienes ya un archivo de rutas para asistencia (ej. attendance.routes.ts) o lo creo desde cero?
+¿Tu BFF se conecta a Supabase con el service_role key (acceso total sin RLS) o con el JWT del usuario?
+¿Comparte el código del BFF donde hoy se guarda asistencia, si ya existe algún endpoint relacionado?
+Con eso te entrego los endpoints del BFF + el componente frontend actualizado de una vez.
+
+
+import { Router, Response, NextFunction } from 'express'; import { supabase } from '../config/supabase'; import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware'; const router = Router(); // Middleware helper to determine which branch_id to filter by. /
+
+pasted
+
+He identificado que el archivo del backend que maneja la lógica de asistencia (específicamente reportes) es bff/src/routes/reports.ts. El registro directo lo hace el frontend a través del SDK de Supabase. Ahora procederé a validar y sincronizar los cambios realizados.
+
+16:16
+Perfecto, tengo todo el contexto. El plan es:
+
+BFF: 3 endpoints nuevos en una ruta attendance.ts
+
+GET /api/v1/attendance/session/:teamId → consulta si ya hay sesión hoy
+POST /api/v1/attendance/session → crea sesión + guarda registros
+PATCH /api/v1/attendance/session/:sessionId/finalize → finaliza la sesión
+Frontend: el componente consulta el BFF en lugar de Supabase directo.
+
+Primero crea la tabla si aún no lo hiciste:
+
+sql
+CREATE TABLE attendance_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  school_id UUID REFERENCES schools(id),
+  team_id UUID REFERENCES teams(id),
+  session_date DATE NOT NULL,
+  finalized BOOLEAN DEFAULT FALSE,
+  finalized_at TIMESTAMPTZ,
+  finalized_by UUID REFERENCES profiles(id),
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (team_id, session_date)
+);
+
+ALTER TABLE attendance_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Coaches can manage their sessions"
+ON attendance_sessions FOR ALL
+USING (team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid()))
+WITH CHECK (team_id IN (SELECT id FROM teams WHERE coach_id = auth.uid()));
+
+CREATE POLICY "Admins can manage all sessions"
+ON attendance_sessions FOR ALL
+USING (is_school_admin(school_id));
+Confirma que la tabla quedó creada y comparte cómo está definido requireAuth y AuthenticatedRequest (o el archivo authMiddleware.ts) para que los endpoints del BFF queden con la misma firma que el resto de tus rutas.
+
+1772227022611_image.png
+Ya cree la tabla
+
+16:17
+Tabla creada. Ahora comparte el archivo authMiddleware.ts para que los endpoints del BFF queden con la misma firma que el resto de tus rutas.
+
+import { Request, Response, NextFunction } from 'express';
+import { supabase } from '../config/supabase';
+
+// ── Augmentar el tipo global de Express.Request ───────────────────────────────
+// Esto hace que TypeScript reconozca los campos en TODOS los handlers
+// sin necesidad de castear req en cada ruta.
+declare global {
+    namespace Express {
+        interface Request {
+            user: { id: string; email: string };
+            schoolId: string;
+            branchId: string | null;
+            role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter' | 'school_admin' | 'coach' | 'parent' | 'athlete' | 'staff';
+        }
+    }
+}
+
+// Mantener el tipo para los handlers que quieran ser explícitos
+export type AuthenticatedRequest = Request;
+
+export const requireAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+
+        const token = authHeader.split(' ')[1];
+
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        if (authError || !user) {
+            return res.status(401).json({ error: 'Token inválido o expirado.' });
+        }
+
+        const { data: profile, error: profileError } = await supabase
+            .from('school_members')
+            .select('school_id, role, branch_id')
+            .eq('profile_id', user.id)
+            .eq('status', 'active')
+            .single();
+
+        if (profileError || !profile) {
+            return res.status(403).json({ error: 'Perfil de miembro de escuela no encontrado o inactivo.' });
+        }
+
+        if (!profile.school_id) {
+            return res.status(403).json({ error: 'Usuario no asociado a ninguna escuela.' });
+        }
+
+        req.user = { id: user.id, email: user.email! };
+        req.schoolId = profile.school_id;
+        req.branchId = profile.branch_id || null;
+        req.role = profile.role;
+
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const requireRole = (...roles: Request['role'][]) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        if (!roles.includes(req.role)) {
+            return res.status(403).json({
+                error: `Acceso denegado. Roles permitidos: ${roles.join(', ')}.`,
+            });
+        }
+        next();
+    };
+};
+Mostrar menos
+16:18
+Perfecto, tengo todo lo que necesito. Genero ambos archivos.
+
+
+Se crearon 2 archivos, archivo visualizado, archivo leído
+Se crearon 2 archivos, archivo visualizado, archivo leído
+
+Check skills directory
+
+BFF attendance routes
+attendance.routes.ts
+
+CoachAttendancePage with session state machine
+CoachAttendancePage.tsx
+
+Presented 2 files
+Listo
+Los dos archivos listos. Resumen de lo que hace cada uno:
+
+attendance.routes.ts — registra en tu BFF en app.use('/api/v1/attendance', attendanceRouter):
+
+GET /session/:teamId → consulta si ya hay sesión + registros de hoy
+POST /session → crea la sesión (si no existe) y guarda/actualiza registros. Bloquea si ya está finalizada
+PATCH /session/:sessionId/finalize → marca la sesión como finalizada e inmutable
+CoachAttendancePage.tsx — tres estados visuales:
+
+Sin sesión → botón "Guardar asistencia" (crea la sesión)
+Sesión guardada, no finalizada → banner ámbar + botón "Guardar cambios" + botón rojo "Finalizar sesión"
+Sesión finalizada → banner verde + botones deshabilitados, solo lectura
+Un paso pendiente: registrar la ruta en tu app.ts o index.ts:
+
+typescript
+import attendanceRouter from './routes/attendance.routes';
+app.use('/api/v1/attendance', attendanceRouter);
+Attendance.routes
+TS 
+Coachattendancepage
+Código · TSX 
+Donde debe ir codigo que nombraste Attendance.routes · TS, ya que yo tengo 2 nombres:
+
+Investigación de Backend para Asistencia
+He analizado la estructura del proyecto y he confirmado que el registro de asistencia se realiza directamente desde el frontend a Supabase. Sin embargo, en el BFF, la lógica de reportes de asistencia para el rol entrenador reside en
+bff/src/routes/reports.ts, y la autorización de roles en
+bff/src/middlewares/authMiddleware.ts. No existe un archivo dedicado llamado attendance.routes.ts.
+
+Mostrar más
+16:26
+Crea un archivo nuevo bff/src/routes/attendance.ts (sin el .routes en el nombre, para que sea consistente con tu convención) y luego regístralo en tu archivo principal del BFF.
+
+Comparte cómo está tu app.ts o index.ts para ver exactamente dónde agregar la línea de registro, y así no adivinar la estructura.
+
+Y no lo puedo agregar en reports.ts?
+
+16:26
+Sí puedes, es perfectamente válido. Pega los tres endpoints al final de reports.ts, antes del export default router:
+
+typescript
+// ── GET /api/v1/reports/attendance/session/:teamId ────────────────────────────
+router.get(
+  '/attendance/session/:teamId',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { teamId } = req.params;
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data: session, error: sessionErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, team_id, session_date, finalized, finalized_at, created_by, created_at')
+        .eq('team_id', teamId)
+        .eq('session_date', today)
+        .maybeSingle();
+
+      if (sessionErr) throw sessionErr;
+      if (!session) return res.json({ session: null, records: [] });
+
+      const { data: records, error: recordsErr } = await supabase
+        .from('attendance_records')
+        .select('child_id, status')
+        .eq('program_id', teamId)
+        .eq('attendance_date', today);
+
+      if (recordsErr) throw recordsErr;
+      return res.json({ session, records: records || [] });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'Error consultando la sesión.' });
+    }
+  }
+);
+
+// ── POST /api/v1/reports/attendance/session ───────────────────────────────────
+router.post(
+  '/attendance/session',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { schoolId } = req;
+      const { teamId, records } = req.body as {
+        teamId: string;
+        records: { childId: string; status: string }[];
+      };
+
+      if (!teamId || !Array.isArray(records) || records.length === 0) {
+        return res.status(400).json({ error: 'teamId y records son requeridos.' });
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+
+      const { data: existing, error: existingErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, finalized')
+        .eq('team_id', teamId)
+        .eq('session_date', today)
+        .maybeSingle();
+
+      if (existingErr) throw existingErr;
+
+      if (existing?.finalized) {
+        return res.status(409).json({
+          error: 'La sesión de hoy ya fue finalizada y no puede modificarse.',
+          finalized: true,
+        });
+      }
+
+      const { data: session, error: sessionErr } = await supabase
+        .from('attendance_sessions')
+        .upsert(
+          { school_id: schoolId, team_id: teamId, session_date: today, created_by: req.user.id },
+          { onConflict: 'team_id,session_date', ignoreDuplicates: false }
+        )
+        .select('id, finalized')
+        .single();
+
+      if (sessionErr) throw sessionErr;
+
+      const attendanceRecords = records.map(({ childId, status }) => ({
+        school_id: schoolId,
+        program_id: teamId,
+        child_id: childId,
+        attendance_date: today,
+        status,
+        marked_by: req.user.id,
+      }));
+
+      const { error: recordsErr } = await supabase
+        .from('attendance_records')
+        .upsert(attendanceRecords, {
+          onConflict: 'child_id,program_id,attendance_date',
+          ignoreDuplicates: false,
+        });
+
+      if (recordsErr) throw recordsErr;
+      return res.json({ success: true, sessionId: session.id });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'Error guardando la asistencia.' });
+    }
+  }
+);
+
+// ── PATCH /api/v1/reports/attendance/session/:sessionId/finalize ──────────────
+router.patch(
+  '/attendance/session/:sessionId/finalize',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+
+      const { data: session, error: fetchErr } = await supabase
+        .from('attendance_sessions')
+        .select('id, finalized')
+        .eq('id', sessionId)
+        .single();
+
+      if (fetchErr || !session) return res.status(404).json({ error: 'Sesión no encontrada.' });
+      if (session.finalized) return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
+
+      const { error: updateErr } = await supabase
+        .from('attendance_sessions')
+        .update({
+          finalized: true,
+          finalized_at: new Date().toISOString(),
+          finalized_by: req.user.id,
+        })
+        .eq('id', sessionId);
+
+      if (updateErr) throw updateErr;
+      return res.json({ success: true, message: 'Sesión finalizada correctamente.' });
+    } catch (err: any) {
+      return res.status(500).json({ error: 'Error finalizando la sesión.' });
+    }
+  }
+);
+
+export default router;
+Luego en CoachAttendancePage.tsx cambia la URL base de los fetch de /api/v1/attendance/ a /api/v1/reports/attendance/ en las tres llamadas:
+
+typescript
+// GET
+`${BFF_URL}/api/v1/reports/attendance/session/${selectedTeamId}`
+
+// POST
+`${BFF_URL}/api/v1/reports/attendance/session`
+
+// PATCH
+`${BFF_URL}/api/v1/reports/attendance/session/${session.id}/finalize`
+Que es mejor?
+
+16:27
+Depende de cómo esté organizado tu BFF a largo plazo.
+
+Agrégalo en reports.ts si:
+
+El proyecto es pequeño y no planeas crecer mucho el módulo de asistencia
+Quieres el mínimo de archivos posibles
+Crea attendance.ts separado si:
+
+Ya ves que la asistencia va a crecer (historial, reportes por fecha, exportar PDF, etc.)
+Quieres mantener cada dominio en su propio archivo como ya lo haces con reports.ts
+Dado que ya tienes reports.ts dedicado a reportes y la asistencia es un flujo operativo diferente (tomar lista, finalizar sesión), lo más limpio es crear attendance.ts separado. Los reportes de asistencia los consultas desde reports.ts, pero la gestión de sesiones vive en su propio archivo.
+
+¿Quieres que te muestre cómo registrarlo en tu app.ts? Comparte ese archivo y lo agrego en dos líneas.
+
+Voy a hacerlo como me indicaste inicialmente, esto se requiere?
+
+Verificación de la Relación:
+Una duda técnica: ¿El código que tienes para los registros de asistencia hace referencia a una columna session_id en attendance_records? Actualmente esa columna no existe en los registros. Si tu lógica la requiere para vincular cada marca de asistencia a la sesión, necesitaré aplicar un ALTER TABLE rápido.
+Mostrar más
+16:32
+No, no es necesario. El código que generé no usa session_id en attendance_records.
+
+La vinculación entre sesión y registros se hace implícitamente por la combinación program_id (= team_id) + attendance_date, que es exactamente el mismo criterio que usa el UNIQUE constraint que ya creaste. No hay que tocar la tabla.
+
+Comparte tu app.ts o index.ts para agregar el registro de la ruta y listo.
+
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import pinoHttp from 'pino-http';
+
+// Cargar variables de entorno PRIMERO, antes de cualquier import que las use
+dotenv.config();
+
+import studentsRouter from './routes/students';
+import enrollmentsRouter from './routes/enrollments';
+import reportsRouter from './routes/reports';
+import wompiRouter from './routes/wompi';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ── Middlewares globales ──────────────────────────────────────────────────────
+app.use(cors({
+    origin: (origin, callback) => {
+        // Permitir requests sin origin (como Postman o curl) o localhost en development
+        if (!origin || origin.startsWith('http://localhost:')) {
+            return callback(null, true);
+        }
+
+        const allowedProductionDomain = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
+
+        // Si el origen coincide exactamente con la URL principal, o termina en .vercel.app (Preview branches)
+        if (origin === allowedProductionDomain || origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
+        return callback(new Error('Bloqueado por CORS'));
+    },
+}));
+app.use(express.json({ limit: '5mb' }));
+app.use(pinoHttp({
+    customProps: (req) => ({ requestId: req.id }),
+    // En producción no loguear bodies completos (pueden tener PII)
+    serializers: {
+        req: (req) => ({ method: req.method, url: req.url, id: req.id }),
+        res: (res) => ({ statusCode: res.statusCode }),
+    },
+}));
+
+// ── Rutas ─────────────────────────────────────────────────────────────────────
+app.get('/health', (_req: Request, res: Response) => {
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version ?? '1.0.0',
+    });
+});
+
+app.use('/api/v1/students', studentsRouter);
+app.use('/api/v1/enrollments', enrollmentsRouter);
+app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/webhooks/wompi', wompiRouter);
+
+// ── 404 handler ───────────────────────────────────────────────────────────────
+app.use((_req: Request, res: Response) => {
+    res.status(404).json({ error: 'Endpoint no encontrado.' });
+});
+
+// ── Error handler centralizado ────────────────────────────────────────────────
+// IMPORTANTE: debe tener 4 parámetros para que Express lo reconozca como error handler
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+    // pino-http adjunta req.log en cada request
+    (req as any).log?.error({ err }, 'Unhandled error');
+
+    const message = process.env.NODE_ENV === 'production'
+        ? 'Error interno del servidor.'
+        : err.message;
+
+    res.status(500).json({ error: message });
+});
+
+app.listen(PORT, () => {
+    console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);
+    console.log(`   NODE_ENV: ${process.env.NODE_ENV ?? 'development'}`);
+});
+Mostrar más
+16:33
+Agrega estas dos líneas en los lugares marcados:
+
+typescript
+// Arriba, junto a los otros imports de rutas
+import studentsRouter from './routes/students';
+import enrollmentsRouter from './routes/enrollments';
+import reportsRouter from './routes/reports';
+import wompiRouter from './routes/wompi';
+import attendanceRouter from './routes/attendance';  // ← agregar
+
+// Abajo, junto a los otros app.use
+app.use('/api/v1/students', studentsRouter);
+app.use('/api/v1/enrollments', enrollmentsRouter);
+app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/webhooks/wompi', wompiRouter);
+app.use('/api/v1/attendance', attendanceRouter);  // ← agregar
+Y en CoachAttendancePage.tsx el BFF_URL ya apunta a /api/v1/attendance/... tal como está en el archivo que te entregué, así que no hay que cambiar nada en el frontend.
+
+Walkthrough: Sistema de Sesiones de Asistencia
+He completado la migración del sistema de asistencia simple a un sistema robusto basado en sesiones.
+Cambios Realizados
+Backend (BFF)
+1. [NEW]
+attendance.ts:
+   * Nuevo router con endpoints para consultar sesión (GET), guardar/actualizar registros (POST) y finalizar sesión (PATCH).
+   * Implementa validaciones de rol y estado de finalización.
+2. [MODIFY]
+index.ts:
+   * Registro oficial del endpoint /api/v1/attendance.
+Frontend (App)
+1. [MODIFY]
+CoachAttendancePage.tsx:
+   * Conexión completa al BFF usando el BFF_URL.
+   * Implementación de los 3 estados visuales definidos:
+      * Sin sesión: Permite toma de lista inicial.
+      * Abierta (Banner Ámbar): Permite editar registros ya guardados.
+      * Finalizada (Banner Verde): Bloquea todos los controles, garantizando la integridad de los datos para reportes.
+Verificación Recomendada
+1. Seleccionar un equipo y guardar la asistencia de hoy. Verificar que el banner cambia a ámbar.
+2. Realizar un cambio en la asistencia y guardar de nuevo.
+3. Presionar Finalizar sesión y confirmar. Verificar que el banner cambia a verde y los botones de estado se deshabilitan.
+
+Mostrar más
+16:39
+Perfecto, todo quedó bien implementado. Cuando hagas la verificación, un detalle a tener en cuenta:
+
+Si al seleccionar el equipo el banner no aparece o los estados no precargan correctamente, revisa en la consola del navegador que el fetch al BFF esté llegando a VITE_BFF_URL — asegúrate de que esa variable de entorno esté definida en tu .env.local del frontend:
+
+VITE_BFF_URL=http://localhost:3000
+Haz la prueba y me cuentas cómo quedó.
+
+Ahora requiero ajustar para que en los otros roles en el modulo de asistencias, se muestre lo que guarda el entrenador, para rol propietario y padre
+
+16:44
+Comparte el código actual de las páginas de asistencia para esos dos roles:
+
+La página de asistencia del propietario/admin (algo como AttendancePage.tsx o dentro de admin/)
+La página de asistencia del padre (algo como ParentAttendancePage.tsx o dentro de parent/)
+Si no estás seguro de los nombres exactos, corre:
+
+bash
+find src -name "*ttendance*" -o -name "*sistencia*"
+Y comparte el resultado.
+
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; import { Badge } from '@/components/ui/badge'; import { Calendar } from '@/components/ui/calendar'; import { Alert, AlertDescription } from '@/components/ui/alert'; import { AlertCircle, CheckCircle2, Clock } from '
+
+pasted
+
+
+import { useState } from 'react'; import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; import { supabase } from '@/integrations/supabase/client'; import { useAuth } from '@/contexts/AuthContext'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/
+
+pasted
+
+
+import { useState } from 'react'; import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; import { supabase } from '@/integrations/supabase/client'; import { useAuth } from '@/contexts/AuthContext'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/
+
+pasted
+
+Rol: Propietario / Admin La página principal de supervisión para este rol es AttendanceSupervisionPage.tsx. Su función es monitorear si los entrenadores están cumpliendo con el registro de las
+Rol: Padre Para los padres, el sistema utiliza AttendancePage.tsxpara una vista general de sus hijos yChildAttendancePage.tsxpara el historial detallado de un niño específico.
+16:46
+Tengo todo el contexto. Antes de generar el código, necesito aclarar dos puntos:
+
+Para el propietario (AttendanceSupervisionPage.tsx): La página actualmente usa datos demo hardcodeados. La reemplazaré con datos reales de attendance_sessions + attendance_records, mostrando por fecha seleccionada: qué equipos tienen sesión registrada, cuáles están pendientes, y el detalle de presentes/ausentes al hacer clic.
+
+Para el padre (AttendancePage.tsx): Actualmente consulta una tabla attendance que no existe — los datos reales están en attendance_records. La actualizaré para leer de ahí.
+
+P: Para el padre, ¿quieres que vea solo sesiones finalizadas o también las abiertas (en edición)?
+R: Todas incluyendo abiertas
+
+P: Para el propietario, al hacer clic en una sesión del día, ¿quiere ver el detalle completo de cada estudiante (presente/ausente/tarde/excusado)?
+R: Sí, detalle completo por estudiante
+
+16:47
+Perfecto, genero los dos archivos.
+
+
+Se crearon 2 archivos, archivo leído
+Se crearon 2 archivos, archivo leído
+Los dos archivos listos. Resumen de cambios:
+
+AttendanceSupervisionPage.tsx (propietario/admin)
+
+Reemplaza los datos demo por consultas reales a attendance_sessions + attendance_records
+Al seleccionar una fecha en el calendario, muestra las sesiones registradas ese día con conteo de presentes/tardanzas/excusados/ausentes y badge de estado (Finalizada / En edición)
+Alerta roja con los equipos que no tienen sesión registrada ese día
+Click en cualquier sesión abre un modal con el detalle completo por estudiante
+AttendancePage.tsx (padre)
+
+Lee de attendance_records en lugar de la tabla attendance que no existe
+Muestra 5 stats: total, asistencias, tardanzas, excusadas, ausencias
+Cada registro muestra el nombre del equipo y un badge "En revisión" si la sesión aún no está finalizada, para que el padre sepa que puede cambiar
+También necesitas agregar políticas RLS en Supabase para que el padre pueda leer attendance_sessions:
+
+sql
+CREATE POLICY "Parents can view sessions of their children"
+ON attendance_sessions FOR SELECT
+USING (
+  team_id IN (
+    SELECT e.team_id FROM enrollments e
+    JOIN children c ON c.id = e.child_id
+    WHERE c.parent_id = auth.uid()
+  )
+);
+Attendancesupervisionpage
+Código · TSX 
+Attendancepage
+Código · TSX 
+[{
+    "resource": "/c:/Users/Equipo/.gemini/antigravity/scratch/sportmaps-demo/frontend/src/pages/AttendancePage.tsx",
+    "owner": "typescript",
+    "code": "2589",
+    "severity": 8,
+    "message": "Type instantiation is excessively deep and possibly infinite.",
+    "source": "ts",
+    "startLineNumber": 103,
+    "startColumn": 45,
+    "endLineNumber": 106,
+    "endColumn": 32,
+    "origin": "extHost1"
+},{
+    "resource": "/c:/Users/Equipo/.gemini/antigravity/scratch/sportmaps-demo/frontend/src/pages/AttendancePage.tsx",
+    "owner": "typescript",
+    "code": "2769",
+    "severity": 8,
+    "message": "No overload matches this call.\n  Overload 1 of 2, '(relation: \"academic_progress\" | \"children\" | \"activities\" | \"profiles\" | \"analytics_events\" | \"announcements\" | \"teams\" | \"athlete_stats\" | \"attendance\" | \"attendance_records\" | ... 47 more ... | \"wellness_evaluations\"): PostgrestQueryBuilder<...>', gave the following error.\n    Argument of type '\"attendance_sessions\"' is not assignable to parameter of type '\"academic_progress\" | \"children\" | \"activities\" | \"profiles\" | \"analytics_events\" | \"announcements\" | \"teams\" | \"athlete_stats\" | \"attendance\" | \"attendance_records\" | \"classes\" | ... 46 more ... | \"wellness_evaluations\"'.\n  Overload 2 of 2, '(relation: \"students\" | \"team_capacity\" | \"teams_full_view\" | \"class_capacity\" | \"pending_payments\" | \"public_staff\" | \"school_ratings\"): PostgrestQueryBuilder<{ PostgrestVersion: \"13.0.5\"; }, { ...; }, { ...; } | ... 5 more ... | { ...; }, \"students\" | ... 5 more ... | \"school_ratings\", [] | ... 4 more ... | [...]>', gave the following error.\n    Argument of type '\"attendance_sessions\"' is not assignable to parameter of type '\"students\" | \"team_capacity\" | \"teams_full_view\" | \"class_capacity\" | \"pending_payments\" | \"public_staff\" | \"school_ratings\"'.",
+    "source": "ts",
+    "startLineNumber": 104,
+    "startColumn": 15,
+    "endLineNumber": 104,
+    "endColumn": 36,
+    "origin": "extHost1"
+},{
+    "resource": "/c:/Users/Equipo/.gemini/antigravity/scratch/sportmaps-demo/frontend/src/pages/AttendanceSupervisionPage.tsx",
+    "owner": "typescript",
+    "code": "2589",
+    "severity": 8,
+    "message": "Type instantiation is excessively deep and possibly infinite.",
+    "source": "ts",
+    "startLineNumber": 69,
+    "startColumn": 61,
+    "endLineNumber": 72,
+    "endColumn": 42,
+    "origin": "extHost1"
+},{
+    "resource": "/c:/Users/Equipo/.gemini/antigravity/scratch/sportmaps-demo/frontend/src/pages/AttendanceSupervisionPage.tsx",
+    "owner": "typescript",
+    "code": "2769",
+    "severity": 8,
+    "message": "No overload matches this call.\n  Overload 1 of 2, '(relation: \"academic_progress\" | \"children\" | \"activities\" | \"profiles\" | \"analytics_events\" | \"announcements\" | \"teams\" | \"athlete_stats\" | \"attendance\" | \"attendance_records\" | ... 47 more ... | \"wellness_evaluations\"): PostgrestQueryBuilder<...>', gave the following error.\n    Argument of type '\"attendance_sessions\"' is not assignable to parameter of type '\"academic_progress\" | \"children\" | \"activities\" | \"profiles\" | \"analytics_events\" | \"announcements\" | \"teams\" | \"athlete_stats\" | \"attendance\" | \"attendance_records\" | \"classes\" | ... 46 more ... | \"wellness_evaluations\"'.\n  Overload 2 of 2, '(relation: \"students\" | \"team_capacity\" | \"teams_full_view\" | \"class_capacity\" | \"pending_payments\" | \"public_staff\" | \"school_ratings\"): PostgrestQueryBuilder<{ PostgrestVersion: \"13.0.5\"; }, { ...; }, { ...; } | ... 5 more ... | { ...; }, \"students\" | ... 5 more ... | \"school_ratings\", [] | ... 4 more ... | [...]>', gave the following error.\n    Argument of type '\"attendance_sessions\"' is not assignable to parameter of type '\"students\" | \"team_capacity\" | \"teams_full_view\" | \"class_capacity\" | \"pending_payments\" | \"public_staff\" | \"school_ratings\"'.",
+    "source": "ts",
+    "startLineNumber": 70,
+    "startColumn": 15,
+    "endLineNumber": 70,
+    "endColumn": 36,
+    "origin": "extHost1"
+}]
+
+Mostrar más
+16:54
+Los dos errores son el mismo problema: los tipos autogenerados de Supabase no conocen la tabla attendance_sessions porque fue creada después de la última generación de tipos.
+
+Solución rápida — castear a any en las dos queries que usan attendance_sessions:
+
+En AttendancePage.tsx, línea ~104:
+
+typescript
+// Antes
+const { data: sessionsData } = await (supabase
+  .from('attendance_sessions')
+  .select('team_id, session_date, finalized')
+  .in('team_id', teamIds)
+  .in('session_date', dates) as any);
+
+// Ya está casteado — si no lo está, agregar el (... as any) al final del bloque
+En AttendanceSupervisionPage.tsx, línea ~70:
+
+typescript
+const { data: sessionsData, error: sessErr } = await (supabase
+  .from('attendance_sessions')
+  .select('id, team_id, session_date, finalized, finalized_at, teams(name, coach_id)')
+  .eq('session_date', selectedDate) as any);
+Ambos ya tienen el as any en los archivos que te entregué. El error 2769 indica que el cast no está aplicado o está en la posición incorrecta. Asegúrate de que el paréntesis abre antes de supabase y cierra después del último .eq(...), así:
+
+typescript
+const { data, error } = await (supabase
+  .from('attendance_sessions')
+  .select(...)
+  .eq(...) as any);   // ← paréntesis cierra aquí, ANTES del await no después
+Solución definitiva — regenerar los tipos de Supabase para que incluya attendance_sessions:
+
+bash
+npx supabase gen types typescript --project-id <tu-project-id> > src/integrations/supabase/types.ts
+Esto elimina todos los casteos y TypeScript reconoce la tabla correctamente.
+
+1772229470604_image.png
+Ajustar este mensaje para que salga mejor en un mensaje informativo propio de la pagina 
+
+Y adicional, valido en padres y no sale nada, debe estar finalizada la sesion para que se muestre?
+
+16:58
+Sobre el confirm nativo del browser: lo reemplazo con un Dialog de confirmación propio.
+
+Sobre el padre: no, el código muestra registros con y sin sesión finalizada. El problema es otro — probablemente RLS. Corre esto en Supabase para verificar:
+
+sql
+SELECT policyname, cmd, qual
+FROM pg_policies
+WHERE tablename = 'attendance_records';
+Y comparte el resultado. Mientras tanto te entrego el CoachAttendancePage.tsx con el Dialog de confirmación propio.
+
+
+Editó 4 archivos, archivo visualizado, archivo leído
+Editó 4 archivos, archivo visualizado, archivo leído
+CoachAttendancePage.tsx actualizado con el Dialog propio. El mensaje ahora muestra el nombre del equipo, una advertencia en ámbar, y dos botones claros — Cancelar y "Sí, finalizar".
+
+Para el problema del padre, comparte el resultado de:
+
+sql
+SELECT policyname, cmd, qual
+FROM pg_policies
+WHERE tablename = 'attendance_records';
+Coachattendancepage
+Código · TSX 
+[
+  {
+    "policyname": "attendance_records_admin_all",
+    "cmd": "ALL",
+    "qual": "is_school_admin(school_id)"
+  },
+  {
+    "policyname": "Coaches can insert attendance for their teams",
+    "cmd": "INSERT",
+    "qual": null
+  },
+  {
+    "policyname": "Coaches can update attendance for their teams",
+    "cmd": "UPDATE",
+    "qual": "(program_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  },
+  {
+    "policyname": "Coaches can view attendance for their teams",
+    "cmd": "SELECT",
+    "qual": "(program_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  }
+]
+
+Mostrar más
+16:59
+Falta la política para que el padre pueda leer attendance_records. Agrégala:
+
+sql
+CREATE POLICY "Parents can view attendance of their children"
+ON attendance_records
+FOR SELECT
+USING (
+  child_id IN (
+    SELECT id FROM children
+    WHERE parent_id = auth.uid()
+  )
+);
+Y también para attendance_sessions si aún no la creaste:
+
+sql
+CREATE POLICY "Parents can view sessions of their children"
+ON attendance_sessions
+FOR SELECT
+USING (
+  team_id IN (
+    SELECT e.team_id FROM enrollments e
+    JOIN children c ON c.id = e.child_id
+    WHERE c.parent_id = auth.uid()
+  )
+);
+Después de agregar las dos, recarga la página del padre y debería aparecer el historial.
+
+1772230310429_image.png
+Para el entrenador, no carga estudiantes, sera por politicas?
+
+17:11
+Sí, casi seguro es RLS. Corre estas dos consultas en el SQL Editor:
+
+sql
+SELECT policyname, cmd, qual
+FROM pg_policies
+WHERE tablename = 'children';
+sql
+SELECT policyname, cmd, qual
+FROM pg_policies
+WHERE tablename = 'enrollments';
+Y comparte los resultados. También ayuda saber: ¿la página "Mis Estudiantes" del entrenador filtra por team_id o por school_id? Comparte el código de esa página si lo tienes a mano.
+
+[
+  {
+    "policyname": "Coaches can view children in their teams",
+    "cmd": "SELECT",
+    "qual": "(team_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  },
+  {
+    "policyname": "Children: select staff",
+    "cmd": "SELECT",
+    "qual": "(school_id = ANY (user_school_ids()))"
+  },
+  {
+    "policyname": "Children: select parent",
+    "cmd": "SELECT",
+    "qual": "(auth.uid() = parent_id)"
+  },
+  {
+    "policyname": "Children: manage staff",
+    "cmd": "ALL",
+    "qual": "is_school_admin(school_id)"
+  },
+  {
+    "policyname": "Children: update parent",
+    "cmd": "UPDATE",
+    "qual": "(auth.uid() = parent_id)"
+  },
+  {
+    "policyname": "Children: insert parent",
+    "cmd": "INSERT",
+    "qual": null
+  }
+]
+
+[
+  {
+    "policyname": "Parents can view their children enrollments",
+    "cmd": "SELECT",
+    "qual": "(child_id IN ( SELECT children.id\n   FROM children\n  WHERE (children.parent_id = auth.uid())))"
+  },
+  {
+    "policyname": "Staff can manage enrollments",
+    "cmd": "ALL",
+    "qual": "(is_school_admin(school_id) OR is_school_coach(school_id))"
+  },
+  {
+    "policyname": "Coaches can view enrollments of their teams",
+    "cmd": "SELECT",
+    "qual": "(team_id IN ( SELECT teams.id\n   FROM teams\n  WHERE (teams.coach_id = auth.uid())))"
+  }
+]
+
+Mostrar más
+17:12
+Las políticas existen pero el problema está en children. La política del coach filtra por team_id:
+
+sql
+(team_id IN (SELECT teams.id FROM teams WHERE teams.coach_id = auth.uid()))
+Pero children probablemente no tiene columna team_id — la relación es a través de enrollments. Por eso no retorna nada.
+
+Verifica con:
+
+sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'children' AND column_name = 'team_id';
+Si no retorna filas, la política está mal construida. Corrígela así:
+
+sql
+-- Eliminar la política incorrecta
+DROP POLICY "Coaches can view children in their teams" ON children;
+
+-- Crear la correcta usando enrollments como puente
+CREATE POLICY "Coaches can view children in their teams"
+ON children
+FOR SELECT
+USING (
+  id IN (
+    SELECT child_id FROM enrollments
+    WHERE team_id IN (
+      SELECT id FROM teams WHERE coach_id = auth.uid()
+    )
+  )
+);
+Esto hace el join correcto: teams → enrollments → children. Después de aplicarlo recarga la página de Mis Estudiantes y deberían aparecer.
+
+[
+  {
+    "column_name": "team_id"
+  }
+]
+
+17:13
+Entonces children sí tiene team_id directamente. El problema es otro — la política existe y es correcta en teoría, pero los estudiantes no tienen ese team_id llenado, o están asignados al equipo solo a través de enrollments y no tienen el campo directo en children.
+
+Verifica con:
+
+sql
+-- ¿Cuántos children tienen team_id nulo?
+SELECT 
+  COUNT(*) FILTER (WHERE team_id IS NULL) AS sin_team_id,
+  COUNT(*) FILTER (WHERE team_id IS NOT NULL) AS con_team_id
+FROM children
+WHERE school_id = (SELECT school_id FROM teams WHERE coach_id = auth.uid() LIMIT 1);
+Y también:
+
+sql
+-- ¿Los enrollments sí tienen team_id para esos estudiantes?
+SELECT e.child_id, e.team_id, c.full_name, c.team_id as children_team_id
+FROM enrollments e
+JOIN children c ON c.id = e.child_id
+JOIN teams t ON t.id = e.team_id
+WHERE t.coach_id = (SELECT id FROM profiles WHERE email = 'valentina@email.com' LIMIT 1)
+LIMIT 10;
+Reemplaza el email por el de Valentina Pabon. Comparte los resultados y con eso confirmamos si el problema es que children.team_id está vacío aunque sí tienen enrollment activo.
+
+[
+  {
+    "sin_team_id": 0,
+    "con_team_id": 0
+  }
+]
+
+Success. No rows returned
+17:14
+El problema es claro: no hay children asociados a la escuela de ese entrenador. Los estudiantes existen en otra escuela o simplemente no hay estudiantes registrados aún para el equipo de Valentina.
+
+Verifica con:
+
+sql
+-- ¿Qué equipos tiene Valentina y en qué escuela?
+SELECT t.id, t.name, t.school_id, t.coach_id
+FROM teams t
+JOIN profiles p ON p.id = t.coach_id
+WHERE p.email = 'correo_de_valentina@dominio.com';
+sql
+-- ¿Hay children en esa escuela?
+SELECT COUNT(*) FROM children
+WHERE school_id = 'PEGA_AQUI_EL_SCHOOL_ID_DEL_RESULTADO_ANTERIOR';
+sql
+-- ¿Hay enrollments activos en ese equipo?
+SELECT COUNT(*) FROM enrollments
+WHERE team_id = 'PEGA_AQUI_EL_TEAM_ID_DEL_RESULTADO_ANTERIOR'
+AND status = 'active';
+Ejecuta en orden y comparte los resultados — con eso confirmamos si es un problema de datos (no hay estudiantes inscritos en ese equipo) o de configuración.
+
+En el 1, sale esto: 
+Success. No rows returned
+
+17:15
+Entonces Valentina no tiene un registro en profiles con ese email, o su coach_id en teams apunta a otro ID. Busca sin filtrar por email:
+
+sql
+-- Buscar el profile de Valentina
+SELECT id, full_name, email
+FROM profiles
+WHERE full_name ILIKE '%valentina%';
+sql
+-- Ver qué equipos tienen coach asignado y a qué escuela pertenecen
+SELECT t.id as team_id, t.name, t.school_id, t.coach_id, p.full_name, p.email
+FROM teams t
+LEFT JOIN profiles p ON p.id = t.coach_id
+WHERE t.coach_id IS NOT NULL
+LIMIT 20;
+Comparte los resultados y con eso vemos exactamente qué ID tiene Valentina y si sus equipos están bien vinculados.
+
+[
+  {
+    "id": "cb416a27-b9ce-4c62-a4bd-ebdbf99755ab",
+    "full_name": "Valentina Pabon",
+    "email": "vpabon@gmail.com"
+  }
+]
+
+[
+  {
+    "team_id": "c466868f-a778-40cd-a60e-b7a9106b99a9",
+    "name": "EQUIPO VALIDACION",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "coach_id": "cb416a27-b9ce-4c62-a4bd-ebdbf99755ab",
+    "full_name": "Valentina Pabon",
+    "email": "vpabon@gmail.com"
+  },
+  {
+    "team_id": "82877afd-e8af-45b4-a310-56f2cdf5333b",
+    "name": "EQUIPO JUNIOR",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "coach_id": "cb416a27-b9ce-4c62-a4bd-ebdbf99755ab",
+    "full_name": "Valentina Pabon",
+    "email": "vpabon@gmail.com"
+  },
+  {
+    "team_id": "cbd29b33-122b-4655-92fa-f478cdd5e579",
+    "name": "EQUIPO SUB 17",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "coach_id": "cb416a27-b9ce-4c62-a4bd-ebdbf99755ab",
+    "full_name": "Valentina Pabon",
+    "email": "vpabon@gmail.com"
+  }
+]
+
+Mostrar más
+17:15
+Los equipos están bien vinculados. Ahora verifica si hay estudiantes y enrollments:
+
+sql
+-- ¿Hay children en esa escuela?
+SELECT COUNT(*) FROM children
+WHERE school_id = '0242cf27-b8ae-4921-8a3a-69d27178ca34';
+
+-- ¿Hay enrollments activos en los equipos de Valentina?
+SELECT e.team_id, t.name, COUNT(*) as total
+FROM enrollments e
+JOIN teams t ON t.id = e.team_id
+WHERE e.team_id IN (
+  'c466868f-a778-40cd-a60e-b7a9106b99a9',
+  '82877afd-e8af-45b4-a310-56f2cdf5333b',
+  'cbd29b33-122b-4655-92fa-f478cdd5e579'
+)
+AND e.status = 'active'
+GROUP BY e.team_id, t.name;
+[
+  {
+    "team_id": "82877afd-e8af-45b4-a310-56f2cdf5333b",
+    "name": "EQUIPO JUNIOR",
+    "total": 1
+  },
+  {
+    "team_id": "c466868f-a778-40cd-a60e-b7a9106b99a9",
+    "name": "EQUIPO VALIDACION",
+    "total": 2
+  }
+]
+
+Mostrar más
+17:16
+Hay enrollments activos pero children tiene 0 registros en esa escuela. Eso significa que los children están guardados con school_id diferente o nulo. Verifica:
+
+sql
+-- Ver los children de esos enrollments
+SELECT c.id, c.full_name, c.school_id, c.team_id, e.team_id as enrollment_team_id
+FROM enrollments e
+JOIN children c ON c.id = e.child_id
+WHERE e.team_id IN (
+  'c466868f-a778-40cd-a60e-b7a9106b99a9',
+  '82877afd-e8af-45b4-a310-56f2cdf5333b'
+);
+[
+  {
+    "id": "84df65a2-8e24-464b-ab03-2f463f71ceee",
+    "full_name": "Yusleibis Andrade",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "team_id": null,
+    "enrollment_team_id": "c466868f-a778-40cd-a60e-b7a9106b99a9"
+  },
+  {
+    "id": "84df65a2-8e24-464b-ab03-2f463f71ceee",
+    "full_name": "Yusleibis Andrade",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "team_id": null,
+    "enrollment_team_id": "82877afd-e8af-45b4-a310-56f2cdf5333b"
+  },
+  {
+    "id": "54448d2c-d402-4d5a-a809-abfbb3dc797a",
+    "full_name": "Andrea Villamil",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "team_id": null,
+    "enrollment_team_id": "c466868f-a778-40cd-a60e-b7a9106b99a9"
+  },
+  {
+    "id": "54448d2c-d402-4d5a-a809-abfbb3dc797a",
+    "full_name": "Andrea Villamil",
+    "school_id": "0242cf27-b8ae-4921-8a3a-69d27178ca34",
+    "team_id": null,
+    "enrollment_team_id": "82877afd-e8af-45b4-a310-56f2cdf5333b"
+  }
+]
+
+Mostrar más
+17:17
+Confirmado. Los children tienen team_id = null — la política actual filtra por children.team_id pero ese campo nunca se llena. La relación real es solo a través de enrollments.
+
+Ya tienes la política correcta que hay que aplicar:
+
+sql
+-- Eliminar la política incorrecta
+DROP POLICY "Coaches can view children in their teams" ON children;
+
+-- Crear la correcta usando enrollments como puente
+CREATE POLICY "Coaches can view children in their teams"
+ON children
+FOR SELECT
+USING (
+  id IN (
+    SELECT child_id FROM enrollments
+    WHERE team_id IN (
+      SELECT id FROM teams WHERE coach_id = auth.uid()
+    )
+  )
+);
+Esto resuelve tanto la página de Mis Estudiantes como la carga del roster en Asistencias, ya que ambas consultan children a través de enrollments.
+
+Y porque no se llena si ahorita se maneja teams y no programs
+
+17:17
+Porque cuando se crea o inscribe un estudiante, el código probablemente sigue escribiendo en program_id o simplemente no asigna children.team_id. El campo existe en la tabla pero nadie lo llena al momento del enrollment.
+
+Comparte el código donde se crea/inscribe un estudiante — probablemente algo como CreateStudentModal.tsx, EnrollStudentModal.tsx, o el endpoint del BFF en students.ts o enrollments.ts — y veo exactamente dónde hay que agregar el team_id.
+
+
+import { useState } from 'react'; import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, } from '@/components/ui/dialog'; import { Button } from '@/components/ui/button'; import { Input } from '@/components/ui/input'; import { L
+
+pasted
+
+
+import { useState, useEffect, useCallback } from 'react'; import { supabase } from '@/integrations/supabase/client'; import { emailClient } from '@/lib/email-client'; import { EmailTemplates } from '@/lib/email-templates'; /** * Represents a sports program offered by a school. */ export i
+
+pasted
+
+El componente CreateStudentModal.tsx es el encargado de capturar los datos. Este utiliza un helper centralizado en useSchoolContext.ts para realizar la lógica de negocio de forma "atómica" (crear registro + crear cobro + enviar invitación).
+
+17:19
+Encontré el problema. En createStudentWithPendingPayment, el insert a children usa program_id pero nunca escribe team_id:
+
+typescript
+// Línea actual en useSchoolContext.ts
+const { data: child, error: childError } = await supabase
+  .from('children')
+  .insert({
+    full_name: params.fullName,
+    date_of_birth: params.dateOfBirth || null,
+    parent_email_temp: params.parentEmail || null,
+    parent_phone_temp: params.parentPhone || null,
+    medical_info: params.medicalInfo || null,
+    school_id: params.schoolId,
+    branch_id: params.branchId || null,
+    program_id: params.programId || null,  // ← usa program_id
+    // team_id nunca se escribe ← problema
+  })
+El fix es agregar team_id: params.programId || null ya que en tu proyecto programId y team_id son el mismo UUID:
+
+typescript
+const { data: child, error: childError } = await supabase
+  .from('children')
+  .insert({
+    full_name: params.fullName,
+    date_of_birth: params.dateOfBirth || null,
+    parent_email_temp: params.parentEmail || null,
+    parent_phone_temp: params.parentPhone || null,
+    medical_info: params.medicalInfo || null,
+    school_id: params.schoolId,
+    branch_id: params.branchId || null,
+    program_id: params.programId || null,
+    team_id: params.programId || null,   // ← agregar esta línea
+  })
+Y para los estudiantes que ya existen con team_id = null, corrígelos con:
+
+sql
+UPDATE children
+SET team_id = e.team_id
+FROM enrollments e
+WHERE children.id = e.child_id
+  AND children.team_id IS NULL
+  AND e.status = 'active';
+Esto retroactivamente llena el team_id de todos los estudiantes que ya tenían enrollment activo pero el campo vacío.
+
+Y ahora que ejecute el query que se debe hacer?
+
+17:22
+Ahora recarga la página de Mis Estudiantes con el rol de Valentina y deberían aparecer los estudiantes, ya que el UPDATE llenó el team_id en los registros existentes y la política RLS ahora puede evaluarlos correctamente.
+
+Si siguen sin aparecer, corre esta verificación rápida:
+
+sql
+SELECT id, full_name, team_id
+FROM children
+WHERE team_id IN (
+  'c466868f-a778-40cd-a60e-b7a9106b99a9',
+  '82877afd-e8af-45b4-a310-56f2cdf5333b',
+  'cbd29b33-122b-4655-92fa-f478cdd5e579'
+);
+Si retorna filas con team_id llenado, el problema está resuelto en BD y puede ser caché del frontend — prueba recargando con Ctrl+Shift+R.
+
+Estoy cargando 500 registros por medio de un CSV desde el rol propietario, modulo estudiante:
+
+Este archivo valida:
+
+full_name
+Nombre completo del estudiante (requerido)
+branch
+Nombre de la sede (se crea auto si no existe)
+team
+Nombre del equipo (se crea auto si no existe)
+sport
+Deporte del equipo (ej: Fútbol, Natación)
+parent_name
+Nombre del padre/madre
+parent_email
+Email del padre/madre
+parent_phone
+Teléfono del padre/madre
+monthly_fee
+Mensualidad en COP (ej: 150000)
+date_of_birth
+Fecha de nacimiento (YYYY-MM-DD)
+grade
+Grado o nivel (opcional)
+Mostrar más
+17:47
+Comparte el código del importador CSV — probablemente ImportCSVModal.tsx o similar — para ver si también le falta escribir team_id al momento de insertar los estudiantes, igual que pasó con createStudentWithPendingPayment.
+
+
+estudiantes_generados.csv
+csv
+
+
+import { useState } from 'react'; import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; import { supabase } from '@/integrations/supabase/client'; import { useAuth } from '@/contexts/AuthContext'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/
+
+pasted
+
+
+import { useState, useEffect } from 'react'; import { useAuth } from '@/contexts/AuthContext'; import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; import { Button } from '@/components/ui/button'; import { Input } from '@/components/ui/input'; import { Table, TableBo
+
+pasted
+
+
+import { Toaster } from "@/components/ui/toaster"; import { Toaster as Sonner } from "@/components/ui/sonner"; import { TooltipProvider } from "@/components/ui/tooltip"; import { QueryClient, QueryClientProvider } from "@tanstack/react-query"; import { BrowserRouter, Routes, Route } from "react-
+
+pasted
+
+
+import { useState, useEffect, useCallback } from 'react'; import { supabase } from '@/integrations/supabase/client'; import { emailClient } from '@/lib/email-client'; import { EmailTemplates } from '@/lib/email-templates'; /** * Represents a sports program offered by a school. */ export i
+
+pasted
+
+
+import { useState, useCallback } from 'react'; import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, } from '@/components/ui/dialog'; import { Button } from '@/components/ui/button'; import { Progress } from '@/components/ui/progress'; imp
+
+pasted
+
+17:51
+El CSV va al BFF a través de studentsAPI.bulkUpload. Comparte el código de ese método — probablemente en src/lib/api/students.ts — y el endpoint del BFF que lo recibe (seguramente en bff/src/routes/students.ts), para ver dónde hay que agregar team_id en el insert masivo.
+
+
+import { Router, Response } from 'express'; import { z } from 'zod'; import { supabase } from '../config/supabase'; import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware'; const router = Router(); // ── Schema Zod v4 ──────────────────────────────────
+
+pasted
+
+17:52
+Encontré el problema. En el paso 5 (inserts) y paso 6 (updates), el BFF escribe program_id pero nunca team_id. También en los enrollmentRecords usa program_id en lugar de team_id.
+
+Aquí los tres cambios exactos en students.ts:
+
+Paso 5 — insert, agregar team_id:
+
+typescript
+const records = toInsert.map(s => ({
+    full_name: `${s.first_name} ${s.last_name}`.trim(),
+    doc_number: s.document_id,
+    doc_type: 'CC',
+    grade: s.grade,
+    medical_info: s.medical_info,
+    school_id: schoolId,
+    branch_id: resolveBranchId(s),
+    program_id: resolveTeamId(s),
+    team_id: resolveTeamId(s),        // ← agregar
+    date_of_birth: s.date_of_birth || null,
+    gender: s.gender || null,
+    parent_name_temp: s.parent_name || null,
+    parent_email_temp: s.parent_email || null,
+    parent_phone_temp: s.parent_phone || null,
+    is_demo: false,
+    created_at: new Date().toISOString(),
+}));
+Paso 6 — update, agregar team_id:
+
+typescript
+await supabase
+    .from('children')
+    .update({
+        full_name: `${s.first_name} ${s.last_name}`.trim(),
+        doc_number: s.document_id,
+        grade: s.grade,
+        medical_info: s.medical_info,
+        branch_id: resolveBranchId(s),
+        program_id: resolveTeamId(s),
+        team_id: resolveTeamId(s),    // ← agregar
+        date_of_birth: s.date_of_birth || null,
+        gender: s.gender || null,
+        parent_name_temp: s.parent_name || null,
+        parent_email_temp: s.parent_email || null,
+        parent_phone_temp: s.parent_phone || null,
+        updated_at: new Date().toISOString()
+    })
+Paso 7 — enrollments, cambiar program_id por team_id:
+
+typescript
+// Cambiar esto:
+enrollmentRecords.push({
+    child_id: childId,
+    program_id: teamId,     // ← verificar si la tabla enrollments usa team_id o program_id
+    status: 'active',
+    start_date: new Date().toISOString().split('T')[0],
+});
+Para el último punto, corre esta query para confirmar el nombre de la columna:
+
+sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'enrollments'
+AND column_name IN ('team_id', 'program_id');
+Y comparte el resultado — si retorna team_id, hay que cambiarlo en los enrollments también. Si retorna program_id, esa parte ya está bien.
+
+[
+  {
+    "column_name": "program_id"
+  },
+  {
+    "column_name": "team_id"
+  }
+]
+
+17:53
+La tabla enrollments tiene ambas columnas. Actualiza el paso 7 para escribir en las dos:
+
+typescript
+enrollmentRecords.push({
+    child_id: childId,
+    team_id: teamId,       // ← agregar
+    program_id: teamId,    // ← mantener
+    status: 'active',
+    start_date: new Date().toISOString().split('T')[0],
+});
+Y el check de duplicados también usa program_id, así que agrégale team_id al select para que no falle si en algún registro solo está uno de los dos:
+
+typescript
+const { data: existingEnrollments } = await supabase
+    .from('enrollments')
+    .select('child_id, program_id, team_id')   // ← agregar team_id
+    .in('child_id', childIdsForEnroll)
+    .in('program_id', programIdsForEnroll);
+Con estos tres cambios (children insert + children update + enrollments insert) todos los estudiantes importados por CSV quedarán con team_id llenado correctamente y serán visibles para el entrenador.
+
+
+bffClient.ts:46 POST http://localhost:3000/api/v1/students/bulk 400 (Bad Request) request @ bffClient.ts:46 await in request post @ bffClient.ts:76 bulkUpload @ students.ts:407 await in bulkUpload handleUpload @ CSVImportModal.tsx:166 callCallback2 @ chunk-XQLYTHWV.js?v=b51606fe:3674 invoke
+
+pasted
+
+17:58
+El error 400 - Datos inválidos viene del schema Zod del BFF. El problema es que el CSV tiene full_name como columna única pero el schema espera first_name y last_name separados. Comparte el código de studentsAPI.bulkUpload en src/lib/api/students.ts para ver cómo transforma el CSV antes de enviarlo al BFF.
+
+
+
+Se quedó sin mensajes gratuitos hasta 8:00 p.m.
+Actualizar
+
+
+Claude es IA y puede cometer errores. Por favor, verifica nuevamente las respuestas.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

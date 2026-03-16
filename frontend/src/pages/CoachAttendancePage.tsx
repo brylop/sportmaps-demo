@@ -15,7 +15,7 @@ type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface TeamItem { id: string; name: string; }
-interface StudentItem { id: string; full_name: string; photo_url?: string; }
+interface StudentItem { id: string; full_name: string; photo_url?: string; athlete_type?: 'adult' | 'child' }
 interface AttendanceSession {
   id: string;
   team_id: string;
@@ -88,18 +88,19 @@ export default function CoachAttendancePage() {
     queryKey: ['team-roster', selectedTeamId],
     queryFn: async () => {
       if (selectedTeamId) {
-        const { data, error } = await (supabase.from('enrollments') as any)
-          .select('child_id, children (id, full_name, avatar_url)')
-          .eq('team_id', selectedTeamId)
-          .eq('status', 'active');
+        const { data: athletes, error } = await (supabase as any)
+          .from('school_athletes')
+          .select('id, full_name, avatar_url, athlete_type')
+          .eq('enrolled_team_id', selectedTeamId)
+          .eq('is_active', true);
+
         if (error) throw error;
-        return data
-          .filter((row: any) => row.children)
-          .map((row: any) => ({
-            id: row.children.id,
-            full_name: row.children.full_name,
-            photo_url: row.children.avatar_url ?? undefined,
-          }));
+        return (athletes || []).map((a: any) => ({
+          id: a.id,
+          full_name: a.full_name,
+          photo_url: a.avatar_url ?? undefined,
+          athlete_type: a.athlete_type
+        }));
       }
 
       if (selectedClassId) {
@@ -139,7 +140,7 @@ export default function CoachAttendancePage() {
   const {
     data: sessionData,
     isLoading: loadingSession,
-  } = useQuery<{ session: AttendanceSession | null; records: { child_id: string; status: string }[] }>({
+  } = useQuery<{ session: AttendanceSession | null; records: { child_id?: string; user_id?: string; status: string }[] }>({
     queryKey: ['attendance-session', selectedTeamId],
     queryFn: async () => {
       if (!selectedTeamId) return { session: null, records: [] };
@@ -156,7 +157,8 @@ export default function CoachAttendancePage() {
       if (data.records.length > 0) {
         const preloaded: Record<string, AttendanceStatus> = {};
         data.records.forEach((r) => {
-          preloaded[r.child_id] = r.status as AttendanceStatus;
+          const athleteId = r.child_id ?? r.user_id;
+          if (athleteId) preloaded[athleteId] = r.status as AttendanceStatus;
         });
         setAttendanceState(preloaded);
       }
@@ -173,10 +175,14 @@ export default function CoachAttendancePage() {
   // ── 4. Guardar asistencia (POST al BFF) ───────────────────────────────────
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const records = Object.entries(attendanceState).map(([childId, status]) => ({
-        childId,
-        status,
-      }));
+      const records = Object.entries(attendanceState).map(([athleteId, status]) => {
+        const student = roster.find(s => s.id === athleteId);
+        return {
+          childId: student?.athlete_type === 'adult' ? null : athleteId,
+          userId: student?.athlete_type === 'adult' ? athleteId : null,
+          status,
+        };
+      });
       if (selectedTeamId) {
         if (records.length === 0) throw new Error('No hay asistencias para guardar.');
         const token = await getBearerToken();
@@ -268,7 +274,7 @@ export default function CoachAttendancePage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24 sm:pb-6">
       <div>
         <h1 className="text-3xl font-bold">Asistencias</h1>
         <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
@@ -417,7 +423,7 @@ export default function CoachAttendancePage() {
 
               {/* Acciones del pie */}
               {roster.length > 0 && !isFinalized && (
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="sticky bottom-16 sm:bottom-0 z-10 bg-background/95 backdrop-blur border-t pt-3 pb-3 px-0 -mx-0 flex flex-col sm:flex-row gap-3">
                   {/* Guardar / Guardar cambios */}
                   <Button
                     className="flex-1"

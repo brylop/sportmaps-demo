@@ -38,6 +38,8 @@ export function FileUpload({
   const [validation, setValidation] = useState<ReceiptValidationResult | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [uploaded, setUploaded] = useState(false);
+  // FIX: guardar la URL ya subida para no volver a subir
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
   const { uploadFile, uploading } = useStorage();
   const { validate, validating } = useReceiptValidator();
@@ -47,6 +49,7 @@ export function FileUpload({
     setValidation(null);
     setOcrProgress(0);
     setUploaded(false);
+    setUploadedUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -55,8 +58,9 @@ export function FileUpload({
     setValidation(null);
     setOcrProgress(0);
     setUploaded(false);
+    setUploadedUrl(null);
 
-    const validSized = files.filter(f => f.size / (1024 * 1024) <= maxSizeMB);
+    const validSized = files.filter(file => file.size / (1024 * 1024) <= maxSizeMB);
     const toUse = multiple ? validSized : validSized.slice(0, 1);
     setSelectedFiles(toUse);
 
@@ -64,9 +68,11 @@ export function FileUpload({
       // Sin validacion: subir directo al seleccionar
       for (const file of toUse) {
         const url = await uploadFile(file, bucket, path);
-        if (url && onUploadComplete) {
-          onUploadComplete(url);
+        // FIX: verificar que url no sea null antes de llamar onUploadComplete
+        if (url != null) {
+          setUploadedUrl(url);
           setUploaded(true);
+          onUploadComplete?.(url);
         }
       }
       return;
@@ -77,7 +83,8 @@ export function FileUpload({
     // Con validacion: primero OCR, luego subir solo si pasa
     setOcrProgress(10);
     const progressInterval = setInterval(() => {
-      setOcrProgress(p => (p < 85 ? p + 5 : p));
+      // FIX: renombrado a 'prev' para evitar confusion con variable 'p' externa
+      setOcrProgress(prev => (prev < 85 ? prev + 5 : prev));
     }, 300);
 
     try {
@@ -87,12 +94,18 @@ export function FileUpload({
       onValidationResult?.(result);
 
       if (result.valid) {
-        // Subida automatica cuando la validacion pasa
-        // Asi proofUrl ya esta lista cuando el usuario hace clic en "Pagar"
-        const url = await uploadFile(toUse[0], bucket, path);
-        if (url && onUploadComplete) {
-          onUploadComplete(url);
-          setUploaded(true);
+        // FIX: solo subir si aun no se ha subido (evita doble upload y 409)
+        if (!uploaded && uploadedUrl == null) {
+          const url = await uploadFile(toUse[0], bucket, path);
+          // FIX: verificar que url no sea null antes de llamar onUploadComplete
+          if (url != null) {
+            setUploadedUrl(url);
+            setUploaded(true);
+            onUploadComplete?.(url);
+          }
+        } else if (uploadedUrl != null) {
+          // Ya fue subido antes — notificar con la URL existente sin re-subir
+          onUploadComplete?.(uploadedUrl);
         }
       }
     } finally {
@@ -102,9 +115,10 @@ export function FileUpload({
   };
 
   const removeFile = (index: number) => {
-    setSelectedFiles(f => f.filter((_, i) => i !== index));
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     setValidation(null);
     setUploaded(false);
+    setUploadedUrl(null);
     onValidationResult?.({
       valid: false,
       extractedDate: null,
@@ -269,4 +283,4 @@ export function FileUpload({
       </p>
     </div>
   );
-}
+}

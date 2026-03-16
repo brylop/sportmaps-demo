@@ -91,12 +91,13 @@ export default function TeamsPage() {
       // Fetch the staff record for this coach if they are a coach
       // This is necessary because programs often link to school_staff.id instead of profiles.id
       let staffId = null;
-      if (currentUserRole === 'coach' && userEmail) {
+      if (currentUserRole === 'coach' && userEmail && schoolId) {
         const { data: staffData } = await supabase
           .from('school_staff')
           .select('id')
           .eq('email', userEmail)
-          .single();
+          .eq('school_id', schoolId)
+          .maybeSingle();
 
         if (staffData) {
           staffId = staffData.id;
@@ -168,13 +169,19 @@ export default function TeamsPage() {
         }
       }
       // Filtering logic based on user role
-      if (currentUserRole === 'coach' && staffId) {
-        // Coach view: filter by team_coaches relation or legacy fields
+      if (currentUserRole === 'coach') {
+        // Coach view: buscar por staffId (school_staff) y también por userId (profiles)
+        // para cubrir coaches invitados cuyo staffId recién se creó o que tienen coach_id = profile.id
         allTeams = allTeams.filter(team => {
-          const isAssigned = team.team_coaches?.some((tc: any) => tc.coach?.id === staffId);
-          const isLegacyCoach = team.coach_id === staffId;
-
-          return isAssigned || isLegacyCoach;
+          if (staffId) {
+            const isAssignedByStaff = team.team_coaches?.some((tc: any) => tc.coach?.id === staffId);
+            if (isAssignedByStaff || team.coach_id === staffId) return true;
+          }
+          if (userId) {
+            const isAssignedByProfile = team.team_coaches?.some((tc: any) => tc.coach?.id === userId);
+            if (isAssignedByProfile || team.coach_id === userId) return true;
+          }
+          return false;
         });
       } else if (activeBranchId) {
         allTeams = allTeams.filter(team => team.branch_id === activeBranchId);
@@ -188,7 +195,7 @@ export default function TeamsPage() {
   // Fetch school students for the detailed list view
   const { data: schoolStudents = [], isLoading: studentsLoading } = useQuery({
     queryKey: ['school-students', schoolId, activeBranchId],
-    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId, activeBranchId) : Promise.resolve([]),
+    queryFn: () => schoolId ? studentsAPI.getSchoolView(schoolId) : Promise.resolve([]),
     enabled: statusFilter === 'with_students' && !!schoolId,
   });
 
@@ -278,7 +285,7 @@ export default function TeamsPage() {
       {/* Stats Cards - Replicating screenshot */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - primary cursor - pointer hover: shadow - md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-primary cursor-pointer hover:shadow-md ${statusFilter === 'all' ? 'ring-2 ring-primary ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'all' ? 'all' : 'all')}
         >
           <CardHeader className="pb-2">
@@ -295,7 +302,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - orange - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_students' ? 'ring-2 ring-orange-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'with_students' ? 'all' : 'with_students')}
         >
           <CardHeader className="pb-2">
@@ -312,7 +319,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - green - 500 cursor - pointer hover: shadow - md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-green-500 cursor-pointer hover:shadow-md ${statusFilter === 'with_wins' ? 'ring-2 ring-green-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'with_wins' ? 'all' : 'with_wins')}
         >
           <CardHeader className="pb-2">
@@ -329,7 +336,7 @@ export default function TeamsPage() {
         </Card>
 
         <Card
-          className={`bg - card transition - all border - l - 4 border - l - blue - 500 cursor - pointer hover: shadow - md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'} `}
+          className={`transition-all border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md ${statusFilter === 'top_rate' ? 'ring-2 ring-blue-500 ring-offset-2' : 'opacity-80 hover:opacity-100'}`}
           onClick={() => setStatusFilter(statusFilter === 'top_rate' ? 'all' : 'top_rate')}
         >
           <CardHeader className="pb-2">
@@ -427,7 +434,9 @@ export default function TeamsPage() {
                   ? 'Aún no hay alumnos inscritos en ningún equipo de esta sede.'
                   : statusFilter === 'with_wins' || statusFilter === 'top_rate'
                     ? 'Aún no se ha registrado información de partidos o victorias para estos equipos.'
-                    : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
+                    : currentUserRole === 'coach'
+                      ? 'Aún no estás asignado a ningún equipo. Pídele al administrador que te asigne a un equipo desde "Editar Equipo".'
+                      : 'Aún no has creado ningún equipo en esta sede o para tu perfil.'}
             </p>
             <PermissionGate permission="teams:create">
               <Button className="gap-2 scale-110" onClick={() => setIsModalOpen(true)}>
@@ -480,53 +489,82 @@ export default function TeamsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {schoolStudents.map((student: any) => (
-                      <TableRow key={student.id} className="hover:bg-muted/30 transition-colors">
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xs">
-                              {student.full_name?.substring(0, 2).toUpperCase()}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{student.full_name}</span>
-                              <MedicalAlertBadge medicalInfo={student.medical_info} />
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-background text-[10px]">
-                            {student.program_name || 'Sin programa'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <User className="h-3 w-3" />
-                            {student.parent_name || 'No registrado'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            {student.parent_phone && (
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <Phone className="h-3 w-3 text-primary" />
-                                <span>{student.parent_phone}</span>
+                    {schoolStudents.map((student: any) => {
+                      // Usar el acudiente registrado o recuperar el contacto de emergencia
+                      const emergencyContact = student.emergency_contact || '';
+                      const hasEmergencyContactParts = emergencyContact.includes(' - ');
+                      const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
+                      const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
+
+                      const isAdult = (student as any).athlete_type === 'adult';
+
+                      const displayParentName = isAdult
+                        ? null
+                        : student.parent_name || fallbackParentName?.trim() || 'No registrado';
+
+                      const displayParentPhone = isAdult
+                        ? (student as any).parent_phone || null
+                        : student.parent_phone || fallbackParentPhone?.trim() || null;
+
+                      return (
+                        <TableRow key={student.id} className="hover:bg-muted/30 transition-colors">
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xs">
+                                {student.full_name?.substring(0, 2).toUpperCase()}
                               </div>
-                            )}
-                            {student.parent_email && (
-                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                <Mail className="h-3 w-3" />
-                                <span className="truncate max-w-[120px]">{student.parent_email}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{student.full_name}</span>
+                                <MedicalAlertBadge medicalInfo={student.medical_info} />
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className="bg-green-500 hover:bg-green-600 text-[10px] capitalize">
-                            Activo
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1 max-w-[140px]">
+                              {(student as any).team_name
+                                ? String((student as any).team_name).split(',').map((prog: string, i: number) => (
+                                  <Badge
+                                    key={i}
+                                    variant="secondary"
+                                    className="text-[10px] px-2 py-0.5 bg-primary/10 text-primary border-primary/20 whitespace-nowrap"
+                                  >
+                                    {prog.trim()}
+                                  </Badge>
+                                ))
+                                : <span className="text-xs text-muted-foreground italic">Sin programa</span>
+                              }
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <User className="h-3 w-3" />
+                              {isAdult ? <span className="text-muted-foreground">—</span> : displayParentName}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {displayParentPhone && (
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <Phone className="h-3 w-3 text-primary" />
+                                  <span>{displayParentPhone}</span>
+                                </div>
+                              )}
+                              {student.parent_email && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                  <Mail className="h-3 w-3" />
+                                  <span className="truncate max-w-[120px]">{student.parent_email}</span>
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className="bg-green-500 hover:bg-green-600 text-[10px] capitalize">
+                              Activo
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -535,17 +573,17 @@ export default function TeamsPage() {
         </Card>
       ) : viewMode === 'table' ? (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="w-[280px]">Equipo / Deporte</TableHead>
-                  <TableHead>Programa / Nivel</TableHead>
-                  <TableHead>Sede</TableHead>
+                  <TableHead className="w-[200px]">Equipo / Deporte</TableHead>
+                  <TableHead className="hidden md:table-cell">Programa / Nivel</TableHead>
+                  <TableHead className="hidden lg:table-cell">Sede</TableHead>
                   <TableHead>Entrenador</TableHead>
-                  <TableHead>Estadísticas</TableHead>
-                  <TableHead>Capacidad</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <TableHead className="hidden md:table-cell">Estadísticas</TableHead>
+                  <TableHead className="hidden lg:table-cell">Capacidad</TableHead>
+                  <TableHead className="hidden sm:table-cell">Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -553,19 +591,17 @@ export default function TeamsPage() {
                 {filteredTeams.map((team) => (
                   <TableRow key={team.id} className="hover:bg-muted/10 transition-colors">
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Crown className="w-5 h-5 text-primary" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <Crown className="w-4 h-4 text-primary" />
                         </div>
-                        <div>
-                          <p className="font-semibold text-sm">{team.name}</p>
-                          <Badge variant="outline" className="text-[10px] mt-1">
-                            {team.sport}
-                          </Badge>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{team.name}</p>
+                          <Badge variant="outline" className="text-[10px] mt-1">{team.sport}</Badge>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <div className="flex flex-col gap-1">
                         <span className="text-sm font-medium">{team.programs?.name || team.name}</span>
                         <span className="text-[10px] text-muted-foreground capitalize">
@@ -573,45 +609,38 @@ export default function TeamsPage() {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <div className="flex items-center gap-1.5 text-xs">
-                        <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
+                        <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         {team.school_branches?.name || 'Sede Principal'}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      <div className="flex flex-wrap gap-1 max-w-[150px]">
                         {team.team_coaches && team.team_coaches.length > 0 ? (
                           team.team_coaches.map((tc: any) => (
-                            <Badge key={tc.coach?.id} variant="secondary" className="text-[10px] py-0 h-4 bg-orange-50 text-orange-700 border-orange-100">
+                            <Badge key={tc.coach?.id} variant="secondary" className="text-[10px] py-0 h-5 bg-orange-50 text-orange-700 border-orange-100 truncate max-w-[130px]">
                               {tc.coach?.full_name}
                             </Badge>
                           ))
-                        ) : team.coach?.[0]?.full_name ? (
-                          <Badge variant="secondary" className="text-[10px] py-0 h-4 bg-orange-50 text-orange-700 border-orange-100">
-                            {team.coach[0].full_name}
-                          </Badge>
                         ) : (
                           <span className="text-xs text-muted-foreground italic">Sin asignar</span>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {((team.wins || 0) + (team.losses || 0)) > 0 ? (
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 text-xs">
                             <span className="text-green-600 font-bold">W: {team.wins || 0}</span>
                             <span className="text-red-500 font-bold">L: {team.losses || 0}</span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground">
-                            Efectividad: {Math.round(((team.wins || 0) / ((team.wins || 0) + (team.losses || 0) || 1)) * 100)}%
-                          </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground italic">Aún no registra información</span>
+                        <span className="text-[10px] text-muted-foreground italic">Sin info</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <div className="w-24 space-y-1">
                         <div className="flex justify-between text-[10px] text-muted-foreground">
                           <span>{team.current_students || 0}/{team.max_students || 20}</span>
@@ -620,45 +649,30 @@ export default function TeamsPage() {
                         <Progress value={((team.current_students || 0) / (team.max_students || 20)) * 100} className="h-1.5" />
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge
                         variant={team.status === 'active' ? 'default' : 'secondary'}
-                        className={`capitalize text - [10px] ${team.status === 'active' ? 'bg-green-500 hover:bg-green-600' : ''} `}
+                        className={`capitalize text-[10px] ${team.status === 'active' ? 'bg-green-500 hover:bg-green-600' : ''}`}
                       >
                         {team.status === 'active' ? 'Activo' : 'Inactivo'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end gap-1">
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                          onClick={() => {
-                            setSelectedTeamForEnroll(team);
-                            setIsEnrollModalOpen(true);
-                          }}
+                          variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                          onClick={() => { setSelectedTeamForEnroll(team); setIsEnrollModalOpen(true); }}
                           title="Gestionar Estudiantes"
                         >
                           <UserPlus className="h-4 w-4" />
                         </Button>
                         <PermissionGate permission="teams:edit">
                           <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => {
-                              setEditingTeam(team);
-                              setIsModalOpen(true);
-                            }}
+                            variant="ghost" size="icon" className="h-8 w-8"
+                            onClick={() => { setEditingTeam(team); setIsModalOpen(true); }}
                             title="Editar Equipo"
                           >
                             <Pencil className="h-4 w-4" />
-                          </Button>
-                        </PermissionGate>
-                        <PermissionGate permission="teams:edit">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Estadísticas">
-                            <TrendingUp className="h-4 w-4" />
                           </Button>
                         </PermissionGate>
                       </div>

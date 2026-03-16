@@ -27,7 +27,7 @@ import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 export default function DashboardPage() {
   const { profile, user, updateProfile } = useAuth();
   const { toast } = useToast();
-  const { activeBranchId, activeBranchName, totalBranches } = useSchoolContext();
+  const { activeBranchId, activeBranchName, totalBranches, schoolName } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const pendingInviteId = localStorage.getItem('pending_invite_id');
@@ -69,8 +69,8 @@ export default function DashboardPage() {
   const role = profile?.role as unknown as string;
 
   if (role === 'owner' || role === 'super_admin') {
-    // Si tiene multiples sedes y está en Todas las sedes (global) es admin, sino es school (operativo)
-    dashboardRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
+    // Owners siempre operan a nivel de sede
+    dashboardRole = 'school';
   } else if (role === 'school_admin') {
     dashboardRole = 'school_admin';
   } else if (role === 'school') {
@@ -92,8 +92,14 @@ export default function DashboardPage() {
     try {
       // Prioridad: 1. URL (?invite=...)  2. localStorage (pending_invite_id)
       const targetInviteId = inviteUrlId || pendingInviteId;
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      if (targetInviteId && targetInviteId.length > 30) {
+      // Limpiar si el valor guardado no es un UUID válido
+      if (targetInviteId && !UUID_REGEX.test(targetInviteId)) {
+        localStorage.removeItem('pending_invite_id');
+      }
+
+      if (targetInviteId && UUID_REGEX.test(targetInviteId)) {
         console.log('Intentando auto-aceptar invitación:', targetInviteId);
         const { error: acceptError } = await (supabase.rpc as any)('accept_invitation_pro', {
           p_invite_id: targetInviteId
@@ -120,10 +126,8 @@ export default function DashboardPage() {
           }, 1500);
         } else {
           console.error('Error al aceptar invitación:', acceptError);
-          // Si el error es que ya no es válida o ya se procesó, entonces sí limpiamos para evitar bucles de error
-          if (acceptError.message?.includes('ya procesada') || acceptError.message?.includes('no válida')) {
-            localStorage.removeItem('pending_invite_id');
-          }
+          // Siempre limpiar para evitar bucles de reintento
+          localStorage.removeItem('pending_invite_id');
         }
       }
 
@@ -244,7 +248,10 @@ export default function DashboardPage() {
         }
         if (index === 2) {
           // Coaches relative or third card
-          const count = profile.role === 'coach' ? (realStats.upcomingEvents || 0) : (realStats.activeTeams || 0);
+          const count = profile.role === 'coach'
+            ? (realStats.upcomingEvents || 0)
+            : ((realStats as any).coaches_count || 0);
+
           return {
             ...stat,
             value: count,
@@ -293,6 +300,13 @@ export default function DashboardPage() {
             ...stat,
             value: realStats.upcoming_payments || 0,
             description: 'Mensualidades pendientes'
+          };
+        }
+        if (index === 3) {
+          return {
+            ...stat,
+            value: realStats.unreadNotifications || 0,
+            description: 'Sin leer'
           };
         }
       }
@@ -349,7 +363,7 @@ export default function DashboardPage() {
       )}
 
       {/* Invitations and Onboarding Checklist */}
-      {invitation && (
+      {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (
         <InvitationBanner
           invitation={invitation}
           onAction={() => {
@@ -427,7 +441,7 @@ export default function DashboardPage() {
           userRole={profile.role}
           userName={
             (profile.role === 'school' || profile.role === 'school_admin')
-              ? (activeBranchName || 'Tu Academia')
+              ? (schoolName || 'Tu Academia')
               : (profile.full_name?.split(' ')[0] || 'Usuario')
           }
           onComplete={handleCloseWelcome}

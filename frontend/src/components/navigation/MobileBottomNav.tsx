@@ -24,7 +24,7 @@ const getNavigationItemsForRole = (role: string) => {
     case 'coach':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/my-classes', label: 'Clases', icon: Calendar },
+        { href: '/coach-attendance', label: 'Asistencias', icon: Calendar },
         { href: '/teams', label: 'Equipos', icon: Users },
         { href: '/messages', label: 'Chat', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },
@@ -68,7 +68,7 @@ export function MobileBottomNav() {
       <div className="flex items-center justify-around h-16 px-2">
         {navigationItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.href || 
+          const isActive = location.pathname === item.href ||
             (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
 
           return (

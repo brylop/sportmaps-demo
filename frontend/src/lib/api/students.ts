@@ -92,6 +92,8 @@ export interface BulkUploadResponse {
 export interface BulkUploadOptions {
   /** Si true, actualiza estudiantes con document_id existente. Default: false */
   upsert?: boolean;
+  /** Branch ID por defecto para estudiantes sin columna 'sede' en el CSV */
+  defaultBranchId?: string | null;
 }
 
 export interface StudentViewRow {
@@ -103,17 +105,23 @@ export interface StudentViewRow {
   parent_id?: string;
   school_id: string;
   created_at: string;
+  emergency_contact?: string;
   parent_name?: string;
   parent_phone?: string;
+  parent_email?: string;
   parent_avatar?: string;
   enrollment_id?: string;
   program_id?: string;
+  branch_id?: string;
   enrollment_status?: string;
   program_name?: string;
+  team_name?: string;
   program_sport?: string;
   price_monthly?: number;
+  monthly_fee?: number;
   branch_name?: string;
   medical_info?: string | null;
+  display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
 }
 
@@ -132,13 +140,13 @@ interface BFFStudentRow {
   grade?: string;
   medical_info?: string;
   branch?: string;
-  team?: string;
-  sport?: string;
+  team: string;
+  sport: string;
   date_of_birth?: string;
   gender?: string;
-  parent_name?: string;
-  parent_email?: string;
-  parent_phone?: string;
+  parent_name: string;
+  parent_email: string;
+  parent_phone: string;
   monthly_fee?: number;
 }
 
@@ -175,28 +183,56 @@ class StudentsAPI {
   /**
    * Get enriched students data for School Management UI (uses 'students' VIEW)
    */
-  async getSchoolView(schoolId: string, branchId?: string | null): Promise<StudentViewRow[]> {
-    try {
-      if (!schoolId || !isValidUUID(schoolId)) {
-        return [];
-      }
-      let query = supabase
-        .from('students')
-        .select('*')
-        .eq('school_id', schoolId);
+  async getSchoolView(schoolId: string, teamId?: string) {
+    let query = supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true);
 
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data as StudentViewRow[] || [];
-    } catch (error: any) {
-      console.error('Error fetching school students view:', error);
-      return [];
+    if (teamId) {
+      query = query.eq('enrolled_team_id', teamId);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /**
+   * Lista atletas de un equipo específico.
+   */
+  async getByTeam(schoolId: string, teamId: string) {
+    return this.getSchoolView(schoolId, teamId);
+  }
+
+  /**
+   * Busca atletas por nombre en la vista unificada.
+   */
+  async searchAthletes(schoolId: string, term: string) {
+    const { data, error } = await supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .ilike('full_name', `%${term}%`);
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /**
+   * Lista atletas SIN enrollment activo en el equipo dado.
+   * Usado por EnrollTeamStudentModal para mostrar quién puede inscribirse.
+   */
+  async getAvailableForTeam(schoolId: string, teamId: string) {
+    const { data, error } = await supabase
+      .from('school_athletes' as any)
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('is_active', true)
+      .or(`enrolled_team_id.is.null,enrolled_team_id.neq.${teamId}`);
+    if (error) throw error;
+    return data ?? [];
   }
 
   /**
@@ -265,12 +301,20 @@ class StudentsAPI {
    * Update a student
    */
   async updateStudent(id: string, updates: StudentUpdate): Promise<Student> {
+    const dbUpdates: any = {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Mapear status a is_active para la BD
+    if (updates.status !== undefined) {
+      dbUpdates.is_active = updates.status === 'active';
+      delete dbUpdates.status;
+    }
+
     const { data, error } = await supabase
       .from('children')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
+      .update(dbUpdates)
       .eq('id', id)
       .select()
       .single();
@@ -313,7 +357,7 @@ class StudentsAPI {
 
     // ── 1. Parsear el CSV (igual que antes) ───────────────────────────────
     const text = await file.text();
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
     if (lines.length < 2) {
       return {
@@ -325,19 +369,36 @@ class StudentsAPI {
       };
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const delimiter = lines[0].includes(';') ? ';' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase().replace(/^"|"$/g, '').replace(/^\uFEFF/, ''));
     const parseErrors: Array<{ row: number; error: string }> = [];
-    const students: BFFStudentRow[] = [];
+    const seenDocIds = new Set<string>();
+    const uniqueStudents: BFFStudentRow[] = [];
+
+    // Elimina sufijo ".0" que Excel/pandas añade a campos numéricos (ej: "1109803617.0" → "1109803617")
+    const stripDecimal = (val: string) => /^\d+\.0+$/.test(val) ? val.replace(/\.0+$/, '') : val;
+
+    // Normaliza notas_medicas a JSON válido con has_allergies (P4)
+    const normalizeMedicalInfo = (val: string): string | undefined => {
+      if (!val) return undefined;
+      try { JSON.parse(val); return val; } catch { /* no es JSON */ }
+      const lower = val.trim().toLowerCase();
+      if (/^(ninguna?|none|no|-)$/.test(lower)) return JSON.stringify({ has_allergies: false });
+      if (lower.includes('alergia') || lower.includes('allerg')) {
+        return JSON.stringify({ has_allergies: true, allergy_type: val.trim(), allergy_severity: 'unknown', allergy_treatment: 'Consultar médico' });
+      }
+      return JSON.stringify({ has_allergies: false, notes: val.trim() });
+    };
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = lines[i].split(delimiter).map(v => v.trim().replace(/^"|"$/g, ''));
       const row: Record<string, string> = {};
       headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
 
       // Mapear headers en español e inglés (igual que antes)
       const firstName = row['first_name'] || row['nombre'] || '';
       const lastName = row['last_name'] || row['apellido'] || '';
-      const docId = row['document_id'] || row['documento'] || row['cedula'] || '';
+      const docId = stripDecimal(row['document_id'] || row['documento'] || row['cedula'] || '');
 
       // full_name como fallback si el CSV no tiene first/last separados
       if (!firstName && !lastName) {
@@ -346,52 +407,138 @@ class StudentsAPI {
           parseErrors.push({ row: i + 1, error: 'Falta nombre del estudiante' });
           continue;
         }
+        if (!docId) {
+          parseErrors.push({ row: i + 1, error: 'Falta documento (document_id / documento / cedula)' });
+          continue;
+        }
+        if (seenDocIds.has(docId)) {
+          parseErrors.push({ row: i + 1, error: `Documento duplicado: "${docId}" — se omitió la aparición repetida` });
+          continue;
+        }
         // Dividir en first/last por el primer espacio
         const parts = fullName.split(' ');
-        students.push({
+        const pName = row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || '';
+        const pEmail = row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || '';
+        const pPhone = stripDecimal(row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || '');
+        if (!pName || pName.length < 2) {
+          parseErrors.push({ row: i + 1, error: 'Falta nombre del acudiente (columna: acudiente / parent_name)' });
+          continue;
+        }
+        if (!pEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pEmail)) {
+          parseErrors.push({ row: i + 1, error: 'Email del acudiente inválido o faltante (columna: correo_acudiente / parent_email)' });
+          continue;
+        }
+        if (!/^\d{10,}$/.test(pPhone)) {
+          parseErrors.push({ row: i + 1, error: 'Teléfono del acudiente debe tener mínimo 10 dígitos (columna: telefono_acudiente)' });
+          continue;
+        }
+        const teamName = row['team'] || row['equipo'] || '';
+        if (!teamName) {
+          parseErrors.push({ row: i + 1, error: 'Falta equipo (columna: equipo / team)' });
+          continue;
+        }
+        const sportName = row['sport'] || row['deporte'] || '';
+        if (!sportName) {
+          parseErrors.push({ row: i + 1, error: 'Falta deporte (columna: deporte / sport)' });
+          continue;
+        }
+        const dobRaw = row['date_of_birth'] || row['fecha_nacimiento'] || '';
+        if (dobRaw && !/^\d{4}-\d{2}-\d{2}$/.test(dobRaw)) {
+          parseErrors.push({ row: i + 1, error: `Fecha de nacimiento inválida: "${dobRaw}" — usar formato YYYY-MM-DD` });
+          continue;
+        }
+        const feeRaw = row['monthly_fee'] || row['mensualidad'] || '';
+        const fee = feeRaw ? Number(feeRaw) : undefined;
+        if (fee !== undefined && (isNaN(fee) || fee < 10000)) {
+          parseErrors.push({ row: i + 1, error: `Mensualidad inválida: "${feeRaw}" — debe ser número ≥ $10,000 COP` });
+          continue;
+        }
+        seenDocIds.add(docId);
+        uniqueStudents.push({
           first_name: parts[0],
           last_name: parts.slice(1).join(' ') || '-',
-          document_id: docId || `AUTO-${i}`,   // fallback si no hay documento
+          document_id: docId,
           grade: row['grade'] || row['grado'] || undefined,
-          medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+          medical_info: normalizeMedicalInfo(row['medical_info'] || row['notas_medicas'] || ''),
           branch: row['branch'] || row['sede'] || undefined,
-          team: row['team'] || row['equipo'] || undefined,
-          sport: row['sport'] || row['deporte'] || undefined,
-          date_of_birth: row['date_of_birth'] || row['fecha_nacimiento'] || undefined,
+          team: teamName,
+          sport: sportName,
+          date_of_birth: dobRaw || undefined,
           gender: row['gender'] || row['genero'] || row['género'] || undefined,
-          parent_name: row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || undefined,
-          parent_email: row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || undefined,
-          parent_phone: row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || undefined,
-          monthly_fee: row['monthly_fee'] || row['mensualidad'] ? Number(row['monthly_fee'] || row['mensualidad']) : undefined,
+          parent_name: pName,
+          parent_email: pEmail,
+          parent_phone: pPhone,
+          monthly_fee: fee,
         });
         continue;
       }
 
       if (!docId) {
-        parseErrors.push({ row: i + 1, error: 'Falta document_id / documento' });
+        parseErrors.push({ row: i + 1, error: 'Falta documento (document_id / documento / cedula)' });
+        continue;
+      }
+      if (seenDocIds.has(docId)) {
+        parseErrors.push({ row: i + 1, error: `Documento duplicado: "${docId}" — se omitió la aparición repetida` });
         continue;
       }
 
-      students.push({
+      const pName = row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || '';
+      const pEmail = row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || '';
+      const pPhone = stripDecimal(row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || '');
+      if (!pName || pName.length < 2) {
+        parseErrors.push({ row: i + 1, error: 'Falta nombre del acudiente (columna: acudiente / parent_name)' });
+        continue;
+      }
+      if (!pEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pEmail)) {
+        parseErrors.push({ row: i + 1, error: 'Email del acudiente inválido o faltante (columna: correo_acudiente / parent_email)' });
+        continue;
+      }
+      if (!/^\d{10,}$/.test(pPhone)) {
+        parseErrors.push({ row: i + 1, error: 'Teléfono del acudiente debe tener mínimo 10 dígitos (columna: telefono_acudiente)' });
+        continue;
+      }
+      const teamName = row['team'] || row['equipo'] || '';
+      if (!teamName) {
+        parseErrors.push({ row: i + 1, error: 'Falta equipo (columna: equipo / team)' });
+        continue;
+      }
+      const sportName = row['sport'] || row['deporte'] || '';
+      if (!sportName) {
+        parseErrors.push({ row: i + 1, error: 'Falta deporte (columna: deporte / sport)' });
+        continue;
+      }
+      const dobRaw = row['date_of_birth'] || row['fecha_nacimiento'] || '';
+      if (dobRaw && !/^\d{4}-\d{2}-\d{2}$/.test(dobRaw)) {
+        parseErrors.push({ row: i + 1, error: `Fecha de nacimiento inválida: "${dobRaw}" — usar formato YYYY-MM-DD` });
+        continue;
+      }
+      const feeRaw = row['monthly_fee'] || row['mensualidad'] || '';
+      const fee = feeRaw ? Number(feeRaw) : undefined;
+      if (fee !== undefined && (isNaN(fee) || fee < 10000)) {
+        parseErrors.push({ row: i + 1, error: `Mensualidad inválida: "${feeRaw}" — debe ser número ≥ $10,000 COP` });
+        continue;
+      }
+      seenDocIds.add(docId);
+      uniqueStudents.push({
         first_name: firstName,
         last_name: lastName,
         document_id: docId,
         grade: row['grade'] || row['grado'] || undefined,
-        medical_info: row['medical_info'] || row['notas_medicas'] || undefined,
+        medical_info: normalizeMedicalInfo(row['medical_info'] || row['notas_medicas'] || ''),
         branch: row['branch'] || row['sede'] || undefined,
-        team: row['team'] || row['equipo'] || undefined,
-        sport: row['sport'] || row['deporte'] || undefined,
-        date_of_birth: row['date_of_birth'] || row['fecha_nacimiento'] || undefined,
+        team: teamName,
+        sport: sportName,
+        date_of_birth: dobRaw || undefined,
         gender: row['gender'] || row['genero'] || row['género'] || undefined,
-        parent_name: row['parent_name'] || row['acudiente'] || row['nombre_acudiente'] || undefined,
-        parent_email: row['parent_email'] || row['correo_acudiente'] || row['email_acudiente'] || undefined,
-        parent_phone: row['parent_phone'] || row['telefono_acudiente'] || row['telefono'] || undefined,
-        monthly_fee: row['monthly_fee'] || row['mensualidad'] ? Number(row['monthly_fee'] || row['mensualidad']) : undefined,
+        parent_name: pName,
+        parent_email: pEmail,
+        parent_phone: pPhone,
+        monthly_fee: fee,
       });
     }
 
     // Si todos fallaron en el parseo, no llamamos al BFF
-    if (students.length === 0) {
+    if (uniqueStudents.length === 0) {
       return {
         success: false,
         message: `No se pudo parsear ningún estudiante. ${parseErrors.length} errores.`,
@@ -410,8 +557,13 @@ class StudentsAPI {
       summary: { total: number; inserted: number; updated: number; skipped: number };
       skipped: Array<{ document_id: string; reason: string }>;
     }>('/api/v1/students/bulk', {
-      students,
-      options: { upsert: options.upsert ?? false },
+      students: uniqueStudents,
+      options: {
+        upsert: options.upsert ?? false,
+        defaultBranchId: options.defaultBranchId || null,
+      },
+    }, {
+      'x-school-id': schoolId
     });
 
     // ── 3. Adaptar respuesta al contrato anterior ─────────────────────────
@@ -432,51 +584,61 @@ class StudentsAPI {
    * Get student statistics for a school
    */
   async getStats(schoolId: string, branchId?: string | null, coachId?: string): Promise<StudentStats> {
+    // Para coaches: conteo único via enrollments activos + children.team_id.
+    // Se hace antes del check de schoolId para soportar coaches sin sede activa.
+    if (coachId) {
+      try {
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase.from('teams').select('id').eq('coach_id', coachId),
+          supabase.from('team_coaches').select('team_id').eq('coach_id', coachId),
+        ]);
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+        if (teamIds.length === 0) return { total: 0, active: 0, inactive: 0, by_grade: {} };
+
+        // Build query — only filter by school_id if it's a valid UUID
+        let coachQuery = supabase
+          .from('school_athletes' as any)
+          .select('id')
+          .eq('is_active', true)
+          .in('enrolled_team_id', teamIds);
+
+        if (schoolId && isValidUUID(schoolId)) {
+          coachQuery = coachQuery.eq('school_id', schoolId);
+        }
+
+        const { data: coachAthletes } = await coachQuery;
+
+        const uniqueCount = coachAthletes?.length ?? 0;
+
+        return { total: uniqueCount, active: uniqueCount, inactive: 0, by_grade: {} };
+      } catch (error) {
+        console.warn('Error fetching coach student stats:', error);
+        return { total: 0, active: 0, inactive: 0, by_grade: {} };
+      }
+    }
+
     if (!schoolId || !isValidUUID(schoolId)) {
       return { total: 0, active: 0, inactive: 0, by_grade: {} };
     }
     try {
-      let query = supabase
-        .from('children')
-        .select('*', { count: 'exact', head: true });
+      const { data: athletes, error: athletesErr } = await supabase
+        .from('school_athletes' as any)
+        .select('id, is_active')
+        .eq('school_id', schoolId);
 
-      if (schoolId) {
-        query = query.eq('school_id', schoolId);
-      }
+      if (athletesErr) throw athletesErr;
 
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      if (coachId) {
-        // Fetch teams for this coach
-        const { data: coachTeams } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('coach_id', coachId);
-
-        const teamIds = (coachTeams || []).map(t => t.id);
-        if (teamIds.length > 0) {
-          query = query.or(`team_id.in.(${teamIds.join(',')})`);
-        } else {
-          return { total: 0, active: 0, inactive: 0, by_grade: {} };
-        }
-      }
-
-      const { data: students, count: total } = await query;
-
-      const by_grade: Record<string, number> = {};
-      students?.forEach(s => {
-        if (s.grade) {
-          by_grade[s.grade] = (by_grade[s.grade] || 0) + 1;
-        }
-      });
+      const total = athletes?.length ?? 0;
+      const active = athletes?.filter((a: any) => a.is_active).length ?? 0;
 
       return {
-        total: total || 0,
-        active: total || 0,
-        inactive: 0,
-        by_grade,
+        total,
+        active,
+        inactive: total - active,
+        by_grade: {}, // Grade data might not be supported without joining properly, returning empty for now.
       };
     } catch (error) {
       console.warn('Error fetching student stats:', error);
@@ -504,7 +666,7 @@ class StudentsAPI {
       sport: child.sport,
       team_name: child.team_name,
       avatar_url: child.avatar_url || parentProfile?.avatar_url,
-      status: 'active',
+      status: child.is_active !== false ? 'active' : 'inactive',
       created_at: child.created_at,
       updated_at: child.updated_at,
     } as Student;

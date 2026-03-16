@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
-import { EmailTemplates } from '@/lib/email-templates';
+import { bffClient } from '@/lib/api/bffClient';
 
 /**
  * Represents a sports program offered by a school.
@@ -67,7 +68,20 @@ export interface SchoolContext {
     loading: boolean;
     /** Error message if any operation failed. */
     error: string | null;
+    /** Branding settings de la escuela activa (logo, colores) */
+    schoolBranding: {
+        logo_url: string | null
+        branding_settings: {
+            primary_color: string
+            secondary_color: string
+            show_sportmaps_watermark: boolean
+        } | null
+    } | null;
+    /** Recarga los datos de branding sin recargar toda la página */
+    refreshSchoolBranding: () => Promise<void>;
 }
+
+const SchoolContext = createContext<SchoolContext | undefined>(undefined);
 
 // Email de la escuela demo para usuarios invitados (solo si se configura en .env)
 const DEMO_SCHOOL_EMAIL = import.meta.env.VITE_DEMO_SCHOOL_EMAIL || '';
@@ -75,10 +89,9 @@ const DEFAULT_MONTHLY_FEE = 150000; // COP
 const STORAGE_KEY_ACTIVE_SCHOOL = 'sportmaps_active_school_id';
 
 /**
- * Hook reutilizable que resuelve el contexto de la escuela actual.
- * Soporta múltiples escuelas por usuario (Multitenancy).
+ * Internal hook that manages the school context state.
  */
-export function useSchoolContext(): SchoolContext {
+function useSchoolContextManager(): SchoolContext {
     const [activeSchoolId, setActiveSchoolId] = useState<string | null>(null);
     const [activeSchoolName, setActiveSchoolName] = useState('Escuela');
     const [currentUserRole, setCurrentUserRole] = useState<SchoolRole['role'] | null>(null);
@@ -89,6 +102,7 @@ export function useSchoolContext(): SchoolContext {
     const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
     const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
     const [schoolSettings, setSchoolSettings] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const [schoolBranding, setSchoolBranding] = useState<SchoolContext['schoolBranding']>(null);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -136,6 +150,13 @@ export function useSchoolContext(): SchoolContext {
                     return;
                 }
 
+                // Ensure we know the user's base profile role BEFORE mapping memberships
+                const { data: userProfile } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', user.id)
+                    .maybeSingle();
+
                 // Fetch memberships
                 const { data: memberships, error: memberError } = await supabase
                     .from('school_members')
@@ -155,7 +176,9 @@ export function useSchoolContext(): SchoolContext {
                         return {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
-                            role: m.role as SchoolRole['role'],
+                            // Forzamos el rol "parent" si el perfil del usuario es padre, 
+                            // para evitar que membresías erróneas de "athlete" sobrescriban su Dashboard.
+                            role: (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
                             // Owners and super admins manage the whole school, they shouldn't be tied to a specific branch on load if they have a global role
                             branchId: isAlwaysGlobal ? null : (m.branch_id || null),
                             isGlobal: isAlwaysGlobal || isScopedAdmin,
@@ -177,12 +200,6 @@ export function useSchoolContext(): SchoolContext {
                 } else {
                     // Authenticated but no memberships
                     // Check if user is explicitly a SCHOOL role
-                    const { data: userProfile } = await supabase
-                        .from('profiles')
-                        .select('role')
-                        .eq('id', user.id)
-                        .maybeSingle();
-
                     const userRole = userProfile?.role as string;
                     if (userRole === 'school' || userRole === 'school_admin' || userRole === 'reporter') {
                         // New School Owner -> Trigger Onboarding
@@ -214,13 +231,6 @@ export function useSchoolContext(): SchoolContext {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 2. Effect: Fetch Programs when Active School Changes
-    useEffect(() => {
-        if (activeSchoolId && activeSchoolId !== "") {
-            fetchPrograms(activeSchoolId, activeBranchId);
-            fetchSettings(activeSchoolId);
-        }
-    }, [activeSchoolId, activeBranchId]);
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
@@ -229,7 +239,7 @@ export function useSchoolContext(): SchoolContext {
         setActiveBranchId(school.branchId);
         setIsGlobalAdmin(!!school.isGlobal);
 
-        // Fetch branch count and data
+        // Fetch branch count and data (for display purposes)
         const { data: branchesData, count } = await supabase
             .from('school_branches')
             .select('id, name', { count: 'exact' })
@@ -239,29 +249,40 @@ export function useSchoolContext(): SchoolContext {
         setBranches(branchesData || []);
 
         if (school.branchId) {
-            const { data: branch } = await supabase
-                .from('school_branches')
-                .select('name')
-                .eq('id', school.branchId)
-                .maybeSingle();
+            const branch = branchesData?.find(b => b.id === school.branchId);
             setActiveBranchName(branch?.name || 'Sede');
         } else {
-            setActiveBranchName('Todas las sedes');
+            setActiveBranchName('Sede Principal');
         }
 
         setOnboardingStatus(school.onboardingStatus || 'completed');
+        // Clear branding when switching schools to avoid "flash" of previous branding
+        setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
     }, []);
 
     const switchSchool = (schoolId: string, branchId: string | null = null) => {
+        // First try exact match
         const target = availableSchools.find(s => s.schoolId === schoolId && s.branchId === branchId);
         if (target) {
             selectSchool(target);
-        } else {
-            // If branch not found, try to find any branch in that school or the school itself
-            const anyInSchool = availableSchools.find(s => s.schoolId === schoolId);
-            if (anyInSchool) selectSchool(anyInSchool);
+            return;
         }
+
+        // For global admins (owner/super_admin), they have a single entry with branchId=null
+        // When they select a specific branch, we create a synthetic SchoolRole with that branchId
+        const baseEntry = availableSchools.find(s => s.schoolId === schoolId && s.isGlobal);
+        if (baseEntry) {
+            selectSchool({
+                ...baseEntry,
+                branchId: branchId, // null = "Todas las sedes", UUID = specific sede
+            });
+            return;
+        }
+
+        // Last resort: find any entry in that school
+        const anyInSchool = availableSchools.find(s => s.schoolId === schoolId);
+        if (anyInSchool) selectSchool(anyInSchool);
     };
 
     const fetchPrograms = useCallback(async (id: string, branchId: string | null = null) => {
@@ -308,6 +329,33 @@ export function useSchoolContext(): SchoolContext {
             .maybeSingle();
         setSchoolSettings(data);
     }, []);
+
+    const fetchSchoolBranding = useCallback(async (id: string) => {
+        if (!id || id === "") {
+            setSchoolBranding(null);
+            return;
+        }
+
+        const { data } = await supabase
+            .from('schools')
+            .select('logo_url, branding_settings')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (data) {
+            const schoolData = data as any;
+            setSchoolBranding({
+                logo_url: schoolData.logo_url ?? null,
+                branding_settings: schoolData.branding_settings ?? null,
+            });
+        }
+    }, []);
+
+    const refreshSchoolBranding = useCallback(async () => {
+        if (activeSchoolId) {
+            await fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSchoolBranding]);
 
     const updateOnboardingStatus = async (status: 'pending' | 'in_progress' | 'completed'): Promise<boolean> => {
         if (!activeSchoolId) {
@@ -367,6 +415,27 @@ export function useSchoolContext(): SchoolContext {
         }
     };
 
+    // 2a. Effect: Fetch Branch-specific data (Programs)
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchPrograms(activeSchoolId, activeBranchId);
+        }
+    }, [activeSchoolId, activeBranchId, fetchPrograms]);
+
+    // 2b. Effect: Fetch School-wide data (Settings, Branding)
+    // Only happens when the school changes, NOT the branch.
+    useEffect(() => {
+        if (activeSchoolId && activeSchoolId !== "") {
+            fetchSettings(activeSchoolId);
+            fetchSchoolBranding(activeSchoolId);
+        }
+    }, [activeSchoolId, fetchSettings, fetchSchoolBranding]);
+
+    // 3. Effect: Link Active School to bffClient for header injection
+    useEffect(() => {
+        bffClient.setSchoolId(activeSchoolId ?? null);
+    }, [activeSchoolId]);
+
     return {
         schoolId: activeSchoolId,
         schoolName: activeSchoolName,
@@ -386,7 +455,28 @@ export function useSchoolContext(): SchoolContext {
         defaultMonthlyFee: DEFAULT_MONTHLY_FEE,
         loading,
         error,
+        schoolBranding,
+        refreshSchoolBranding,
     };
+}
+
+/**
+ * Provider component. Avoids JSX so this file stays as .ts
+ */
+export function SchoolProvider({ children }: { children: React.ReactNode }) {
+    const value = useSchoolContextManager();
+    return React.createElement(SchoolContext.Provider, { value }, children);
+}
+
+/**
+ * Hook to consume the school context from any component.
+ */
+export function useSchoolContext(): SchoolContext {
+    const context = useContext(SchoolContext);
+    if (context === undefined) {
+        throw new Error('useSchoolContext must be used within a <SchoolProvider>');
+    }
+    return context;
 }
 
 /**
@@ -443,6 +533,7 @@ export async function createStudentWithPendingPayment(params: {
             school_id: params.schoolId,
             branch_id: params.branchId || null,
             program_id: params.programId || null,
+            team_id: params.programId || null,
         })
         .select()
         .single();
@@ -491,21 +582,23 @@ export async function createStudentWithPendingPayment(params: {
                 p_monthly_fee: params.monthlyFee
             });
 
-            if (inviteError) {
-                console.error('Error recording invitation in DB:', inviteError.message);
+            if (inviteError || !inviteId) {
+                // Without a valid inviteId the registration link would be broken.
+                // Log and skip the email rather than sending a useless link.
+                console.error('Error recording invitation in DB — skipping email send:', inviteError?.message ?? 'No inviteId returned');
+                return { childId, success: true, childInserted: true, paymentInserted: !paymentError };
             }
 
-            const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId || ''}`;
+            const inviteLink = `${window.location.origin}/register?email=${encodeURIComponent(params.parentEmail)}&role=parent&invite=${inviteId}`;
 
             await emailClient.send({
+                type: 'parent_invitation',
                 to: params.parentEmail,
-                subject: `Invitación a SportMaps - ${params.schoolName || 'Tu Escuela'}`,
-                html: EmailTemplates.invitation(
-                    params.parentName || 'Padre de Familia',
-                    params.fullName,
-                    params.schoolName || 'nuestra escuela',
-                    inviteLink
-                )
+                data: {
+                    schoolName: params.schoolName || 'Tu Escuela',
+                    childName: params.fullName,
+                    registrationUrl: inviteLink,
+                },
             });
             console.log(`✉️ Invitación enviada y registrada para ${params.parentEmail}`);
         } catch (inviteErr) {

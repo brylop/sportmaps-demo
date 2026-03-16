@@ -4,6 +4,7 @@ import { classesAPI } from '@/lib/api/classes';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 
 export interface DashboardStats {
   // School stats
@@ -14,6 +15,7 @@ export interface DashboardStats {
   total_enrolled?: number;
   monthly_revenue?: number;
   pending_payments?: number;
+  coaches_count?: number;
 
   // Parent stats
   children?: number;
@@ -26,6 +28,7 @@ export interface DashboardStats {
 
   // Common
   notifications?: number;
+  unreadNotifications?: number;
   messages?: number;
   activeTeams?: number;
   upcomingEvents?: number;
@@ -68,6 +71,7 @@ export function useDashboardStatsReal() {
         // Revenue query with branch filter - only if schoolId exists
         let monthlyRevenue = 0;
         let pendingCount = 0;
+        let coachesCount = 0;
 
         if (schoolId) {
           let revenueQuery = supabase
@@ -75,7 +79,7 @@ export function useDashboardStatsReal() {
             .select('amount')
             .eq('school_id', schoolId)
             .eq('status', 'paid')
-            .gte('payment_date', startOfMonth.toISOString());
+            .gte('created_at', startOfMonth.toISOString());
 
           if (activeBranchId) {
             revenueQuery = revenueQuery.eq('branch_id', activeBranchId);
@@ -89,7 +93,7 @@ export function useDashboardStatsReal() {
             .from('payments')
             .select('*', { count: 'exact', head: true })
             .eq('school_id', schoolId)
-            .eq('status', 'pending');
+            .in('status', ['pending', 'awaiting_approval']);
 
           if (activeBranchId) {
             pendingQuery = pendingQuery.eq('branch_id', activeBranchId);
@@ -97,17 +101,34 @@ export function useDashboardStatsReal() {
 
           const { count: pendingCountRes } = await (pendingQuery as any);
           pendingCount = pendingCountRes || 0;
+
+          // Coaches count from school_staff
+          let coachQuery = supabase
+            .from('school_staff')
+            .select('*', { count: 'exact', head: true })
+            .eq('school_id', schoolId)
+            .eq('status', 'active');
+
+          if (activeBranchId) {
+            coachQuery = coachQuery.eq('branch_id', activeBranchId);
+          }
+
+          const { count: coachCountRes } = await (coachQuery as any);
+          coachesCount = coachCountRes || 0;
         }
 
         const isCoach = profile?.role === 'coach';
         let coachIdFilter = undefined;
 
         if (isCoach && user?.email) {
-          const { data: staffData } = await supabase
+          let staffQuery = supabase
             .from('school_staff')
             .select('id')
-            .eq('email', user.email)
-            .maybeSingle();
+            .eq('email', user.email);
+          if (schoolId) {
+            staffQuery = staffQuery.eq('school_id', schoolId);
+          }
+          const { data: staffData } = await staffQuery.maybeSingle();
 
           if (staffData) {
             coachIdFilter = staffData.id;
@@ -128,20 +149,41 @@ export function useDashboardStatsReal() {
           return [{ total: 0, active: 0, inactive: 0, by_grade: {} }, { total: 0, active: 0, full: 0, by_sport: {}, total_enrolled: 0 }];
         });
 
-        // Fetch upcoming events for coach
+        // Fetch upcoming events for coach from calendar_events (same source as módulo Calendario)
         let upcomingEventsCount = 0;
-        if (coachIdFilter) {
-          const today = new Date().toISOString().split('T')[0];
-          const { data: teams } = await supabase.from('teams').select('id').eq('coach_id', coachIdFilter);
-          const teamIds = teams?.map(t => t.id) || [];
+        if (isCoach && user?.id) {
+          const now = new Date().toISOString();
+          const { count: eventCount } = await (supabase
+            .from('calendar_events' as any)
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .gte('start_time', now) as any);
+          upcomingEventsCount = eventCount || 0;
+        }
 
+        // Calcular asistencia real del coach
+        let attendanceRate = 0;
+        if (isCoach && coachIdFilter) {
+          // Separate queries instead of invalid OR syntax
+          const [{ data: teamsDirecta }, { data: teamsRelacion }] = await Promise.all([
+            supabase.from('teams').select('id').eq('coach_id', coachIdFilter),
+            supabase.from('team_coaches').select('team_id').eq('coach_id', coachIdFilter),
+          ]);
+
+          const teamIds = [
+            ...(teamsDirecta || []).map((t: any) => t.id),
+            ...(teamsRelacion || []).map((t: any) => t.team_id),
+          ].filter((id, i, arr) => arr.indexOf(id) === i); // deduplicar
+          // Calcular asistencia real del coach via BFF (Bypassa RLS interno)
           if (teamIds.length > 0) {
-            const { count: sessionCount } = await supabase
-              .from('training_sessions')
-              .select('id', { count: 'exact', head: true })
-              .in('team_id', teamIds)
-              .gte('session_date', today);
-            upcomingEventsCount = sessionCount || 0;
+            try {
+              const json = await bffClient.get<{ rate: number }>(
+                `/api/v1/attendance/rate/${teamIds[0]}`
+              );
+              attendanceRate = json.rate || 0;
+            } catch (err) {
+              console.error('Error obteniendo tasa de asistencia del coach:', err);
+            }
           }
         }
 
@@ -153,10 +195,11 @@ export function useDashboardStatsReal() {
           total_enrolled: classStats.total_enrolled,
           monthly_revenue: monthlyRevenue,
           pending_payments: pendingCount || 0,
+          coaches_count: coachesCount,
           activeTeams: classStats.active, // Map active classes to activeTeams for coaches
           notifications: 0, // Fallback for now
           upcomingEvents: upcomingEventsCount,
-          attendanceRate: 0, // Placeholder
+          attendanceRate,
         });
       } else if (profile.role === 'parent') {
         // Load parent-specific stats
@@ -188,12 +231,20 @@ export function useDashboardStatsReal() {
           .from('payments') as any)
           .select('*', { count: 'exact', head: true })
           .eq('parent_id', profile.id)
-          .eq('status', 'pending');
+          .in('status', ['pending', 'awaiting_approval']);
+
+        // Unread notifications
+        const { count: unreadNotifications } = await (supabase
+          .from('notifications') as any)
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', profile.id)
+          .eq('read', false);
 
         setStats({
           children: childrenCount || 0,
           children_attendance: `${attendancePercentage}%`,
           upcoming_payments: upcomingPayments || 0,
+          unreadNotifications: unreadNotifications || 0,
         });
       }
     } catch (error) {

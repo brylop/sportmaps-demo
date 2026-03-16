@@ -1,8 +1,8 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { SchoolSwitcher } from '@/components/common/SchoolSwitcher';
-import { LogOut } from 'lucide-react';
+import { LogOut, ChevronDown } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -27,24 +27,25 @@ export function AppSidebar() {
   const { user, profile, signOut } = useAuth();
   const { currentUserRole, isGlobalAdmin, totalBranches, activeBranchId } = useSchoolContext();
   const sidebar = useSidebar();
-  const { state } = sidebar;
+  const { state, isMobile, setOpenMobile } = sidebar;
+  const location = useLocation();
+  const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
 
   if (!profile || !user) return null;
 
-  const isCollapsed = state === 'collapsed';
+  // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
+  const isCollapsed = !isMobile && state === 'collapsed';
 
-  // Determine which role to use for navigation generation
-  // Priority: 1. Context Role (if inside a school) 2. Global Profile Role
-  let navigationRole: UserRole = (profile.role as UserRole) || 'athlete';
+  // Normalize role for navigation mapping
+  const effectiveRole = currentUserRole || profile.role;
+  let navigationRole: UserRole = 'athlete';
 
-  if (currentUserRole) {
-    // Map school-specific roles to dashboard generic roles
-    switch (currentUserRole) {
+  if (effectiveRole) {
+    switch (effectiveRole) {
       case 'owner':
       case 'super_admin':
-        // Si tiene multiples sedes y está en la vista "Todas las sedes" (activeBranchId nulo), es Global Admin.
-        // Si elige una sede específica, actúa como "school" (Administrador Operativo de esa sede).
-        navigationRole = (totalBranches > 1 && !activeBranchId) ? 'admin' : 'school';
+      case 'school':
+        navigationRole = 'school';
         break;
       case 'admin':
         navigationRole = 'admin';
@@ -66,57 +67,44 @@ export function AppSidebar() {
         navigationRole = 'athlete';
         break;
       default:
+        navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
     }
   }
 
   const navigationGroups = getNavigationByRole(navigationRole);
 
-  // Get user initials for avatar fallback
   const getUserInitials = () => {
     if (profile.full_name) {
-      return profile.full_name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
+      return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     }
     return user?.email?.slice(0, 2).toUpperCase() || 'U';
   };
 
   const getRoleBadge = () => {
-    // Show the context role if available, otherwise global
     const roleToShow = currentUserRole || profile.role;
-
     if (roleToShow === 'owner') return 'Propietario';
     if (roleToShow === 'reporter') return 'Auditoría';
-
     if (roleToShow === 'school_admin' || roleToShow === 'admin') {
       return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
     }
-
     const roleLabels: Record<string, string> = {
-      athlete: 'Deportista',
-      parent: 'Padre',
-      coach: 'Entrenador',
-      school: 'Escuela',
-      staff: 'Staff',
-      wellness_professional: 'Bienestar',
-      store_owner: 'Tienda',
-      super_admin: 'Super Admin',
-      viewer: 'Visitante'
+      athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
+      school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
+      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante'
     };
     return roleLabels[roleToShow as string] || roleToShow;
   };
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border/40 bg-card/50 backdrop-blur-sm">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-border/40 bg-card/50 backdrop-blur-sm"
+    >
       <SidebarHeader className="h-16 flex items-center px-4 overflow-hidden">
         {!isCollapsed ? (
-          <div className="flex items-center gap-2 overflow-hidden">
-            <Logo size="sm" />
-            <span className="font-bold text-lg tracking-tight truncate">SportMaps</span>
+          <div className="flex items-center gap-2 overflow-hidden w-full">
+            <Logo size="sm" showName />
           </div>
         ) : (
           <div className="flex justify-center w-full">
@@ -126,31 +114,23 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2">
-        <div className="mb-4">
-          {!isCollapsed && (
-            <div className="flex flex-col items-center px-2 mb-4 animate-in fade-in slide-in-from-top-4 duration-500">
-              <Avatar className="h-16 w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
-                <AvatarImage src={profile.avatar_url || ''} />
-                <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
-                  {getUserInitials()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="text-center w-full overflow-hidden">
-                <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
-                <div className="flex justify-center mt-1">
-                  <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 bg-opacity-10 backdrop-blur-md">
-                    {getRoleBadge()}
-                  </Badge>
-                </div>
+        {/* Avatar — visible siempre en mobile (nunca collapsed), solo en expanded en desktop */}
+        {!isCollapsed && (
+          <div className="flex flex-col items-center px-2 mb-4 mt-2 animate-in fade-in slide-in-from-top-4 duration-500">
+            <Avatar className="h-14 w-14 sm:h-16 sm:w-16 mb-2 border-2 border-primary/20 shadow-lg shadow-primary/5">
+              <AvatarImage src={profile.avatar_url || ''} />
+              <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/30 text-primary font-bold text-xl">
+                {getUserInitials()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="text-center w-full overflow-hidden">
+              <p className="font-bold text-sm truncate px-1">{profile.full_name || user?.email}</p>
+              <div className="flex justify-center mt-1">
+                <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary bg-primary/5 backdrop-blur-md">
+                  {getRoleBadge()}
+                </Badge>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* School Switcher Context - Always show for owners/admins or multibranch */}
-        {!isCollapsed && (currentUserRole === 'owner' || currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'school_admin' || totalBranches > 1 || isGlobalAdmin) && (
-          <div className="w-full mb-4">
-            <SchoolSwitcher />
           </div>
         )}
 
@@ -161,38 +141,99 @@ export function AppSidebar() {
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item, itemIdx) => (
-                  <SidebarMenuItem key={itemIdx}>
-                    <SidebarMenuButton
-                      asChild
-                      tooltip={item.title}
-                      className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
-                    >
-                      <NavLink
-                        to={item.href}
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
-                          }`
-                        }
-                      >
-                        {({ isActive }) => (
-                          <>
-                            <item.icon className={`h-4 w-4 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
-                            <span className="truncate">{item.title}</span>
-                            {item.badge && !isCollapsed && (
-                              <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
-                                {item.badge}
-                              </Badge>
-                            )}
-                            {isActive && !isCollapsed && (
-                              <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
-                            )}
-                          </>
+                {group.items.map((item, itemIdx) => {
+                  // Submenu item — collapsible parent
+                  if (item.submenu && item.submenu.length > 0) {
+                    const submenuKey = `${groupIdx}-${itemIdx}`;
+                    const isSubmenuActive = item.submenu.some(sub => sub.href && location.pathname.startsWith(sub.href));
+                    const isOpen = openSubmenus[submenuKey] ?? isSubmenuActive;
+
+                    return (
+                      <div key={itemIdx}>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            tooltip={item.title}
+                            className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 cursor-pointer"
+                            onClick={() => setOpenSubmenus(prev => ({ ...prev, [submenuKey]: !isOpen }))}
+                          >
+                            <div className={`flex items-center gap-3 w-full ${isSubmenuActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>
+                              <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isSubmenuActive ? 'text-primary' : ''}`} />
+                              <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
+                              {!isCollapsed && (
+                                <ChevronDown className={`ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                              )}
+                            </div>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        {isOpen && !isCollapsed && (
+                          <div className="ml-4 pl-3 border-l border-border/30 space-y-0.5 mt-0.5 mb-1 animate-in slide-in-from-top-2 duration-200">
+                            {item.submenu.map((sub, subIdx) => (
+                              <SidebarMenuItem key={subIdx}>
+                                <SidebarMenuButton
+                                  asChild
+                                  className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95 h-8"
+                                >
+                                  <NavLink
+                                    to={sub.href || '#'}
+                                    onClick={() => isMobile && setOpenMobile(false)}
+                                    className={({ isActive }) =>
+                                      `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'}`
+                                    }
+                                  >
+                                    {({ isActive }) => (
+                                      <>
+                                        <sub.icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-primary' : ''}`} />
+                                        <span className="truncate text-sm">{sub.title}</span>
+                                        {isActive && (
+                                          <div className="absolute right-0 w-1 h-4 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                                        )}
+                                      </>
+                                    )}
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            ))}
+                          </div>
                         )}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                      </div>
+                    );
+                  }
+
+                  // Regular item — NavLink
+                  return (
+                    <SidebarMenuItem key={itemIdx}>
+                      <SidebarMenuButton
+                        asChild
+                        tooltip={item.title}
+                        className="group/menu-button transition-all duration-300 hover:bg-primary/5 active:scale-95"
+                      >
+                        <NavLink
+                          to={item.href || '#'}
+                          onClick={() => isMobile && setOpenMobile(false)}
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 w-full transition-all duration-300 ${isActive ? 'text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                            }`
+                          }
+                        >
+                          {({ isActive }) => (
+                            <>
+                              <item.icon className={`h-4 w-4 shrink-0 transition-transform duration-300 group-hover/menu-button:scale-110 ${isActive ? 'text-primary' : ''}`} />
+                              <span className={`truncate ${isCollapsed ? 'sr-only' : ''}`}>{item.title}</span>
+                              {item.badge && !isCollapsed && (
+                                <Badge className="ml-auto h-4 px-1 min-w-[1.2rem] flex items-center justify-center text-[10px] bg-accent/80 hover:bg-accent">
+                                  {item.badge}
+                                </Badge>
+                              )}
+                              {isActive && !isCollapsed && (
+                                <div className="absolute right-0 w-1 h-5 bg-primary rounded-l-full animate-in fade-in zoom-in duration-300" />
+                              )}
+                            </>
+                          )}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -205,8 +246,8 @@ export function AppSidebar() {
           className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10 transition-all duration-300"
           onClick={() => signOut()}
         >
-          <LogOut className="h-4 w-4 mr-3 group-hover:rotate-12 transition-transform" />
-          {!isCollapsed && <span>Cerrar Sesión</span>}
+          <LogOut className="h-4 w-4 shrink-0 transition-transform" />
+          <span className={`ml-3 ${isCollapsed ? 'sr-only' : ''}`}>Cerrar Sesión</span>
         </Button>
       </SidebarFooter>
     </Sidebar>

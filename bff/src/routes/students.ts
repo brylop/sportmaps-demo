@@ -8,21 +8,23 @@ const router = Router();
 // ── Schema Zod v4 ─────────────────────────────────────────────────────────────
 // ⚠️  En Zod v4, los errores están en `error.issues`, no en `error.errors`
 const StudentSchema = z.object({
-    first_name: z.string().min(2, 'Nombre muy corto').max(100).trim(),
-    last_name: z.string().min(2, 'Apellido muy corto').max(100).trim(),
-    document_id: z.string().min(5, 'Documento muy corto').max(20)
-        .regex(/^[0-9A-Za-z\-]+$/, 'Documento inválido'),
+    first_name: z.string().min(1, 'Nombre requerido').max(100).trim(),
+    last_name: z.string().min(1, 'Apellido requerido').max(100).trim(),
+    document_id: z.string().min(1, 'Documento requerido').max(30),
     grade: z.string().max(20).optional(),
-    medical_info: z.string().max(1000).optional(),
+    medical_info: z.string().max(1000).refine(
+        val => { try { const p = JSON.parse(val); return typeof p.has_allergies === 'boolean'; } catch { return false; } },
+        { message: 'notas_medicas debe ser JSON válido con campo has_allergies (boolean). Ej: {"has_allergies": false}' }
+    ).optional(),
     branch: z.string().max(100).optional(),
-    team: z.string().max(100).optional(),
-    sport: z.string().max(100).optional(),
-    date_of_birth: z.string().optional(),
+    team: z.string().min(1, 'Equipo requerido').max(100),
+    sport: z.string().min(1, 'Deporte requerido').max(100),
+    date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha de nacimiento debe tener formato YYYY-MM-DD').optional(),
     gender: z.string().optional(),
-    parent_name: z.string().optional(),
-    parent_email: z.string().email('Email inválido').optional().or(z.literal('')),
-    parent_phone: z.string().optional(),
-    monthly_fee: z.number().optional(),
+    parent_name: z.string().min(2, 'Nombre del acudiente requerido (mín. 2 caracteres)'),
+    parent_email: z.string().email('Email del acudiente inválido'),
+    parent_phone: z.string().regex(/^\d{10,}$/, 'Teléfono del acudiente debe tener mínimo 10 dígitos numéricos'),
+    monthly_fee: z.number().min(10000, 'La mensualidad debe ser mínimo $10,000 COP').optional(),
 });
 
 const BulkUploadSchema = z.object({
@@ -32,6 +34,8 @@ const BulkUploadSchema = z.object({
     options: z.object({
         // Si true: actualiza si document_id ya existe. Si false: reporta como error.
         upsert: z.boolean().default(false),
+        // Branch ID por defecto para estudiantes sin columna 'sede' en el CSV
+        defaultBranchId: z.string().uuid().nullable().optional(),
     }).default({ upsert: false }),
 });
 
@@ -39,7 +43,7 @@ const BulkUploadSchema = z.object({
 router.post(
     '/bulk',
     requireAuth,
-    requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'),
+    requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'),
     async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { schoolId } = req;
@@ -55,6 +59,7 @@ router.post(
             }
 
             const { students, options } = parsed.data;
+            const defaultBranchId = options.defaultBranchId || null;
 
             // 2. Detectar duplicados DENTRO del mismo payload (document_id repetido)
             const docIds = students.map(s => s.document_id);
@@ -111,14 +116,13 @@ router.post(
             }
 
             if (branchNamesSet.size > 0) {
-                const branchNames = [...branchOriginalNames.values()];
-                const { data: existingBranches } = await supabase
-                    .from('branches')
+                // Fetch ALL branches for this school to do case-insensitive matching locally
+                const { data: allExistingBranches } = await supabase
+                    .from('school_branches')
                     .select('id, name')
-                    .eq('school_id', schoolId)
-                    .in('name', branchNames);
+                    .eq('school_id', schoolId);
 
-                for (const b of existingBranches ?? []) {
+                for (const b of allExistingBranches ?? []) {
                     branchNameToId.set(b.name.toLowerCase(), b.id);
                 }
 
@@ -134,7 +138,7 @@ router.post(
 
                 if (branchesToCreate.length > 0) {
                     const { data: createdBranches, error: branchError } = await supabase
-                        .from('branches')
+                        .from('school_branches')
                         .insert(branchesToCreate)
                         .select('id, name');
 
@@ -149,10 +153,12 @@ router.post(
                 }
             }
 
-            // Helper: resolve branch_id for a student
+            // Helper: resolve branch_id for a student — falls back to defaultBranchId
             const resolveBranchId = (student: { branch?: string }) => {
-                if (!student.branch) return null;
-                return branchNameToId.get(student.branch.trim().toLowerCase()) || null;
+                if (student.branch) {
+                    return branchNameToId.get(student.branch.trim().toLowerCase()) || defaultBranchId;
+                }
+                return defaultBranchId;
             };
 
             // 4.75. Auto-crear equipos (teams) ─────────────────────────────
@@ -177,14 +183,13 @@ router.post(
             }
 
             if (teamStudentMap.size > 0) {
-                const teamNames = [...teamOriginalNames.values()];
-                const { data: existingTeams } = await supabase
+                // Fetch ALL teams for this school to do case-insensitive matching locally
+                const { data: allExistingTeams } = await supabase
                     .from('teams')
                     .select('id, name')
-                    .eq('school_id', schoolId)
-                    .in('name', teamNames);
+                    .eq('school_id', schoolId);
 
-                for (const t of existingTeams ?? []) {
+                for (const t of allExistingTeams ?? []) {
                     existingTeamMap.set(t.name.toLowerCase(), t.id);
                 }
 
@@ -236,13 +241,16 @@ router.post(
                     school_id: schoolId,
                     branch_id: resolveBranchId(s),
                     program_id: resolveTeamId(s),
+                    team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                     date_of_birth: s.date_of_birth || null,
                     gender: s.gender || null,
                     parent_name_temp: s.parent_name || null,
                     parent_email_temp: s.parent_email || null,
                     parent_phone_temp: s.parent_phone || null,
-                    is_demo: false, // Por defecto
+                    is_demo: false,
+                    is_active: true,
                     created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
                 }));
 
                 const { data, error } = await supabase
@@ -252,7 +260,12 @@ router.post(
 
                 if (error) {
                     req.log?.error({ err: error }, 'Error en bulk insert');
-                    return res.status(500).json({ error: 'Error en base de datos al insertar.' });
+                    return res.status(500).json({
+                        error: 'Error en base de datos al insertar.',
+                        details: error.message,
+                        hint: error.hint,
+                        code: error.code,
+                    });
                 }
                 inserted = data?.length ?? 0;
 
@@ -274,6 +287,7 @@ router.post(
                         medical_info: s.medical_info,
                         branch_id: resolveBranchId(s),
                         program_id: resolveTeamId(s),
+                        team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                         date_of_birth: s.date_of_birth || null,
                         gender: s.gender || null,
                         parent_name_temp: s.parent_name || null,
@@ -305,7 +319,7 @@ router.post(
                 );
 
                 // Create enrollments & payments
-                const enrollmentRecords: Array<{ child_id: string; program_id: string; status: string; start_date: string }> = [];
+                const enrollmentRecords: Array<{ child_id: string; program_id: string; team_id: string; school_id: string; status: string; start_date: string }> = [];
                 const paymentRecords: Array<any> = [];
 
                 const dueDate = new Date();
@@ -320,6 +334,8 @@ router.post(
                         enrollmentRecords.push({
                             child_id: childId,
                             program_id: teamId,
+                            team_id: teamId,
+                            school_id: schoolId,
                             status: 'active',
                             start_date: new Date().toISOString().split('T')[0],
                         });
@@ -389,13 +405,109 @@ router.post(
                 }
             }
 
-            // 8. Respuesta con reporte detallado
+            // 8. Auto-crear Invitaciones para correos de padres
+            let invitationsCreated = 0;
+
+            // Recolectar correos únicos de padres con la info del primer hijo que encontremos para la plantilla
+            const parentEmailMap = new Map<string, { childName: string; programId: string | null; fee: number; parentName: string }>();
+
+            for (const s of students) {
+                if (s.parent_email && s.parent_email.trim() !== '') {
+                    const emailKey = s.parent_email.trim().toLowerCase();
+                    if (!parentEmailMap.has(emailKey)) {
+                        parentEmailMap.set(emailKey, {
+                            childName: `${s.first_name} ${s.last_name}`.trim(),
+                            programId: existingTeamMap.get(s.team?.trim()?.toLowerCase() || '') || null,
+                            fee: s.monthly_fee || 150000,
+                            parentName: s.parent_name || emailKey.split('@')[0]
+                        });
+                    }
+                }
+            }
+
+            if (parentEmailMap.size > 0) {
+                // Verificar cuáles invitaciones ya existen para esta escuela y rol
+                const emailList = Array.from(parentEmailMap.keys());
+                const { data: existingInvites } = await supabase
+                    .from('invitations')
+                    .select('email, status')
+                    .eq('school_id', schoolId)
+                    .eq('role_to_assign', 'parent')
+                    .in('email', emailList);
+
+                const existingInviteSet = new Set((existingInvites || []).filter(i => i.status === 'pending' || i.status === 'accepted').map(i => i.email));
+
+                const newInvites = [];
+                const emailsToSend = [];
+
+                // Obtener nombre de la escuela para el correo
+                const { data: schoolData } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+                const schoolName = schoolData?.name || 'la Academia';
+                const senderId = req.user?.id || null;
+
+                for (const [email, info] of parentEmailMap.entries()) {
+                    if (!existingInviteSet.has(email)) {
+                        newInvites.push({
+                            email,
+                            school_id: schoolId,
+                            role_to_assign: 'parent',
+                            invited_by: senderId,
+                            status: 'pending',
+                            child_name: info.childName,
+                            program_id: info.programId,
+                            monthly_fee: info.fee
+                        });
+                        emailsToSend.push({ ...info, email });
+                    }
+                }
+
+                if (newInvites.length > 0) {
+                    const { data: insertedInvites, error: inviteError } = await supabase
+                        .from('invitations')
+                        .insert(newInvites)
+                        .select('id, email');
+
+                    if (inviteError) {
+                        req.log?.error({ err: inviteError }, 'Error insertando invitaciones masivas');
+                    } else {
+                        invitationsCreated = insertedInvites?.length || 0;
+
+                        // Enviar correos en background saltando los awaits largos (fire and forget)
+                        if (insertedInvites && insertedInvites.length > 0) {
+                            const { emailClient } = await import('../utils/emailClient');
+                            const { EmailTemplates } = await import('../utils/emailTemplates');
+
+                            const origin = process.env.CORS_ORIGIN || 'https://app.sportmaps.com';
+
+                            insertedInvites.forEach(inviteRow => {
+                                const info = parentEmailMap.get(inviteRow.email);
+                                if (info) {
+                                    const inviteLink = `${origin}/register?email=${encodeURIComponent(inviteRow.email)}&role=parent&invite=${inviteRow.id}`;
+
+                                    emailClient.send({
+                                        to: inviteRow.email,
+                                        subject: `Invitación a SportMaps - ${schoolName}`,
+                                        html: EmailTemplates.invitation(
+                                            info.parentName,
+                                            info.childName,
+                                            schoolName,
+                                            inviteLink
+                                        )
+                                    }).catch((e: any) => req.log?.error({ email: inviteRow.email, err: e }, 'Fallo al enviar correo masivo'));
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 9. Respuesta con reporte detallado
             const totalFailed = skipped.length;
             const statusCode = totalFailed === 0 ? 200 : inserted + updated > 0 ? 207 : 422;
 
             return res.status(statusCode).json({
                 success: totalFailed === 0,
-                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${branchesCreated} sedes creadas, ${teamsCreated} equipos creados, ${enrollmentsCreated} inscripciones, ${paymentsCreated} pagos generados.`,
+                message: `${inserted + updated} procesados, ${totalFailed} omitidos. ${branchesCreated} sedes creadas, ${teamsCreated} equipos creados, ${enrollmentsCreated} insc., ${paymentsCreated} pagos, ${invitationsCreated} invitaciones.`,
                 summary: {
                     total: students.length,
                     inserted,
@@ -404,18 +516,20 @@ router.post(
                     branches_created: branchesCreated,
                     teams_created: teamsCreated,
                     enrollments_created: enrollmentsCreated,
+                    invitations_created: invitationsCreated,
                 },
                 skipped,  // detalle fila por fila de los omitidos
             });
 
-        } catch (err) {
-            next(err);
+        } catch (err: any) {
+            req.log?.error?.({ err: err.message || err }, 'Error inesperado en bulk upload');
+            return res.status(500).json({ error: err.message || 'Error interno del servidor al procesar el CSV.' });
         }
     }
 );
 
 // ── GET /api/v1/students ──────────────────────────────────────────────────────
-router.get('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'), async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { data, error } = await supabase
             .from('students')
@@ -430,7 +544,6 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coac
         return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
-// Necesario para que el catch use next()
-function next(err: unknown) { throw err; }
 
 export default router;
+

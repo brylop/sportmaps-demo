@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
+import rateLimit from 'express-rate-limit';
 
 // Cargar variables de entorno PRIMERO, antes de cualquier import que las use
 dotenv.config();
@@ -11,9 +12,34 @@ import enrollmentsRouter from './routes/enrollments';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 import attendanceRouter from './routes/attendance';
+import schoolContextRouter from './routes/school-context';
+import offeringsRouter from './routes/offerings';
+import sessionBookingsRouter from './routes/session-bookings';
+import sportConfigsRouter from './routes/sport-configs';
+import billingEventsRouter from './routes/billing-events';
+import explorarRoutes from './routes/explorar.routes';
+import favoritosRoutes from './routes/favoritos.routes';
+import schoolStaffRouter from './routes/school-staff';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
+});
+
+const paymentLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minuto
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Límite de operaciones de pago alcanzado. Intenta en 1 minuto.' },
+});
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
 app.use(cors({
@@ -25,13 +51,21 @@ app.use(cors({
 
         const allowedProductionDomain = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
-        // Si el origen coincide exactamente con la URL principal, o termina en .vercel.app (Preview branches)
-        if (origin === allowedProductionDomain || origin.endsWith('.vercel.app')) {
+        // Si el origen coincide exactamente con la URL principal,
+        // termina en .vercel.app (Preview branches),
+        // o es un subdominio de sportmaps.co (dev.sportmaps.co, staging.sportmaps.co, etc.)
+        if (
+            origin === allowedProductionDomain ||
+            origin.endsWith('.vercel.app') ||
+            origin.endsWith('.sportmaps.co') ||
+            origin === 'https://sportmaps.co'
+        ) {
             return callback(null, true);
         }
 
         return callback(new Error('Bloqueado por CORS'));
     },
+    credentials: true,
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use(pinoHttp({
@@ -52,11 +86,20 @@ app.get('/health', (_req: Request, res: Response) => {
     });
 });
 
-app.use('/api/v1/students', studentsRouter);
-app.use('/api/v1/enrollments', enrollmentsRouter);
-app.use('/api/v1/reports', reportsRouter);
+app.use('/api/v1/students', generalLimiter, studentsRouter);
+app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
+app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
-app.use('/api/v1/attendance', attendanceRouter);
+app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
+app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
+app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
+app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
+app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);
+app.use('/api/v1/sport-configs', generalLimiter, sportConfigsRouter);
+app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
+app.use('/api/explorar',  generalLimiter, explorarRoutes);
+app.use('/api/favoritos', generalLimiter, favoritosRoutes);
+app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

@@ -95,35 +95,36 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Resumen de tu actividad deportiva',
           stats: [
             {
-              title: 'Equipos Activos',
-              value: stats.activeEnrollments,
-              description: stats.activeEnrollments === 0 ? 'Sin inscripciones activas' : 'En curso actualmente',
-              icon: Trophy
+              title: 'Entrenamientos',
+              value: stats.completedActivities || 0,
+              description: 'Este mes',
+              icon: Activity
             },
             {
-              title: 'Próximos Eventos',
-              value: stats.upcomingEvents,
-              description: 'Esta semana',
+              title: 'Nivel actual',
+              value: stats.activeEnrollments > 0 ? 'Activo' : 'Sin nivel',
+              description: stats.activeEnrollments > 0 ? 'En progreso' : 'Inscríbete para empezar',
+              icon: TrendingUp
+            },
+            {
+              title: 'Próxima sesión',
+              value: stats.upcomingEvents > 0 ? `${stats.upcomingEvents}` : '—',
+              description: stats.upcomingEvents > 0 ? 'Eventos esta semana' : 'Sin sesiones programadas',
               icon: Calendar
             },
             {
-              title: 'Actividades Completadas',
-              value: stats.completedActivities,
-              description: 'Total histórico',
-              icon: Target
-            },
-            {
-              title: 'Asistencia',
-              value: `${stats.attendanceRate}%`,
-              description: 'Promedio general',
-              icon: BarChart3
+              title: 'Pagos pendientes',
+              value: stats.pendingPayments || 0,
+              description: stats.pendingPayments === 0 ? 'Al día ✓' : 'Requieren atención',
+              icon: TrendingUp
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Ver Calendario', icon: Calendar, href: '/calendar', variant: 'default' },
-            { label: 'Mis Inscripciones', icon: Trophy, href: '/my-enrollments', variant: 'outline' },
-            { label: 'Explorar Equipos', icon: Users, href: '/explore', variant: 'outline' }
+            { label: 'Explorar Escuelas', icon: Target, href: '/explore', variant: 'default' },
+            { label: 'Mi Calendario', icon: Calendar, href: '/calendar', variant: 'outline' },
+            { label: 'Mis Inscripciones', icon: Trophy, href: '/enrollments', variant: 'outline' },
+            { label: 'Estadísticas', icon: BarChart3, href: '/stats', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.athlete
         };
@@ -141,16 +142,16 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               icon: Users
             },
             {
-              title: 'Pagos Pendientes',
-              value: stats.pendingPayments,
-              description: stats.pendingPayments === 0 ? 'Al día' : 'Por pagar',
-              icon: TrendingUp
+              title: 'Asistencia Promedio',
+              value: '0%',
+              description: 'Últimos 30 días',
+              icon: Activity
             },
             {
-              title: 'Suscripciones Activas',
-              value: stats.activeEnrollments, // Using active enrollments as proxy for subscriptions/active kids programs
-              description: 'En curso',
-              icon: Activity
+              title: 'Pagos Pendientes',
+              value: stats.pendingPayments,
+              description: stats.pendingPayments === 0 ? 'Al día' : 'Mensualidades',
+              icon: TrendingUp
             },
             {
               title: 'Notificaciones',
@@ -362,11 +363,11 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           ],
           activities: [],
           quickActions: [
-            { label: 'Gestionar Usuarios', icon: Users, href: '/admin/users', variant: 'default' },
-            { label: 'Gestionar Sedes', icon: Building, href: '/admin/clubs', variant: 'outline' },
-            { label: 'Reportes Globales', icon: BarChart3, href: '/admin/system', variant: 'outline' }
+            { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
+            { label: 'Gestionar Sedes', icon: Building, href: '/branches', variant: 'outline' },
+            { label: 'Reportes Globales', icon: BarChart3, href: '/school-reports', variant: 'outline' }
           ],
-          onboardingSteps: onboardingConfigs.admin
+          onboardingSteps: onboardingConfigs.school
         };
 
       case 'organizer':

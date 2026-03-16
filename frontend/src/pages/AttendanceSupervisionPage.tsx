@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar } from '@/components/ui/calendar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   AlertCircle, CheckCircle2, Clock, XCircle, Lock, Edit2, Users,
@@ -88,7 +88,7 @@ export default function AttendanceSupervisionPage() {
 
       // Conteos de asistencia por sesión
       const teamIds = rows.map((r: any) => r.team_id);
-      let recordsMap: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
+      const recordsMap: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
 
       if (teamIds.length > 0) {
         const { data: records } = await supabase
@@ -287,6 +287,9 @@ export default function AttendanceSupervisionPage() {
                   day: 'numeric', month: 'long',
                 })}
             </DialogTitle>
+            <DialogDescription>
+              Detalle de asistencia y estado de los estudiantes para esta sesión.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex items-center gap-2 mb-4">

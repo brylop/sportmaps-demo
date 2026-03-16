@@ -7,8 +7,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Building2 } from 'lucide-react';
+import { Building2, Pencil } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
+import { useEffect } from 'react';
 
 const facilitySchema = z.object({
   name: z.string().min(2, 'Nombre es requerido'),
@@ -24,6 +25,13 @@ interface FacilityFormDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: { name: string; type: string; capacity: number; description?: string }) => void;
   isLoading?: boolean;
+  facility?: {
+    id: string;
+    name: string;
+    type: string;
+    capacity: number;
+    description: string | null;
+  } | null;
 }
 
 const facilityTypes = [
@@ -39,7 +47,7 @@ const facilityTypes = [
   'Otro',
 ];
 
-export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: FacilityFormDialogProps) {
+export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading, facility }: FacilityFormDialogProps) {
   const form = useForm<FacilityFormData>({
     resolver: zodResolver(facilitySchema),
     defaultValues: {
@@ -49,6 +57,27 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
       description: '',
     },
   });
+
+  // Effect to populate form when facility changes
+  useEffect(() => {
+    if (open) {
+      if (facility) {
+        form.reset({
+          name: facility.name,
+          type: facility.type,
+          capacity: String(facility.capacity),
+          description: facility.description || '',
+        });
+      } else {
+        form.reset({
+          name: '',
+          type: '',
+          capacity: '',
+          description: '',
+        });
+      }
+    }
+  }, [facility, form, open]);
 
   const handleSubmit = (data: FacilityFormData) => {
     onSubmit({
@@ -66,11 +95,11 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Building2 className="h-5 w-5" />
-            Agregar Instalación
+            {facility ? <Pencil className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
+            {facility ? 'Editar Instalación' : 'Agregar Instalación'}
           </DialogTitle>
           <DialogDescription>
-            Registra un nuevo espacio deportivo
+            {facility ? 'Actualiza los detalles del espacio deportivo' : 'Registra un nuevo espacio deportivo'}
           </DialogDescription>
         </DialogHeader>
 
@@ -89,7 +118,10 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
 
           <div className="space-y-2">
             <Label htmlFor="type">Tipo de Instalación *</Label>
-            <Select onValueChange={(value) => form.setValue('type', value)}>
+            <Select 
+              onValueChange={(value) => form.setValue('type', value)}
+              value={form.watch('type')}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona el tipo" />
               </SelectTrigger>
@@ -136,7 +168,7 @@ export function FacilityFormDialog({ open, onOpenChange, onSubmit, isLoading }: 
               Cancelar
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Guardando...' : 'Crear Instalación'}
+              {isLoading ? 'Guardando...' : facility ? 'Actualizar Instalación' : 'Crear Instalación'}
             </Button>
           </DialogFooter>
         </form>

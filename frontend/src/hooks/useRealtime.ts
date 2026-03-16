@@ -1,16 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 export function useRealtimeNotifications(onNewNotification?: () => void) {
   const { user } = useAuth();
+  const callbackRef = useRef(onNewNotification);
+  callbackRef.current = onNewNotification;
 
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('notifications-changes')
+    const channel = supabase
+      .channel(`notifications-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -21,27 +23,30 @@ export function useRealtimeNotifications(onNewNotification?: () => void) {
         },
         (payload) => {
           console.log('New notification:', payload);
-          if (onNewNotification) {
-            onNewNotification();
-          }
+          callbackRef.current?.();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
-  }, [user, onNewNotification]);
+  }, [user]);
 }
 
 export function useRealtimeMessages(onNewMessage?: () => void) {
   const { user } = useAuth();
+  const callbackRef = useRef(onNewMessage);
+  callbackRef.current = onNewMessage;
 
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('messages-changes')
+    const channel = supabase
+      .channel(`messages-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -52,27 +57,30 @@ export function useRealtimeMessages(onNewMessage?: () => void) {
         },
         (payload) => {
           console.log('New message:', payload);
-          if (onNewMessage) {
-            onNewMessage();
-          }
+          callbackRef.current?.();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
-  }, [user, onNewMessage]);
+  }, [user]);
 }
 
 export function useRealtimeCalendar(onCalendarUpdate?: () => void) {
   const { user } = useAuth();
+  const callbackRef = useRef(onCalendarUpdate);
+  callbackRef.current = onCalendarUpdate;
 
   useEffect(() => {
     if (!user) return;
 
-    const channel: RealtimeChannel = supabase
-      .channel('calendar-changes')
+    const channel = supabase
+      .channel(`calendar-changes-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -83,15 +91,16 @@ export function useRealtimeCalendar(onCalendarUpdate?: () => void) {
         },
         (payload) => {
           console.log('Calendar event changed:', payload);
-          if (onCalendarUpdate) {
-            onCalendarUpdate();
-          }
+          callbackRef.current?.();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      const cleanup = async () => {
+        await supabase.removeChannel(channel);
+      };
+      cleanup();
     };
-  }, [user, onCalendarUpdate]);
+  }, [user]);
 }

@@ -30,7 +30,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
 import { PaymentModal } from '@/components/payment/PaymentModal';
-import { ChildSelectionModal } from '@/components/enrollment/ChildSelectionModal';
+import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
 
@@ -89,7 +89,7 @@ interface Facility {
 export default function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
 
   const [school, setSchool] = useState<School | null>(null);
@@ -181,11 +181,17 @@ export default function SchoolDetailPage() {
       return;
     }
 
-    // Usuario autenticado - Seleccionar hijo primero
+    // Si es atleta, se inscribe directamente (sin selección de hijo)
+    if (profile?.role === 'athlete') {
+      setPaymentModalOpen(true);
+      return;
+    }
+
+    // Padres u otros roles - seleccionar hijo primero
     setChildSelectionOpen(true);
   };
 
-  const handleChildSelected = (childId: string) => {
+  const handleChildSelected = (childId: string, childName: string) => {
     setSelectedChildId(childId);
     setChildSelectionOpen(false);
     setPaymentModalOpen(true);
@@ -338,7 +344,7 @@ export default function SchoolDetailPage() {
       />
 
       {/* Child Selection Modal - NEW */}
-      <ChildSelectionModal
+      <ChildSelectorModal
         open={childSelectionOpen}
         onOpenChange={setChildSelectionOpen}
         onChildSelected={handleChildSelected}

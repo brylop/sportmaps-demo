@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
+import { EditChildDialog } from '@/components/children/EditChildDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -17,6 +18,7 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingChild, setEditingChild] = useState<any | null>(null);
 
 
 
@@ -25,7 +27,15 @@ export default function MyChildrenPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('*, schools(name), teams!team_id(name, sport, level)')
+        .select(`
+          *,
+          schools(name),
+          teams!team_id(name, sport, level, school_staff(full_name)),
+          enrollments(
+            status,
+            teams!program_id(name, sport, level, school_staff(full_name))
+          )
+        `)
         .eq('parent_id', user?.id)
         .order('created_at', { ascending: false });
 
@@ -33,7 +43,15 @@ export default function MyChildrenPage() {
         console.error('Error fetching children:', error);
         throw error;
       }
-      return data;
+
+      // Deduplicar por child.id (Supabase puede retornar duplicados
+      // cuando hay JOINs a teams via children.team_id Y enrollments.program_id)
+      const seen = new Set<string>();
+      return (data || []).filter(child => {
+        if (seen.has(child.id)) return false;
+        seen.add(child.id);
+        return true;
+      });
     },
     enabled: !!user?.id,
   });
@@ -85,32 +103,63 @@ export default function MyChildrenPage() {
                   <div>
                     <CardTitle className="text-lg">{child.full_name}</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      {new Date(child.date_of_birth).toLocaleDateString('es-CO', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
+                      {child.date_of_birth
+                        ? new Date(child.date_of_birth + 'T00:00:00').toLocaleDateString('es-CO', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })
+                        : 'Sin fecha de nacimiento'}
                     </p>
                   </div>
                 </div>
-                {/* Allergy Icon */}
-                <MedicalAlertBadge medicalInfo={child.medical_info} />
+                <div className="flex items-center gap-2">
+                  {/* Allergy Icon */}
+                  <MedicalAlertBadge medicalInfo={child.medical_info} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={() => setEditingChild(child)}
+                    title="Editar información"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                {child.teams && (
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <School className="w-4 h-4 text-muted-foreground" />
-                    <span>{child.teams.name} {child.teams.level ? `(${child.teams.level})` : ''}</span>
-                  </div>
-                )}
+                {(() => {
+                  const activeEnrollment = child.enrollments?.find((e: any) => e.status === 'active');
+                  const team = activeEnrollment?.teams || child.teams;
 
-                {child.teams?.sport && (
-                  <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                    {child.teams.sport}
-                  </Badge>
-                )}
+                  if (!team) return null;
+
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <School className="w-4 h-4 text-muted-foreground" />
+                        <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                      </div>
+
+                      {team.school_staff?.full_name && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
+                          <User className="w-3 h-3" />
+                          <span>Entrenador: {team.school_staff.full_name}</span>
+                        </div>
+                      )}
+
+                      {team.sport && (
+                        <div className="ml-6 mt-1">
+                          <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                            {team.sport}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {child.schools?.name && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -119,7 +168,7 @@ export default function MyChildrenPage() {
                   </div>
                 )}
 
-                {child.monthly_fee && (
+                {child.monthly_fee != null && child.monthly_fee > 0 && (
                   <div className="flex items-center gap-2 text-sm font-bold text-green-600 dark:text-green-500 pt-1">
                     <span role="img" aria-label="pago">💰</span>
                     <span>Mensualidad: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(child.monthly_fee)}</span>
@@ -151,6 +200,15 @@ export default function MyChildrenPage() {
         onOpenChange={setShowAddDialog}
         onSuccess={refetch}
       />
+
+      {editingChild && (
+        <EditChildDialog
+          open={!!editingChild}
+          onOpenChange={(open) => !open && setEditingChild(null)}
+          onSuccess={refetch}
+          child={editingChild}
+        />
+      )}
     </div>
   );
 }

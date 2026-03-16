@@ -65,22 +65,8 @@ export default function InvitationsManagementPage() {
     role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'school_admin' | 'reporter',
   });
 
-  // Branch selector for admin invitations
+  // Branch selector state kept for compatibility (unused in MVP)
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
-  const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
-
-  useEffect(() => {
-    if (!schoolId) return;
-    supabase
-      .from('school_branches' as any)
-      .select('id, name, is_main')
-      .eq('school_id', schoolId)
-      .order('is_main', { ascending: false })  // sede principal primero
-      .order('name')
-      .then(({ data }) => {
-        if (data) setBranches(data as any[]);
-      });
-  }, [schoolId]);
 
   const [suggestedContacts, setSuggestedContacts] = useState<{ name: string, email: string, phone?: string, childName?: string, programId?: string }[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -229,7 +215,7 @@ export default function InvitationsManagementPage() {
     const program = invitation.program_id || formData.programId;
 
     const params = new URLSearchParams({
-      school: schoolId || 'demo',
+      school: schoolId || '',
       email: email || '',
       invite: inviteId,
       role: role
@@ -245,10 +231,40 @@ export default function InvitationsManagementPage() {
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
     const link = generateRegistrationLink(invitation);
-    const message = `¡Hola! Te invitamos a inscribir a ${invitation.child_name} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const childName = invitation.child_name || formData.childName;
+    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
     const phone = invitation.parent_phone || formData.parentPhone;
     const cleanPhone = phone.replace(/\D/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const resendEmail = async (invitation: Invitation) => {
+    const link = generateRegistrationLink(invitation);
+    try {
+      const { data: { session: edgeSession } } = await supabase.auth.getSession();
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${edgeSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+          },
+          body: JSON.stringify({
+            type: 'parent_invitation',
+            to: invitation.invited_email,
+            data: {
+              schoolName,
+              childName: invitation.child_name || '',
+              registrationUrl: link,
+            }
+          })
+        }
+      );
+      toast({ title: '📧 Correo reenviado', description: `Email enviado a ${invitation.invited_email}` });
+    } catch {
+      toast({ title: 'Error al reenviar', description: 'No se pudo enviar el correo.', variant: 'destructive' });
+    }
   };
 
   const copyLinkToClipboard = (invitation: Invitation) => {
@@ -275,10 +291,8 @@ export default function InvitationsManagementPage() {
         p_program_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.programId || null) : null,
         p_monthly_fee: data.role === 'parent' ? fee : null,
         p_parent_phone: data.parentPhone || null,
-        // Branch: use selected branch for school_admin, coach, athlete; else activeBranchId
-        p_branch_id: ['school_admin', 'coach', 'athlete'].includes(data.role)
-          ? (selectedBranchId || activeBranchId || null)
-          : (activeBranchId || null)
+        // Branch: siempre usar la sede del admin que invita
+        p_branch_id: activeBranchId || null
       });
 
       if (error) throw error;
@@ -286,32 +300,34 @@ export default function InvitationsManagementPage() {
       // 2. Try to send email via edge function (non-blocking)
       const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(data.parentEmail)}&role=${data.role}&invite=${inviteId}`;
 
+      const { data: { session: sendSession } } = await supabase.auth.getSession();
       await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
+            'Authorization': `Bearer ${sendSession?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
           },
           body: JSON.stringify({
+            type: 'parent_invitation',
             to: data.parentEmail,
-            parentName: data.parentEmail.split('@')[0],
-            childName: data.childName,
-            schoolName,
-            programName,
-            monthlyFee: fee,
-            invitationLink: registration_link,
+            data: {
+              schoolName,
+              childName: data.childName || '',
+              registrationUrl: registration_link,
+            }
           })
         }
-      ).catch(error => {
-        console.warn('Email send failed (RPC succeeded):', error);
+      ).catch(err => {
+        console.warn('Email send failed (RPC succeeded):', err);
       });
 
       return { id: inviteId, registration_link };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
       setDialogOpen(false);
       const email = formData.parentEmail;
       setFormData({
@@ -604,12 +620,7 @@ export default function InvitationsManagementPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            toast({
-                              title: '📧 Invitación reenviada',
-                              description: `Re-enviando invitación a ${invitation.invited_email}`,
-                            });
-                          }}
+                          onClick={() => resendEmail(invitation)}
                         >
                           <Send className="w-4 h-4" />
                         </Button>
@@ -623,37 +634,54 @@ export default function InvitationsManagementPage() {
         </CardContent>
       </Card>
 
-      {/* Create Invitation Dialog */}
+      {/* ── Create Invitation Dialog ──────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Enviar Nueva Invitación</DialogTitle>
-            <DialogDescription>
-              Crea una invitación para que un padre inscriba a su hijo. Se generará un link de registro.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-md sm:max-w-lg p-0 overflow-hidden">
+          {/* Header */}
+          <div className="px-6 pt-6 pb-4 border-b bg-gradient-to-b from-primary/5 to-transparent">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                Nueva Invitación
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                {formData.role === 'parent'
+                  ? 'Invita a un padre para inscribir a su hijo. Se generará un link de registro.'
+                  : formData.role === 'coach'
+                    ? 'Invita un entrenador a unirse a tu academia.'
+                    : formData.role === 'school_admin'
+                      ? 'Invita un administrador que gestionará su propia sede.'
+                      : formData.role === 'reporter'
+                        ? 'Invita un súper usuario con acceso de solo lectura a reportes.'
+                        : 'Genera un link de registro personalizado.'}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
+            {/* Role selector */}
             <div className="space-y-2">
-              <Label>Rol a asignar</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de invitación</Label>
+              <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'parent', label: 'Padre/Madre' },
-                  { id: 'coach', label: 'Entrenador' },
-                  { id: 'athlete', label: 'Atleta' },
-                  { id: 'reporter', label: 'Súper Usuario (Reporter)' },
-                  { id: 'school_admin', label: 'Administrador' },
-                  { id: 'guest', label: 'Invitado' },
+                  { id: 'parent', label: '👨‍👩‍👧 Padre/Madre' },
+                  { id: 'coach', label: '🏋️ Entrenador' },
+                  { id: 'athlete', label: '⚽ Atleta' },
+                  { id: 'school_admin', label: '🔑 Administrador' },
+                  { id: 'reporter', label: '📊 Súper Usuario' },
+                  { id: 'guest', label: '👤 Invitado' },
                 ].map((role) => (
                   <Button
                     key={role.id}
                     type="button"
                     variant={formData.role === role.id ? 'default' : 'outline'}
-                    className="w-full text-xs h-9 px-2"
+                    className={`text-xs h-9 px-2 transition-all ${formData.role === role.id
+                      ? 'ring-2 ring-primary/30 shadow-sm'
+                      : 'hover:bg-accent'
+                      }`}
                     onClick={() => setFormData({
                       ...formData,
-                      role: role.id as 'parent' | 'coach' | 'athlete' | 'guest',
-                      // Clear role-specific fields when switching to non-parent roles
+                      role: role.id as typeof formData.role,
                       ...(role.id !== 'parent' ? {
                         childName: '',
                         programId: '',
@@ -667,122 +695,95 @@ export default function InvitationsManagementPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="parentEmail">
-                Email del {
-                  formData.role === 'parent' ? 'Padre/Madre' :
-                    formData.role === 'coach' ? 'Entrenador' :
-                      formData.role === 'athlete' ? 'Atleta' :
-                        formData.role === 'school_admin' ? 'Administrador de Sede' :
-                          formData.role === 'reporter' ? 'Súper Usuario' : 'Invitado'
-                } *
-              </Label>
-              <div className="relative">
-                <Input
-                  id="parentEmail"
-                  type="email"
-                  placeholder="ejemplo@correo.com"
-                  value={formData.parentEmail}
-                  onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
-                  required
-                />
-
-                {/* Contact Suggestions */}
-                {suggestedContacts.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Sugeridos del sistema:
-                    </p>
-                    <div className="flex flex-col gap-1 max-h-32 overflow-y-auto pr-1">
-                      {suggestedContacts.map(contact => (
-                        <div
-                          key={contact.email}
-                          className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
-                          onClick={() => {
-                            const newFormData = {
-                              ...formData,
-                              parentEmail: contact.email,
-                              parentPhone: contact.phone || formData.parentPhone,
-                            };
-
-                            if (formData.role === 'parent') {
-                              newFormData.childName = contact.childName || formData.childName;
-                              newFormData.programId = contact.programId || formData.programId;
-                              // Match the monthly fee of the suggested program
-                              const prog = programs.find(p => p.id === contact.programId);
-                              if (prog) newFormData.monthlyFee = prog.monthly_fee;
-                            }
-
-                            setFormData(newFormData);
-                          }}
-                        >
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold group-hover:text-primary">{contact.name || 'Sin nombre'}</span>
-                            <span className="text-[10px] text-muted-foreground">{contact.email}</span>
-                          </div>
-                          <Badge variant="outline" className="text-[9px] h-5 group-hover:bg-primary group-hover:text-white transition-colors">
-                            Seleccionar
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="parentPhone">WhatsApp / Teléfono</Label>
-              <Input
-                id="parentPhone"
-                placeholder="Ej: 3001234567"
-                value={formData.parentPhone}
-                onChange={(e) => setFormData({ ...formData, parentPhone: e.target.value })}
-              />
-            </div>
-
-            {/* Branch selector — only for school_admin role */}
+            {/* Info block for school_admin */}
             {formData.role === 'school_admin' && (
-              <div className="space-y-2">
-                <Label htmlFor="branchSelect" className="flex items-center gap-1 font-medium">
-                  🏢 Sede que administrará *
-                </Label>
-                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                  <SelectTrigger id="branchSelect">
-                    <SelectValue placeholder={branches.length === 0 ? 'No hay sedes creadas aún' : 'Seleccionar sede...'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Este Admin solo podrá ver los equipos, alumnos y pagos de la sede seleccionada.
-                </p>
-                {branches.length === 0 && (
-                  <p className="text-xs text-amber-600">
-                    ⚠️ Crea al menos una sede en <strong>Clubes / Sedes</strong> antes de invitar un Administrador de Sede.
-                  </p>
-                )}
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-400">
+                <strong>Nota:</strong> El administrador invitado creará y gestionará su propia sede al registrarse. Verá solo los datos de su sede.
               </div>
             )}
 
             {/* Info block for reporter role */}
             {formData.role === 'reporter' && (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-primary">
-                <strong className="font-bold">Súper Usuario (Reporter):</strong> Tendrá acceso de solo lectura a todos los reportes y analíticas de la escuela. No puede hacer cambios ni ver información financiera sensible.
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm text-blue-700 dark:text-blue-400">
+                <strong>Súper Usuario:</strong> Acceso de solo lectura a reportes y analíticas. No puede hacer cambios ni ver información financiera sensible.
               </div>
             )}
 
+            {/* Email */}
+            <div className="space-y-1.5">
+              <Label htmlFor="parentEmail" className="text-sm font-medium">
+                Email *
+              </Label>
+              <Input
+                id="parentEmail"
+                type="email"
+                placeholder="ejemplo@correo.com"
+                value={formData.parentEmail}
+                onChange={(e) => setFormData({ ...formData, parentEmail: e.target.value })}
+                required
+                className="h-10"
+              />
+
+              {/* Contact Suggestions */}
+              {suggestedContacts.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Sugeridos:
+                  </p>
+                  <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
+                    {suggestedContacts.slice(0, 3).map(contact => (
+                      <div
+                        key={contact.email}
+                        className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
+                        onClick={() => {
+                          const newFormData = {
+                            ...formData,
+                            parentEmail: contact.email,
+                            parentPhone: contact.phone || formData.parentPhone,
+                          };
+                          if (formData.role === 'parent') {
+                            newFormData.childName = contact.childName || formData.childName;
+                            newFormData.programId = contact.programId || formData.programId;
+                            const prog = programs.find(p => p.id === contact.programId);
+                            if (prog) newFormData.monthlyFee = prog.monthly_fee;
+                          }
+                          setFormData(newFormData);
+                        }}
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold group-hover:text-primary">{contact.name || 'Sin nombre'}</span>
+                          <span className="text-[10px] text-muted-foreground">{contact.email}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[9px] h-5 group-hover:bg-primary group-hover:text-white transition-colors">
+                          Usar
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* WhatsApp / Phone */}
+            <div className="space-y-1.5">
+              <Label htmlFor="parentPhone" className="text-sm font-medium">WhatsApp / Teléfono</Label>
+              <Input
+                id="parentPhone"
+                placeholder="Ej: 3001234567"
+                value={formData.parentPhone}
+                onChange={(e) => setFormData({ ...formData, parentPhone: e.target.value })}
+                className="h-10"
+              />
+            </div>
+
             {/* Program selector — for parent, coach and athlete */}
             {['parent', 'coach', 'athlete'].includes(formData.role) && (
-              <div className="space-y-2">
-                <Label htmlFor="programId">
+              <div className="space-y-1.5">
+                <Label htmlFor="programId" className="text-sm font-medium">
                   Programa {formData.role === 'parent' ? '*' : '(opcional)'}
                 </Label>
                 <Select value={formData.programId} onValueChange={handleProgramChange}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10">
                     <SelectValue placeholder="Seleccionar programa" />
                   </SelectTrigger>
                   <SelectContent>
@@ -796,42 +797,23 @@ export default function InvitationsManagementPage() {
               </div>
             )}
 
-            {/* Sede selector — for coach and athlete (school_admin has its own block above) */}
-            {['coach', 'athlete'].includes(formData.role) && (
-              <div className="space-y-2">
-                <Label htmlFor="branchSelectCoach">🏢 Sede (opcional)</Label>
-                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
-                  <SelectTrigger id="branchSelectCoach">
-                    <SelectValue placeholder={branches.length === 0 ? 'No hay sedes creadas aún' : 'Seleccionar sede...'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map(b => (
-                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Si dejas vacío, se asigna a la sede principal.
-                </p>
-              </div>
-            )}
-
             {/* Child name — only for parent role */}
             {formData.role === 'parent' && (
-              <div className="space-y-2">
-                <Label htmlFor="childName">Nombre del Hijo/a *</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="childName" className="text-sm font-medium">Nombre del Hijo/a *</Label>
                 <Input
                   id="childName"
                   placeholder="Ej: María Rodríguez"
                   value={formData.childName}
                   onChange={(e) => setFormData({ ...formData, childName: e.target.value })}
                   required
+                  className="h-10"
                 />
               </div>
             )}
 
             {/* Preview link */}
-            {(formData.parentEmail || (formData.role === 'parent' && formData.childName)) && (
+            {formData.parentEmail && (
               <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2">
                 <LinkIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
                 <div className="overflow-hidden">
@@ -843,34 +825,35 @@ export default function InvitationsManagementPage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-end pt-6 border-t mt-4">
+            {/* Actions */}
+            <div className="flex gap-2 justify-end pt-4 border-t">
               <Button
                 type="button"
-                variant="outline"
-                className="w-full sm:w-auto"
+                variant="ghost"
+                className="px-4"
                 onClick={() => setDialogOpen(false)}
               >
                 Cancelar
               </Button>
-              <div className="flex flex-col sm:flex-row gap-2 flex-grow sm:flex-grow-0">
-                <Button
-                  type="submit"
-                  className="w-full sm:w-auto bg-primary hover:bg-primary/90"
-                  disabled={sendInvitationMutation.isPending}
-                >
-                  {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
-                </Button>
+              <Button
+                type="submit"
+                className="px-6 shadow-sm"
+                disabled={sendInvitationMutation.isPending}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
+              </Button>
+              {formData.parentPhone && (
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full sm:w-auto bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                  className="px-4 text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-900/30"
                   onClick={() => sendWhatsApp({})}
-                  disabled={!formData.parentPhone || !formData.childName}
                 >
                   <MessageCircle className="w-4 h-4 mr-2" />
                   WhatsApp
                 </Button>
-              </div>
+              )}
             </div>
           </form>
         </DialogContent>

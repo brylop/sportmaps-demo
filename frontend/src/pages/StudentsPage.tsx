@@ -11,6 +11,8 @@ import { CreateStudentModal } from '@/components/students/CreateStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { supabase } from '@/integrations/supabase/client';
+import { getUserFriendlyError } from '@/lib/error-translator';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -42,14 +44,58 @@ export default function StudentsPage() {
         return;
       }
 
-      const data = await studentsAPI.getSchoolView(schoolId);
+      // Para coaches: filtrar por sus equipos (legacy coach_id + junction table)
+      let coachId: string | undefined;
+      if (profile?.role === 'coach' && profile?.email) {
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('email', profile.email)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (staffData) {
+          coachId = staffData.id;
+        }
+      }
+
+      let data;
+      if (coachId) {
+        // Filtrar por equipos del coach via school_staff
+        const [{ data: legacyTeams }, { data: junctionTeams }] = await Promise.all([
+          supabase
+            .from('teams')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('coach_id', coachId),
+          supabase
+            .from('team_coaches')
+            .select('team_id')
+            .eq('coach_id', coachId),
+        ]);
+
+        const teamIds = [...new Set([
+          ...(legacyTeams || []).map(t => t.id),
+          ...(junctionTeams || []).map(t => t.team_id),
+        ])];
+
+        const { data: athletes } = await supabase
+          .from('school_athletes' as any)
+          .select('*')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .in('enrolled_team_id', teamIds.length ? teamIds : ['']);
+
+        data = athletes ?? [];
+      } else {
+        data = await studentsAPI.getSchoolView(schoolId);
+      }
       // Map to Student type if needed or adjust state type
       setStudents(data as any as Student[]);
     } catch (error: any) {
       console.error('Error loading students:', error);
       toast({
         title: 'Error al cargar estudiantes',
-        description: error.message || 'Por favor intenta de nuevo',
+        description: getUserFriendlyError(error),
         variant: 'destructive',
       });
     } finally {
@@ -67,10 +113,10 @@ export default function StudentsPage() {
     });
   };
 
-  const filteredStudents = students.filter(student =>
+  const filteredStudents = students.filter((student: any) =>
     student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (student.parent_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (student.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+    (student.parent_email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
   const getStatusBadge = (status: string) => {
@@ -250,6 +296,7 @@ export default function StudentsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="whitespace-nowrap">Nombre</TableHead>
+                    <TableHead className="whitespace-nowrap hidden md:table-cell">Equipo(s)</TableHead>
                     <TableHead className="whitespace-nowrap hidden md:table-cell">Email</TableHead>
                     <TableHead className="whitespace-nowrap hidden lg:table-cell">Grado</TableHead>
                     <TableHead className="whitespace-nowrap">Padre/Madre</TableHead>
@@ -265,6 +312,9 @@ export default function StudentsPage() {
                           <span>{student.full_name}</span>
                           <MedicalAlertBadge medicalInfo={student.medical_info} />
                         </div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {(student as any).program_name || (student as any).team_name || '-'}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {student.email ? (

@@ -4,6 +4,7 @@ import { RealtimeNotificationsProvider } from "@/components/RealtimeNotification
 import { useAuth } from "@/contexts/AuthContext";
 import { useSchoolContext } from "@/hooks/useSchoolContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { GlobalNotificationBell } from "@/components/GlobalNotificationBell";
 import { Outlet } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState, useEffect } from "react";
@@ -39,32 +40,36 @@ export default function AuthLayout() {
         <AppSidebar />
 
         <div className="flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
-          {/* Custom Premium Header */}
-          <header className="h-16 flex items-center border-b px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="flex-shrink-0 hover:bg-accent transition-colors" />
 
-              <div className="h-8 w-[1px] bg-border hidden md:block" />
+          {/* ── Header ─────────────────────────────────────────────────── */}
+          <header className="h-14 sm:h-16 flex items-center border-b px-3 sm:px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 justify-between sticky top-0 z-50">
 
-              {/* School Branding Section */}
+            {/* Left: hamburger + school branding */}
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              {/* SidebarTrigger abre el drawer en mobile, colapsa en desktop */}
+              <SidebarTrigger className="flex-shrink-0 hover:bg-accent transition-colors h-9 w-9" />
+
+              <div className="h-6 w-[1px] bg-border hidden md:block flex-shrink-0" />
+
+              {/* School Branding — truncado en mobile */}
               {showSchoolBranding && (hasSchool || !isCoach) && (
-                <div className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2 duration-500">
+                <div className="flex items-center gap-2 min-w-0 animate-in fade-in slide-in-from-left-2 duration-500">
                   {schoolLogo ? (
                     <img
                       src={schoolLogo}
                       alt={schoolName}
-                      className="h-9 w-9 rounded-lg object-contain bg-white p-1 border shadow-sm"
+                      className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg object-contain bg-white p-0.5 sm:p-1 border shadow-sm flex-shrink-0"
                     />
                   ) : (
-                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 text-primary font-bold text-xs">
+                    <div className="h-7 w-7 sm:h-9 sm:w-9 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 text-primary font-bold text-[10px] sm:text-xs flex-shrink-0">
                       {schoolName?.substring(0, 2).toUpperCase()}
                     </div>
                   )}
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold text-foreground leading-none">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs sm:text-sm font-bold text-foreground leading-none truncate max-w-[100px] sm:max-w-[160px]">
                       {schoolName || 'Mi Academia'}
                     </span>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mt-0.5">
+                    <span className="text-[9px] sm:text-[10px] text-muted-foreground uppercase tracking-wider font-medium mt-0.5 hidden sm:block">
                       {currentUserRole?.replace('_', ' ')}
                     </span>
                   </div>
@@ -72,22 +77,26 @@ export default function AuthLayout() {
               )}
             </div>
 
-            <div className="flex items-center gap-4">
-              {/* Theme and User Section */}
-              <div className="flex items-center gap-2 pr-2 border-r">
+            {/* Right: notifications + theme + avatar */}
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+              <div className="flex items-center gap-1 sm:gap-2 pr-2 border-r">
+                <GlobalNotificationBell />
                 <ThemeToggle />
               </div>
-
-              <div className="flex items-center gap-3 pl-1">
+              <div className="flex items-center gap-2 sm:gap-3 pl-1">
+                {/* Nombre — solo visible en md+ */}
                 <div className="hidden md:flex flex-col items-end">
                   <span className="text-sm font-semibold text-foreground leading-none">
                     {profile?.full_name || user?.email?.split('@')[0]}
                   </span>
                   <span className="text-[10px] text-muted-foreground capitalize">
-                    {profile?.role || 'Usuario'}
+                    {profile?.role === 'parent' ? 'Padre' :
+                      profile?.role === 'athlete' ? 'Deportista' :
+                        profile?.role === 'coach' ? 'Entrenador' :
+                          profile?.role || 'Usuario'}
                   </span>
                 </div>
-                <Avatar className="h-9 w-9 border-2 border-primary/20 hover:border-primary/50 transition-all cursor-pointer">
+                <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border-2 border-primary/20 hover:border-primary/50 transition-all cursor-pointer">
                   <AvatarImage src={profile?.avatar_url} />
                   <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold">
                     {(profile?.full_name || 'U').substring(0, 2).toUpperCase()}
@@ -97,8 +106,9 @@ export default function AuthLayout() {
             </div>
           </header>
 
-          {/* Main content - with padding for mobile bottom nav */}
-          <main className="flex-1 p-3 md:p-4 lg:p-6 overflow-auto pb-24 md:pb-6 w-full max-w-full">
+          {/* ── Main content ───────────────────────────────────────────── */}
+          {/* pb-24 en mobile para evitar que el contenido quede detrás de la barra inferior del navegador */}
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-20 sm:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
               <Outlet />
             </div>

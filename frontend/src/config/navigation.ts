@@ -26,10 +26,11 @@ import { UserRole } from '@/types/dashboard';
 
 export interface NavItem {
   title: string;
-  href: string;
+  href?: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   description?: string;
+  submenu?: NavItem[];
 }
 
 export interface NavGroup {
@@ -56,8 +57,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Mi Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Mis Equipos', href: '/teams', icon: Users }
+          { title: 'Mi Calendario', href: '/calendar', icon: Calendar }
         ]
       },
       {
@@ -73,6 +73,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
+          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
@@ -142,7 +143,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -150,7 +151,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -165,7 +173,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/school-config', icon: Settings }
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -191,7 +199,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Recursos',
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
-          { title: 'Reportes', href: '/wellness-reports', icon: FileText }
+          { title: 'Reportes', href: '/wellness-reports', icon: FileText },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
@@ -218,60 +227,22 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Clientes', href: '/customers', icon: Users },
           { title: 'Reportes', href: '/store-reports', icon: FileText },
-          { title: 'Promociones', href: '/promotions', icon: Trophy }
+          { title: 'Promociones', href: '/promotions', icon: Trophy },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],
 
+    // ── ADMIN GENERAL (Multi-sede) ───────────────────────────────────────────
+    // Superset de 'school': muestra TODO + items globales de sedes.
+    // Las páginas ya filtran datos por activeBranchId cuando está seteado.
     admin: [
       {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
-          { title: 'Clubs', href: '/admin/clubs', icon: Building }
-        ]
-      },
-      {
-        title: 'Sistema',
-        items: [
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Reportes', href: '/admin/reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: Bell }
-        ]
-      }
-    ],
-
-    super_admin: [
-      {
-        title: 'Principal',
-        items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Usuarios', href: '/admin/users', icon: Users },
-          { title: 'Clubs', href: '/admin/clubs', icon: Building }
-        ]
-      },
-      {
-        title: 'Sistema',
-        items: [
-          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 },
-          { title: 'Reportes', href: '/admin/reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Configuración', href: '/admin/config', icon: Settings },
-          { title: 'Logs', href: '/admin/logs', icon: Bell }
-        ]
-      }
-    ],
-
-    school_admin: [
-      {
-        title: 'Principal',
-        items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -279,7 +250,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Académica',
         items: [
-          { title: 'Mis Equipos', href: '/teams', icon: Users },
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
@@ -294,7 +272,91 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/school-config', icon: Settings }
+          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      }
+    ],
+
+    // ── SUPER ADMIN ──────────────────────────────────────────────────────────
+    // Idéntico a admin — mismo superset operacional.
+    super_admin: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users }
+        ]
+      },
+      {
+        title: 'Gestión Académica',
+        items: [
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+        ]
+      },
+      {
+        title: 'Administración',
+        items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Sedes', href: '/branches', icon: MapPin },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      }
+    ],
+
+    school_admin: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
+          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
+          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Entrenadores', href: '/staff', icon: Users }
+        ]
+      },
+      {
+        title: 'Gestión Académica',
+        items: [
+          {
+            title: 'Equipos y Planes',
+            icon: Users,
+            submenu: [
+              { title: 'Mis Equipos', href: '/teams', icon: Users },
+              { title: 'Mis Planes', href: '/offerings', icon: FileText }
+            ]
+          },
+          { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+        ]
+      },
+      {
+        title: 'Administración',
+        items: [
+          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Finanzas', href: '/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/school-reports', icon: FileText },
+          { title: 'Sedes', href: '/branches', icon: MapPin },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
     ],

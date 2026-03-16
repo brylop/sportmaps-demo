@@ -4,15 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Plus, FileText, Calendar, User, AlertCircle, Loader2, Download } from 'lucide-react';
+import { Search, Plus, FileText, Calendar, User, Loader2, Download } from 'lucide-react';
 import { useHealthRecords } from '@/hooks/useWellnessData';
 
-const mockMedicalHistory = [
-  { id: '1', athlete: 'Miguel Torres', type: 'Consulta', diagnosis: 'Esguince tobillo grado II', date: '2025-12-20', status: 'active' },
-  { id: '2', athlete: 'Sofía Ramírez', type: 'Fisioterapia', diagnosis: 'Tendinitis hombro', date: '2025-12-18', status: 'in_treatment' },
-  { id: '3', athlete: 'Diego Fernández', type: 'Evaluación', diagnosis: 'Control rutinario', date: '2025-12-15', status: 'completed' },
-  { id: '4', athlete: 'Valentina Castro', type: 'Rehabilitación', diagnosis: 'Rotura LCA - Post operatorio', date: '2025-12-10', status: 'in_treatment' },
-];
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   active: { label: 'Activo', variant: 'default' },
@@ -25,16 +19,14 @@ export default function MedicalHistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const { records, isLoading } = useHealthRecords();
 
-  const displayRecords = records.length > 0 ? records.map(r => ({
+  const displayRecords = records.map(r => ({
     id: r.id,
     athlete: r.athlete_id.substring(0, 8),
     type: r.record_type,
     diagnosis: r.diagnosis || 'Sin diagnóstico',
     date: new Date(r.created_at).toLocaleDateString('es-CO'),
     status: 'active'
-  })) : mockMedicalHistory;
-
-  const isUsingMockData = records.length === 0;
+  }));
 
   const filteredRecords = displayRecords.filter(record =>
     record.athlete.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -56,12 +48,6 @@ export default function MedicalHistoryPage() {
         <div>
           <h1 className="text-3xl font-bold">Historial Médico</h1>
           <p className="text-muted-foreground">Registros médicos de tus atletas</p>
-          {isUsingMockData && (
-            <Badge variant="secondary" className="mt-2 gap-1">
-              <AlertCircle className="h-3 w-3" />
-              Mostrando datos de demostración
-            </Badge>
-          )}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2">

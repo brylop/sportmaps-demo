@@ -37,6 +37,17 @@ export interface CreateChildDTO {
     id_document_url?: string;
 }
 
+export interface UpdateChildDTO {
+    full_name?: string;
+    date_of_birth?: string;
+    grade?: string;
+    doc_type?: string;
+    doc_number?: string;
+    emergency_contact?: string;
+    avatar_url?: string;
+    medical_info?: string;
+}
+
 class ParentsAPI {
 
     /**
@@ -64,6 +75,26 @@ class ParentsAPI {
         const { data, error } = await supabase
             .from('children')
             .insert(childData)
+            .select()
+            .single();
+
+        if (error) {
+            throw error;
+        }
+
+        return data;
+    }
+
+    /**
+     * Update child information
+     * @param childId
+     * @param childData
+     */
+    async updateChild(childId: string, childData: UpdateChildDTO): Promise<Child> {
+        const { data, error } = await supabase
+            .from('children')
+            .update(childData)
+            .eq('id', childId)
             .select()
             .single();
 

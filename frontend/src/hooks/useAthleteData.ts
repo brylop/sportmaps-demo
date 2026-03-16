@@ -92,3 +92,58 @@ export function useTrainingAggregates() {
     isLoading,
   };
 }
+
+export interface AthleteGoal {
+  id: string;
+  athlete_id: string;
+  title: string;
+  description: string | null;
+  target_date: string | null;
+  progress: number;
+  status: 'active' | 'completed' | 'pending' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+}
+
+export function useAthleteGoals() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['athlete-goals', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('athlete_goals')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data as AthleteGoal[];
+    },
+    enabled: !!user?.id,
+  });
+}
+
+export interface AthleteDashboardRPC {
+  trainings_this_month: number;
+  current_level: string | null;
+  next_session_days: number | null;
+  pending_payments_total: number;
+  active_enrollments: number;
+  active_teams: number;
+  age_category: string;
+}
+
+export function useAthleteDashboardStats() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['athlete-dashboard-stats', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_athlete_dashboard_stats');
+      if (error) throw error;
+      return data as AthleteDashboardRPC;
+    },
+    enabled: !!user?.id,
+    staleTime: 2 * 60 * 1000, // 2 minutes
+  });
+}

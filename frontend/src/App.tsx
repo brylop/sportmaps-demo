@@ -6,12 +6,15 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { CartProvider } from "@/contexts/CartContext";
+import { SchoolProvider } from "@/hooks/useSchoolContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { Suspense, lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { InstallBanner } from "./pwa/InstallBanner";
+import { UpdateBanner } from "./pwa/UpdateBanner";
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
 const PageLoader = () => (
@@ -27,6 +30,8 @@ const PageLoader = () => (
 const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const ExplorePage = lazy(() => import("./pages/ExplorePage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
@@ -35,6 +40,8 @@ const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
 const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
+const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -46,6 +53,7 @@ const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const OfferingsPage = lazy(() => import("./pages/OfferingsPage"));
 const StatsPage = lazy(() => import("./pages/StatsPage"));
 const MessagesPage = lazy(() => import("./pages/MessagesPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
@@ -89,6 +97,7 @@ const ReporterDashboardPage = lazy(() => import("./pages/ReporterDashboardPage")
 const GoalsPage = lazy(() => import("./pages/GoalsPage"));
 const TrainingPage = lazy(() => import("./pages/TrainingPage"));
 const AthleteWellnessPage = lazy(() => import("./pages/AthleteWellnessPage"));
+const AthletePaymentsPage = lazy(() => import("./pages/AthletePaymentsPage"));
 
 // ─── Store pages (lazy) ───────────────────────────────────────────────────────
 const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
@@ -115,48 +124,75 @@ const EventManagementPage = lazy(() => import("./pages/organizer/EventManagement
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,        // 5 min de cache
-      gcTime: 10 * 60 * 1000,           // 10 min en memoria
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
       retry: 1,
-      refetchOnWindowFocus: false,      // Evita refetch innecesario al volver al tab
-      refetchOnReconnect: 'always',     // Siempre refetch al reconectar (crítico mobile)
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: 'always',
     },
   },
 });
 
+const EnvironmentBanner = () => {
+  const env = import.meta.env.VITE_APP_ENV;
+  if (!env || env === 'production') return null;
+
+  const colors: Record<string, string> = {
+    staging: 'bg-amber-500',
+    development: 'bg-blue-500',
+    demo: 'bg-purple-600',
+  };
+
+  const bgColor = colors[env] || 'bg-slate-700';
+
+  return (
+    <div className={`${bgColor} text-white text-center text-[10px] py-1 font-bold uppercase tracking-widest sticky top-0 z-[9999] shadow-md border-b border-white/10`}>
+      Ambiente de {env === 'demo' ? 'Demostración' : env}
+    </div>
+  );
+};
+
+// ─── Layout autenticado ────────────────────────────────────
+// Removemos el SchoolProvider de aquí porque ThemeProvider y ProtectedRoute 
+// necesitan el contexto de la escuela (para colores y roles) ANTES de llegar aquí.
+const AuthenticatedLayout = () => (
+  <AuthLayout />
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <ErrorBoundary>
-            <CartProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
+        <SchoolProvider>
+          <ThemeProvider>
+            <ErrorBoundary>
+              <CartProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <EnvironmentBanner />
+                <UpdateBanner />
+                <InstallBanner />
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     {/* Public routes */}
                     <Route path="/" element={<Index />} />
-
                     <Route path="/explore" element={<ExplorePage />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
+                    <Route path="/escuela/:id" element={<SchoolProfilePage />} />
                     <Route path="/login" element={<LoginPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/terminos-y-condiciones" element={<TermsPage />} />
+                    <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
                     <Route path="/checkout" element={
-                      <ProtectedRoute>
-                        <CheckoutPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><CheckoutPage /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
-                      <ProtectedRoute>
-                        <SchoolSetupPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>
                     } />
                     <Route path="/parent-checkout" element={
-                      <ProtectedRoute>
-                        <ParentCheckoutPage />
-                      </ProtectedRoute>
+                      <ProtectedRoute><ParentCheckoutPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
                     <Route path="/unauthorized" element={<UnauthorizedPage />} />
@@ -166,10 +202,10 @@ const App = () => (
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
 
-                    {/* Main authenticated routes */}
+                    {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
                       <ProtectedRoute>
-                        <AuthLayout />
+                        <AuthenticatedLayout />  {/* ← SchoolProvider wrappea AuthLayout */}
                       </ProtectedRoute>
                     }>
                       <Route path="dashboard" element={<DashboardPage />} />
@@ -181,12 +217,18 @@ const App = () => (
 
                       {/* Athlete routes */}
                       <Route path="teams" element={<TeamsPage />} />
+                      <Route path="offerings" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <OfferingsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="stats" element={<StatsPage />} />
                       <Route path="goals" element={<GoalsPage />} />
                       <Route path="training" element={<TrainingPage />} />
                       <Route path="enrollments" element={<MyEnrollmentsPage />} />
                       <Route path="shop" element={<ShopPage />} />
                       <Route path="wellness" element={<AthleteWellnessPage />} />
+                      <Route path="athlete-payments" element={<AthletePaymentsPage />} />
 
                       {/* Parent routes */}
                       <Route path="children" element={<MyChildrenPage />} />
@@ -211,7 +253,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="invitations" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <InvitationsManagementPage />
                         </ProtectedRoute>
                       } />
@@ -271,7 +313,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="school-config" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolSettingsPage />
                         </ProtectedRoute>
                       } />
@@ -282,15 +324,43 @@ const App = () => (
                       } />
 
                       {/* Wellness routes */}
-                      <Route path="athletes" element={<WellnessPatientsPage />} />
-                      <Route path="schedule" element={<WellnessSchedulePage />} />
-                      <Route path="evaluations/new" element={<WellnessSchedulePage />} />
-                      <Route path="medical-history" element={<MedicalHistoryPage />} />
-                      <Route path="follow-ups" element={<WellnessPatientsPage />} />
-                      <Route path="nutrition" element={<NutritionPage />} />
-                      <Route path="wellness-reports" element={<ReportsPage />} />
+                      <Route path="athletes" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessPatientsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="schedule" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessSchedulePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="evaluations/new" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessSchedulePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="medical-history" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <MedicalHistoryPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="follow-ups" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <WellnessPatientsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="nutrition" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <NutritionPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="wellness-reports" element={
+                        <ProtectedRoute allowedRoles={['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin']}>
+                          <ReportsPage />
+                        </ProtectedRoute>
+                      } />
 
-                      {/* Store routes (role-guarded) */}
+                      {/* Store routes */}
                       <Route path="products" element={
                         <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
                           <StoreProductsPage />
@@ -337,7 +407,7 @@ const App = () => (
                       <Route path="organizer/create-event" element={<CreateEventPage />} />
                       <Route path="organizer/event/:id" element={<EventManagementPage />} />
 
-                      {/* Admin routes — allowedRoles includes 'school' for the Global Admin (owner) */}
+                      {/* Admin routes */}
                       <Route path="admin/users" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminUsersPage />
@@ -370,23 +440,21 @@ const App = () => (
                       } />
                     </Route>
 
-                    {/* Catch-all route */}
+                    {/* Catch-all */}
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Suspense>
 
-                {/* Mobile Bottom Navigation */}
                 <MobileBottomNav />
-
-                {/* Global Cart Drawer */}
                 <CartDrawer />
               </BrowserRouter>
             </CartProvider>
           </ErrorBoundary>
-        </AuthProvider>
-      </ThemeProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
+        </ThemeProvider>
+      </SchoolProvider>
+    </AuthProvider>
+  </TooltipProvider>
+</QueryClientProvider>
 );
 
 export default App;

@@ -2,6 +2,7 @@
 // Checkout API Service
 // Phase: Adapter for V4 Migration
 import { supabase } from '@/integrations/supabase/client';
+import { emailClient } from '@/lib/email-client';
 
 export interface CheckoutPayload {
     student_id: string; // The ID of the person being enrolled (child or user)
@@ -57,14 +58,62 @@ class CheckoutAPI {
                 throw new Error('Transaction failed without throwing SQL error');
             }
 
-            // 3. Send Notification
-            // Axis 2: Using standardized notify_user RPC
+            // 3. Send In-App Notification
             await supabase.rpc('notify_user', {
                 p_user_id: payload.parent_id,
                 p_title: 'Inscripción Exitosa',
                 p_message: 'El pago ha sido procesado y la inscripción está activa.',
                 p_type: 'payment_success'
             });
+
+            // 4. Send Transactional Emails (non-blocking)
+            try {
+                const { data: parentProfile } = await supabase
+                    .from('profiles')
+                    .select('email, full_name')
+                    .eq('id', payload.parent_id)
+                    .maybeSingle();
+
+                const { data: school } = await supabase
+                    .from('schools')
+                    .select('name')
+                    .eq('id', payload.school_id)
+                    .maybeSingle();
+
+                const { data: program } = await supabase
+                    .from('teams')
+                    .select('name')
+                    .eq('id', payload.class_id)
+                    .maybeSingle();
+
+                if (parentProfile?.email) {
+                    // Payment confirmation email
+                    await emailClient.send({
+                        type: 'payment_confirmation',
+                        to: parentProfile.email,
+                        data: {
+                            userName: parentProfile.full_name || 'Usuario',
+                            schoolName: school?.name || 'Tu Escuela',
+                            amount: `$${payload.amount.toLocaleString('es-CO')}`,
+                            concept: `Inscripción ${program?.name || 'Programa'}`,
+                            reference: (result.enrollment_id || '').slice(0, 8).toUpperCase(),
+                        },
+                    });
+
+                    // Enrollment confirmation email
+                    await emailClient.send({
+                        type: 'enrollment_confirmation',
+                        to: parentProfile.email,
+                        data: {
+                            userName: parentProfile.full_name || 'Usuario',
+                            programName: program?.name || 'Programa',
+                            schoolName: school?.name || 'Tu Escuela',
+                        },
+                    });
+                }
+            } catch (emailErr) {
+                console.warn('Email sending failed (non-blocking):', emailErr);
+            }
 
             return { success: true, enrollment_id: result.enrollment_id };
 

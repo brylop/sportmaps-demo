@@ -33,7 +33,7 @@ router.get(
             // 2. Si existe la sesión, traer los registros asociados
             const { data: records, error: recordsErr } = await supabase
                 .from('attendance_records')
-                .select('child_id, status')
+                .select('child_id, user_id, status')
                 .eq('program_id', teamId)
                 .eq('attendance_date', today);
 
@@ -59,11 +59,16 @@ router.post(
             const { schoolId } = req;
             const { teamId, records } = req.body as {
                 teamId: string;
-                records: { childId: string; status: string }[];
+                records: { childId?: string; userId?: string; status: string }[];
             };
 
             if (!teamId || !Array.isArray(records) || records.length === 0) {
                 return res.status(400).json({ error: 'teamId y records son requeridos.' });
+            }
+
+            const invalidRecord = records.find((r) => !r.childId && !r.userId);
+            if (invalidRecord) {
+                return res.status(400).json({ error: 'Cada record debe tener childId o userId.' });
             }
 
             const today = new Date().toISOString().split('T')[0];
@@ -104,23 +109,37 @@ router.post(
             if (sessionErr) throw sessionErr;
 
             // 3. Guardar registros de asistencia (upsert — permite edición antes de finalizar)
-            const attendanceRecords = records.map(({ childId, status }) => ({
+            const attendanceRecords = records.map(({ childId, userId, status }) => ({
                 school_id: schoolId,
                 program_id: teamId,
-                child_id: childId,
+                ...(childId ? { child_id: childId } : { user_id: userId }),
                 attendance_date: today,
                 status,
                 marked_by: req.user?.id,
             }));
 
-            const { error: recordsErr } = await supabase
-                .from('attendance_records')
-                .upsert(attendanceRecords, {
-                    onConflict: 'child_id,program_id,attendance_date',
-                    ignoreDuplicates: false,
-                });
+            const childRecords = attendanceRecords.filter((r: any) => r.child_id);
+            const adultRecords = attendanceRecords.filter((r: any) => r.user_id);
 
-            if (recordsErr) throw recordsErr;
+            if (childRecords.length > 0) {
+                const { error: childErr } = await supabase
+                    .from('attendance_records')
+                    .upsert(childRecords, {
+                        onConflict: 'child_id,program_id,attendance_date',
+                        ignoreDuplicates: false,
+                    });
+                if (childErr) throw childErr;
+            }
+
+            if (adultRecords.length > 0) {
+                const { error: adultErr } = await supabase
+                    .from('attendance_records')
+                    .upsert(adultRecords, {
+                        onConflict: 'user_id,program_id,attendance_date',
+                        ignoreDuplicates: false,
+                    });
+                if (adultErr) throw adultErr;
+            }
 
             return res.json({ success: true, sessionId: session.id });
         } catch (err: any) {
@@ -155,7 +174,14 @@ router.patch(
                 return res.status(409).json({ error: 'La sesión ya estaba finalizada.' });
             }
 
-            // Finalizar
+            // Obtener preview de bookings que serán procesados por el trigger
+            const { data: bookingsPreview } = await supabase
+                .from('session_bookings')
+                .select('id, user_id, child_id, is_secondary, booking_type, enrollment_id')
+                .eq('session_id', sessionId)
+                .eq('status', 'confirmed');
+
+            // Finalizar — trigger trg_deduct_sessions_on_finalize se dispara automáticamente
             const { error: updateErr } = await supabase
                 .from('attendance_sessions')
                 .update({
@@ -167,10 +193,48 @@ router.patch(
 
             if (updateErr) throw updateErr;
 
-            return res.json({ success: true, message: 'Sesión finalizada correctamente.' });
+            return res.json({
+                success: true,
+                message: 'Sesión finalizada correctamente.',
+                summary: {
+                    bookings_processed: bookingsPreview?.length ?? 0,
+                    details: (bookingsPreview || []).map((b: any) => ({
+                        booking_id: b.id,
+                        booking_type: b.booking_type,
+                        is_secondary: b.is_secondary,
+                    })),
+                },
+            });
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error finalizando sesión de asistencia');
             return res.status(500).json({ error: 'Error interno finalizando la sesión.' });
+        }
+    }
+);
+
+// ── GET /api/v1/attendance/rate/:teamId ───────────────────────────────────────
+// Calcula el porcentaje de asistencia de un equipo sin problemas de RLS
+router.get(
+    '/rate/:teamId',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'school_admin', 'coach'),
+    async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { teamId } = req.params;
+            const { data, error } = await supabase
+                .from('attendance_records')
+                .select('status')
+                .eq('program_id', teamId);
+
+            if (error) throw error;
+
+            const total = data?.length || 0;
+            const present = data?.filter((r: any) => r.status === 'present' || r.status === 'late').length || 0;
+
+            return res.json({ rate: total > 0 ? Math.round((present / total) * 100) : 0 });
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error calculando porcentaje de asistencia');
+            return res.status(500).json({ error: 'Error interno calculando asistencia.', rate: 0 });
         }
     }
 );

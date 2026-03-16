@@ -249,6 +249,9 @@ export default function AdminUsersPage() {
                     <DialogContent className="sm:max-w-md">
                         <DialogHeader>
                             <DialogTitle>Invitar Nuevo Usuario</DialogTitle>
+                            <DialogDescription>
+                                Envía una invitación por correo electrónico para que se unan a la plataforma.
+                            </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 pt-2">
                             <div className="space-y-2">

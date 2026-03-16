@@ -52,14 +52,18 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
     }, [open, team]);
 
     const loadStudents = async () => {
+        if (!team?.school_id) return;
         try {
             setLoading(true);
-            // Fetch all active students for this school
-            const data = await studentsAPI.getStudents({
-                school_id: team?.school_id,
-                limit: 1000
-            });
-            setStudents(data);
+            const data = await studentsAPI.getSchoolView(team.school_id);
+            
+            // ✅ DEDUPLICAR por ID
+            const uniqueStudents = Array.from(
+                new Map(data.map((s: any) => [s.id, s])).values()
+            ) as Student[];
+            
+            console.log(`Loaded ${data.length} records, ${uniqueStudents.length} unique students`);
+            setStudents(uniqueStudents);
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
@@ -77,34 +81,37 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         try {
             const { data, error } = await supabase
                 .from('enrollments')
-                .select('child_id')
-                .eq('program_id', team.id)
+                .select('user_id, child_id')
+                .eq('team_id', team.id)
                 .eq('status', 'active');
 
             if (error) throw error;
-            setEnrolledStudentIds(data.map(e => e.child_id));
+            setEnrolledStudentIds(data.map(e => e.child_id ?? e.user_id).filter(Boolean) as string[]);
         } catch (error) {
             console.error('Error loading enrolled students:', error);
         }
     };
 
-    const handleEnroll = async (student: Student) => {
+    const handleEnroll = async (student: any) => {
         if (!team) return;
 
         try {
             setEnrolling(student.id);
 
-            // Reusing classesAPI.enrollStudent which handles 'enrollments' table
-            // program_id in enrollments matches team.id in our unified structure
-            await classesAPI.enrollStudent(team.id, student.id, student.full_name);
+            const isAdult = student.athlete_type === 'adult';
 
-            // Fetch current stats to update current_students count in teams table
-            // This is now handled automatically by the Supabase database trigger:
-            // sync_enrollment_participant_count on the enrollments table.
+            // Usar BFF para soportar user_id y child_id
+            const { bffClient } = await import('@/lib/api/bffClient');
+            await bffClient.post('/api/v1/enrollments', {
+                ...(isAdult
+                    ? { user_id: student.id }
+                    : { child_id: student.id }),
+                team_id: team.id,
+            });
 
             toast({
                 title: '¡Estudiante inscrito!',
-                description: `${student.full_name} ha sido inscrito en el equipo ${team.name}`,
+                description: `${student.full_name} ha sido inscrito en ${team.name}`,
             });
 
             setEnrolledStudentIds([...enrolledStudentIds, student.id]);
@@ -120,15 +127,26 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         }
     };
 
-    const handleUnenroll = async (student: Student) => {
+    const handleUnenroll = async (student: any) => {
         if (!team) return;
 
         try {
             setEnrolling(student.id);
-            await classesAPI.unenrollStudent(team.id, student.id);
 
-            // Update team count
-            // This is handled automatically by the Supabase trigger.
+            const { data: enrollment } = await supabase
+                .from('enrollments')
+                .select('id')
+                .eq('team_id', team.id)
+                .eq('status', 'active')
+                .or(`child_id.eq.${student.id},user_id.eq.${student.id}`)
+                .maybeSingle();
+
+            if (enrollment?.id) {
+                await supabase
+                    .from('enrollments')
+                    .update({ status: 'cancelled' })
+                    .eq('id', enrollment.id);
+            }
 
             toast({
                 title: 'Estudiante removido',
@@ -259,8 +277,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                                                                 ) : (
                                                                     <>
                                                                         <X className="h-4 w-4 mr-1" />
-                                                                        <span className="hidden xs:inline">Remover</span>
-                                                                        <span className="xs:hidden">X</span>
+                                                                        <span>Remover</span>
                                                                     </>
                                                                 )}
                                                             </Button>

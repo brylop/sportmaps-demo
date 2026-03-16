@@ -38,3 +38,11 @@ export function getStoragePath(urlOrPath: string): string {
     return urlOrPath;
   }
 }
+/**
+ * Masks a sensitive string (bank account, ID, phone) leaving only the last 4 characters visible.
+ */
+export function maskSensitive(value: string | null | undefined): string {
+  if (!value) return "";
+  if (value.length <= 4) return value;
+  return "*".repeat(value.length - 4) + value.slice(-4);
+}

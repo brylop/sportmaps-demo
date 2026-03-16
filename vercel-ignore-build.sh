@@ -6,7 +6,7 @@
 # Exits with 0 (cancels build) for all other branches.
 
 case "$VERCEL_GIT_COMMIT_REF" in
-  demo|develop|staging|production)
+  main|staging|production)
     echo "✅ Rama permitida ($VERCEL_GIT_COMMIT_REF). Procediendo con el build."
     exit 1
     ;;

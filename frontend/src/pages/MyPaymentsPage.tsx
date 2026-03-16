@@ -5,18 +5,21 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus } from 'lucide-react';
+import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency, getStoragePath } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Eye, Loader2 } from 'lucide-react';
+import { Eye, Loader2, Info, Percent } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 
 interface Enrollment {
   id: string;
   child_id: string;
-  program_id: string;
+  program_id: string | null;
+  team_id: string | null;
   school_id: string;
   children: {
     full_name: string;
@@ -70,18 +73,12 @@ export default function MyPaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
     childName: string;
-    programId: string;
+    programId?: string;
+    teamId?: string;
     programName: string;
     amount: number;
     schoolId: string;
-  }>({
-    childId: '',
-    childName: '',
-    programId: '',
-    programName: 'Programa de Formación',
-    amount: 0,
-    schoolId: '',
-  });
+  } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [viewingProof, setViewingProof] = useState<ViewingProof>({
@@ -91,27 +88,53 @@ export default function MyPaymentsPage() {
     amount: 0,
   });
 
+  const [showInstallment, setShowInstallment] = useState(false);
+  const [selectedInstallmentPayment, setSelectedInstallmentPayment] = useState<{
+    id: string;
+    schoolId: string;
+    balancePending: number;
+    concept: string;
+  } | null>(null);
+
+  const [installments, setInstallments] = useState<any[]>([]);
+  const [loadingInstallments, setLoadingInstallments] = useState(false);
+
   useEffect(() => {
-    if (user) {
+    if (user && profile) {
+      if (profile.role === 'athlete') {
+        window.location.href = '/athlete-payments';
+        return;
+      }
       fetchPaymentData();
     }
-  }, [user]);
+  }, [user, profile]);
 
   const fetchPaymentData = async () => {
     try {
       setLoading(true);
 
-      // Fetch payments from Supabase
+      // Fetch enriched payments view from Supabase
       const { data: payments, error } = await supabase
-        .from('payments')
+        .from('payments_with_installments' as any)
         .select('*')
         .eq('parent_id', user?.id || '')
         .order('created_at', { ascending: false });
 
       if (!error && payments && payments.length > 0) {
-        const txns: Transaction[] = payments.map((p) => ({
+        const txns: (Transaction & { 
+          amount_paid?: number; 
+          balance_pending?: number; 
+          pct_paid?: number;
+          installments_pending?: number;
+          school_id?: string;
+        })[] = payments.map((p: any) => ({
           id: p.id,
+          school_id: p.school_id,
           amount: p.amount,
+          amount_paid: p.amount_paid,
+          balance_pending: p.balance_pending,
+          pct_paid: p.pct_paid,
+          installments_pending: p.installments_pending,
           concept: p.concept,
           payment_method: p.payment_type || 'transfer',
           status: p.status === 'paid' ? 'approved' : p.status,
@@ -188,6 +211,7 @@ export default function MyPaymentsPage() {
                 id: enroll.id,
                 child_id: child.id,
                 program_id: enroll.program_id,
+                team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
                 teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
@@ -196,12 +220,12 @@ export default function MyPaymentsPage() {
             });
           }
           // 2. FIX 2 — Asignación directa por team_id.
-          //    program_id del enrollment = child.team_id (sin mezclar con program_id).
           else if (child.teams) {
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id,
+              program_id: null,
+              team_id: child.team_id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -216,7 +240,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: child.team_id || child.id,
+              program_id: null,
+              team_id: child.team_id || null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -231,7 +256,8 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: 'none',
+              program_id: null,
+              team_id: null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
@@ -250,6 +276,24 @@ export default function MyPaymentsPage() {
       console.error('Error fetching payment data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchInstallments = async (paymentId: string) => {
+    try {
+      setLoadingInstallments(true);
+      const { data, error } = await supabase
+        .from('payment_installments')
+        .select('*')
+        .eq('payment_id', paymentId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setInstallments(data || []);
+    } catch (err) {
+      console.error('Error fetching installments:', err);
+    } finally {
+      setLoadingInstallments(false);
     }
   };
 
@@ -294,6 +338,12 @@ export default function MyPaymentsPage() {
         return <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" />Aprobado</Badge>;
       case 'rejected':
         return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rechazado</Badge>;
+      case 'awaiting_approval':
+        return <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="h-3 w-3 mr-1" />Por Validar</Badge>;
+      case 'partial':
+        return <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200"><Percent className="h-3 w-3 mr-1" />Abono Recibido</Badge>;
+      case 'overdue':
+        return <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Vencido</Badge>;
       case 'pending':
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pendiente</Badge>;
       default:
@@ -312,6 +362,16 @@ export default function MyPaymentsPage() {
         return '📱';
       default:
         return '💰';
+    }
+  };
+
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method.toLowerCase()) {
+      case 'pse': return 'PSE';
+      case 'card':
+      case 'tarjeta': return 'Tarjeta';
+      case 'transfer': return 'Transf. / Nequi';
+      default: return method.toUpperCase();
     }
   };
 
@@ -430,30 +490,57 @@ export default function MyPaymentsPage() {
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-1 text-xs md:text-sm">
                               {getPaymentMethodIcon(txn.payment_method)}
-                              <span className="hidden md:inline">{txn.payment_method.toUpperCase()}</span>
+                              <span className="hidden md:inline">{getPaymentMethodLabel(txn.payment_method)}</span>
                             </span>
                           </TableCell>
                           <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
-                            {formatCurrency(txn.amount)}
+                            <div className="flex flex-col gap-1">
+                              <span>{formatCurrency(txn.amount)}</span>
+                              {txn.status === 'partial' && (
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  Pendiente: {formatCurrency((txn as any).balance_pending || 0)}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell>{getStatusBadge(txn.status)}</TableCell>
                           <TableCell>
-                            {txn.status === 'approved' && (
-                              <Button variant="ghost" size="sm" className="text-xs">
-                                Ver Recibo
-                              </Button>
-                            )}
-                            {txn.receipt_url && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                onClick={() => handleShowProof(txn.receipt_url!, txn.reference, txn.amount)}
-                              >
-                                <Eye className="h-4 w-4 mr-1" />
-                                Comprobante
-                              </Button>
-                            )}
+                            <div className="flex gap-2">
+                              {txn.status === 'approved' && (
+                                <Button variant="ghost" size="sm" className="text-xs">
+                                  Ver Recibo
+                                </Button>
+                              )}
+                              {txn.receipt_url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => handleShowProof(txn.receipt_url!, (txn as any).concept || '', txn.amount)}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  Comprobante
+                                </Button>
+                              )}
+                              {txn.status === 'partial' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs text-primary hover:text-primary/80"
+                                  onClick={() => {
+                                    setSelectedInstallmentPayment({
+                                      id: txn.id,
+                                      schoolId: (txn as any).school_id || '',
+                                      balancePending: (txn as any).balance_pending || 0,
+                                      concept: (txn as any).concept || ''
+                                    });
+                                    setShowInstallment(true);
+                                  }}
+                                >
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  Abonar
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -505,7 +592,10 @@ export default function MyPaymentsPage() {
               <CardTitle>Pagos Pendientes</CardTitle>
             </CardHeader>
             <CardContent>
-              {transactions.filter(t => t.status === 'pending').length > 0 ? (
+              {transactions.filter(t => {
+                console.log('STATUS EN FILTRO (length checking):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                return t.status === 'pending' || t.status === 'awaiting_approval';
+              }).length > 0 ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -516,7 +606,10 @@ export default function MyPaymentsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.filter(t => t.status === 'pending').map((txn) => (
+                    {transactions.filter(t => {
+                      console.log('STATUS EN FILTRO (mapping):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
+                      return t.status === 'pending' || t.status === 'awaiting_approval';
+                    }).map((txn) => (
                       <TableRow key={txn.id}>
                         <TableCell>
                           {new Date(txn.transaction_date).toLocaleDateString('es-CO')}
@@ -524,9 +617,49 @@ export default function MyPaymentsPage() {
                         <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
                         <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
                         <TableCell>
-                          <Button size="sm" variant="outline">
-                            Completar Pago
-                          </Button>
+                          {txn.status === 'awaiting_approval' ? (
+                            <Button size="sm" variant="outline" disabled>
+                              En revisión
+                            </Button>
+                          ) : (
+                            <div className="flex gap-2 items-center">
+                              {txn.balance_pending !== undefined && txn.balance_pending > 0 && txn.balance_pending < txn.amount && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="border-primary text-primary hover:bg-primary/10"
+                                  onClick={() => {
+                                    setSelectedInstallmentPayment({
+                                      id: txn.id,
+                                      schoolId: txn.school_id || '',
+                                      balancePending: txn.balance_pending!,
+                                      concept: txn.concept
+                                    });
+                                    setShowInstallment(true);
+                                  }}
+                                >
+                                  Abonar
+                                </Button>
+                              )}
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                onClick={() => {
+                                  setSelectedPayment({
+                                    childId: '', 
+                                    childName: '',
+                                    programName: txn.concept,
+                                    amount: txn.balance_pending || txn.amount,
+                                    schoolId: txn.school_id || '',
+                                    paymentId: txn.id,
+                                  });
+                                  setShowCheckout(true);
+                                }}
+                              >
+                                {txn.balance_pending && txn.balance_pending < txn.amount ? 'Pagar Resto' : 'Completar Pago'}
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -561,8 +694,9 @@ export default function MyPaymentsPage() {
                     setSelectedPayment({
                       childId: enroll.child_id,
                       childName: enroll.children?.full_name || 'Estudiante',
-                      programId: enroll.program_id,
-                      programName: enroll.teams?.name || 'Programa de Formación',
+                      programId: enroll.program_id || undefined,
+                      teamId: enroll.team_id || undefined,
+                      programName: enroll.teams?.name || 'Mensualidad Estudiante',
                       amount: enroll.teams?.price_monthly || 0,
                       schoolId: enroll.school_id,
                     });
@@ -605,17 +739,35 @@ export default function MyPaymentsPage() {
       </Dialog>
 
       {/* Payment Checkout Modal */}
-      <PaymentCheckoutModal
-        open={showCheckout}
-        onOpenChange={setShowCheckout}
-        studentId={selectedPayment.childId}
-        programId={selectedPayment.programId}
-        schoolId={selectedPayment.schoolId}
-        amount={selectedPayment.amount}
-        concept={`${selectedPayment.programName} — ${selectedPayment.childName}`}
-        mode="create"
-        onSuccess={fetchPaymentData}
-      />
+      {selectedPayment && (
+        <PaymentCheckoutModal
+          open={showCheckout}
+          onOpenChange={setShowCheckout}
+          studentId={selectedPayment.childId}
+          childId={selectedPayment.childId}
+          programId={selectedPayment.programId}
+          teamId={selectedPayment.teamId}
+          schoolId={selectedPayment.schoolId}
+          paymentId={selectedPayment.paymentId}
+          amount={selectedPayment.amount}
+          concept={selectedPayment.programName}
+          mode={selectedPayment.paymentId ? 'update' : 'create'}
+          onSuccess={fetchPaymentData}
+        />
+      )}
+
+      {/* Installment Checkout Modal */}
+      {selectedInstallmentPayment && (
+        <InstallmentCheckoutModal
+          open={showInstallment}
+          onOpenChange={setShowInstallment}
+          paymentId={selectedInstallmentPayment.id}
+          schoolId={selectedInstallmentPayment.schoolId}
+          parentId={user?.id || ''}
+          balancePending={selectedInstallmentPayment.balancePending}
+          onSuccess={fetchPaymentData}
+        />
+      )}
 
       {/* Proof Viewer Dialog for Parents */}
       <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>

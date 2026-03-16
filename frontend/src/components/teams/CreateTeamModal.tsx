@@ -20,7 +20,8 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Plus, Users, Check, Pencil, X, Minus } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { SPORTS_LIST } from '@/lib/constants/sports';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+import { useSchoolFeatures } from '@/hooks/useSchoolFeatures';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +48,12 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const [creating, setCreating] = useState(false);
     const queryClient = useQueryClient();
     const { toast } = useToast();
+    const { sports: sportConfigs } = useSchoolFeatures();
+
+    // Dynamic sports list: use sport_configs if available, fallback to SPORTS_LIST
+    const sportsList = sportConfigs.length > 0
+        ? sportConfigs.map(sc => sc.sport)
+        : SPORTS_LIST;
 
     const [formData, setFormData] = useState({
         name: '',
@@ -366,11 +373,17 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                     <SelectValue placeholder="Seleccionar deporte" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {SPORTS_LIST.map((sport) => (
-                                        <SelectItem key={sport} value={sport}>
-                                            {sport}
-                                        </SelectItem>
-                                    ))}
+                                    {sportsList.length > 0 ? (
+                                        sportsList.map((sport) => (
+                                            <SelectItem key={sport} value={sport}>
+                                                {sport}
+                                            </SelectItem>
+                                        ))
+                                    ) : (
+                                        <div className="p-2 text-sm text-center text-muted-foreground">
+                                            No hay deportes configurados
+                                        </div>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>
