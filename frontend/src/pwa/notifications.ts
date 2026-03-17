@@ -32,7 +32,7 @@ export async function subscribeToPush(userId: string, schoolId?: string) {
     if (!endpoint || !keys) {
       throw new Error('Suscripción push incompleta');
     }
-
+    const { error } = await supabase.from('push_subscriptions').upsert({
       user_id:    userId,
       school_id:  schoolId ?? null,
       endpoint,

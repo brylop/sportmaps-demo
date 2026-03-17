@@ -216,7 +216,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             teamIds.length
                 ? supabase
                     .from('teams')
-                    .select('id, name, sport')
+                    .select('id, name, sport, price_monthly')
                     .in('id', teamIds)
                 : Promise.resolve({ data: [], error: null }),
         ]);
@@ -259,6 +259,10 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                 offering_plan: offeringPlan,
                 offering: offeringPlan?.offering ?? null,
                 team,
+                offering_id: (offeringPlan?.offering as any)?.id ?? null,
+                // Precio unificado: plan tiene price, equipo tiene price_monthly
+                price_monthly: offeringPlan?.price ?? team?.price_monthly ?? null,
+                currency: offeringPlan?.currency ?? 'COP',
                 computed: {
                     plan_status: planStatus,
                     percent_used: percentUsed,

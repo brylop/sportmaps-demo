@@ -184,8 +184,6 @@ function PaginationControls({
   total: number;
   onPageChange: (p: number) => void;
 }) {
-  if (pages <= 1) return null;
-
   const visiblePages = useMemo(() => {
     const arr: number[] = [];
     const start = Math.max(1, page - 2);
@@ -193,6 +191,8 @@ function PaginationControls({
     for (let i = start; i <= end; i++) arr.push(i);
     return arr;
   }, [page, pages]);
+
+  if (pages <= 1) return null;
 
   return (
     <div className="flex items-center justify-center gap-2 pt-6">

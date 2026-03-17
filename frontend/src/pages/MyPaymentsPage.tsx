@@ -49,6 +49,13 @@ interface Transaction {
   transaction_date: string;
   authorization_code?: string;
   receipt_url?: string;
+  // Propiedades adicionales de la vista payments_with_installments
+  amount_paid?: number;
+  balance_pending?: number;
+  pct_paid?: number;
+  installments_pending?: number;
+  school_id?: string;
+  concept?: string;
 }
 
 interface Subscription {
@@ -78,6 +85,7 @@ export default function MyPaymentsPage() {
     programName: string;
     amount: number;
     schoolId: string;
+    paymentId?: string;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -121,13 +129,7 @@ export default function MyPaymentsPage() {
         .order('created_at', { ascending: false });
 
       if (!error && payments && payments.length > 0) {
-        const txns: (Transaction & { 
-          amount_paid?: number; 
-          balance_pending?: number; 
-          pct_paid?: number;
-          installments_pending?: number;
-          school_id?: string;
-        })[] = payments.map((p: any) => ({
+        const txns: Transaction[] = payments.map((p: any) => ({
           id: p.id,
           school_id: p.school_id,
           amount: p.amount,
@@ -214,7 +216,10 @@ export default function MyPaymentsPage() {
                 team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
-                teams: enroll.team ? { name: enroll.team.name, price_monthly: enroll.team.price_monthly } : null,
+                teams: enroll.team ? { 
+                  name: Array.isArray(enroll.team) ? enroll.team[0]?.name : (enroll.team as any).name, 
+                  price_monthly: Array.isArray(enroll.team) ? enroll.team[0]?.price_monthly : (enroll.team as any).price_monthly 
+                } : null,
                 schools: enroll.schools,
               });
             });
@@ -229,8 +234,8 @@ export default function MyPaymentsPage() {
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
-                name: child.teams.name,
-                price_monthly: child.teams.price_monthly,
+                name: Array.isArray(child.teams) ? child.teams[0]?.name : (child.teams as any)?.name,
+                price_monthly: Array.isArray(child.teams) ? child.teams[0]?.price_monthly : (child.teams as any)?.price_monthly,
               },
               schools: null,
             });
