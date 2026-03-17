@@ -36,6 +36,7 @@ import {
   useBookSecondarySession,
   useCancelBooking,
   useCancelSecondaryBooking,
+  useFacilitySlots,
   BookableSession,
 } from '@/hooks/useAthleteSessionBookings';
 
@@ -160,11 +161,7 @@ function getPlanVisual(name: string = '') {
   };
 }
 
-const FACILITY_SLOTS = [
-  { start: '08:00', end: '09:00' },
-  { start: '09:00', end: '10:00' },
-  { start: '11:00', end: '12:00' },
-];
+
 
 // ─── Shared Stat ──────────────────────────────────────────────────────────────
 
@@ -186,7 +183,6 @@ const StatItem = ({ icon: Icon, label, value, colorClass }: {
 
 export default function MyEnrollmentsPage() {
   const { activeEnrollments, loading: activeIsLoading } = useEnrollments();
-  const { data: availableSessionsData } = useAvailableSessions();
   const { data: upcomingData } = useUpcomingSessions();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -200,10 +196,11 @@ export default function MyEnrollmentsPage() {
 
   // ── Reservas Confirmadas del Atleta ──
   const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings();
+  const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings();
   const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking();
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
 
-  if (activeIsLoading || myBookingsLoading || !activeEnrollments) {
+  if (activeIsLoading || myBookingsLoading || mySecLoading || !activeEnrollments) {
     return <LoadingSpinner fullScreen text="Cargando tu portal..." />;
   }
 
@@ -211,7 +208,13 @@ export default function MyEnrollmentsPage() {
   const planEnrollments = activeEnrollments.filter((e: any) => e.offering_plan_id);
 
   const upcomingSessions = upcomingData?.sessions ?? [];
-  const totalBookable    = availableSessionsData?.sessions?.filter((s) => s.booking_status === 'open').length ?? 0;
+  
+  // Encontrar si algún plan tiene secundarias (GYM) para el label de la pestaña
+  const enrollmentWithSec = activeEnrollments.find((e: any) => (e.offering_plans?.max_secondary_sessions ?? 0) > 0);
+  const secondaryLabel = enrollmentWithSec?.offering_plans?.secondary_session_label || 'Reservas';
+
+  const totalMyClasses = myBookingsData?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
+  const totalMyReservations = mySecBookings?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
 
   return (
     <div className="min-h-screen bg-background pb-12">
@@ -227,8 +230,8 @@ export default function MyEnrollmentsPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatItem icon={Users}    label="Equipos"  value={teamEnrollments.length} colorClass="bg-blue-500/10 text-blue-500" />
           <StatItem icon={Zap}      label="Planes"   value={planEnrollments.length} colorClass="bg-purple-500/10 text-purple-500" />
-          <StatItem icon={Calendar} label="Clases"   value={totalBookable}          colorClass="bg-green-500/10 text-green-500" />
-          <StatItem icon={MapIcon}  label="Reservas" value={0}                      colorClass="bg-amber-500/10 text-amber-500" />
+          <StatItem icon={Calendar} label="Clases"   value={totalMyClasses}          colorClass="bg-green-500/10 text-green-500" />
+          <StatItem icon={MapIcon}  label="Reservas" value={totalMyReservations}                      colorClass="bg-amber-500/10 text-amber-500" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -240,8 +243,8 @@ export default function MyEnrollmentsPage() {
             <div className="flex gap-2 p-1.5 bg-muted/40 rounded-2xl border border-border/30 w-fit">
               {[
                 { key: 'groups',       icon: Trophy,        label: 'Mis Grupos',  count: (teamEnrollments.length + planEnrollments.length) },
-                { key: 'classes',      icon: CalendarCheck, label: 'Mis Clases',  count: null },
-                { key: 'reservations', icon: MapPin,        label: 'Mis Reservas',count: null },
+                { key: 'classes',      icon: CalendarCheck, label: 'Mis Clases',  count: totalMyClasses },
+                { key: 'reservations', icon: MapPin,        label: 'Mis Reservas',count: totalMyReservations },
               ].map(({ key, icon: Icon, label, count }) => (
                 <button
                   key={key}
@@ -303,14 +306,22 @@ export default function MyEnrollmentsPage() {
             {/* Tab: Mis Clases */}
             {activeTab === 'classes' && (
               <div className="animate-in fade-in duration-500">
-                <AthleteClassBooking mode="available" />
+                <MyBookingsTab 
+                  hasSecondary={!!enrollmentWithSec} 
+                  secLabel={secondaryLabel}
+                  filter="primary"
+                />
               </div>
             )}
 
             {/* Tab: Mis Reservas */}
             {activeTab === 'reservations' && (
               <div className="animate-in fade-in duration-500">
-                <AthleteClassBooking mode="my" />
+                <MyBookingsTab 
+                  hasSecondary={!!enrollmentWithSec} 
+                  secLabel={secondaryLabel}
+                  filter="secondary"
+                />
               </div>
             )}
           </div>
@@ -507,11 +518,11 @@ export default function MyEnrollmentsPage() {
 // ─── Cards ────────────────────────────────────────────────────────────────────
 
 function TeamCard({ enrollment, onClick }: { enrollment: any; onClick?: () => void }) {
-  const vis = getSportVisual(enrollment.program.sport);
+  const vis = getSportVisual(enrollment.program?.sport);
   return (
     <Card
       onClick={onClick}
-      className="group relative overflow-hidden border-none bg-gradient-to-br from-red-600/90 to-red-800 text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-red-900/40 cursor-pointer"
+      className="group relative overflow-hidden border-none bg-gradient-to-br from-red-600 to-red-800 text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-red-900/40 cursor-pointer"
     >
       <CardContent className="p-6">
         <Badge className="absolute top-3 right-3 bg-black/20 text-white border-white/20 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
@@ -523,10 +534,10 @@ function TeamCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">Equipo</p>
-            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{enrollment.program.name}</h4>
+            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{enrollment.program?.name}</h4>
             <div className="flex items-center gap-3 mt-4">
               <Badge variant="outline" className="border-white/30 text-white bg-white/10 text-[10px] font-bold py-0.5 px-2">
-                <Trophy className="h-3 w-3 mr-1" />Beginner
+                <Trophy className="h-3 w-3 mr-1" />{enrollment.program?.sport || 'Deporte'}
               </Badge>
             </div>
           </div>
@@ -545,8 +556,12 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
   const secLeft = Math.max(0, (plan?.max_secondary_sessions ?? 0) - (enrollment.secondary_sessions_used ?? 0));
   const secLabel = plan?.secondary_session_label || 'GYM';
 
-  const planName = enrollment.program?.name || 'Mi Plan';
-  const visual = getPlanVisual(planName);
+  // "Plan" (Offering) arriba, "Tarifa" (offering_plan) abajo
+  const offeringName = enrollment.offering?.name || enrollment.program?.name || 'Mi Plan';
+  const tariffName = enrollment.offering_plan?.name || 'Plan';
+  
+  // Usar el nombre de la TARIFA (Full, Gold, etc) para el visual
+  const visual = getPlanVisual(tariffName);
   const VisualIcon = visual.icon;
 
   // Días restantes
@@ -569,8 +584,12 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
             <VisualIcon className={`h-7 w-7 ${visual.accent}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">{visual.label}</p>
-            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{planName}</h4>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">
+              {offeringName}
+            </p>
+            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">
+              {tariffName}
+            </h4>
 
             {/* Créditos */}
             <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -940,8 +959,45 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
 }) {
   const { mutate: bookSec, isPending } = useBookSecondarySession();
   const { toast } = useToast();
-  const [confirming, setConfirming] = useState<{ date: string; start: string; end: string } | null>(null);
+  
+  // Hoy en Colombia (UTC-5)
+  const todayStr = useMemo(() => new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().split('T')[0], []);
+  
+  // State for multi-selection
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [selectedSlots, setSelectedSlots] = useState<{ start: string; end: string }[]>([]);
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  const { data: slotsData, isLoading: slotsLoading } = useFacilitySlots(facilityId, selectedDate);
   const availableDates = getNextAvailableDates(14);
+  const slots = slotsData?.slots ?? [];
+
+  const toggleSlot = (slot: { start: string; end: string; available: boolean; already_booked: boolean }) => {
+    if (!slot.available || slot.already_booked) return;
+
+    const exists = selectedSlots.find(s => s.start === slot.start);
+    if (exists) {
+      setSelectedSlots(selectedSlots.filter(s => s.start !== slot.start));
+    } else {
+      if (selectedSlots.length >= 2) {
+        toast({ title: "Máximo 2 horas", description: "Solo puedes agendar hasta 2 horas por transacción.", variant: "destructive" });
+        return;
+      }
+      setSelectedSlots([...selectedSlots, { start: slot.start, end: slot.end }]);
+    }
+  };
+
+  const calculateCredits = () => {
+    if (selectedSlots.length === 0) return 0;
+    if (selectedSlots.length === 1) return 1;
+    
+    const sorted = [...selectedSlots].sort((a, b) => a.start.localeCompare(b.start));
+    if (sorted[0].end === sorted[1].start) return 1; // Consecutive
+    
+    return 2; // Not consecutive
+  };
+
+  const creditsNeeded = calculateCredits();
 
   if (secLeft <= 0) {
     return (
@@ -952,84 +1008,184 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
 
   return (
     <>
-      <div className="px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 mb-3">
+      <div className="px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 mb-3 flex items-center justify-between">
         <p className="text-[11px] text-blue-600 font-medium flex items-center gap-1.5">
           <Building2 className="h-3.5 w-3.5" />
-          {facilityName} · {secLeft} de {maxSec} clases {secLabel} disponibles
+          {facilityName} · {secLeft} de {maxSec} {secLabel} disponibles
         </p>
+        {selectedSlots.length > 0 && (
+          <Button size="sm" className="h-7 text-[10px] bg-blue-600 hover:bg-blue-700" onClick={() => setIsConfirming(true)}>
+            Agendar {selectedSlots.length} {selectedSlots.length === 1 ? 'hora' : 'horas'}
+          </Button>
+        )}
       </div>
 
-      <div className="space-y-4">
-        {availableDates.map((date) => (
-          <div key={date}>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 capitalize">
-              {fmtDateLong(date)}
-            </p>
-            <div className="space-y-2">
-              {FACILITY_SLOTS.map((slot) => (
-                <Card key={slot.start} className="overflow-hidden border-border/40 hover:border-blue-400/40 transition-colors">
-                  <CardContent className="p-0">
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <div className="w-px self-stretch bg-blue-400/40" />
-                      <div className="text-center shrink-0 w-16">
-                        <p className="text-sm font-black leading-none">{fmtTime(slot.start + ':00')}</p>
-                        <p className="text-[9px] text-muted-foreground">{fmtTime(slot.end + ':00')}</p>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold">{facilityName}</p>
-                        <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Clock className="h-3 w-3" /> 1 hora · Uso libre
-                        </p>
-                      </div>
-                      <Button size="sm" variant="outline" disabled={isPending}
-                        onClick={() => setConfirming({ date, start: slot.start, end: slot.end })}
-                        className="shrink-0 h-8 text-xs border-blue-300/50 text-blue-600 hover:bg-blue-50 hover:border-blue-400">
-                        <Building2 className="h-3.5 w-3.5 mr-1" /> Agendar
-                      </Button>
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+        {availableDates.map(date => {
+          const isSel = selectedDate === date;
+          const d = parseISO(date);
+          return (
+            <button
+              key={date}
+              onClick={() => { setSelectedDate(date); setSelectedSlots([]); }}
+              className={`shrink-0 flex flex-col items-center px-4 py-2.5 rounded-2xl border transition-all ${
+                isSel
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20'
+                  : 'bg-muted/30 border-border/40 hover:border-blue-400/30'
+              }`}
+            >
+              <span className={`uppercase text-[9px] font-black tracking-widest ${isSel ? 'text-white/70' : 'text-muted-foreground'}`}>
+                {format(d, 'EEE', { locale: es })}
+              </span>
+              <span className="text-base font-black leading-tight mt-0.5">{format(d, 'd')}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {slotsLoading ? (
+        <SkeletonList />
+      ) : slots.length === 0 ? (
+        <EmptyCenter icon={Building2} title="Instalación cerrada"
+          desc="No hay horarios disponibles para este día" color="blue" />
+      ) : (
+        <div className="space-y-2">
+          {slots.map((slot) => {
+            const isSelected = selectedSlots.some(s => s.start === slot.start);
+            const isBooked = slot.already_booked;
+
+            return (
+              <Card 
+                key={slot.start} 
+                onClick={() => toggleSlot(slot)}
+                className={`overflow-hidden border-border/40 transition-all cursor-pointer ${
+                  isBooked ? 'bg-green-500/5 border-green-500/30 opacity-80' : 
+                  isSelected ? 'bg-blue-600/10 border-blue-600 shadow-md transform scale-[1.01]' : 
+                  !slot.available ? 'opacity-40 grayscale cursor-not-allowed' :
+                  'hover:border-blue-400/40 hover:bg-muted/10'
+                }`}
+              >
+                <CardContent className="p-0">
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className={`w-1 self-stretch rounded-full ${
+                      isBooked ? 'bg-green-600' : isSelected ? 'bg-blue-600' : 'bg-blue-400/30'
+                    }`} />
+                    <div className="text-center shrink-0 w-16">
+                      <p className="text-sm font-black leading-none">{fmtTime(slot.start + ':00')}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(slot.end + ':00')}</p>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-xs font-semibold">{facilityName}</p>
+                        {isBooked && <Badge className="text-[9px] h-4 px-1.5 bg-green-600">Agendada</Badge>}
+                        {isSelected && <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-blue-600 text-blue-600 bg-blue-500/5">Seleccionada</Badge>}
+                        {!slot.available && !isBooked && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Ocupado</Badge>}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="h-3 w-3" /> 1 hora · Uso libre
+                      </p>
+                    </div>
+                    {isBooked ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    ) : isSelected ? (
+                      <div className="h-5 w-5 rounded-full bg-blue-600 flex items-center justify-center">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+                      </div>
+                    ) : (
+                      <div className={`h-5 w-5 rounded-full border-2 transition-colors ${
+                        !slot.available ? 'border-muted' : 'border-muted hover:border-blue-400'
+                      }`} />
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
-      <AlertDialog open={!!confirming} onOpenChange={(o) => { if (!o) setConfirming(null); }}>
-        <AlertDialogContent>
+      <AlertDialog open={isConfirming} onOpenChange={setIsConfirming}>
+        <AlertDialogContent className="rounded-3xl border-0 shadow-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar clase {secLabel}</AlertDialogTitle>
+            <AlertDialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-blue-600" />
+              Confirmar agendamiento
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-3 text-sm">
-                <div className="rounded-lg border p-3 bg-muted/20 space-y-1">
-                  <p className="font-bold text-foreground">{facilityName}</p>
-                  <p className="text-muted-foreground capitalize text-xs">{fmtDateLong(confirming?.date ?? '')}</p>
-                  <p className="text-muted-foreground text-xs">
-                    {fmtTime((confirming?.start ?? '') + ':00')} — {fmtTime((confirming?.end ?? '') + ':00')}
-                  </p>
+              <div className="space-y-4 pt-2">
+                <div className="rounded-2xl border border-border/50 p-4 bg-muted/20 space-y-3">
+                  <div className="pb-2 border-b border-border/30">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Instalación</p>
+                    <p className="font-bold text-foreground">{facilityName}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Fecha y Horarios</p>
+                    <p className="text-foreground font-bold text-sm capitalize mb-2">{fmtDateLong(selectedDate ?? '')}</p>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {selectedSlots.sort((a,b) => a.start.localeCompare(b.start)).map((s, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-background/50 rounded-lg px-2.5 py-1.5 border border-border/30">
+                          <Clock className="h-3 w-3 text-blue-600" />
+                          <p className="text-foreground text-xs font-bold">
+                            {fmtTime(s.start + ':00')} — {fmtTime(s.end + ':00')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <div className="rounded-lg px-3 py-2 text-xs font-medium border bg-blue-500/10 text-blue-700 border-blue-200">
-                  Se usará 1 clase {secLabel} de tu plan (quedarán {secLeft - 1})
+                
+                <div className={`rounded-xl px-4 py-3 text-sm font-medium border-2 ${
+                  creditsNeeded === 1 ? 'bg-emerald-500/5 text-emerald-700 border-emerald-500/20' : 'bg-blue-500/5 text-blue-700 border-blue-500/20'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${creditsNeeded === 1 ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white'}`}>
+                      <Zap className="h-4 w-4 fill-current" />
+                    </div>
+                    <div>
+                      <p className="font-black text-sm">
+                        Costo: {creditsNeeded} {creditsNeeded === 1 ? 'crédito' : 'créditos'}
+                      </p>
+                      <p className="text-[10px] opacity-70">
+                        {creditsNeeded === 1 
+                          ? 'Ahorras 1 crédito por reservar horas consecutivas.' 
+                          : 'Se descuentan créditos individuales por horas separadas.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-muted/10 p-3 rounded-xl border border-dashed border-border flex items-center gap-2 justify-center">
+                  <p className="text-[10px] font-medium text-muted-foreground">
+                    Te quedarán <span className="text-foreground font-bold">{secLeft - creditsNeeded}</span> clases {secLabel}.
+                  </p>
                 </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={isPending} onClick={() => {
-              if (!confirming) return;
-              bookSec({ enrollment_id: enrollment.id, facility_id: facilityId, reservation_date: confirming.date, start_time: confirming.start, end_time: confirming.end }, {
-                onSuccess: () => {
-                  toast({ title: `✅ Clase ${secLabel} agendada`, description: `${fmtDateShort(confirming.date)} · ${fmtTime(confirming.start + ':00')}` });
-                  setConfirming(null);
-                },
-                onError: (err: any) => {
-                  toast({ title: 'Error', description: err.message, variant: 'destructive' });
-                  setConfirming(null);
-                },
-              });
-            }}>
-              {isPending ? 'Agendando...' : 'Confirmar'}
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <AlertDialogCancel className="rounded-2xl border-border/50 font-bold hover:bg-muted/50">Volver</AlertDialogCancel>
+            <AlertDialogAction 
+              disabled={isPending} 
+              onClick={() => {
+                if (!selectedDate || selectedSlots.length === 0) return;
+                bookSec({ 
+                  enrollment_id: enrollment.id, 
+                  facility_id: facilityId, 
+                  reservation_date: selectedDate, 
+                  slots: selectedSlots.map(s => ({ start_time: s.start, end_time: s.end }))
+                }, {
+                  onSuccess: () => {
+                    toast({ title: "Reserva confirmada", description: "Tus clases de gimnasio han sido agendadas." });
+                    setIsConfirming(false);
+                    setSelectedSlots([]);
+                  },
+                  onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+                });
+              }}
+              className="rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/20"
+            >
+              {isPending ? 'Procesando...' : 'Confirmar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1040,7 +1196,11 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
 
 // ── Tab: Mis Reservas ─────────────────────────────────────────────────────────
 
-function MyBookingsTab({ hasSecondary, secLabel }: { hasSecondary: boolean; secLabel: string }) {
+function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: { 
+  hasSecondary: boolean; 
+  secLabel: string;
+  filter?: 'all' | 'primary' | 'secondary';
+}) {
   const { data: primary,   isLoading: l1 } = useMyBookings();
   const { data: secondary, isLoading: l2 } = useMySecondaryBookings();
   const { mutate: cancelP, isPending: cp } = useCancelBooking();
@@ -1050,24 +1210,26 @@ function MyBookingsTab({ hasSecondary, secLabel }: { hasSecondary: boolean; secL
 
   if (l1 || l2) return <SkeletonList />;
 
-  const hasPrimary   = (primary?.length ?? 0) > 0;
-  const hasSecondaryData = (secondary?.length ?? 0) > 0;
+  const primaryBookings = (filter === 'all' || filter === 'primary') ? (primary ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled') : [];
+  const secondaryBookings = (filter === 'all' || filter === 'secondary') ? (secondary ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled') : [];
 
-  if (!hasPrimary && !hasSecondaryData) {
-    return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc='Agenda clases desde las pestañas anteriores' />;
+  if (primaryBookings.length === 0 && secondaryBookings.length === 0) {
+    return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc='Agenda clases desde la pestaña de Grupos' />;
   }
 
   return (
     <>
       <div className="space-y-5">
-        {hasPrimary && (
+        {primaryBookings.length > 0 && (
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Clases</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Clases de mi Plan</p>
             <div className="space-y-2">
-              {primary!.map((b: any) => {
+              {primaryBookings.map((b: any) => {
                 const s = b.attendance_sessions;
                 if (!s) return null;
-                const isPast = new Date(s.session_date) < new Date();
+                const sessionDate = parseISO(s.session_date);
+                const isPast = isBefore(sessionDate, startOfDay(new Date()));
+                const isToday = format(sessionDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
                 return (
                   <Card key={b.id} className="overflow-hidden border-border/40">
                     <CardContent className="p-0">
@@ -1098,12 +1260,14 @@ function MyBookingsTab({ hasSecondary, secLabel }: { hasSecondary: boolean; secL
           </div>
         )}
 
-        {hasSecondary && hasSecondaryData && (
+        {secondaryBookings.length > 0 && (
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">{secLabel}</p>
             <div className="space-y-2">
-              {secondary!.map((b: any) => {
-                const isPast = new Date(b.reservation_date) < new Date();
+              {secondaryBookings.map((b: any) => {
+                const resvDate = parseISO(b.reservation_date);
+                const isPast = isBefore(resvDate, startOfDay(new Date()));
+                const isToday = format(resvDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
                 return (
                   <Card key={b.id} className="overflow-hidden border-border/40">
                     <CardContent className="p-0">

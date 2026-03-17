@@ -242,7 +242,7 @@ export default function RegisterPage() {
     setEmailForDisplay(data.email);
     try {
       // 1. Prepare categories to auto-populate if it's a school
-      let metadata: any = {
+      const metadata: any = {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
