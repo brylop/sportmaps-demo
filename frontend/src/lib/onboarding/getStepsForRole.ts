@@ -53,15 +53,15 @@ export const getStepsForRole = (role: string, status: any) => {
             }
 
             // Paso 2: Completar perfil deportivo
-            athleteSteps.push({ id: 'complete_profile', title: 'Completa tu perfil', description: 'Datos personales, documento y nivel de experiencia.', completed: status.profile_complete, href: '/profile', icon: UserCircle });
+            athleteSteps.push({ id: 'complete_profile', title: 'Completa tu perfil', description: 'Datos personales, documento y nivel de experiencia.', completed: status.profile_complete, href: '/settings', icon: UserCircle });
 
             // Paso 3: Foto de perfil (opcional pero recomendado)
             if (!status.has_avatar) {
-                athleteSteps.push({ id: 'upload_avatar', title: 'Foto de perfil', description: 'Sube una foto para que te reconozcan.', completed: false, href: '/profile', icon: UserCircle });
+                athleteSteps.push({ id: 'upload_avatar', title: 'Foto de perfil', description: 'Sube una foto para que te reconozcan.', completed: false, href: '/settings', icon: UserCircle });
             }
 
             // Paso 4: Seleccionar deporte de interés
-            athleteSteps.push({ id: 'select_sport', title: 'Elige tu deporte', description: 'Selecciona los deportes que te interesan.', completed: status.has_sports_interest, href: '/profile', icon: Activity });
+            athleteSteps.push({ id: 'select_sport', title: 'Elige tu deporte', description: 'Selecciona los deportes que te interesan.', completed: status.has_sports_interest, href: '/settings', icon: Activity });
 
             // Paso 5: Inscribirse o aceptar invitación
             if (status.has_pending_invitation || status.has_accepted_invite) {

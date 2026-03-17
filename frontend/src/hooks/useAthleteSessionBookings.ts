@@ -167,3 +167,10 @@ export function useCancelSecondaryBooking() {
     },
   });
 }
+export function useAthleteFacilities() {
+  return useQuery({
+    queryKey: ['athlete-facilities'],
+    queryFn: () => bff<{ facilities: { id: string; name: string; type: string; school_id: string }[] }>('/athlete/facilities'),
+    staleTime: 5 * 60 * 1000,
+  });
+}

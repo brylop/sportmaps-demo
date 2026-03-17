@@ -37,13 +37,12 @@ import {
   useCancelBooking,
   useCancelSecondaryBooking,
   useFacilitySlots,
+  useAthleteFacilities,
   BookableSession,
 } from '@/hooks/useAthleteSessionBookings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FACILITY_ID   = 'b1ef2b27-0157-4173-a2b9-c27ab8668224';
-const FACILITY_NAME = 'GYM MMA BLAIR TEAM';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -192,13 +191,16 @@ export default function MyEnrollmentsPage() {
   // ── Modal State ──
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [scheduleEnrollment, setScheduleEnrollment] = useState<any>(null);
-  const [isReserving, setIsReserving] = useState(false);
+  const [reservingFacility, setReservingFacility] = useState<{ id: string; name: string } | null>(null);
 
   // ── Reservas Confirmadas del Atleta ──
   const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings();
   const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings();
+  const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities();
   const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking();
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+
+  const athleteFacilities = facilitiesData?.facilities ?? [];
 
   if (activeIsLoading || myBookingsLoading || mySecLoading || !activeEnrollments) {
     return <LoadingSpinner fullScreen text="Cargando tu portal..." />;
@@ -421,26 +423,42 @@ export default function MyEnrollmentsPage() {
               <CardContent className="p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Instalaciones</h4>
-                  <Badge variant="outline" className="text-[9px] h-4 py-0 font-bold border-green-500/30 text-green-500 bg-green-500/5">1</Badge>
+                  <Badge variant="outline" className="text-[9px] h-4 py-0 font-bold border-green-500/30 text-green-500 bg-green-500/5">
+                    {athleteFacilities.length}
+                  </Badge>
                 </div>
 
-                <div className="flex items-center gap-4 bg-card/60 p-4 rounded-2xl border border-border/40">
-                  <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center border border-border/50 shadow-sm">
-                    <Building2 className="h-6 w-6 text-muted-foreground/60" />
+                {facilitiesLoading ? (
+                  <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+                ) : athleteFacilities.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground text-center py-4">
+                    Tu escuela no tiene instalaciones disponibles
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {athleteFacilities.map((facility) => (
+                      <div key={facility.id} className="flex items-center gap-4 bg-card/60 p-4 rounded-2xl border border-border/40">
+                        <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center border border-border/50 shadow-sm">
+                          <Building2 className="h-6 w-6 text-muted-foreground/60" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[12px] font-black uppercase tracking-tight leading-none mb-1">{facility.name}</p>
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter opacity-70">{facility.type}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setReservingFacility(facility);
+                          }}
+                          className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
+                        >
+                          Reservar
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-[12px] font-black uppercase tracking-tight leading-none mb-1">{FACILITY_NAME}</p>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter opacity-70">Gimnasio</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setIsReserving(true)}
-                    className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
-                  >
-                    Reservar
-                  </Button>
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -456,18 +474,18 @@ export default function MyEnrollmentsPage() {
       {scheduleEnrollment && (
         <ScheduleClassModal
           enrollment={scheduleEnrollment}
-          facilityId={FACILITY_ID}
-          facilityName={FACILITY_NAME}
+          facilityId={athleteFacilities[0]?.id ?? ''}
+          facilityName={athleteFacilities[0]?.name ?? ''}
           onClose={() => setScheduleEnrollment(null)}
         />
       )}
 
-      {isReserving && (
+      {reservingFacility && (
         <FacilityReserveModal
-          facilityId={FACILITY_ID}
-          facilityName={FACILITY_NAME}
+          facilityId={reservingFacility.id}
+          facilityName={reservingFacility.name}
           enrollment={planEnrollments[0] ?? null}
-          onClose={() => setIsReserving(false)}
+          onClose={() => setReservingFacility(null)}
         />
       )}
 

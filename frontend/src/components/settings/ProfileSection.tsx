@@ -5,24 +5,40 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Camera, Loader2, Save, User as UserIcon } from 'lucide-react';
+import { Camera, Check, ChevronsUpDown, Loader2, Save, User as UserIcon, X } from 'lucide-react';
 import { useStorage } from '@/hooks/useStorage';
 import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
+import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+
+const sportsList = sportsData.deportes.map(s => s.nombre).sort();
 
 interface ProfileSectionProps {
   data: any;
   saving: boolean;
-  onSave: (updates: { full_name: string; phone: string; bio: string }) => Promise<void>;
+  onSave: (updates: { 
+    full_name: string; 
+    phone: string; 
+    bio: string; 
+    date_of_birth?: string | null; 
+    sports_interests?: string[] | null;
+  }) => Promise<void>;
 }
 
 export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
   const { profile } = useAuth();
   const { uploadFile, uploading } = useStorage();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openSports, setOpenSports] = useState(false);
   const [formData, setFormData] = useState({
     full_name: data?.profile?.full_name || '',
     phone: data?.profile?.phone || '',
     bio: data?.profile?.bio || '',
+    date_of_birth: data?.profile?.date_of_birth || '' as string | null,
+    sports_interests: data?.profile?.sports_interests || [] as string[] | null,
   });
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,6 +124,93 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                 placeholder="+57 300 123 4567"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="date_of_birth">Fecha de Nacimiento</Label>
+              <Input
+                id="date_of_birth"
+                type="date"
+                value={formData.date_of_birth || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, date_of_birth: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="sports_interests">Intereses Deportivos (Máximo 5)</Label>
+              <div className="flex flex-wrap gap-2 mb-2 p-2 min-h-[42px] border rounded-md bg-muted/5">
+                {formData.sports_interests && formData.sports_interests.length > 0 ? (
+                  formData.sports_interests.map((sport) => (
+                    <Badge key={sport} variant="secondary" className="gap-1 px-2 py-1">
+                      {sport}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            sports_interests: prev.sports_interests?.filter(s => s !== sport) || []
+                          }));
+                        }}
+                        className="ml-1 ring-offset-background rounded-full outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      >
+                        <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground px-1 py-1">No has seleccionado deportes aún</span>
+                )}
+              </div>
+              
+              <Popover open={openSports} onOpenChange={setOpenSports}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={openSports}
+                    className="w-full justify-between"
+                    disabled={formData.sports_interests && formData.sports_interests.length >= 5}
+                  >
+                    {formData.sports_interests && formData.sports_interests.length >= 5 
+                      ? "Límite alcanzado (5 deportes)" 
+                      : "Añadir deporte..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar deporte..." />
+                    <CommandList>
+                      <CommandEmpty>No se encontró el deporte.</CommandEmpty>
+                      <CommandGroup className="max-h-[200px] overflow-auto">
+                        {sportsList.map((sport) => (
+                          <CommandItem
+                            key={sport}
+                            value={sport}
+                            onSelect={() => {
+                              if (formData.sports_interests && formData.sports_interests.length < 5 && !formData.sports_interests.includes(sport)) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  sports_interests: [...(prev.sports_interests || []), sport]
+                                }));
+                              }
+                              setOpenSports(false);
+                            }}
+                            className={cn(
+                              "flex items-center justify-between",
+                              formData.sports_interests?.includes(sport) && "opacity-50 pointer-events-none"
+                            )}
+                          >
+                            {sport}
+                            {formData.sports_interests?.includes(sport) && <Check className="h-4 w-4" />}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className="text-[11px] text-muted-foreground">
+                Selecciona hasta 5 deportes que te interesen para personalizar tu experiencia.
+              </p>
             </div>
           </div>
 

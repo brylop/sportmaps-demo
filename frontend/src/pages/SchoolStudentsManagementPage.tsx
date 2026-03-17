@@ -22,6 +22,9 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
+import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -47,11 +50,15 @@ export default function SchoolStudentsManagementPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [showCreateChildModal, setShowCreateChildModal] = useState(false);
+  const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
+  const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -190,13 +197,42 @@ export default function SchoolStudentsManagementPage() {
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
       if (!editingStudent) return data;
+
+      // Atleta sin cuenta → tabla unregistered_athletes
+      if (editingAthleteType === 'unregistered') {
+        const { error } = await (supabase as any).from('unregistered_athletes')
+          .update({
+            full_name:     data.full_name,
+            date_of_birth: data.date_of_birth || null,
+            updated_at:    new Date().toISOString(),
+          })
+          .eq('id', editingStudent.id);
+        if (error) throw error;
+        return data;
+      }
+
+      // Atleta adulto con cuenta → tabla profiles
+      if (editingAthleteType === 'adult') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            full_name:     data.full_name,
+            date_of_birth: data.date_of_birth || null,
+            updated_at:    new Date().toISOString(),
+          })
+          .eq('id', editingStudent.id);
+        if (error) throw error;
+        return data;
+      }
+
+      // Menor → tabla children (flujo original)
       const selectedProgram = programs.find(p => p.id === data.program_id);
       await studentsAPI.updateStudent(editingStudent.id, {
-        full_name: data.full_name,
+        full_name:     data.full_name,
         date_of_birth: data.date_of_birth,
-        medical_info: data.medical_info,
-        program_id: data.program_id,
-        branch_id: selectedProgram?.branch_id || activeBranchId || undefined,
+        medical_info:  data.medical_info,
+        program_id:    data.program_id,
+        branch_id:     selectedProgram?.branch_id || activeBranchId || undefined,
       });
       return data;
     },
@@ -204,6 +240,7 @@ export default function SchoolStudentsManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       setDialogOpen(false);
       setEditingStudent(null);
+      setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
     }
   });
@@ -217,31 +254,32 @@ export default function SchoolStudentsManagementPage() {
   };
 
   const handleCreateStudent = () => {
-    setEditingStudent(null);
-    form.reset({
-      full_name: '',
-      date_of_birth: '',
-      parent_email: '',
-      parent_phone: '',
-      program_id: '',
-      monthly_fee: Number(defaultMonthlyFee) || 0,
-      medical_info: '',
-      notes: '',
-    });
-    setDialogOpen(true);
+    setShowTypeSelector(true);
+  };
+
+  // Helper para detectar tipo desde cualquier objeto de atleta
+  const getAthleteType = (student: any): 'child' | 'adult' | 'unregistered' => {
+    if (student.athlete_type) return student.athlete_type;
+    // Fallback: si tiene parent_id o parent_email_temp es menor
+    if (student.parent_id || student.parent_email_temp) return 'child';
+    // Si tiene user_id propio es adulto con cuenta
+    if (student.user_id) return 'adult';
+    return 'unregistered';
   };
 
   const handleEditStudent = (student: any) => {
+    const athleteType = getAthleteType(student);
     setEditingStudent(student);
+    setEditingAthleteType(athleteType);
     form.reset({
-      full_name: student.full_name,
+      full_name:    student.full_name,
       date_of_birth: student.date_of_birth || '',
       parent_email: student.parent_email || '',
       parent_phone: student.parent_phone || '',
-      program_id: student.program_id || '',
-      monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
+      program_id:   student.program_id || '',
+      monthly_fee:  student.price_monthly || Number(defaultMonthlyFee) || 0,
       medical_info: student.medical_info || '',
-      notes: student.notes || '',
+      notes:        student.notes || '',
     });
     setDialogOpen(true);
   };
@@ -355,13 +393,19 @@ export default function SchoolStudentsManagementPage() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
-  const getPaymentBadge = (status: string) => {
-    switch (status) {
-      case 'paid': return <Badge className="bg-green-500 text-xs">Al día</Badge>;
-      case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-      case 'pending': return <Badge variant="secondary" className="text-xs">Pendiente</Badge>;
-      default: return null;
-    }
+  const getPaymentBadge = (student: any) => {
+    const ps  = student.payment_status;
+    const due = student.payment_due_date;
+
+    if (!ps)
+      return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
+    if (ps === 'paid')
+      return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+    if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
+      return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
+    if (ps === 'pending' || ps === 'awaiting_approval')
+      return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+    return <Badge variant="secondary" className="text-xs">{ps}</Badge>;
   };
 
   const calculateAge = (dateOfBirth?: string | null) => {
@@ -508,14 +552,16 @@ export default function SchoolStudentsManagementPage() {
                         <p className="font-semibold text-sm truncate">{student.full_name}</p>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {student.team_name || student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
-                      </p>
+                        {student.team_name
+                          ? student.team_name
+                          : (student as any).plan_name
+                          ? `Plan: ${(student as any).plan_name}`
+                          : 'Sin asignar'} · {student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
-                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
+                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
                         </span>
-                        {getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}
+                        {getPaymentBadge(student)}
                       </div>
                     </div>
                     {/* Dropdown acciones */}
@@ -537,7 +583,7 @@ export default function SchoolStudentsManagementPage() {
                       </TableHead>
                       <TableHead>Nombre</TableHead>
                       <TableHead>Edad</TableHead>
-                      <TableHead>Equipo</TableHead>
+                      <TableHead>Equipo / Plan</TableHead>
                       <TableHead>Sede</TableHead>
                       <TableHead>Acudiente</TableHead>
                       <TableHead>Mensualidad</TableHead>
@@ -559,16 +605,26 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">{student.team_name || student.program_name || 'Sin equipo'}</Badge>
+                          {student.team_name ? (
+                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              {student.team_name}
+                            </Badge>
+                          ) : (student as any).plan_name ? (
+                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                              📋 {(student as any).plan_name}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Sin asignar</span>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
+                          <span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span>
                         </TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' ? '\u2014' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         <TableCell className="font-semibold text-primary">
-                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
+                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
                         </TableCell>
-                        <TableCell>{getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}</TableCell>
+                          <TableCell>{getPaymentBadge(student)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
@@ -612,11 +668,21 @@ export default function SchoolStudentsManagementPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingStudent ? 'Editar Atleta' : 'Agregar Nuevo Atleta'}</DialogTitle>
+            <DialogTitle>
+              {editingStudent 
+                ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}`
+                : 'Agregar Nuevo Atleta'}
+            </DialogTitle>
             <DialogDescription>
-              {editingStudent
-                ? `Actualiza la información de ${editingStudent.full_name}.`
-                : <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>}
+              {editingStudent ? (
+                editingAthleteType === 'child'
+                  ? `Actualiza la información del menor y su acudiente.`
+                  : editingAthleteType === 'adult'
+                  ? `Actualiza la información del atleta. El email se gestiona desde su cuenta.`
+                  : `Actualiza la información del atleta registrado manualmente.`
+              ) : (
+                <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>
+              )}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -638,57 +704,105 @@ export default function SchoolStudentsManagementPage() {
                   <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground mb-2">Sube una foto del atleta</p>
-                    <Input type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
+                    <Input id="photo" type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4" />Equipo y Mensualidad</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="program_id">Equipo *</Label>
-                  <Select value={form.watch('program_id')} onValueChange={handleProgramChange}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
-                    <SelectContent>
-                      {programs.map(program => (
-                        <SelectItem key={program.id} value={program.id}>{program.name} — {formatCurrency(program.monthly_fee)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {form.formState.errors.program_id && <p className="text-sm text-destructive">{form.formState.errors.program_id.message}</p>}
+            {/* Equipo y Mensualidad */}
+            {(!editingStudent || editingAthleteType === 'child') && (
+              <div className="space-y-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />Equipo y Mensualidad
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="program_id">Equipo *</Label>
+                    <Select value={form.watch('program_id')} onValueChange={handleProgramChange}>
+                      <SelectTrigger id="program_id">
+                        <SelectValue placeholder="Seleccionar equipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programs.map(program => (
+                          <SelectItem key={program.id} value={program.id}>
+                            {program.name} — {formatCurrency(program.monthly_fee)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.formState.errors.program_id && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.program_id.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="monthly_fee"
+                        type="number"
+                        className="pl-9"
+                        placeholder="150000"
+                        {...form.register('monthly_fee', { valueAsNumber: true })}
+                      />
+                    </div>
+                    {form.formState.errors.monthly_fee && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.monthly_fee.message}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="monthly_fee"
-                      type="number"
-                      className="pl-9"
-                      placeholder="150000"
-                      {...form.register('monthly_fee', { valueAsNumber: true })}
+              </div>
+            )}
+
+            {/* Para adultos y unregistered — mensaje informativo en lugar del selector */}
+            {editingStudent && editingAthleteType !== 'child' && (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground text-center">
+                El equipo y plan de este atleta se gestionan desde el módulo
+                <strong> Equipos y Planes</strong>.
+              </div>
+            )}
+            {/* Contacto del Padre/Tutor — solo para menores */}
+            {(!editingStudent || editingAthleteType === 'child') && (
+              <div className="space-y-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Mail className="w-4 h-4" />Contacto del Padre/Tutor
+                </h3>
+                <div className="grid gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
+                    <Input 
+                      id="parent_email" 
+                      type="email" 
+                      placeholder="padre@ejemplo.com" 
+                      {...form.register('parent_email')} 
                     />
+                    {form.formState.errors.parent_email && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.parent_email.message}
+                      </p>
+                    )}
                   </div>
-                  {form.formState.errors.monthly_fee && <p className="text-sm text-destructive">{form.formState.errors.monthly_fee.message}</p>}
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_phone">Teléfono de Contacto *</Label>
+                    <Input 
+                      id="parent_phone" 
+                      type="tel" 
+                      placeholder="+57 300 123 4567" 
+                      {...form.register('parent_phone')} 
+                    />
+                    {form.formState.errors.parent_phone && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.parent_phone.message}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><Mail className="w-4 h-4" />Contacto del Padre/Tutor</h3>
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
-                  <Input id="parent_email" type="email" placeholder="padre@ejemplo.com" {...form.register('parent_email')} />
-                  {form.formState.errors.parent_email && <p className="text-sm text-destructive">{form.formState.errors.parent_email.message}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="parent_phone">Teléfono de Contacto *</Label>
-                  <Input id="parent_phone" type="tel" placeholder="+57 300 123 4567" {...form.register('parent_phone')} />
-                  {form.formState.errors.parent_phone && <p className="text-sm text-destructive">{form.formState.errors.parent_phone.message}</p>}
-                </div>
-              </div>
-            </div>
+            )}
             <div className="space-y-4">
               <h3 className="font-semibold flex items-center gap-2"><FileText className="w-4 h-4" />Información Adicional</h3>
               <div className="space-y-2">
@@ -800,6 +914,33 @@ export default function SchoolStudentsManagementPage() {
         students={students}
         programs={programs}
         branches={branches}
+      />
+
+      <StudentTypeSelector
+        open={showTypeSelector}
+        onClose={() => setShowTypeSelector(false)}
+        onSelectChild={() => setShowCreateChildModal(true)}
+        onSelectAdult={() => setShowCreateAdultModal(true)}
+      />
+
+      <CreateChildModal
+        open={showCreateChildModal}
+        onClose={() => setShowCreateChildModal(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+          setShowCreateChildModal(false);
+        }}
+        schoolId={schoolId || ''}
+      />
+
+      <CreateAdultAthleteModal
+        open={showCreateAdultModal}
+        onClose={() => setShowCreateAdultModal(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+          setShowCreateAdultModal(false);
+        }}
+        schoolId={schoolId || ''}
       />
     </div>
   );

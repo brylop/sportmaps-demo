@@ -35,6 +35,7 @@ interface Enrollment {
     id: string;
     user_id: string;
     child_id?: string | null;
+    unregistered_athlete_id?: string | null;
     offering_plan_id: string;
     status: string;
     sessions_used: number;
@@ -108,7 +109,7 @@ export function EnrollPlanStudentModal({
         try {
             const { data, error } = await (supabase
                 .from('enrollments') as any)
-                .select('id, user_id, child_id, sessions_used, secondary_sessions_used, expires_at, status')
+                .select('id, user_id, child_id, unregistered_athlete_id, sessions_used, secondary_sessions_used, expires_at, status')
                 .eq('offering_plan_id', plan.id)
                 .eq('status', 'active');
 
@@ -117,12 +118,13 @@ export function EnrollPlanStudentModal({
             // ✅ Crear mapeo: studentId -> Enrollment object
             const map = new Map<string, Enrollment>();
             data?.forEach((enrollment: any) => {
-                const studentId = enrollment.child_id ?? enrollment.user_id;
+                const studentId = enrollment.child_id ?? enrollment.user_id ?? enrollment.unregistered_athlete_id;
                 if (studentId) {
                     map.set(studentId, {
                         id: enrollment.id,
                         user_id: enrollment.user_id || '',
                         child_id: enrollment.child_id,
+                        unregistered_athlete_id: enrollment.unregistered_athlete_id,
                         offering_plan_id: plan.id,
                         status: enrollment.status,
                         sessions_used: enrollment.sessions_used || 0,
@@ -150,12 +152,15 @@ export function EnrollPlanStudentModal({
 
         try {
             setEnrolling(student.id);
-            const isAdult = student.athlete_type === 'adult';
+            const isAdult        = student.athlete_type === 'adult';
+            const isUnregistered = student.athlete_type === 'unregistered';
             const { bffClient } = await import('@/lib/api/bffClient');
 
             // ✅ Inscribir en el plan
             const response = await bffClient.post<any>('/api/v1/enrollments', {
-                ...(isAdult ? { user_id: student.id } : { child_id: student.id }),
+                ...(isAdult        ? { user_id: student.id }                  : {}),
+                ...(isUnregistered ? { unregistered_athlete_id: student.id }  : {}),
+                ...(!isAdult && !isUnregistered ? { child_id: student.id }    : {}),
                 offering_plan_id: plan.id,
                 school_id: schoolId,
                 status: 'active',
@@ -174,8 +179,9 @@ export function EnrollPlanStudentModal({
                 const newMap = new Map(enrollmentMap);
                 newMap.set(student.id, {
                     id: enrollmentId,
-                    user_id: isAdult ? student.id : '',
-                    child_id: isAdult ? null : student.id,
+                    user_id:                  isAdult        ? student.id : '',
+                    child_id:                 (!isAdult && !isUnregistered) ? student.id : null,
+                    unregistered_athlete_id:  isUnregistered ? student.id : null,
                     offering_plan_id: plan.id,
                     status: 'active',
                     sessions_used: 0,

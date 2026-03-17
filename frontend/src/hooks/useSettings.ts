@@ -12,6 +12,8 @@ export interface SettingsData {
     phone: string | null;
     avatar_url: string | null;
     bio: string | null;
+    date_of_birth: string | null;
+    sports_interests: string[] | null;
     role: string;
     preferences: Record<string, any>;
   };
@@ -86,13 +88,21 @@ export function useSettings() {
     fetchSettings();
   }, [fetchSettings]);
 
-  const updateProfile = async (updates: { full_name: string; phone: string; bio: string }) => {
+  const updateProfile = async (updates: { 
+    full_name: string; 
+    phone: string; 
+    bio: string;
+    date_of_birth?: string;
+    sports_interests?: string[];
+  }) => {
     setSaving(true);
     try {
       const { data: success, error } = await supabase.rpc('save_profile_settings', {
         p_full_name: updates.full_name,
         p_phone: updates.phone,
-        p_bio: updates.bio
+        p_bio: updates.bio,
+        p_date_of_birth: updates.date_of_birth,
+        p_sports_interests: updates.sports_interests
       });
       if (error) throw error;
 

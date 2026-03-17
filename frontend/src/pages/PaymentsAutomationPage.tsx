@@ -45,7 +45,9 @@ interface BillingSettings {
   max_installments_per_payment: number;
   min_installment_amount: number;
   installment_require_proof: boolean;
+  billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
 }
+
 
 const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   payment_cutoff_day: 5,
@@ -61,7 +63,9 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   max_installments_per_payment: 3,
   min_installment_amount: 10000,
   installment_require_proof: true,
+  billing_cycle_type: 'prorated',
 };
+
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
@@ -90,16 +94,28 @@ interface PaymentTransaction {
   team: { name: string } | null;
   child_id?: string | null;
   parent_id?: string | null;
+  unregistered_athlete_id?: string | null;
+  athlete_name?: string | null;
+  parent_responsible?: string | null;
+  plan?: { name: string } | null;
 }
 
 interface TeamSubscription {
   id: string;
   full_name: string;
-  monthly_fee: number;
-  team_id: string;
-  teams: { name: string } | null;
-  payment_method?: string;
   child_id?: string | null;
+  user_id?: string | null;
+  unregistered_athlete_id?: string | null;
+  // Equipo
+  team_id?: string | null;
+  team_name?: string | null;
+  price_monthly: number;
+  // Plan
+  offering_plan_id?: string | null;
+  plan_name?: string | null;
+  plan_price?: number;
+  has_team: boolean;
+  has_plan: boolean;
 }
 
 export default function PaymentsAutomationPage() {
@@ -165,7 +181,9 @@ export default function PaymentsAutomationPage() {
         max_installments_per_payment: billing.max_installments_per_payment,
         min_installment_amount: billing.min_installment_amount,
         installment_require_proof: billing.installment_require_proof,
+        billing_cycle_type: billing.billing_cycle_type,
       };
+
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
@@ -178,31 +196,63 @@ export default function PaymentsAutomationPage() {
 
   const updateBilling = <K extends keyof BillingSettings>(key: K, value: BillingSettings[K]) => {
     if (billing) setBilling({ ...billing, [key]: value });
-  };
-
-  const fetchPayments = async () => {
+  };  const fetchPayments = async () => {
     if (!schoolId) return;
     setLoading(true);
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id, team_id,
+        .select(`
+          id, amount, status, created_at, payment_method, payment_type,
+          receipt_url, concept, child_id, parent_id, program_id, team_id,
+          unregistered_athlete_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
-          program:programs!payments_program_id_fkey(name),
-          team:teams!payments_team_id_fkey(name)`)
+          team:teams!payments_team_id_fkey(name),
+          plan:offering_plans!payments_offering_plan_id_fkey(name)
+        `)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
         .limit(100);
+
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query;
       if (error) throw error;
+
+      // Resolver nombres de atletas sin cuenta (unregistered)
+      const unregisteredIds = (data || [])
+        .filter((p: any) => p.unregistered_athlete_id)
+        .map((p: any) => p.unregistered_athlete_id);
+
+      const unregisteredMap = new Map<string, string>();
+      if (unregisteredIds.length > 0) {
+        const { data: unregistered } = await (supabase
+          .from('unregistered_athletes') as any)
+          .select('id, full_name')
+          .in('id', unregisteredIds);
+        (unregistered || []).forEach((u: any) => unregisteredMap.set(u.id, u.full_name));
+      }
+
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
-        receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
+        receipt_url: p.receipt_url, concept: p.concept,
+        child_id: p.child_id, parent_id: p.parent_id,
         program_id: p.program_id, team_id: p.team_id,
-        parent: p.parent, child: p.child, program: p.program, team: p.team,
+        unregistered_athlete_id: p.unregistered_athlete_id,
+        // Nombre del atleta resuelto por tipo
+        athlete_name:
+          p.child?.full_name ||
+          (p.parent_id && !p.child_id ? p.parent?.full_name : null) ||
+          (p.unregistered_athlete_id ? unregisteredMap.get(p.unregistered_athlete_id) : null) ||
+          null,
+        // Padre/responsable solo si es diferente al atleta (menores)
+        parent_responsible: p.child_id ? (p.parent?.full_name || null) : null,
+        parent: p.parent,
+        child: p.child,
+        program: null,
+        team: p.team,
+        plan: p.plan,
       })));
     } catch (error: unknown) {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
@@ -214,34 +264,53 @@ export default function PaymentsAutomationPage() {
   const loadTeamSubscriptions = async () => {
     if (!schoolId) return;
     try {
-      const query = supabase
-        .from('enrollments')
+      const { data, error } = await (supabase
+        .from('enrollments') as any)
         .select(`
-          id,
-          child_id,
-          team_id,
-          schools!inner ( id ),
-          children ( full_name ),
-          team:teams!enrollments_team_id_fkey ( name, price_monthly )
+          id, child_id, user_id, unregistered_athlete_id,
+          team_id, offering_plan_id,
+          team:teams!enrollments_team_id_fkey ( name, price_monthly ),
+          plan:offering_plans!enrollments_offering_plan_id_fkey ( name, price )
         `)
         .eq('school_id', schoolId)
         .eq('status', 'active');
 
-      if (activeBranchId) {
-        // En un caso real podrías filtrar enrollments por branch si existiera en enrollment, 
-        // pero vamos a filtrar en memoria por simplicidad o dejarlo así ya que se hereda del school.
-      }
-      const { data, error } = await query;
       if (error) throw error;
 
-      const mapped = (data as any[]).map(e => ({
-        id: e.id,
-        child_id: e.child_id,
-        full_name: e.children?.full_name || 'Sin nombre',
-        monthly_fee: e.team?.price_monthly || 0,
-        team_id: e.team_id,
-        teams: { name: e.team?.name },
+      const mapped = await Promise.all((data as any[]).map(async e => {
+        // Resolver nombre según tipo de atleta
+        let full_name = 'Sin nombre';
+        if (e.child_id) {
+          const { data: c } = await supabase.from('children').select('full_name').eq('id', e.child_id).single();
+          full_name = c?.full_name || full_name;
+        } else if (e.user_id) {
+          const { data: p } = await supabase.from('profiles').select('full_name').eq('id', e.user_id).single();
+          full_name = p?.full_name || full_name;
+        } else if (e.unregistered_athlete_id) {
+          const { data: u } = await (supabase.from('unregistered_athletes') as any).select('full_name').eq('id', e.unregistered_athlete_id).single();
+          full_name = u?.full_name || full_name;
+        }
+
+        return {
+          id: e.id,
+          child_id: e.child_id,
+          user_id: e.user_id,
+          unregistered_athlete_id: e.unregistered_athlete_id,
+          full_name,
+          // Equipo
+          team_id: e.team_id,
+          team_name: e.team?.name || null,
+          price_monthly: e.team?.price_monthly || 0,
+          // Plan
+          offering_plan_id: e.offering_plan_id,
+          plan_name: e.plan?.name || null,
+          plan_price: e.plan?.price || 0,
+          // Tipo
+          has_team: !!e.team_id,
+          has_plan: !!e.offering_plan_id,
+        };
       }));
+
       setTeamSubscriptions(mapped);
     } catch (error: unknown) {
       toast({ title: 'Error en suscripciones', description: getUserFriendlyError(error), variant: 'destructive' });
@@ -272,37 +341,41 @@ export default function PaymentsAutomationPage() {
 
       const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
       if (updateError) throw updateError;
-      if (action === 'approve') {
-        if (payment) {
-          if (payment.program_id && (payment.child_id || payment.parent_id)) {
-            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', payment.program_id).eq('status', 'pending');
-            if (payment.child_id) enrollQuery = enrollQuery.eq('child_id', payment.child_id);
-            else enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
-            const { error: enrollError } = await enrollQuery;
-            if (enrollError) console.warn('Could not auto-activate enrollment:', enrollError);
-          }
-          if (payment.parent_id) {
-            if (payment.parent?.email) {
-              await emailClient.send({
-                type: 'payment_confirmation',
-                to: payment.parent.email,
-                data: {
-                  userName: payment.parent.full_name || 'Usuario',
-                  schoolName: 'Tu Escuela',
-                  amount: formatCurrency(payment.amount),
-                  concept: payment.concept,
-                  reference: payment.id.slice(0, 8).toUpperCase(),
-                },
-              });
-            }
-            await supabase.rpc('notify_user', {
-              p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
-              p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
-              p_type: 'success', p_link: '/history',
+      if (action === 'approve' && payment) {
+        // Activar enrollment asociado
+        let enrollQuery = (supabase.from('enrollments') as any)
+          .update({ status: 'active' })
+          .eq('school_id', schoolId)
+          .eq('status', 'pending_payment');
+
+        if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
+        else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
+        if (payment.team_id)        enrollQuery = enrollQuery.eq('team_id', payment.team_id);
+
+        await enrollQuery;
+
+        if (payment.parent_id) {
+          if (payment.parent?.email) {
+            await emailClient.send({
+              type: 'payment_confirmation',
+              to: payment.parent.email,
+              data: {
+                userName: payment.parent.full_name || 'Usuario',
+                schoolName: 'Tu Escuela',
+                amount: formatCurrency(payment.amount),
+                concept: payment.concept,
+                reference: payment.id.slice(0, 8).toUpperCase(),
+              },
             });
           }
+          await supabase.rpc('notify_user', {
+            p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
+            p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
+            p_type: 'success', p_link: '/history',
+          });
         }
       }
+
       if (action === 'reject') {
         const payment = payments.find(p => p.id === paymentId);
         if (payment?.parent_id) {
@@ -453,7 +526,7 @@ export default function PaymentsAutomationPage() {
         <div className="overflow-x-auto pb-1">
           <TabsList className="w-max min-w-full sm:w-auto">
             <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
-            <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos</TabsTrigger>
+            <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos y Planes</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
@@ -495,9 +568,9 @@ export default function PaymentsAutomationPage() {
                       <div key={payment.id} className="border rounded-lg p-4 space-y-3 bg-card">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="font-bold text-sm truncate">{payment.child?.full_name || 'Sin estudiante'}</p>
-                            <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
-                            <p className="text-xs text-muted-foreground">{payment.parent?.full_name || 'Desconocido'}</p>
+                            <p className="font-bold text-sm truncate">{(payment as any).athlete_name || 'Sin nombre'}</p>
+                            <p className="text-xs text-muted-foreground truncate">{payment.team?.name || (payment as any).plan?.name || payment.concept}</p>
+                            <p className="text-xs text-muted-foreground">{(payment as any).parent_responsible || '—'}</p>
                           </div>
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
@@ -541,11 +614,11 @@ export default function PaymentsAutomationPage() {
                             <TableCell className="font-mono text-xs">{formatDate(payment.created_at)}</TableCell>
                             <TableCell>
                               <div className="flex flex-col">
-                                <span className="font-bold">{payment.child?.full_name || 'Sin estudiante'}</span>
-                                <span className="text-xs text-muted-foreground">{payment.program?.name || payment.team?.name || payment.concept}</span>
+                                <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
+                                <span className="text-xs text-muted-foreground">{payment.team?.name || (payment as any).plan?.name || payment.concept}</span>
                               </div>
                             </TableCell>
-                            <TableCell><span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span></TableCell>
+                            <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
                             <TableCell>
                               {payment.receipt_url ? (
@@ -582,8 +655,8 @@ export default function PaymentsAutomationPage() {
         <TabsContent value="teams">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base sm:text-lg">Vista por Equipos</CardTitle>
-              <CardDescription>Cobros programados por equipo y estudiante.</CardDescription>
+              <CardTitle className="text-base sm:text-lg">Vista por Equipos y Planes</CardTitle>
+              <CardDescription>Cobros programados por equipo y por plan.</CardDescription>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
               {/* Mobile cards */}
@@ -591,58 +664,132 @@ export default function PaymentsAutomationPage() {
                 {loading ? (
                   <div className="flex justify-center py-8"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>
                 ) : teamSubscriptions.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No hay estudiantes asignados a equipos.</p>
+                  <p className="text-center text-muted-foreground py-8">No hay estudiantes asignados a equipos o planes.</p>
                 ) : teamSubscriptions.map((sub) => (
                   <div key={sub.id} className="border rounded-lg p-4 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-blue-600 truncate">{sub.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{sub.teams?.name || 'Sin equipo'}</p>
+                      <p className={`font-medium text-sm truncate ${sub.has_plan ? 'text-green-600' : 'text-blue-600'}`}>{sub.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{sub.team_name || sub.plan_name || 'Sin asignar'}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-bold text-sm">{formatCurrency(sub.monthly_fee || 0)}</p>
-                      <p className="text-xs text-muted-foreground">Día {billing?.payment_cutoff_day || 5}</p>
+                      <p className="font-bold text-sm">{formatCurrency(sub.price_monthly || sub.plan_price || 0)}</p>
+                      <p className="text-xs text-muted-foreground">Día {billing?.payment_cutoff_day || 10}</p>
                     </div>
                   </div>
                 ))}
               </div>
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Alumno</TableHead>
-                      <TableHead>Equipo</TableHead>
-                      <TableHead>Monto Mensual</TableHead>
-                      <TableHead>Próximo Cobro</TableHead>
-                      <TableHead>Método</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" /></TableCell></TableRow>
-                    ) : teamSubscriptions.length === 0 ? (
-                      <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No hay estudiantes asignados a equipos.</TableCell></TableRow>
-                    ) : teamSubscriptions.map((sub) => (
-                      <TableRow key={sub.id}>
-                        <TableCell className="font-medium text-blue-600">{sub.full_name}</TableCell>
-                        <TableCell><Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">{sub.teams?.name || 'Sin equipo'}</Badge></TableCell>
-                        <TableCell className="font-bold">{formatCurrency(sub.monthly_fee || 0)}</TableCell>
-                        <TableCell><span className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-amber-500" />Día {billing?.payment_cutoff_day || 5} (Prox. Mes)</span></TableCell>
-                        <TableCell>
-                          {(() => {
-                            const method = getPreferredMethod(sub.child_id);
-                            const Icon = method.icon;
-                            return (
-                              <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
-                                <Icon className="h-3.5 w-3.5" />{method.label}
-                              </Badge>
-                            );
-                          })()}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+
+              {/* Desktop view */}
+              <div className="hidden md:block space-y-8">
+                {/* ── EQUIPOS ── */}
+                {teamSubscriptions.filter(s => s.has_team).length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground px-1">
+                      Equipos ({teamSubscriptions.filter(s => s.has_team).length})
+                    </p>
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Alumno</TableHead>
+                            <TableHead>Equipo</TableHead>
+                            <TableHead>Mensualidad</TableHead>
+                            <TableHead>Próximo Cobro</TableHead>
+                            <TableHead>Método</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {teamSubscriptions.filter(s => s.has_team).map(sub => (
+                            <TableRow key={sub.id}>
+                              <TableCell className="font-medium text-blue-600">{sub.full_name}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100">
+                                  {sub.team_name || 'Sin equipo'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-bold">{formatCurrency(sub.price_monthly)}</TableCell>
+                              <TableCell>
+                                <span className="flex items-center gap-1.5 text-sm">
+                                  <Clock className="h-3.5 w-3.5 text-amber-500" />
+                                  Día {billing?.payment_cutoff_day || 10} (Prox. Mes)
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                {(() => {
+                                  const method = getPreferredMethod(sub.child_id || sub.unregistered_athlete_id || undefined);
+                                  const Icon = method.icon;
+                                  return (
+                                    <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
+                                      <Icon className="h-3.5 w-3.5" />{method.label}
+                                    </Badge>
+                                  );
+                                })()}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── PLANES ── */}
+                {teamSubscriptions.filter(s => s.has_plan).length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground px-1">
+                      Planes ({teamSubscriptions.filter(s => s.has_plan).length})
+                    </p>
+                    <div className="rounded-md border overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Atleta</TableHead>
+                            <TableHead>Plan</TableHead>
+                            <TableHead>Valor</TableHead>
+                            <TableHead>Próximo Cobro</TableHead>
+                            <TableHead>Método</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {teamSubscriptions.filter(s => s.has_plan).map(sub => (
+                            <TableRow key={sub.id}>
+                              <TableCell className="font-medium text-green-600">{sub.full_name}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-100">
+                                  {sub.plan_name || 'Sin plan'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-bold">{formatCurrency(sub.plan_price || 0)}</TableCell>
+                              <TableCell>
+                                <span className="flex items-center gap-1.5 text-sm">
+                                  <Clock className="h-3.5 w-3.5 text-amber-500" />
+                                  Día {billing?.payment_cutoff_day || 10} (Prox. Mes)
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                {(() => {
+                                  const method = getPreferredMethod(sub.child_id || sub.unregistered_athlete_id || undefined);
+                                  const Icon = method.icon;
+                                  return (
+                                    <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
+                                      <Icon className="h-3.5 w-3.5" />{method.label}
+                                    </Badge>
+                                  );
+                                })()}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {teamSubscriptions.length === 0 && !loading && (
+                   <div className="text-center py-12 text-muted-foreground">
+                     <p>No hay estudiantes asignados a equipos o planes activos.</p>
+                   </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -687,8 +834,8 @@ export default function PaymentsAutomationPage() {
                     <div key={payment.id} className="border rounded-lg p-4 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">{payment.child?.full_name || payment.parent?.full_name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
+                          <p className="font-medium text-sm truncate">{(payment as any).athlete_name || 'Sin nombre'}</p>
+                          <p className="text-xs text-muted-foreground truncate">{payment.team?.name || (payment as any).plan?.name || payment.concept}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
@@ -729,11 +876,18 @@ export default function PaymentsAutomationPage() {
                       return (
                         <TableRow key={payment.id}>
                           <TableCell className="text-xs text-muted-foreground">{formatDate(payment.created_at)}</TableCell>
-                          <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex flex-col">
+                              <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}
+                              </span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-sm">
                             <div className="font-medium text-blue-600">{payment.concept}</div>
-                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">P: {payment.program.name}</div>}
                             {payment.team?.name && <div className="text-xs text-muted-foreground mt-0.5">T: {payment.team.name}</div>}
+                            {(payment as any).plan?.name && <div className="text-xs text-muted-foreground mt-0.5">P: {(payment as any).plan.name}</div>}
                           </TableCell>
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
@@ -783,6 +937,42 @@ export default function PaymentsAutomationPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <Label>Ciclo de facturación</Label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {([
+                        {
+                          value: 'prorated',
+                          label: 'Prorrateado automático',
+                          desc: 'El primer cobro es proporcional a los días restantes del mes.',
+                        },
+                        {
+                          value: 'fixed_calendar',
+                          label: 'Mensualidad fija por calendario',
+                          desc: 'Siempre cobra el mes completo. Vence en el día de corte.',
+                        },
+                        {
+                          value: 'rolling_30',
+                          label: 'Ciclo de 30 días desde inscripción',
+                          desc: 'Cada cobro vence exactamente 30 días después del anterior.',
+                        },
+                      ] as const).map(opt => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => updateBilling('billing_cycle_type', opt.value)}
+                          className={`text-left p-3 rounded-lg border-2 transition-colors ${
+                            billing.billing_cycle_type === opt.value
+                              ? 'border-primary bg-primary/5'
+                              : 'border-muted hover:border-primary/40'
+                          }`}
+                        >
+                          <p className="font-medium text-sm">{opt.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="grace">Días de gracia</Label>
                     <div className="flex items-center gap-2">
                       <Input id="grace" type="number" min={0} max={15} className="w-24" value={billing.payment_grace_days} onChange={e => updateBilling('payment_grace_days', parseInt(e.target.value) || 0)} />
@@ -797,6 +987,7 @@ export default function PaymentsAutomationPage() {
                     </div>
                     <Switch checked={billing.auto_generate_payments} onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
                   </div>
+
                 </CardContent>
               </Card>
               <Card>
@@ -967,15 +1158,23 @@ export default function PaymentsAutomationPage() {
               </Card>
 
               {/* Nueva Sección: Abonos */}
-              <InstallmentsConfigCard 
-                settings={{
-                  allow_installments: billing.allow_installments,
-                  max_installments_per_payment: billing.max_installments_per_payment,
-                  min_installment_amount: billing.min_installment_amount,
-                  installment_require_proof: billing.installment_require_proof,
-                }}
-                onChange={(updated) => setBilling({ ...billing, ...updated })}
-              />
+                <InstallmentsConfigCard 
+                  settings={{
+                    allow_installments: billing.allow_installments,
+                    max_installments_per_payment: billing.max_installments_per_payment,
+                    min_installment_amount: billing.min_installment_amount,
+                    installment_require_proof: billing.installment_require_proof,
+                  }}
+                  onChange={(updated) => setBilling({ ...billing, ...updated })}
+                />
+
+                {/* Botón generar cobros pendientes */}
+                <BackfillPaymentsCard
+                  schoolId={schoolId}
+                  billing={billing}
+                  onSuccess={fetchPayments}
+                />
+
             </div>
           )}
         </TabsContent>
@@ -1003,3 +1202,229 @@ export default function PaymentsAutomationPage() {
     </div>
   );
 }
+
+function BackfillPaymentsCard({
+  schoolId, billing, onSuccess,
+}: {
+  schoolId: string | null;
+  billing: BillingSettings | null;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [loading, setLoading]   = useState(false);
+  const [preview, setPreview]   = useState<any[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [generating, setGenerating]  = useState(false);
+
+  const loadPreview = async () => {
+    if (!schoolId || !billing) return;
+    setLoading(true);
+    try {
+      // Atletas con enrollment activo sin pago pendiente o pagado
+      const { data: enrollments } = await (supabase
+        .from('enrollments') as any)
+
+
+        .select(`
+          id, start_date, child_id, user_id, unregistered_athlete_id,
+          team_id, offering_plan_id
+        `)
+        .eq('school_id', schoolId)
+        .in('status', ['active', 'pending_payment']);
+
+      const withoutPayment = [];
+      for (const e of enrollments || []) {
+        // Verificar si ya tiene pago pendiente o pagado
+        let payQuery = (supabase.from('payments') as any)
+
+
+          .select('id')
+          .eq('school_id', schoolId)
+          .in('status', ['pending', 'awaiting_approval', 'paid']);
+
+        if (e.child_id)                  payQuery = payQuery.eq('child_id', e.child_id);
+        else if (e.user_id)              payQuery = payQuery.eq('parent_id', e.user_id);
+        else if (e.unregistered_athlete_id) payQuery = payQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
+
+        const { data: existing } = await payQuery.maybeSingle();
+        if (!existing) withoutPayment.push(e);
+      }
+
+      // Obtener nombres y calcular montos
+      const rows = await Promise.all(withoutPayment.map(async e => {
+        let name = 'Atleta';
+        let fee = 0;
+
+        if (e.child_id) {
+          const { data } = await supabase.from('children').select('full_name, monthly_fee').eq('id', e.child_id).single();
+          name = data?.full_name || name;
+          fee  = data?.monthly_fee || 0;
+        } else if (e.user_id) {
+          const { data } = await supabase.from('profiles').select('full_name').eq('id', e.user_id).single();
+          name = data?.full_name || name;
+          // fee del equipo o plan
+          if (e.team_id) {
+            const { data: t } = await (supabase.from('teams') as any).select('price_monthly').eq('id', e.team_id).single();
+            fee = t?.price_monthly || 0;
+          } else if (e.offering_plan_id) {
+            const { data: p } = await (supabase.from('offering_plans') as any).select('price').eq('id', e.offering_plan_id).single();
+            fee = p?.price || 0;
+          }
+
+
+        } else if (e.unregistered_athlete_id) {
+          const { data } = await (supabase.from('unregistered_athletes') as any).select('full_name').eq('id', e.unregistered_athlete_id).single();
+          name = data?.full_name || name;
+          if (e.team_id) {
+            const { data: t } = await (supabase.from('teams') as any).select('price_monthly').eq('id', e.team_id).single();
+            fee = t?.price_monthly || 0;
+          } else if (e.offering_plan_id) {
+            const { data: p } = await (supabase.from('offering_plans') as any).select('price').eq('id', e.offering_plan_id).single();
+            fee = p?.price || 0;
+          }
+        }
+
+
+
+        const { calcFirstPayment } = await import('@/lib/prorationUtils');
+        const calc = calcFirstPayment(
+          e.start_date,
+          fee,
+          billing.billing_cycle_type || 'prorated',
+          billing.payment_cutoff_day || 10
+        );
+
+        return {
+          enrollment_id: e.id,
+          child_id: e.child_id,
+          user_id: e.user_id,
+          unregistered_athlete_id: e.unregistered_athlete_id,
+          team_id: e.team_id,
+          offering_plan_id: e.offering_plan_id,
+          name,
+          start_date: e.start_date,
+          amount: calc.amount,
+          due_date: calc.dueDate,
+          description: calc.description,
+          fee,
+        };
+      }));
+
+      setPreview(rows);
+      setShowPreview(true);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!schoolId || preview.length === 0) return;
+    setGenerating(true);
+    try {
+      for (const row of preview) {
+        const record: any = {
+          school_id:    schoolId,
+          amount:       row.amount,
+          concept:      `Mensualidad — ${row.description}`,
+          due_date:     row.due_date,
+          status:       'pending',
+          payment_type: 'subscription',
+        };
+
+        // Atleta — solo uno aplica
+        if (row.child_id)                  record.child_id = row.child_id;
+        if (row.user_id)                   record.parent_id = row.user_id;
+        if (row.unregistered_athlete_id)   record.unregistered_athlete_id = row.unregistered_athlete_id;
+
+        // Referencia al equipo o plan — solo uno aplica
+        if (row.team_id)                   record.team_id = row.team_id;
+        if (row.offering_plan_id)          record.offering_plan_id = row.offering_plan_id;
+
+        await (supabase.from('payments') as any).insert(record);
+
+
+      }
+      toast({
+        title: `${preview.length} pagos generados`,
+        description: 'Los cobros pendientes han sido creados correctamente.',
+      });
+      setShowPreview(false);
+      setPreview([]);
+      onSuccess();
+    } catch (e: any) {
+      toast({ title: 'Error al generar pagos', description: e.message, variant: 'destructive' });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Card className="md:col-span-2 border-amber-200">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          Cobros Pendientes por Generar
+        </CardTitle>
+        <CardDescription>
+          Atletas inscritos que aún no tienen ningún pago registrado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!showPreview ? (
+          <Button variant="outline" onClick={loadPreview} disabled={loading} className="w-full sm:w-auto">
+            {loading
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Calculando...</>
+              : <>Verificar atletas sin cobro</>}
+          </Button>
+        ) : preview.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-green-600">
+            <CheckCircle2 className="h-4 w-4" />
+            Todos los atletas tienen pagos registrados.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Se generarán <strong>{preview.length} pago(s)</strong> con el ciclo <strong>{billing?.billing_cycle_type}</strong>:
+            </p>
+            <div className="rounded-lg border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Atleta</TableHead>
+                    <TableHead>Inscripción</TableHead>
+                    <TableHead>Monto</TableHead>
+                    <TableHead>Vence</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.map((row, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium text-sm">{row.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{row.start_date}</TableCell>
+                      <TableCell className="font-bold text-primary text-sm">
+                        {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(row.amount)}
+                      </TableCell>
+                      <TableCell className="text-xs">{row.due_date}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleGenerate} disabled={generating}>
+                {generating
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generando...</>
+                  : <>Confirmar y generar {preview.length} pago(s)</>}
+              </Button>
+              <Button variant="ghost" onClick={() => { setShowPreview(false); setPreview([]); }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
