@@ -57,7 +57,7 @@ function useShare(school: SchoolDetail | null) {
     if (!school) return;
     const url = window.location.href;
     if (navigator.share) {
-      try { await navigator.share({ title: school.name, text: `Mira ${school.name} en SportMaps`, url }); } catch {}
+      try { await navigator.share({ title: school.name, text: `Mira ${school.name} en SportMaps`, url }); } catch (error) { console.debug('Share failed', error); }
     } else {
       await navigator.clipboard.writeText(url);
       setCopied(true);

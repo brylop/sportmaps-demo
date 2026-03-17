@@ -194,7 +194,8 @@ export default function SettingsPage() {
             </TabsList>
 
             {/* Premium Upsell Card - Hidden for now as per user request */}
-            {false && !isSchoolAdmin && (
+            {/* Premium Upsell Card - Hidden for now as per user request
+            {!isSchoolAdmin && (
               <div className="mt-8 p-6 rounded-2xl bg-gradient-to-br from-primary to-primary-dark text-primary-foreground shadow-lg shadow-primary/20 relative overflow-hidden group">
                 <div className="relative z-10">
                   <div className="flex items-center gap-2 mb-3">
@@ -216,6 +217,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+            */}
           </aside>
 
           {/* Main Content Area */}

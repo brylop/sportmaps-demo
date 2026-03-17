@@ -45,8 +45,8 @@ interface School {
   website: string | null;
   sports: string[] | null;
   amenities: string[] | null;
-  rating: number;
-  total_reviews: number;
+  avg_rating: number | null;
+  review_count: number | null;
   verified: boolean;
   logo_url: string | null;
   cover_image_url: string | null;
@@ -64,13 +64,13 @@ interface Program {
   name: string;
   description: string | null;
   sport: string;
-  schedule: string | null;
+  schedule: any | null;
   price_monthly: number;
   age_min: number | null;
   age_max: number | null;
-  max_participants: number | null;
-  current_participants: number;
-  active: boolean;
+  max_students: number | null;
+  current_students: number;
+  active: boolean | null;
   // New evolution fields
   level?: string;
   spots_available?: number;
@@ -216,8 +216,8 @@ export default function SchoolDetailPage() {
   };
 
   const getAvailability = (program: Program) => {
-    if (!program.max_participants) return 'Cupos ilimitados';
-    const available = program.max_participants - program.current_participants;
+    if (!program.max_students) return 'Cupos ilimitados';
+    const available = program.max_students - program.current_students;
     return available > 0 ? `${available} cupos disponibles` : 'Lleno';
   };
 
@@ -232,8 +232,8 @@ export default function SchoolDetailPage() {
         price_monthly: 45000,
         age_min: 6,
         age_max: 10,
-        max_participants: 20,
-        current_participants: 12,
+        max_students: 20,
+        current_students: 12,
         active: true
       },
       {
@@ -245,8 +245,8 @@ export default function SchoolDetailPage() {
         price_monthly: 55000,
         age_min: 11,
         age_max: 15,
-        max_participants: 18,
-        current_participants: 15,
+        max_students: 18,
+        current_students: 15,
         active: true
       },
       {
@@ -258,8 +258,8 @@ export default function SchoolDetailPage() {
         price_monthly: 75000,
         age_min: 14,
         age_max: 18,
-        max_participants: 15,
-        current_participants: 14,
+        max_students: 15,
+        current_students: 14,
         active: true
       }
     ];
@@ -349,6 +349,7 @@ export default function SchoolDetailPage() {
         onOpenChange={setChildSelectionOpen}
         onChildSelected={handleChildSelected}
         programName={selectedProgram?.name}
+        schoolId={id}
       />
 
       {/* Payment Modal - For authenticated users */}
@@ -434,8 +435,8 @@ export default function SchoolDetailPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-semibold">{school.rating.toFixed(1)}</span>
-                        <span>({school.total_reviews} reseñas)</span>
+                        <span className="font-semibold">{(school.avg_rating || 0).toFixed(1)}</span>
+                        <span>({school.review_count || 0} reseñas)</span>
                       </div>
                     </div>
                   </div>
@@ -566,7 +567,7 @@ export default function SchoolDetailPage() {
                           {program.schedule && (
                             <div className="flex items-center gap-2 col-span-2">
                               <Clock className="h-4 w-4 text-muted-foreground" />
-                              <span>{program.schedule}</span>
+                              <span>{typeof program.schedule === 'string' ? program.schedule : JSON.stringify(program.schedule)}</span>
                             </div>
                           )}
                         </div>
@@ -575,13 +576,13 @@ export default function SchoolDetailPage() {
                           className="w-full"
                           onClick={() => handleEnroll(program)}
                           disabled={
-                            program.max_participants !== null &&
-                            program.current_participants >= program.max_participants
+                            program.max_students !== null &&
+                            program.current_students >= program.max_students
                           }
                         >
                           <Calendar className="h-4 w-4 mr-2" />
-                          {program.max_participants !== null &&
-                            program.current_participants >= program.max_participants
+                          {program.max_students !== null &&
+                            program.current_students >= program.max_students
                             ? 'Programa Lleno'
                             : 'Inscribirme'}
                         </Button>
