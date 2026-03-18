@@ -16,7 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -552,11 +552,22 @@ export default function SchoolStudentsManagementPage() {
                         <p className="font-semibold text-sm truncate">{student.full_name}</p>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
-                        {student.team_name
-                          ? student.team_name
-                          : (student as any).plan_name
-                          ? `Plan: ${(student as any).plan_name}`
-                          : 'Sin asignar'} · {student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}
+                        <div className="flex gap-1 flex-wrap mt-1">
+                          {student.team_name && (
+                            <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5">
+                              <Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}
+                            </Badge>
+                          )}
+                          {(student as any).plan_name && (
+                            <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5">
+                              <Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}
+                            </Badge>
+                          )}
+                          {!student.team_name && !(student as any).plan_name && (
+                            <span className="text-xs text-muted-foreground">Sin asignar</span>
+                          )}
+                          <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
+                        </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
                           {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
@@ -605,17 +616,21 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          {student.team_name ? (
-                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              {student.team_name}
-                            </Badge>
-                          ) : (student as any).plan_name ? (
-                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                              📋 {(student as any).plan_name}
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Sin asignar</span>
-                          )}
+                          <div className="flex flex-col gap-1">
+                            {student.team_name && (
+                              <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit">
+                                <Trophy className="h-3 w-3 mr-1" /> {student.team_name}
+                              </Badge>
+                            )}
+                            {(student as any).plan_name && (
+                              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit">
+                                <Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}
+                              </Badge>
+                            )}
+                            {!student.team_name && !(student as any).plan_name && (
+                              <span className="text-xs text-muted-foreground">Sin asignar</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span>

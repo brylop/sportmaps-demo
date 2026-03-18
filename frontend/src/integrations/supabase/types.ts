@@ -3434,6 +3434,7 @@ export type Database = {
           team_id: string | null
           unregistered_athlete_id: string | null
           updated_at: string
+          user_id: string | null
           wompi_id: string | null
         }
         Insert: {
@@ -3464,6 +3465,7 @@ export type Database = {
           team_id?: string | null
           unregistered_athlete_id?: string | null
           updated_at?: string
+          user_id?: string | null
           wompi_id?: string | null
         }
         Update: {
@@ -3494,6 +3496,7 @@ export type Database = {
           team_id?: string | null
           unregistered_athlete_id?: string | null
           updated_at?: string
+          user_id?: string | null
           wompi_id?: string | null
         }
         Relationships: [
@@ -3600,6 +3603,13 @@ export type Database = {
             columns: ["unregistered_athlete_id"]
             isOneToOne: false
             referencedRelation: "unregistered_athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

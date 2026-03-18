@@ -224,7 +224,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     setEmailForDisplay(data.email);
     try {
-      let metadata: any = {
+      const metadata: any = {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,

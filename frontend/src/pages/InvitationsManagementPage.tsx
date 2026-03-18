@@ -92,6 +92,12 @@ export default function InvitationsManagementPage() {
     }
   }, [searchParams]);
 
+  // Al abrir el dialog, preseleccionar la sede activa
+  useEffect(() => {
+    if (activeBranchId) setSelectedBranchId(activeBranchId);
+  }, [activeBranchId, dialogOpen]);
+
+
   // Pre-load contacts based on role
   useEffect(() => {
     if (!schoolId) return;
@@ -148,10 +154,11 @@ export default function InvitationsManagementPage() {
     queryKey: ['invitations', schoolId, activeBranchId],
     queryFn: async () => {
       if (!schoolId) return [];
-      let query = supabase
-        .from('invitations') as any;
-
-      query = query.select('*, school_branches(name)')
+      let query = (supabase.from('invitations') as any)
+        .select(`
+          *,
+          school_branches(name)
+        `)
         .eq('school_id', schoolId);
 
       if (activeBranchId) {
@@ -179,6 +186,22 @@ export default function InvitationsManagementPage() {
     },
     enabled: !!schoolId,
   });
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await (supabase.from('school_branches') as any)
+        .select('id, name')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
+
 
   // Client-side filtering and sorting
   const filteredInvitations = invitations
@@ -231,10 +254,21 @@ export default function InvitationsManagementPage() {
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
     const link = generateRegistrationLink(invitation);
-    const childName = invitation.child_name || formData.childName;
-    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Puedes completar el registro aquí: ${link}`;
+    const role = invitation.role_to_assign || formData.role;
     const phone = invitation.parent_phone || formData.parentPhone;
     const cleanPhone = phone.replace(/\D/g, '');
+
+    const messages: Record<string, string> = {
+      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Completa el registro aquí: ${link}`,
+      coach: `¡Hola! Te invitamos a unirte como entrenador en ${schoolName}. Completa tu registro aquí: ${link}`,
+      athlete: `¡Hola! Te invitamos a unirte como atleta en ${schoolName}. Completa tu registro aquí: ${link}`,
+      school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}. Completa tu registro aquí: ${link}`,
+      reporter: `¡Hola! Te invitamos a acceder como súper usuario en ${schoolName}. Completa tu registro aquí: ${link}`,
+      guest: `¡Hola! Te invitamos a conocer ${schoolName}. Completa tu registro aquí: ${link}`,
+    };
+
+    const message = messages[role] ?? `¡Hola! Te invitamos a unirte a ${schoolName}. Completa tu registro aquí: ${link}`;
+
     window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -287,12 +321,12 @@ export default function InvitationsManagementPage() {
         p_email: data.parentEmail,
         p_role: data.role,
         p_child_name: data.role === 'parent' ? data.childName : null,
-        // Program: applies to parent, coach and athlete
-        p_program_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.programId || null) : null,
+        // Program: applies to parent and athlete
+        p_program_id: ['parent', 'athlete'].includes(data.role) ? (data.programId || null) : null,
         p_monthly_fee: data.role === 'parent' ? fee : null,
         p_parent_phone: data.parentPhone || null,
-        // Branch: siempre usar la sede del admin que invita
-        p_branch_id: activeBranchId || null
+        // Branch: usar la sede seleccionada o la activa por defecto
+        p_branch_id: selectedBranchId || activeBranchId || null
       });
 
       if (error) throw error;
@@ -338,7 +372,7 @@ export default function InvitationsManagementPage() {
         monthlyFee: defaultMonthlyFee,
         role: 'parent'
       });
-      setSelectedBranchId('');
+      setSelectedBranchId(activeBranchId || '');
 
       toast({
         title: '✅ Invitación creada',
@@ -776,8 +810,28 @@ export default function InvitationsManagementPage() {
               />
             </div>
 
-            {/* Program selector — for parent, coach and athlete */}
-            {['parent', 'coach', 'athlete'].includes(formData.role) && (
+            {/* Branch selector — only for coach */}
+            {formData.role === 'coach' && (
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Sede *</Label>
+                <Select value={selectedBranchId} onValueChange={setSelectedBranchId}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Seleccionar sede" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map(branch => (
+                      <SelectItem key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+
+            {/* Program selector — for parent and athlete */}
+            {['parent', 'athlete'].includes(formData.role) && (
               <div className="space-y-1.5">
                 <Label htmlFor="programId" className="text-sm font-medium">
                   Programa {formData.role === 'parent' ? '*' : '(opcional)'}

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, getStoragePath, maskSensitive } from '@/lib/utils';
@@ -94,6 +94,7 @@ interface PaymentTransaction {
   team: { name: string } | null;
   child_id?: string | null;
   parent_id?: string | null;
+  user_id?: string | null;
   unregistered_athlete_id?: string | null;
   athlete_name?: string | null;
   parent_responsible?: string | null;
@@ -204,9 +205,10 @@ export default function PaymentsAutomationPage() {
         .from('payments')
         .select(`
           id, amount, status, created_at, payment_method, payment_type,
-          receipt_url, concept, child_id, parent_id, program_id, team_id,
+          receipt_url, concept, child_id, parent_id, user_id, program_id, team_id,
           unregistered_athlete_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
+          user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
           team:teams!payments_team_id_fkey(name),
           plan:offering_plans!payments_offering_plan_id_fkey(name)
@@ -237,13 +239,13 @@ export default function PaymentsAutomationPage() {
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept,
-        child_id: p.child_id, parent_id: p.parent_id,
+        child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         program_id: p.program_id, team_id: p.team_id,
         unregistered_athlete_id: p.unregistered_athlete_id,
         // Nombre del atleta resuelto por tipo
         athlete_name:
           p.child?.full_name ||
-          (p.parent_id && !p.child_id ? p.parent?.full_name : null) ||
+          ((p.user_id || p.parent_id) && !p.child_id ? (p.user?.full_name || p.parent?.full_name) : null) ||
           (p.unregistered_athlete_id ? unregisteredMap.get(p.unregistered_athlete_id) : null) ||
           null,
         // Padre/responsable solo si es diferente al atleta (menores)
@@ -569,7 +571,21 @@ export default function PaymentsAutomationPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-bold text-sm truncate">{(payment as any).athlete_name || 'Sin nombre'}</p>
-                            <p className="text-xs text-muted-foreground truncate">{payment.team?.name || (payment as any).plan?.name || payment.concept}</p>
+                            <div className="flex gap-1 flex-wrap mt-0.5">
+                              {payment.team?.name && (
+                                <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-4">
+                                  <Trophy className="h-2.5 w-2.5 mr-1" /> {payment.team.name}
+                                </Badge>
+                              )}
+                              {(payment as any).plan?.name && (
+                                <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-4">
+                                  <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
+                                </Badge>
+                              )}
+                              {!payment.team?.name && !(payment as any).plan?.name && (
+                                <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground">{(payment as any).parent_responsible || '—'}</p>
                           </div>
                           <div className="text-right shrink-0">
@@ -615,7 +631,21 @@ export default function PaymentsAutomationPage() {
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-bold">{(payment as any).athlete_name || 'Sin nombre'}</span>
-                                <span className="text-xs text-muted-foreground">{payment.team?.name || (payment as any).plan?.name || payment.concept}</span>
+                                <div className="flex gap-1 flex-wrap mt-0.5">
+                                  {payment.team?.name && (
+                                    <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5">
+                                      <Trophy className="h-2.5 w-2.5 mr-1" /> {payment.team.name}
+                                    </Badge>
+                                  )}
+                                  {(payment as any).plan?.name && (
+                                    <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5">
+                                      <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
+                                    </Badge>
+                                  )}
+                                  {!payment.team?.name && !(payment as any).plan?.name && (
+                                    <span className="text-xs text-muted-foreground">{payment.concept}</span>
+                                  )}
+                                </div>
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
@@ -835,7 +865,21 @@ export default function PaymentsAutomationPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-medium text-sm truncate">{(payment as any).athlete_name || 'Sin nombre'}</p>
-                          <p className="text-xs text-muted-foreground truncate">{payment.team?.name || (payment as any).plan?.name || payment.concept}</p>
+                          <div className="flex gap-1 flex-wrap mt-0.5">
+                            {payment.team?.name && (
+                              <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-4">
+                                <Trophy className="h-2.5 w-2.5 mr-1" /> {payment.team.name}
+                              </Badge>
+                            )}
+                            {(payment as any).plan?.name && (
+                              <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-4">
+                                <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
+                              </Badge>
+                            )}
+                            {!payment.team?.name && !(payment as any).plan?.name && (
+                              <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
+                            )}
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
@@ -885,9 +929,19 @@ export default function PaymentsAutomationPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            <div className="font-medium text-blue-600">{payment.concept}</div>
-                            {payment.team?.name && <div className="text-xs text-muted-foreground mt-0.5">T: {payment.team.name}</div>}
-                            {(payment as any).plan?.name && <div className="text-xs text-muted-foreground mt-0.5">P: {(payment as any).plan.name}</div>}
+                            <div className="font-medium text-blue-600 mb-1">{payment.concept}</div>
+                            <div className="flex flex-col gap-1">
+                              {payment.team?.name && (
+                                <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 w-fit">
+                                  <Trophy className="h-3 w-3 mr-1" /> {payment.team.name}
+                                </Badge>
+                              )}
+                              {(payment as any).plan?.name && (
+                                <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 w-fit">
+                                  <Zap className="h-3 w-3 mr-1" /> {(payment as any).plan.name}
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
@@ -1234,17 +1288,19 @@ function BackfillPaymentsCard({
 
       const withoutPayment = [];
       for (const e of enrollments || []) {
-        // Verificar si ya tiene pago pendiente o pagado
+        // Verificar si YA existe un pago para este enrollment específico
         let payQuery = (supabase.from('payments') as any)
-
-
           .select('id')
           .eq('school_id', schoolId)
           .in('status', ['pending', 'awaiting_approval', 'paid']);
 
-        if (e.child_id)                  payQuery = payQuery.eq('child_id', e.child_id);
-        else if (e.user_id)              payQuery = payQuery.eq('parent_id', e.user_id);
+        if (e.child_id)                     payQuery = payQuery.eq('child_id', e.child_id);
+        else if (e.user_id)                 payQuery = payQuery.eq('parent_id', e.user_id);
         else if (e.unregistered_athlete_id) payQuery = payQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
+
+        // Filtrar por el tipo específico del enrollment
+        if (e.team_id)          payQuery = payQuery.eq('team_id', e.team_id);
+        if (e.offering_plan_id) payQuery = payQuery.eq('offering_plan_id', e.offering_plan_id);
 
         const { data: existing } = await payQuery.maybeSingle();
         if (!existing) withoutPayment.push(e);
@@ -1307,6 +1363,7 @@ function BackfillPaymentsCard({
           due_date: calc.dueDate,
           description: calc.description,
           fee,
+          type_label: e.team_id ? `Equipo: ${name}` : `Plan: ${name}`,
         };
       }));
 
@@ -1327,7 +1384,7 @@ function BackfillPaymentsCard({
         const record: any = {
           school_id:    schoolId,
           amount:       row.amount,
-          concept:      `Mensualidad — ${row.description}`,
+          concept:      `${row.team_id ? 'Equipo' : 'Plan'} ${row.name} — ${row.description}`,
           due_date:     row.due_date,
           status:       'pending',
           payment_type: 'subscription',
@@ -1335,7 +1392,7 @@ function BackfillPaymentsCard({
 
         // Atleta — solo uno aplica
         if (row.child_id)                  record.child_id = row.child_id;
-        if (row.user_id)                   record.parent_id = row.user_id;
+        if (row.user_id)                   record.user_id = row.user_id;
         if (row.unregistered_athlete_id)   record.unregistered_athlete_id = row.unregistered_athlete_id;
 
         // Referencia al equipo o plan — solo uno aplica
@@ -1361,7 +1418,7 @@ function BackfillPaymentsCard({
   };
 
   return (
-    <Card className="md:col-span-2 border-amber-200">
+    <Card className="border-amber-200">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
@@ -1373,7 +1430,7 @@ function BackfillPaymentsCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {!showPreview ? (
-          <Button variant="outline" onClick={loadPreview} disabled={loading} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={loadPreview} disabled={loading} className="w-full">
             {loading
               ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Calculando...</>
               : <>Verificar atletas sin cobro</>}
@@ -1402,7 +1459,9 @@ function BackfillPaymentsCard({
                   {preview.map((row, i) => (
                     <TableRow key={i}>
                       <TableCell className="font-medium text-sm">{row.name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{row.start_date}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {row.team_id ? '⚽ Equipo' : '📋 Plan'}
+                      </TableCell>
                       <TableCell className="font-bold text-primary text-sm">
                         {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(row.amount)}
                       </TableCell>
