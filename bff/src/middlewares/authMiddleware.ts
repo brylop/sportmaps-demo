@@ -10,6 +10,8 @@ declare global {
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
             | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff';
+            log: import('pino').Logger;
+            id: string;
         }
     }
 }

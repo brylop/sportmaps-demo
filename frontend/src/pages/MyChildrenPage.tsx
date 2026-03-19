@@ -35,7 +35,6 @@ export default function MyChildrenPage() {
             coach:coach_id(full_name)
           ),
           enrollments(
-          enrollments(
             id, status, team_id, offering_plan_id, offering_id,
             teams!enrollments_team_id_fkey(
               name, sport, level,
