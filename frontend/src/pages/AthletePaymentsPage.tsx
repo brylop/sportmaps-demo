@@ -31,7 +31,6 @@ interface Payment {
   concept?: string;
   amount_paid?: number;
   school_id?: string;
-  program_id?: string;
   team_id?: string;
   child_id?: string;
   branch_id?: string;
@@ -322,12 +321,11 @@ export default function AthletePaymentsPage() {
           studentId={user?.id || ''}
           schoolId={selectedPayment.school_id || ''}
           paymentId={selectedPayment.id}
-          programId={selectedPayment.program_id}
           teamId={selectedPayment.team_id}
           childId={selectedPayment.child_id}
           branchId={selectedPayment.branch_id}
           amount={selectedPayment.amount}
-          concept={selectedPayment.program_name || selectedPayment.concept || 'Pago mensualidad'}
+          concept={selectedPayment.team_name || selectedPayment.concept || 'Pago mensualidad'}
           mode="update"
           onSuccess={() => {
             fetchPayments();

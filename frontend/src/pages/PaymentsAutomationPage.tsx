@@ -86,7 +86,6 @@ interface PaymentTransaction {
   payment_type: string | null;
   receipt_url: string | null;
   concept: string;
-  program_id: string | null;
   team_id: string | null;
   parent: { full_name: string | null; email: string | null } | null;
   child: { full_name: string } | null;
@@ -205,7 +204,7 @@ export default function PaymentsAutomationPage() {
         .from('payments')
         .select(`
           id, amount, status, created_at, payment_method, payment_type,
-          receipt_url, concept, child_id, parent_id, user_id, program_id, team_id,
+          receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
@@ -240,7 +239,7 @@ export default function PaymentsAutomationPage() {
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
-        program_id: p.program_id, team_id: p.team_id,
+        team_id: p.team_id,
         unregistered_athlete_id: p.unregistered_athlete_id,
         // Nombre del atleta resuelto por tipo
         athlete_name:

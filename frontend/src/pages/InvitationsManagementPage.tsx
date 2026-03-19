@@ -27,7 +27,7 @@ interface Invitation {
   invited_email: string;
   child_name: string;
   team_name: string;
-  monthly_fee: number;
+  monthly_fee: number | null;
   status: string;
   created_at: string;
   expires_at?: string;
@@ -171,7 +171,17 @@ export default function InvitationsManagementPage() {
       if (!schoolId) return [];
       let query = (supabase.from('invitations') as any)
         .select(`
-          *,
+          id,
+          email,
+          role_to_assign,
+          status,
+          created_at,
+          expires_at,
+          child_name,
+          monthly_fee,
+          parent_phone,
+          team_id,
+          offering_plan_id,
           school_branches(name)
         `)
         .eq('school_id', schoolId);
@@ -184,13 +194,14 @@ export default function InvitationsManagementPage() {
         invited_email: inv.email,
         child_name: inv.child_name || '',
         team_name: teams.find(t => t.id === inv.team_id)?.name || 'N/A',
-        parent_phone: '',
+        parent_phone: inv.parent_phone || '',
+        monthly_fee: inv.monthly_fee != null ? Number(inv.monthly_fee) : null,
         status: inv.status,
         created_at: inv.created_at,
         expires_at: inv.expires_at || null,
         role_to_assign: inv.role_to_assign,
-        team_id: inv.team_id,
-        offering_plan_id: inv.offering_plan_id,
+        team_id: inv.team_id || null,
+        offering_plan_id: inv.offering_plan_id || null,
         branch_name: inv.school_branches?.name || 'Sede Principal',
       })) as Invitation[];
     },
@@ -547,7 +558,9 @@ export default function InvitationsManagementPage() {
                     </TableCell>
 
                     <TableCell className="font-semibold text-primary">
-                      {inv.role_to_assign === 'parent' ? formatCurrency(inv.monthly_fee) : '—'}
+                      {inv.role_to_assign === 'parent'
+                        ? (inv.monthly_fee != null ? formatCurrency(inv.monthly_fee) : '—')
+                        : '—'}
                     </TableCell>
 
                     <TableCell>{getStatusBadge(inv.status)}</TableCell>
