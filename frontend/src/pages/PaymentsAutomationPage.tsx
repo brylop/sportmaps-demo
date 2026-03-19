@@ -82,11 +82,9 @@ interface PaymentTransaction {
   payment_type: string | null;
   receipt_url: string | null;
   concept: string;
-  program_id: string | null;
   team_id: string | null;
   parent: { full_name: string | null; email: string | null } | null;
   child: { full_name: string } | null;
-  program: { name: string } | null;
   team: { name: string } | null;
   child_id?: string | null;
   parent_id?: string | null;
@@ -186,10 +184,9 @@ export default function PaymentsAutomationPage() {
     try {
       let query = supabase
         .from('payments')
-        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, program_id, team_id,
+        .select(`id, amount, status, created_at, payment_method, payment_type, receipt_url, concept, child_id, parent_id, team_id,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
-          program:programs!payments_program_id_fkey(name),
           team:teams!payments_team_id_fkey(name)`)
         .eq('school_id', schoolId)
         .order('created_at', { ascending: false })
@@ -201,8 +198,8 @@ export default function PaymentsAutomationPage() {
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept, child_id: p.child_id, parent_id: p.parent_id,
-        program_id: p.program_id, team_id: p.team_id,
-        parent: p.parent, child: p.child, program: p.program, team: p.team,
+        team_id: p.team_id,
+        parent: p.parent, child: p.child, team: p.team,
       })));
     } catch (error: unknown) {
       toast({ title: 'Error al cargar pagos', description: getUserFriendlyError(error), variant: 'destructive' });
@@ -265,8 +262,8 @@ export default function PaymentsAutomationPage() {
       if (action === 'approve') {
         const payment = payments.find(p => p.id === paymentId);
         if (payment) {
-          if (payment.program_id && (payment.child_id || payment.parent_id)) {
-            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('program_id', payment.program_id).eq('status', 'pending');
+          if (payment.team_id && (payment.child_id || payment.parent_id)) {
+            let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('team_id', payment.team_id).eq('status', 'pending');
             if (payment.child_id) enrollQuery = enrollQuery.eq('child_id', payment.child_id);
             else enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
             const { error: enrollError } = await enrollQuery;
