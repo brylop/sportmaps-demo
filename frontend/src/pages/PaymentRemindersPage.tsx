@@ -98,7 +98,7 @@ export default function PaymentRemindersPage() {
                         data: {
                             userName: reminder.parentName,
                             schoolName: batch?.schoolId || '',
-                            concept: reminder.programName,
+                            concept: reminder.teamName,
                             amount: formatCurrency(reminder.amount),
                             dueDate: formatDate(reminder.dueDate),
                         },
@@ -279,7 +279,7 @@ export default function PaymentRemindersPage() {
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-sm">{first.childName}</TableCell>
-                                            <TableCell className="text-sm">{first.programName}</TableCell>
+                                            <TableCell className="text-sm">{first.teamName}</TableCell>
                                             <TableCell className="text-right font-semibold text-sm">
                                                 {formatCurrency(first.amount)}
                                             </TableCell>
@@ -355,7 +355,7 @@ export default function PaymentRemindersPage() {
                                                 </TableCell>
                                                 <TableCell />
                                                 <TableCell className="text-sm">{r.childName}</TableCell>
-                                                <TableCell className="text-sm">{r.programName}</TableCell>
+                                                <TableCell className="text-sm">{r.teamName}</TableCell>
                                                 <TableCell className="text-right text-sm">{formatCurrency(r.amount)}</TableCell>
                                                 <TableCell className="text-sm">{formatDate(r.dueDate)}</TableCell>
                                                 <TableCell>

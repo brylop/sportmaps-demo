@@ -33,7 +33,7 @@ export default function MyChildrenPage() {
           teams!team_id(name, sport, level, school_staff(full_name)),
           enrollments(
             status,
-            teams!program_id(name, sport, level, school_staff(full_name))
+            teams!enrollments_team_id_fkey(name, sport, level, school_staff(full_name))
           )
         `)
         .eq('parent_id', user?.id)
@@ -45,7 +45,7 @@ export default function MyChildrenPage() {
       }
 
       // Deduplicar por child.id (Supabase puede retornar duplicados
-      // cuando hay JOINs a teams via children.team_id Y enrollments.program_id)
+      // cuando hay JOINs a teams via children.team_id Y enrollments.team_id)
       const seen = new Set<string>();
       return (data || []).filter(child => {
         if (seen.has(child.id)) return false;

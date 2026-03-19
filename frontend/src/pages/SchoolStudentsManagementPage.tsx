@@ -32,7 +32,7 @@ const studentSchema = z.object({
   date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
-  program_id: z.string().min(1, 'Selecciona un programa'),
+  team_id: z.string().min(1, 'Selecciona un equipo'),
   monthly_fee: z.number().min(10000, 'Mínimo $10.000 COP'),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
@@ -56,7 +56,7 @@ export default function SchoolStudentsManagementPage() {
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
 
-  const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
   // Para coaches: obtener coachId para filtrar solo sus estudiantes
   const [coachId, setCoachId] = useState<string | undefined>(undefined);
@@ -146,7 +146,7 @@ export default function SchoolStudentsManagementPage() {
       date_of_birth: '',
       parent_email: '',
       parent_phone: '',
-      program_id: '',
+      team_id: '',
       monthly_fee: Number(defaultMonthlyFee) || 0,
       medical_info: '',
       notes: '',
@@ -155,7 +155,7 @@ export default function SchoolStudentsManagementPage() {
 
   const createStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
-      const selectedProgram = programs.find(p => p.id === data.program_id);
+      const selectedTeam = teams.find(p => p.id === data.team_id);
       if (schoolId) {
         const result = await createStudentWithPendingPayment({
           fullName: data.full_name,
@@ -164,9 +164,9 @@ export default function SchoolStudentsManagementPage() {
           parentPhone: data.parent_phone,
           parentName: data.parent_email.split('@')[0],
           schoolId,
-          branchId: selectedProgram?.branch_id || activeBranchId || undefined,
-          programId: data.program_id,
-          programName: selectedProgram?.name || 'Programa',
+          branchId: selectedTeam?.branch_id || activeBranchId || undefined,
+          teamId: data.team_id,
+          teamName: selectedTeam?.name || 'Equipo',
           monthlyFee: data.monthly_fee,
           medicalInfo: data.medical_info,
           notes: data.notes,
@@ -190,13 +190,13 @@ export default function SchoolStudentsManagementPage() {
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
       if (!editingStudent) return data;
-      const selectedProgram = programs.find(p => p.id === data.program_id);
+      const selectedTeam = teams.find(p => p.id === data.team_id);
       await studentsAPI.updateStudent(editingStudent.id, {
         full_name: data.full_name,
         date_of_birth: data.date_of_birth,
         medical_info: data.medical_info,
-        program_id: data.program_id,
-        branch_id: selectedProgram?.branch_id || activeBranchId || undefined,
+        team_id: data.team_id,
+        branch_id: selectedTeam?.branch_id || activeBranchId || undefined,
       });
       return data;
     },
@@ -223,7 +223,7 @@ export default function SchoolStudentsManagementPage() {
       date_of_birth: '',
       parent_email: '',
       parent_phone: '',
-      program_id: '',
+      team_id: '',
       monthly_fee: Number(defaultMonthlyFee) || 0,
       medical_info: '',
       notes: '',
@@ -238,7 +238,7 @@ export default function SchoolStudentsManagementPage() {
       date_of_birth: student.date_of_birth || '',
       parent_email: student.parent_email || '',
       parent_phone: student.parent_phone || '',
-      program_id: student.program_id || '',
+      team_id: student.team_id || '',
       monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
       medical_info: student.medical_info || '',
       notes: student.notes || '',
@@ -257,14 +257,14 @@ export default function SchoolStudentsManagementPage() {
             p_email: student.parent_email,
             p_role: 'parent',
             p_child_name: student.full_name,
-            p_program_id: student.program_id || null,
+            p_team_id: student.team_id || null,
             p_monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
             p_parent_phone: student.parent_phone || null,
             p_branch_id: student.branch_id || activeBranchId || null
           });
           if (error) throw error;
           const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
-          const selectedProgram = programs.find(p => p.id === student.program_id);
+          const selectedTeam = teams.find(p => p.id === student.team_id);
           const { data: { session: edgeSession } } = await supabase.auth.getSession();
           fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
             method: 'POST',
@@ -274,7 +274,7 @@ export default function SchoolStudentsManagementPage() {
               parentName: student.parent_name || student.parent_email.split('@')[0],
               childName: student.full_name,
               schoolName,
-              programName: selectedProgram?.name || 'Equipo',
+              teamName: selectedTeam?.name || 'Equipo',
               monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0,
               invitationLink: registration_link,
             })
@@ -327,10 +327,10 @@ export default function SchoolStudentsManagementPage() {
     toggleStatusMutation.mutate({ id: student.id, status: student.status === 'inactive' ? 'active' : 'inactive' });
   };
 
-  const handleProgramChange = (programId: string) => {
-    form.setValue('program_id', programId);
-    const selectedProgram = programs.find(p => p.id === programId);
-    if (selectedProgram) form.setValue('monthly_fee', selectedProgram.monthly_fee);
+  const handleTeamChange = (teamId: string) => {
+    form.setValue('team_id', teamId);
+    const selectedTeam = teams.find(p => p.id === teamId);
+    if (selectedTeam) form.setValue('monthly_fee', selectedTeam.monthly_fee);
   };
 
   const enhancedStudents = students.map(student => {
@@ -397,7 +397,7 @@ export default function SchoolStudentsManagementPage() {
           const params = new URLSearchParams({
             email: student.parent_email || '',
             child: student.full_name || '',
-            program: student.program_id || '',
+            team: student.team_id || '',
             phone: student.parent_phone || ''
           });
           navigate(`/invitations?${params.toString()}`);
@@ -509,7 +509,7 @@ export default function SchoolStudentsManagementPage() {
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
-                        {student.team_name || student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
+                        {student.team_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
                       </p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
@@ -559,7 +559,7 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">{student.team_name || student.program_name || 'Sin equipo'}</Badge>
+                          <Badge variant="outline" className="text-xs">{student.team_name || 'Sin equipo'}</Badge>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
@@ -587,7 +587,7 @@ export default function SchoolStudentsManagementPage() {
                                 const params = new URLSearchParams({
                                   email: student.parent_email || '',
                                   child: student.full_name || '',
-                                  program: student.program_id || '',
+                                  team: student.team_id || '',
                                   phone: student.parent_phone || ''
                                 });
                                 navigate(`/invitations?${params.toString()}`);
@@ -647,16 +647,16 @@ export default function SchoolStudentsManagementPage() {
               <h3 className="font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4" />Equipo y Mensualidad</h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="program_id">Equipo *</Label>
-                  <Select value={form.watch('program_id')} onValueChange={handleProgramChange}>
+                  <Label htmlFor="team_id">Equipo *</Label>
+                  <Select value={form.watch('team_id')} onValueChange={handleTeamChange}>
                     <SelectTrigger><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
                     <SelectContent>
-                      {programs.map(program => (
-                        <SelectItem key={program.id} value={program.id}>{program.name} — {formatCurrency(program.monthly_fee)}</SelectItem>
+                      {teams.map(team => (
+                        <SelectItem key={team.id} value={team.id}>{team.name} — {formatCurrency(team.monthly_fee)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {form.formState.errors.program_id && <p className="text-sm text-destructive">{form.formState.errors.program_id.message}</p>}
+                  {form.formState.errors.team_id && <p className="text-sm text-destructive">{form.formState.errors.team_id.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
@@ -735,7 +735,7 @@ export default function SchoolStudentsManagementPage() {
               <div className="grid gap-2">
                 {[
                   { label: 'Escuela', value: schoolName },
-                  { label: 'Equipo', value: (viewingStudent as any).team_name || viewingStudent.program_name || '-' },
+                  { label: 'Equipo', value: (viewingStudent as any).team_name || '-' },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
                   { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
@@ -798,7 +798,7 @@ export default function SchoolStudentsManagementPage() {
         schoolName={schoolName}
         branchId={activeBranchId}
         students={students}
-        programs={programs}
+        teams={teams}
         branches={branches}
       />
     </div>

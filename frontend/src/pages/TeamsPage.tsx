@@ -49,9 +49,9 @@ interface TeamWithRelations {
   level?: string;
   school_id: string;
   branch_id?: string;
-  program_id?: string;
+  team_id?: string;
   coach_id?: string;
-  programs?: any; // Using any for deep flexible access to name, coach_id, etc.
+  // Used to have programs here, now data is flat on teams table
   school_branches?: any;
   coach?: {
     full_name: string;
@@ -89,7 +89,7 @@ export default function TeamsPage() {
       const userEmail = authData.user?.email;
 
       // Fetch the staff record for this coach if they are a coach
-      // This is necessary because programs often link to school_staff.id instead of profiles.id
+      // Mapeo directo sobre datos de la tabla teams
       let staffId = null;
       if (currentUserRole === 'coach' && userEmail && schoolId) {
         const { data: staffData } = await supabase
@@ -217,8 +217,7 @@ export default function TeamsPage() {
     // 1. Search Filter
     const matchesSearch =
       team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (team.sport || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (team.programs?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (team.sport || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     if (!matchesSearch) return false;
 
@@ -603,9 +602,9 @@ export default function TeamsPage() {
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-medium">{team.programs?.name || team.name}</span>
+                        <span className="text-sm font-medium">{team.name}</span>
                         <span className="text-[10px] text-muted-foreground capitalize">
-                          Nivel: {team.programs?.level || team.level || '—'}
+                          Nivel: {team.level || '—'}
                         </span>
                       </div>
                     </TableCell>
@@ -701,7 +700,7 @@ export default function TeamsPage() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10">
-                      {team.programs?.name || 'Independiente'}
+                      {team.name || 'Equipo'}
                     </Badge>
                     <div className="flex gap-1">
                       <Button

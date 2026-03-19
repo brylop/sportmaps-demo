@@ -34,7 +34,7 @@ router.get(
             const { data: records, error: recordsErr } = await supabase
                 .from('attendance_records')
                 .select('child_id, user_id, status')
-                .eq('program_id', teamId)
+                .eq('team_id', teamId)
                 .eq('attendance_date', today);
 
             if (recordsErr) throw recordsErr;
@@ -111,7 +111,7 @@ router.post(
             // 3. Guardar registros de asistencia (upsert — permite edición antes de finalizar)
             const attendanceRecords = records.map(({ childId, userId, status }) => ({
                 school_id: schoolId,
-                program_id: teamId,
+                team_id: teamId,
                 ...(childId ? { child_id: childId } : { user_id: userId }),
                 attendance_date: today,
                 status,
@@ -125,7 +125,7 @@ router.post(
                 const { error: childErr } = await supabase
                     .from('attendance_records')
                     .upsert(childRecords, {
-                        onConflict: 'child_id,program_id,attendance_date',
+                        onConflict: 'child_id,team_id,attendance_date',
                         ignoreDuplicates: false,
                     });
                 if (childErr) throw childErr;
@@ -135,7 +135,7 @@ router.post(
                 const { error: adultErr } = await supabase
                     .from('attendance_records')
                     .upsert(adultRecords, {
-                        onConflict: 'user_id,program_id,attendance_date',
+                        onConflict: 'user_id,team_id,attendance_date',
                         ignoreDuplicates: false,
                     });
                 if (adultErr) throw adultErr;
@@ -224,7 +224,7 @@ router.get(
             const { data, error } = await supabase
                 .from('attendance_records')
                 .select('status')
-                .eq('program_id', teamId);
+                .eq('team_id', teamId);
 
             if (error) throw error;
 

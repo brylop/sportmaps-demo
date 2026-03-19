@@ -20,7 +20,7 @@ interface AttendanceRecord {
   child_id: string;
   attendance_date: string;
   status: string;
-  program_id: string;
+  team_id: string;
   teamName?: string;
   sessionFinalized?: boolean;
 }
@@ -83,7 +83,7 @@ export default function AttendancePage() {
       // Traer registros de attendance_records
       const { data: attendanceData, error: attErr } = await supabase
         .from('attendance_records')
-        .select('child_id, attendance_date, status, program_id')
+        .select('child_id, attendance_date, status, team_id')
         .eq('child_id', selectedChildId)
         .order('attendance_date', { ascending: false });
 
@@ -91,7 +91,7 @@ export default function AttendancePage() {
       if (!attendanceData || attendanceData.length === 0) return [];
 
       // Resolver nombres de equipos
-      const teamIds = [...new Set(attendanceData.map((r: any) => r.program_id))] as string[];
+      const teamIds = [...new Set(attendanceData.map((r: any) => r.team_id))] as string[];
       const { data: teamsData } = await supabase
         .from('teams')
         .select('id, name')
@@ -112,13 +112,13 @@ export default function AttendancePage() {
       );
 
       return attendanceData.map((r: any, i: number) => ({
-        id: `${r.child_id}_${r.attendance_date}_${r.program_id}_${i}`,
+        id: `${r.child_id}_${r.attendance_date}_${r.team_id}_${i}`,
         child_id: r.child_id,
         attendance_date: r.attendance_date,
         status: r.status,
-        program_id: r.program_id,
-        teamName: teamMap[r.program_id] ?? '—',
-        sessionFinalized: sessionMap[`${r.program_id}_${r.attendance_date}`] ?? false,
+        team_id: r.team_id,
+        teamName: teamMap[r.team_id] ?? '—',
+        sessionFinalized: sessionMap[`${r.team_id}_${r.attendance_date}`] ?? false,
       }));
     },
     enabled: !!selectedChildId,

@@ -24,7 +24,7 @@ interface CSVImportModalProps {
   schoolName: string;
   branchId?: string | null;
   students?: any[];
-  programs?: any[];
+  teams?: any[];
   branches?: any[];
 }
 
@@ -53,7 +53,7 @@ export function CSVImportModal({
   schoolName,
   branchId,
   students = [],
-  programs = [],
+  teams = [],
   branches = []
 }: CSVImportModalProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -271,7 +271,7 @@ export function CSVImportModal({
     } else {
       // Si no hay estudiantes, generamos un estudiante de ejemplo guiado
       const sampleBranch = branches && branches.length > 0 ? branches[0].name : 'Sede Principal';
-      const sampleFee = programs && programs.length > 0 ? programs[0].monthly_fee : 150000;
+      const sampleFee = teams && teams.length > 0 ? teams[0].monthly_fee : 150000;
 
       const sampleRow = [
         '"1020304050"', '"Juan"', '"Pérez García"', '"juan.perez@email.com"', '"3001234567"',

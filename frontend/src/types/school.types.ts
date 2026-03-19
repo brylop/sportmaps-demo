@@ -27,7 +27,7 @@ export interface ClassSlot {
   max_capacity: number;
 }
 
-export interface Program {
+export interface Team {
   id: string;
   name: string;
   description: string | null;
@@ -116,17 +116,17 @@ export interface SchoolDetail {
   review_count: number;
   min_price: number | null;
   max_price: number | null;
-  program_count: number;
+  team_count: number;
   min_plan_price: number | null;
   max_plan_price: number | null;
   branches_count: number;
   main_lat: number | null;
   main_lng: number | null;
-  program_sports: string[];
+  team_sports: string[];
   is_open_now: boolean;
   staff: StaffMember[] | null;
   branches: Branch[] | null;
-  programs_detail: Program[] | null;
+  teams_detail: Team[] | null;
   offerings_detail: Offering[] | null;
   facilities_detail: Facility[] | null;
   recent_reviews: Review[] | null;

@@ -38,7 +38,7 @@ class CheckoutAPI {
             const { data, error: rpcError } = await supabase.rpc(
                 'process_enrollment_checkout',
                 {
-                    p_program_id: payload.class_id,
+                    p_team_id: payload.class_id,
                     p_school_id: payload.school_id,
                     p_parent_id: payload.parent_id,
                     p_amount: payload.amount,
@@ -106,7 +106,7 @@ class CheckoutAPI {
                         to: parentProfile.email,
                         data: {
                             userName: parentProfile.full_name || 'Usuario',
-                            programName: program?.name || 'Programa',
+                            teamName: program?.name || 'Programa',
                             schoolName: school?.name || 'Tu Escuela',
                         },
                     });

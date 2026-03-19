@@ -26,7 +26,7 @@ interface Payment {
   due_date: string | null;
   paid_at: string | null;
   created_at: string;
-  program_name?: string;
+  team_name?: string;
   school_name?: string;
 }
 
@@ -305,7 +305,7 @@ export default function AthletePaymentsPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-foreground group-hover:text-emerald-700 transition-colors truncate">
-                        {enrollment.program_name}
+                        {enrollment.team_name}
                       </p>
                       <p className="text-sm text-muted-foreground truncate">
                         {enrollment.school_name} • {enrollment.sport}
@@ -331,10 +331,9 @@ export default function AthletePaymentsPage() {
           onOpenChange={setShowPaymentModal}
           studentId={user?.id || undefined} 
           schoolId={selectedEnrollment.school_id}
-          programId={selectedEnrollment.program_id || undefined}
           teamId={selectedEnrollment.team_id || undefined}
           amount={selectedEnrollment.price_monthly}
-          concept={`Pago mensualidad - ${selectedEnrollment.program_name}`}
+          concept={`Pago mensualidad - ${selectedEnrollment.team_name}`}
           mode="create"
           onSuccess={() => {
             fetchPayments();
@@ -446,7 +445,7 @@ function PaymentCard({
             
             <div className="space-y-1 min-w-0 flex-1">
               <p className="text-sm font-medium leading-none truncate pr-2">
-                {payment.program_name || 'Servicio deportivo'}
+                {payment.team_name || 'Servicio deportivo'}
               </p>
               
               <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -555,7 +554,7 @@ function PaymentAbonarModal({ open, onOpenChange, selectedPayments, formatCurren
         const amountCents = parseFloat(form.amount) * 100;
         
         if (isNaN(amountCents) || amountCents <= 0 || amountCents > payment.amount_cents) {
-          throw new Error(`Monto inválido para el pago: ${payment.program_name || 'Desconocido'}`);
+          throw new Error(`Monto inválido para el pago: ${payment.team_name || 'Desconocido'}`);
         }
         
         return submitAthleteInstallment({
@@ -633,7 +632,7 @@ function PaymentAbonarModal({ open, onOpenChange, selectedPayments, formatCurren
                     <span className="bg-primary/10 text-primary w-5 h-5 rounded-full flex items-center justify-center text-[10px]">
                       {index + 1}
                     </span>
-                    {payment.program_name || `Cuota #${payment.id.slice(0,4)}`}
+                    {payment.team_name || `Cuota #${payment.id.slice(0,4)}`}
                   </h4>
                   <Badge variant="outline" className="text-[10px]">
                     Deuda: {formatCurrency(payment.amount_cents)}

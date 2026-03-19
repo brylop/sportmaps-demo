@@ -18,7 +18,7 @@ export interface WompiCheckoutConfig {
     redirectUrl?: string;
     // SportMaps metadata
     studentName?: string;
-    programName?: string;
+    teamName?: string;
     schoolName?: string;
     schoolId?: string;
 }

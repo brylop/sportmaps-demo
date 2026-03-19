@@ -72,11 +72,11 @@ export function usePrograms(schoolId: string | undefined) {
     }
   };
 
-  const enrollInProgram = async (programId: string, userId: string) => {
+  const enrollInProgram = async (teamId: string, userId: string) => {
     try {
       const { error: enrollError } = await supabase.from('enrollments').insert({
         user_id: userId,
-        program_id: programId,
+        team_id: teamId,
         start_date: new Date().toISOString().split('T')[0],
         status: 'active',
       });

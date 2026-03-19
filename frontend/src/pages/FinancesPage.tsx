@@ -80,8 +80,8 @@ export default function FinancesPage() {
     if (accountsData) {
       setOverdueAccounts(accountsData.map(p => ({
         id: p.id,
-        parent: p.parent?.full_name || 'Desconocido',
-        student: p.student?.full_name || 'Estudiante',
+        parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
+        student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Estudiante',
         concept: p.concept,
         amount: Number(p.amount),
         daysOverdue: Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 3600 * 24)),
@@ -95,7 +95,7 @@ export default function FinancesPage() {
   const recentTransactions = payments?.filter(p => p.status === 'paid').slice(0, 5).map(p => ({
     id: p.id,
     date: p.payment_date || p.due_date,
-    parent: p.parent?.full_name || 'Desconocido',
+    parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
     concept: p.concept,
     amount: Number(p.amount),
     method: 'Transferencia' // Default as method might not be in query yet

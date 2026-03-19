@@ -3,8 +3,8 @@
 const PENDING_ENROLLMENT_KEY = 'sportmaps_pending_enrollment';
 
 export interface PendingEnrollment {
-  programId: string;
-  programName: string;
+  teamId: string;
+  teamName: string;
   schoolId: string;
   schoolName: string;
   amount: number;

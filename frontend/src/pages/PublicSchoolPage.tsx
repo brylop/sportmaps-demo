@@ -198,17 +198,17 @@ export default function PublicSchoolPage() {
 
                     {/* Right Column: Tabs (Programs, Facilities, etc) */}
                     <div className="lg:col-span-2 space-y-6">
-                        <Tabs defaultValue="programs" className="w-full">
+                        <Tabs defaultValue="teams" className="w-full">
                             <TabsList className="w-full justify-start h-auto p-1 bg-white border rounded-xl mb-6 shadow-sm overflow-x-auto">
-                                <TabsTrigger value="programs" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Programas</TabsTrigger>
+                                <TabsTrigger value="teams" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Equipos</TabsTrigger>
                                 <TabsTrigger value="facilities" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Instalaciones</TabsTrigger>
                                 <TabsTrigger value="services" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Servicios</TabsTrigger>
                                 <TabsTrigger value="staff" className="py-3 px-6 rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Entrenadores</TabsTrigger>
                             </TabsList>
 
-                            <TabsContent value="programs" className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-500">
+                            <TabsContent value="teams" className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-500">
                                 <div className="grid md:grid-cols-2 gap-4">
-                                    {school.programs.map((prog: any, idx: number) => (
+                                    {school.teams?.map((prog: any, idx: number) => (
                                         <Card key={idx} className="overflow-hidden hover:shadow-lg transition-all group border-l-4 border-l-primary/0 hover:border-l-primary">
                                             <CardHeader className="bg-muted/30 pb-3">
                                                 <div className="flex justify-between items-start">

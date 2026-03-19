@@ -8,7 +8,7 @@ export interface PaymentReminder {
     parentEmail: string;
     childName: string;
     childId: string;
-    programName: string;
+    teamName: string;
     amount: number;
     dueDate: string;
     status: 'pending' | 'paid' | 'overdue';
@@ -45,7 +45,7 @@ class PaymentRemindersAPI {
                 payment_date,
                 parent_id,
                 child_id,
-                program_id
+                team_id
             `)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'overdue']);
@@ -71,7 +71,7 @@ class PaymentRemindersAPI {
         // Get unique parent/child/program IDs
         const parentIds = [...new Set(payments.map(p => p.parent_id).filter(Boolean))];
         const childIds = [...new Set(payments.map(p => p.child_id).filter(Boolean))];
-        const programIds = [...new Set(payments.map(p => p.program_id).filter(Boolean))];
+        const teamIds = [...new Set(payments.map(p => p.team_id).filter(Boolean))];
 
         // Fetch parent profiles
         const { data: parents } = await supabase
@@ -85,15 +85,15 @@ class PaymentRemindersAPI {
             .select('id, full_name')
             .in('id', childIds);
 
-        // Fetch programs
-        const { data: programs } = await supabase
+        // Fetch teams
+        const { data: teamsData } = await supabase
             .from('teams')
             .select('id, name')
-            .in('id', programIds);
+            .in('id', teamIds);
 
         const parentMap = new Map((parents || []).map(p => [p.id, p]));
         const childMap = new Map((children || []).map(c => [c.id, c]));
-        const programMap = new Map((programs || []).map(p => [p.id, p]));
+        const teamMap = new Map((teamsData || []).map(p => [p.id, p]));
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -101,7 +101,7 @@ class PaymentRemindersAPI {
         const reminders: PaymentReminder[] = payments.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
-            const program = programMap.get(payment.program_id || '');
+            const team = teamMap.get(payment.team_id || '');
             const dueDate = new Date(payment.due_date);
             dueDate.setHours(0, 0, 0, 0);
             const daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
@@ -113,7 +113,7 @@ class PaymentRemindersAPI {
                 parentEmail: (parent as any)?.email || '',
                 childName: child?.full_name || 'Sin asignar',
                 childId: payment.child_id || '',
-                programName: program?.name || 'Programa',
+                teamName: team?.name || 'Equipo',
                 amount: payment.amount,
                 dueDate: payment.due_date,
                 status: daysOverdue > 0 ? 'overdue' : 'pending',

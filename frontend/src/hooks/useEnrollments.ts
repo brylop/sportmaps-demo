@@ -6,11 +6,9 @@ import { useToast } from '@/hooks/use-toast';
 export interface Enrollment {
   id: string;
   user_id: string;
-  program_id: string;
   start_date: string;
   end_date: string | null;
   status: string;
-  team_id: string | null;
   offering_plan_id: string | null;
   offering_id: string | null;           // ← AÑADIR
   secondary_sessions_used: number;      // ← AÑADIR

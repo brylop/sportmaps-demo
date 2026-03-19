@@ -23,7 +23,6 @@ interface PaymentCheckoutModalProps {
   studentId: string;
   schoolId: string;
   paymentId?: string;
-  programId?: string;
   teamId?: string;
   childId?: string;
   branchId?: string;
@@ -34,7 +33,7 @@ interface PaymentCheckoutModalProps {
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, programId, teamId, childId, branchId, amount, concept, mode = 'update', onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -175,8 +174,7 @@ export function PaymentCheckoutModal({
           const { error: insertError } = await supabase.from('payments').insert({ 
             parent_id: user?.id, 
             child_id: payloadChildId, 
-            program_id: (programId && programId !== '') ? programId : null, 
-            team_id: (teamId && teamId !== '') ? teamId : null, 
+            team_id: (teamId && teamId !== '') ? teamId : null,
             school_id: (schoolId && schoolId !== '') ? schoolId : null, 
             branch_id: payloadBranchId, 
             amount, 
@@ -212,7 +210,6 @@ export function PaymentCheckoutModal({
         const { error: insertError } = await supabase.from('payments').insert({ 
           parent_id: user?.id, 
           child_id: payloadChildId, 
-          program_id: (programId && programId !== '') ? programId : null, 
           team_id: (teamId && teamId !== '') ? teamId : null, 
           school_id: (schoolId && schoolId !== '') ? schoolId : null, 
           branch_id: payloadBranchId, 

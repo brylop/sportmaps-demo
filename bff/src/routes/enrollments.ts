@@ -11,7 +11,7 @@ const CreateEnrollmentSchema = z.object({
     user_id: z.string().uuid().optional(),
     child_id: z.string().uuid().optional(),
     team_id: z.string().uuid().optional(),
-    program_id: z.string().uuid().optional(),
+
     offering_plan_id: z.string().uuid().optional(),
     status: z.enum(['active', 'cancelled', 'pending']).default('active'),
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -115,7 +115,7 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
                 user_id: data.user_id || null,
                 child_id: data.child_id || null,
                 team_id: data.team_id || null,
-                program_id: data.program_id || null,
+
                 offering_plan_id: data.offering_plan_id || null,
                 school_id: schoolId,
                 status: data.status,

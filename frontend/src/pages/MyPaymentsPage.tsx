@@ -18,7 +18,6 @@ import { Progress } from '@/components/ui/progress';
 interface Enrollment {
   id: string;
   child_id: string;
-  program_id: string | null;
   team_id: string | null;
   school_id: string;
   children: {
@@ -49,11 +48,14 @@ interface Transaction {
   transaction_date: string;
   authorization_code?: string;
   receipt_url?: string;
+  balance_pending?: number;
+  school_id?: string;
+  concept?: string;
 }
 
 interface Subscription {
   id: string;
-  program_id: string;
+  team_id: string;
   amount: number;
   payment_method: string;
   status: string;
@@ -73,11 +75,11 @@ export default function MyPaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
     childName: string;
-    programId?: string;
     teamId?: string;
-    programName: string;
+    teamName: string;
     amount: number;
     schoolId: string;
+    paymentId?: string;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -177,7 +179,7 @@ export default function MyPaymentsPage() {
           id,
           child_id,
           team_id,
-          program_id,
+          team_id: null,
           school_id,
           status,
           team:teams!enrollments_team_id_fkey (
@@ -210,7 +212,6 @@ export default function MyPaymentsPage() {
               flattened.push({
                 id: enroll.id,
                 child_id: child.id,
-                program_id: enroll.program_id,
                 team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
@@ -224,7 +225,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: child.team_id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -240,7 +240,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: child.team_id || null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -256,7 +255,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -411,7 +409,7 @@ export default function MyPaymentsPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <CreditCard className="h-4 w-4 text-primary" />
-                    <p className="font-semibold">Programa {sub.program_id}</p>
+                    <p className="font-semibold">Equipo {sub.team_id}</p>
                     <Badge variant="default">Activo</Badge>
                   </div>
                   <p className="text-2xl font-bold text-primary">{formatCurrency(sub.amount)}/mes</p>
@@ -633,7 +631,7 @@ export default function MyPaymentsPage() {
                                       id: txn.id,
                                       schoolId: txn.school_id || '',
                                       balancePending: txn.balance_pending!,
-                                      concept: txn.concept
+                                      concept: txn.concept || ''
                                     });
                                     setShowInstallment(true);
                                   }}
@@ -648,7 +646,7 @@ export default function MyPaymentsPage() {
                                   setSelectedPayment({
                                     childId: '', 
                                     childName: '',
-                                    programName: txn.concept,
+                                    teamName: txn.concept || '',
                                     amount: txn.balance_pending || txn.amount,
                                     schoolId: txn.school_id || '',
                                     paymentId: txn.id,
@@ -694,9 +692,8 @@ export default function MyPaymentsPage() {
                     setSelectedPayment({
                       childId: enroll.child_id,
                       childName: enroll.children?.full_name || 'Estudiante',
-                      programId: enroll.program_id || undefined,
                       teamId: enroll.team_id || undefined,
-                      programName: enroll.teams?.name || 'Mensualidad Estudiante',
+                      teamName: enroll.teams?.name || 'Mensualidad Estudiante',
                       amount: enroll.teams?.price_monthly || 0,
                       schoolId: enroll.school_id,
                     });
@@ -745,12 +742,11 @@ export default function MyPaymentsPage() {
           onOpenChange={setShowCheckout}
           studentId={selectedPayment.childId}
           childId={selectedPayment.childId}
-          programId={selectedPayment.programId}
           teamId={selectedPayment.teamId}
           schoolId={selectedPayment.schoolId}
           paymentId={selectedPayment.paymentId}
           amount={selectedPayment.amount}
-          concept={selectedPayment.programName}
+          concept={selectedPayment.teamName}
           mode={selectedPayment.paymentId ? 'update' : 'create'}
           onSuccess={fetchPaymentData}
         />

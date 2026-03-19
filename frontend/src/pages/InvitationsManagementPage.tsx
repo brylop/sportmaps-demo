@@ -26,14 +26,14 @@ interface Invitation {
   id: string;
   invited_email: string;
   child_name: string;
-  program_name: string;
+  team_name: string;
   monthly_fee: number;
   status: string;
   created_at: string;
   expires_at?: string;
   parent_phone?: string;
   role_to_assign?: string;
-  program_id?: string;
+  team_id?: string;
   offering_plan_id?: string;
   branch_name?: string;
 }
@@ -55,14 +55,14 @@ export default function InvitationsManagementPage() {
   const [searchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { schoolId, schoolName, programs, defaultMonthlyFee, currentUserRole, activeBranchId } = useSchoolContext();
+  const { schoolId, schoolName, teams, defaultMonthlyFee, currentUserRole, activeBranchId } = useSchoolContext();
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
     parentEmail: '',
     parentPhone: '',
     childName: '',
-    teamId: '',          // → p_program_id  (equipo/grupo)
+    teamId: '',          // → p_team_id  (equipo/grupo)
     offeringPlanId: '',  // → p_offering_plan_id (plan de sesiones)
     monthlyFee: defaultMonthlyFee,
     role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'school_admin' | 'reporter',
@@ -101,17 +101,17 @@ export default function InvitationsManagementPage() {
 
   // ── Leer URL params al abrir ─────────────────────────────────────────────────
   useEffect(() => {
-    const email   = searchParams.get('email');
-    const child   = searchParams.get('child');
+    const email = searchParams.get('email');
+    const child = searchParams.get('child');
     const program = searchParams.get('program');
-    const phone   = searchParams.get('phone');
+    const phone = searchParams.get('phone');
     if (email || child || program || phone) {
       setFormData(prev => ({
         ...prev,
-        parentEmail: email   || prev.parentEmail,
-        childName:   child   || prev.childName,
-        teamId:      program || prev.teamId,
-        parentPhone: phone   || prev.parentPhone,
+        parentEmail: email || prev.parentEmail,
+        childName: child || prev.childName,
+        teamId: program || prev.teamId,
+        parentPhone: phone || prev.parentPhone,
       }));
       setDialogOpen(true);
     }
@@ -170,24 +170,18 @@ export default function InvitationsManagementPage() {
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
+      
       return (data || []).map((inv: any) => ({
         id: inv.id,
         invited_email: inv.email,
-        parent_phone: inv.parent_phone || '',
-        child_name: inv.child_name || (inv.role_to_assign !== 'parent' ? '—' : ''),
-        program_name:
-          programs.find(p => p.id === inv.program_id)?.name ||
-          offeringPlans.find(op => op.id === inv.offering_plan_id)
-            ? offeringPlans.find(op => op.id === inv.offering_plan_id)
-                ? `Plan: ${offeringPlans.find(op => op.id === inv.offering_plan_id)!.name}`
-                : inv.role_to_assign === 'parent' ? 'Sin asignar' : '—'
-            : inv.role_to_assign === 'parent' ? 'Sin asignar' : '—',
-        monthly_fee: inv.monthly_fee || 0,
+        child_name: inv.child_name || '',
+        team_name: teams.find(t => t.id === inv.team_id)?.name || 'N/A',
+        parent_phone: '',
         status: inv.status,
         created_at: inv.created_at,
         expires_at: inv.expires_at || null,
         role_to_assign: inv.role_to_assign,
-        program_id: inv.program_id,
+        team_id: inv.team_id,
         offering_plan_id: inv.offering_plan_id,
         branch_name: inv.school_branches?.name || 'Sede Principal',
       })) as Invitation[];
@@ -204,7 +198,7 @@ export default function InvitationsManagementPage() {
       return (
         inv.invited_email.toLowerCase().includes(s) ||
         inv.child_name.toLowerCase().includes(s) ||
-        inv.program_name.toLowerCase().includes(s) ||
+        inv.team_name.toLowerCase().includes(s) ||
         (inv.parent_phone && inv.parent_phone.includes(s))
       );
     })
@@ -220,25 +214,25 @@ export default function InvitationsManagementPage() {
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const generateRegistrationLink = (invitation: Partial<Invitation>) => {
-    const role    = invitation.role_to_assign || formData.role;
-    const email   = invitation.invited_email  || formData.parentEmail;
-    const inviteId = invitation.id            || '';
-    const child   = invitation.child_name     || formData.childName;
-    const team    = invitation.program_id     || formData.teamId;
+    const role = invitation.role_to_assign || formData.role;
+    const email = invitation.invited_email || formData.parentEmail;
+    const inviteId = invitation.id || '';
+    const child = invitation.child_name || formData.childName;
+    const team = invitation.team_id || formData.teamId;
 
     const params = new URLSearchParams({ school: schoolId || '', email: email || '', invite: inviteId, role });
     if (role === 'parent') {
       if (child) params.append('child', child);
-      if (team)  params.append('program', team);
+      if (team) params.append('program', team);
     }
     return `${window.location.origin}/register?${params.toString()}`;
   };
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
-    const link      = generateRegistrationLink(invitation);
+    const link = generateRegistrationLink(invitation);
     const childName = invitation.child_name || formData.childName;
-    const message   = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Completa el registro aquí: ${link}`;
-    const phone     = (invitation.parent_phone || formData.parentPhone).replace(/\D/g, '');
+    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Completa el registro aquí: ${link}`;
+    const phone = (invitation.parent_phone || formData.parentPhone).replace(/\D/g, '');
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -272,18 +266,18 @@ export default function InvitationsManagementPage() {
   // ── Mutación crear invitación ────────────────────────────────────────────────
   const sendInvitationMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const selectedTeam = programs.find(p => p.id === data.teamId);
+      const selectedTeam = teams.find(p => p.id === data.teamId);
       const fee = data.monthlyFee || selectedTeam?.monthly_fee || defaultMonthlyFee;
 
       const { data: inviteId, error } = await (supabase.rpc as any)('create_invitation', {
-        p_email:             data.parentEmail,
-        p_role:              data.role,
-        p_child_name:        data.role === 'parent' ? data.childName : null,
-        p_program_id:        ['parent', 'coach', 'athlete'].includes(data.role) ? (data.teamId || null) : null,
-        p_monthly_fee:       data.role === 'parent' ? fee : null,
-        p_parent_phone:      data.parentPhone || null,
-        p_branch_id:         activeBranchId || null,
-        p_offering_plan_id:  data.offeringPlanId || null,  // ← NUEVO
+        p_email: data.parentEmail,
+        p_role: data.role,
+        p_child_name: data.role === 'parent' ? data.childName : null,
+        p_team_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.teamId || null) : null,
+        p_monthly_fee: data.role === 'parent' ? fee : null,
+        p_parent_phone: data.parentPhone || null,
+        p_branch_id: activeBranchId || null,
+        p_offering_plan_id: data.offeringPlanId || null,  // ← NUEVO
       });
       if (error) throw error;
 
@@ -330,13 +324,15 @@ export default function InvitationsManagementPage() {
   };
 
   // ── Cuando el equipo cambia, autocompletar mensualidad desde price_monthly ───
-  const handleTeamChange = (teamId: string) => {
-    const t = programs.find(p => p.id === teamId);
+  const handleTeamChange = (val: string) => {
+    const teamId = val === 'none' ? '' : val;
+    const t = teams.find(p => p.id === teamId);
     setFormData(prev => ({ ...prev, teamId, monthlyFee: t?.monthly_fee || prev.monthlyFee }));
   };
 
   // ── Cuando el plan cambia, autocompletar mensualidad desde price ─────────────
-  const handlePlanChange = (planId: string) => {
+  const handlePlanChange = (val: string) => {
+    const planId = val === 'none' ? '' : val;
     const p = offeringPlans.find(op => op.id === planId);
     setFormData(prev => ({ ...prev, offeringPlanId: planId, monthlyFee: p?.price || prev.monthlyFee }));
   };
@@ -345,25 +341,25 @@ export default function InvitationsManagementPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'accepted': return <Badge className="bg-green-500"><Check className="w-3 h-3 mr-1" />Aceptada</Badge>;
-      case 'pending':  return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
+      case 'pending': return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
       case 'rejected': return <Badge variant="destructive"><XIcon className="w-3 h-3 mr-1" />Rechazada</Badge>;
-      case 'expired':  return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirada</Badge>;
-      case 'cancelled':return <Badge variant="outline" className="text-gray-400 border-gray-300"><XIcon className="w-3 h-3 mr-1" />Cancelada</Badge>;
-      default:         return <Badge variant="outline" className="text-gray-400">{status}</Badge>;
+      case 'expired': return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirada</Badge>;
+      case 'cancelled': return <Badge variant="outline" className="text-gray-400 border-gray-300"><XIcon className="w-3 h-3 mr-1" />Cancelada</Badge>;
+      default: return <Badge variant="outline" className="text-gray-400">{status}</Badge>;
     }
   };
 
   const stats = {
-    total:    invitations.length,
+    total: invitations.length,
     accepted: invitations.filter(i => i.status === 'accepted').length,
-    pending:  invitations.filter(i => i.status === 'pending').length,
+    pending: invitations.filter(i => i.status === 'pending').length,
     rejected: invitations.filter(i => i.status === 'rejected').length,
-    expired:  invitations.filter(i => i.status === 'expired').length,
+    expired: invitations.filter(i => i.status === 'expired').length,
   };
 
   // ── Etiqueta de asignación para la tabla ─────────────────────────────────────
   const getAssignmentLabel = (inv: Invitation) => {
-    const teamName = programs.find(p => p.id === inv.program_id)?.name;
+    const teamName = teams.find(p => p.id === inv.team_id)?.name;
     const planName = offeringPlans.find(op => op.id === inv.offering_plan_id)
       ? `${offeringPlans.find(op => op.id === inv.offering_plan_id)!.name} — ${offeringPlans.find(op => op.id === inv.offering_plan_id)!.offering_name}`
       : null;
@@ -424,11 +420,11 @@ export default function InvitationsManagementPage() {
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-5">
         {[
-          { label: 'Total', value: stats.total,    filter: 'all',      color: 'primary' },
+          { label: 'Total', value: stats.total, filter: 'all', color: 'primary' },
           { label: 'Aceptadas', value: stats.accepted, filter: 'accepted', color: 'green-500' },
-          { label: 'Pendientes', value: stats.pending, filter: 'pending',  color: 'yellow-500' },
-          { label: 'Rechazadas', value: stats.rejected,filter: 'rejected', color: 'red-500' },
-          { label: 'Expiradas', value: stats.expired,  filter: 'expired',  color: 'orange-500' },
+          { label: 'Pendientes', value: stats.pending, filter: 'pending', color: 'yellow-500' },
+          { label: 'Rechazadas', value: stats.rejected, filter: 'rejected', color: 'red-500' },
+          { label: 'Expiradas', value: stats.expired, filter: 'expired', color: 'orange-500' },
         ].map(s => (
           <Card key={s.filter}
             className={`cursor-pointer transition-all hover:ring-2 hover:ring-${s.color}/20 ${statusFilter === s.filter ? `ring-2 ring-${s.color} ring-offset-2` : 'opacity-80 hover:opacity-100'}`}
@@ -474,10 +470,10 @@ export default function InvitationsManagementPage() {
                         </div>
                         <Badge variant="secondary" className="w-fit text-[10px] capitalize font-normal">
                           {inv.role_to_assign === 'parent' ? 'Padre' :
-                           inv.role_to_assign === 'coach'  ? 'Entrenador' :
-                           inv.role_to_assign === 'athlete'? 'Atleta' :
-                           inv.role_to_assign === 'school_admin' ? 'Admin Sede' :
-                           inv.role_to_assign === 'reporter'     ? 'Súper Usuario' : 'Invitado'}
+                            inv.role_to_assign === 'coach' ? 'Entrenador' :
+                              inv.role_to_assign === 'athlete' ? 'Atleta' :
+                                inv.role_to_assign === 'school_admin' ? 'Admin Sede' :
+                                  inv.role_to_assign === 'reporter' ? 'Súper Usuario' : 'Invitado'}
                         </Badge>
                         {inv.parent_phone && (
                           <div className="flex items-center gap-1 mt-0.5">
@@ -587,12 +583,12 @@ export default function InvitationsManagementPage() {
               </Label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'parent',       label: '👨👩👧 Padre/Madre' },
-                  { id: 'coach',        label: '🏋️ Entrenador' },
-                  { id: 'athlete',      label: '⚽ Atleta' },
+                  { id: 'parent', label: '👨‍👩‍👧 Padre/Madre' },
+                  { id: 'coach', label: '🏋️ Entrenador' },
+                  { id: 'athlete', label: '⚽ Atleta' },
                   { id: 'school_admin', label: '🔑 Administrador' },
-                  { id: 'reporter',     label: '📊 Súper Usuario' },
-                  { id: 'guest',        label: '👤 Invitado' },
+                  { id: 'reporter', label: '📊 Súper Usuario' },
+                  { id: 'guest', label: '👤 Invitado' },
                 ].map(role => (
                   <Button key={role.id} type="button"
                     variant={formData.role === role.id ? 'default' : 'outline'}
@@ -639,14 +635,14 @@ export default function InvitationsManagementPage() {
                       <div key={contact.email}
                         className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
                         onClick={() => {
-                          const t = programs.find(p => p.id === contact.teamId);
+                          const t = teams.find(p => p.id === contact.teamId);
                           setFormData(prev => ({
                             ...prev,
                             parentEmail: contact.email,
                             parentPhone: contact.phone || prev.parentPhone,
-                            childName:   contact.childName || prev.childName,
-                            teamId:      contact.teamId    || prev.teamId,
-                            monthlyFee:  t?.monthly_fee    || prev.monthlyFee,
+                            childName: contact.childName || prev.childName,
+                            teamId: contact.teamId || prev.teamId,
+                            monthlyFee: t?.monthly_fee || prev.monthlyFee,
                           }));
                         }}>
                         <div className="flex flex-col">
@@ -701,13 +697,13 @@ export default function InvitationsManagementPage() {
                       {formData.role !== 'parent' && <span className="text-muted-foreground font-normal ml-1">(opcional)</span>}
                     </Label>
                   </div>
-                  <Select value={formData.teamId} onValueChange={handleTeamChange}>
+                  <Select value={formData.teamId || 'none'} onValueChange={handleTeamChange}>
                     <SelectTrigger className="h-10" id="teamId">
                       <SelectValue placeholder="Seleccionar equipo..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Sin equipo —</SelectItem>
-                      {programs.map(p => (
+                      <SelectItem value="none">— Sin equipo —</SelectItem>
+                      {teams.map(p => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.name}
                           {p.monthly_fee ? ` — ${formatCurrency(p.monthly_fee)}` : ''}
@@ -727,12 +723,12 @@ export default function InvitationsManagementPage() {
                         <span className="text-muted-foreground font-normal ml-1">(opcional)</span>
                       </Label>
                     </div>
-                    <Select value={formData.offeringPlanId} onValueChange={handlePlanChange}>
+                    <Select value={formData.offeringPlanId || 'none'} onValueChange={handlePlanChange}>
                       <SelectTrigger className="h-10" id="offeringPlanId">
                         <SelectValue placeholder="Seleccionar plan..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— Sin plan —</SelectItem>
+                        <SelectItem value="none">— Sin plan —</SelectItem>
                         {offeringPlans.map(op => (
                           <SelectItem key={op.id} value={op.id}>
                             {op.name} — {op.offering_name}
@@ -769,7 +765,7 @@ export default function InvitationsManagementPage() {
                       <div className="flex items-center gap-1.5 text-xs">
                         <Users className="w-3 h-3 text-teal-600" />
                         <span className="text-teal-700 font-medium">
-                          Equipo: {programs.find(p => p.id === formData.teamId)?.name}
+                          Equipo: {teams.find(p => p.id === formData.teamId)?.name}
                         </span>
                       </div>
                     )}

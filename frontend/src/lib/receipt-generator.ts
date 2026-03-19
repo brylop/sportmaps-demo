@@ -11,7 +11,7 @@ interface ReceiptData {
   paymentMethod: string;
   paymentType: 'one_time' | 'subscription' | 'monthly';
   schoolName?: string;
-  programName?: string;
+  teamName?: string;
   subscriptionPeriod?: string;
   studentName?: string;
   receiptUrl?: string;
@@ -155,10 +155,11 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   }
 
   // Program name if applicable
-  if (data.programName) {
-    y += 7;
-    doc.text('Programa:', 20, y);
-    doc.text(data.programName, 60, y);
+  if (data.teamName) {
+    doc.setFont('inter', 'bold');
+    doc.text('Concepto:', 20, y);
+    doc.setFont('inter', 'normal');
+    doc.text(data.teamName, 60, y);
   }
 
   // Description
