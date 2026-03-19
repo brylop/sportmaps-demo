@@ -17,6 +17,10 @@ export interface Enrollment {
   updated_at: string;
 }
 
+async function fetchMyPlan() {
+  return bffClient.request<{ enrollments: Enrollment[] }>('GET', '/api/v1/enrollments/my-plan');
+}
+
 export function useEnrollments() {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
