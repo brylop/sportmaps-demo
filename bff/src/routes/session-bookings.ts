@@ -1023,4 +1023,43 @@ router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Respons
   }
 });
 
+// ── GET /athlete/facilities ───────────────────────────────────────────────────
+// Devuelve las instalaciones (status=available, booking_enabled=true)
+// que pertenecen a las escuelas donde el atleta tiene enrollments activos.
+router.get('/athlete/facilities', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+    // 1. Obtener school_ids de los enrollments activos del atleta
+    const { data: enrollments, error: eErr } = await supabase
+      .from('enrollments')
+      .select('school_id')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (eErr) throw eErr;
+    if (!enrollments?.length) return res.json({ facilities: [] });
+
+    const schoolIds = [...new Set(
+      enrollments.map((e: any) => e.school_id).filter(Boolean)
+    )];
+
+    // 2. Cargar instalaciones de esas escuelas
+    const { data: facilities, error: fErr } = await supabase
+      .from('facilities')
+      .select('id, name, type, capacity, description, available_hours, booking_enabled, branch_id, school_id')
+      .in('school_id', schoolIds)
+      .eq('status', 'available')
+      .eq('booking_enabled', true);
+
+    if (fErr) throw fErr;
+    return res.json({ facilities: facilities ?? [] });
+  } catch (err: any) {
+    (req as any).log?.error({ err }, 'Error fetching athlete facilities');
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+

@@ -291,14 +291,19 @@ export function AvailabilityModal({
             </TabsContent>
 
             {/* TAB 2: HORARIOS REGISTRADOS */}
-            <TabsContent value="scheduled" className="space-y-3 mt-4">
+            <TabsContent value="scheduled" className="space-y-4 mt-6">
               {availability.length === 0 ? (
-                <Card className="p-6 text-center border-dashed">
-                  <Clock className="h-10 w-10 mx-auto text-muted-foreground/30 mb-2" />
-                  <p className="text-muted-foreground text-sm">No hay horarios registrados</p>
-                </Card>
+                <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-border/40 rounded-3xl bg-muted/5">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Clock className="h-8 w-8 text-muted-foreground/40" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">Sin horarios configurados</h3>
+                  <p className="text-sm text-muted-foreground max-w-[240px] text-center mt-1">
+                    Comienza agregando disponibilidad en la pestaña de configuración.
+                  </p>
+                </div>
               ) : (
-                <div className="grid gap-2">
+                <div className="space-y-6">
                   {DAYS_OF_WEEK.map((day, dayIndex) => {
                     const daySchedules = availability.filter(
                       (a: CoachAvailability) => a.day_of_week === dayIndex
@@ -306,57 +311,111 @@ export function AvailabilityModal({
 
                     if (daySchedules.length === 0) return null;
                     
-                    // Ordenar por hora de inicio
                     const sortedSchedules = [...daySchedules].sort((a, b) => a.start_time.localeCompare(b.start_time));
 
+                    const groupConsecutiveSlots = (slots: CoachAvailability[]) => {
+                      if (slots.length === 0) return [];
+                      const groups: { start: string; end: string; slots: CoachAvailability[] }[] = [];
+                      let currentGroup: { start: string; end: string; slots: CoachAvailability[] } | null = null;
+
+                      slots.forEach((slot, index) => {
+                        const startHour = parseInt(slot.start_time.split(':')[0]);
+                        if (!currentGroup) {
+                          currentGroup = { start: slot.start_time, end: slot.end_time, slots: [slot] };
+                        } else {
+                          const lastEndHour = parseInt(currentGroup.end.split(':')[0]);
+                          if (startHour === lastEndHour) {
+                            currentGroup.end = slot.end_time;
+                            currentGroup.slots.push(slot);
+                          } else {
+                            groups.push(currentGroup);
+                            currentGroup = { start: slot.start_time, end: slot.end_time, slots: [slot] };
+                          }
+                        }
+                        if (index === slots.length - 1) groups.push(currentGroup);
+                      });
+                      return groups;
+                    };
+
+                    const groupedRanges = groupConsecutiveSlots(sortedSchedules);
+
                     return (
-                      <Card key={dayIndex} className="p-2 border-l-4 border-l-primary bg-card/30 group">
-                        <div className="flex items-center justify-between mb-1.5 px-1">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-primary text-xs uppercase tracking-wider">{day}</h3>
-                            <Badge variant="secondary" className="text-[9px] h-4 px-1 opacity-70">
-                              {daySchedules.length}
-                            </Badge>
+                      <div key={dayIndex} className="relative pl-6 border-l-2 border-primary/20 space-y-3 pb-2 last:pb-0">
+                        {/* Indicador de Día */}
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary border-4 border-background shadow-sm" />
+                        
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <h3 className="font-black text-sm uppercase tracking-widest text-foreground">{day}</h3>
+                            <div className="h-5 px-2 rounded-full bg-primary/10 text-primary text-[10px] font-black flex items-center">
+                              {daySchedules.length}H TOTAL
+                            </div>
                           </div>
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleDeleteDay(dayIndex)}
                             disabled={isDeleting}
-                            className="text-destructive/50 hover:text-destructive hover:bg-destructive/10 p-1 rounded transition-all opacity-0 group-hover:opacity-100"
-                            title={`Eliminar todos los horarios del ${day}`}
+                            className="h-8 w-8 p-0 text-destructive/40 hover:text-destructive hover:bg-destructive/10 rounded-xl"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-                          {sortedSchedules.map((slot: CoachAvailability) => (
-                            <div
-                              key={slot.id}
-                              className="group relative flex flex-col p-1.5 bg-background border border-border/40 rounded-md hover:border-primary/30 transition-all hover:shadow-sm"
-                            >
-                              <div className="flex justify-between items-start mb-1">
-                                <span className="font-bold text-[10px]">
-                                  {slot.start_time}
+                        
+                        <div className="grid gap-3">
+                          {groupedRanges.map((range, rIdx) => (
+                            <Card key={rIdx} className="overflow-hidden border-border/60 bg-card/40 backdrop-blur-sm shadow-sm ring-1 ring-black/5">
+                              <div className="bg-primary/5 px-4 py-2 border-b border-border/40 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="h-3.5 w-3.5 text-primary" />
+                                  <span className="text-xs font-black tracking-tight text-primary">
+                                    {range.start} — {range.end}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">
+                                  Bloque continuado
                                 </span>
-                                <button 
-                                  onClick={() => deleteAvailability(slot.id)}
-                                  disabled={isDeleting}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-destructive/10 rounded text-destructive"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
                               </div>
-                              <div className="flex gap-1 flex-wrap">
-                                {slot.available_for_group_classes && (
-                                  <div className="h-1.5 w-1.5 rounded-full bg-primary" title="Grupal" />
-                                )}
-                                {slot.available_for_personal_classes && (
-                                  <div className="h-1.5 w-1.5 rounded-full bg-accent" title="Personal" />
-                                )}
+                              <div className="p-3">
+                                <div className="flex flex-wrap gap-2">
+                                  {range.slots.map((slot) => (
+                                    <div
+                                      key={slot.id}
+                                      className="group relative flex items-center gap-3 px-3 py-1.5 bg-background border border-border/50 rounded-2xl hover:border-primary/40 hover:shadow-md transition-all duration-300"
+                                    >
+                                      <div className="flex flex-col">
+                                        <span className="font-black text-[11px] leading-tight text-foreground">
+                                          {slot.start_time.split(':')[0]}
+                                        </span>
+                                        <span className="text-[8px] font-bold text-muted-foreground uppercase leading-none mt-0.5">
+                                          {parseInt(slot.start_time.split(':')[0]) < 12 ? 'AM' : 'PM'}
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 rounded-xl">
+                                        {slot.available_for_group_classes && (
+                                          <Users className="h-3 w-3 text-primary" />
+                                        )}
+                                        {slot.available_for_personal_classes && (
+                                          <User className="h-3 w-3 text-accent" />
+                                        )}
+                                      </div>
+
+                                      <button 
+                                        onClick={() => deleteAvailability(slot.id)}
+                                        disabled={isDeleting}
+                                        className="h-5 w-5 flex items-center justify-center bg-destructive/10 text-destructive rounded-full opacity-0 lg:group-hover:opacity-100 transition-all hover:bg-destructive hover:text-white"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
+                            </Card>
                           ))}
                         </div>
-                      </Card>
+                      </div>
                     );
                   })}
                 </div>

@@ -117,6 +117,11 @@ export default function InvitationsManagementPage() {
     }
   }, [searchParams]);
 
+  // Al abrir el dialog, preseleccionar la sede activa
+  useEffect(() => {
+    if (activeBranchId) (formData as any).selectedBranchId = activeBranchId;
+  }, [activeBranchId, dialogOpen]);
+
   // ── Sugerencias de contactos ─────────────────────────────────────────────────
   useEffect(() => {
     if (!schoolId) return;
@@ -165,7 +170,10 @@ export default function InvitationsManagementPage() {
     queryFn: async () => {
       if (!schoolId) return [];
       let query = (supabase.from('invitations') as any)
-        .select('*, school_branches(name)')
+        .select(`
+          *,
+          school_branches(name)
+        `)
         .eq('school_id', schoolId);
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -185,6 +193,21 @@ export default function InvitationsManagementPage() {
         offering_plan_id: inv.offering_plan_id,
         branch_name: inv.school_branches?.name || 'Sede Principal',
       })) as Invitation[];
+    },
+    enabled: !!schoolId,
+  });
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await (supabase.from('school_branches') as any)
+        .select('id, name')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('name');
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!schoolId,
   });
@@ -230,9 +253,20 @@ export default function InvitationsManagementPage() {
 
   const sendWhatsApp = (invitation: Partial<Invitation>) => {
     const link = generateRegistrationLink(invitation);
-    const childName = invitation.child_name || formData.childName;
-    const message = `¡Hola! Te invitamos a inscribir a ${childName} en ${schoolName}. Completa el registro aquí: ${link}`;
+    const role = invitation.role_to_assign || formData.role;
     const phone = (invitation.parent_phone || formData.parentPhone).replace(/\D/g, '');
+
+    const messages: Record<string, string> = {
+      parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Completa el registro aquí: ${link}`,
+      coach: `¡Hola! Te invitamos a unirte como entrenador en ${schoolName}. Completa tu registro aquí: ${link}`,
+      athlete: `¡Hola! Te invitamos a unirte como atleta en ${schoolName}. Completa tu registro aquí: ${link}`,
+      school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}. Completa tu registro aquí: ${link}`,
+      reporter: `¡Hola! Te invitamos a acceder como súper usuario en ${schoolName}. Completa tu registro aquí: ${link}`,
+      guest: `¡Hola! Te invitamos a conocer ${schoolName}. Completa tu registro aquí: ${link}`,
+    };
+
+    const message = messages[role] ?? `¡Hola! Te invitamos a unirte a ${schoolName}. Completa tu registro aquí: ${link}`;
+
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -273,11 +307,11 @@ export default function InvitationsManagementPage() {
         p_email: data.parentEmail,
         p_role: data.role,
         p_child_name: data.role === 'parent' ? data.childName : null,
-        p_team_id: ['parent', 'coach', 'athlete'].includes(data.role) ? (data.teamId || null) : null,
+        p_team_id: ['parent', 'athlete'].includes(data.role) ? (data.teamId || null) : null,
         p_monthly_fee: data.role === 'parent' ? fee : null,
         p_parent_phone: data.parentPhone || null,
-        p_branch_id: activeBranchId || null,
-        p_offering_plan_id: data.offeringPlanId || null,  // ← NUEVO
+        p_branch_id: (formData as any).selectedBranchId || activeBranchId || null,
+        p_offering_plan_id: data.offeringPlanId || null,
       });
       if (error) throw error;
 
@@ -304,7 +338,12 @@ export default function InvitationsManagementPage() {
       setDialogOpen(false);
       const email = formData.parentEmail;
       setFormData({ parentEmail: '', parentPhone: '', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent' });
-      toast({ title: '✅ Invitación creada', description: `Invitación registrada para ${email}.` });
+      (formData as any).selectedBranchId = activeBranchId || '';
+
+      toast({
+        title: '✅ Invitación creada',
+        description: `Invitación registrada para ${email}.`,
+      });
       if (result.registration_link) {
         navigator.clipboard.writeText(result.registration_link);
         toast({ title: '📋 Link copiado automáticamente', description: 'Compártelo por WhatsApp o email.' });

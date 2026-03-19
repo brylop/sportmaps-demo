@@ -30,10 +30,21 @@ export default function MyChildrenPage() {
         .select(`
           *,
           schools(name),
-          teams!team_id(name, sport, level, school_staff(full_name)),
+          teams!team_id(
+            name, sport, level,
+            coach:coach_id(full_name)
+          ),
           enrollments(
-            status,
-            teams!enrollments_team_id_fkey(name, sport, level, school_staff(full_name))
+          enrollments(
+            id, status, team_id, offering_plan_id, offering_id,
+            teams!enrollments_team_id_fkey(
+              name, sport, level,
+              coach:coach_id(full_name)
+            ),
+            offering_plans!offering_plan_id(
+              name, price,
+              offerings!offering_id(name)
+            )
           )
         `)
         .eq('parent_id', user?.id)
@@ -132,33 +143,62 @@ export default function MyChildrenPage() {
               <div className="space-y-2">
                 {(() => {
                   const activeEnrollment = child.enrollments?.find((e: any) => e.status === 'active');
+
+                  // Caso equipo — directo en children o via enrollment
                   const team = activeEnrollment?.teams || child.teams;
 
-                  if (!team) return null;
+                  // Caso plan — solo si no hay equipo
+                  const plan = !team ? activeEnrollment?.offering_plans : null;
+                  const offering = plan?.offerings;
 
-                  return (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <School className="w-4 h-4 text-muted-foreground" />
-                        <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                  if (team) {
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <School className="w-4 h-4 text-muted-foreground" />
+                          <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                        </div>
+                        {team.coach?.full_name && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
+                            <User className="w-3 h-3" />
+                            <span>Entrenador: {team.coach.full_name}</span>
+                          </div>
+                        )}
+                        {team.sport && (
+                          <div className="ml-6 mt-1">
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                              {team.sport}
+                            </Badge>
+                          </div>
+                        )}
                       </div>
+                    );
+                  }
 
-                      {team.school_staff?.full_name && (
+                  if (plan) {
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <School className="w-4 h-4 text-muted-foreground" />
+                          <span>{offering?.name || 'Plan'}</span>
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
-                          <User className="w-3 h-3" />
-                          <span>Entrenador: {team.school_staff.full_name}</span>
+                          <span>{plan.name}</span>
                         </div>
-                      )}
+                        {plan.price && (
+                          <div className="ml-6 mt-1">
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                              {new Intl.NumberFormat('es-CO', {
+                                style: 'currency', currency: 'COP', minimumFractionDigits: 0
+                              }).format(plan.price)}/mes
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
 
-                      {team.sport && (
-                        <div className="ml-6 mt-1">
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                            {team.sport}
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-                  );
+                  return null;
                 })()}
 
                 {child.schools?.name && (

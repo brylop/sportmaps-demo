@@ -8,7 +8,6 @@ import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
-import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletionBanner';
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
@@ -32,7 +31,6 @@ export default function DashboardPage() {
   const [searchParams] = useSearchParams();
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
-  const [showProfileBanner, setShowProfileBanner] = useState(true);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
@@ -165,7 +163,7 @@ export default function DashboardPage() {
         setOnboardingSteps(steps);
 
         if (steps.every(s => s.completed)) {
-          setShowProfileBanner(false);
+          // No banner logic needed here anymore
         }
 
         // 4. Integrar lógica del Coach Wizard
@@ -356,11 +354,6 @@ export default function DashboardPage() {
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
-
-      {/* Profile Completion Banner */}
-      {showProfileBanner && (
-        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
-      )}
 
       {/* Invitations and Onboarding Checklist */}
       {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (

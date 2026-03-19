@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 dotenv.config();
 
 import studentsRouter from './routes/students';
+import createOneRouter from './routes/students-create-one.route';
 import enrollmentsRouter from './routes/enrollments';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
@@ -87,6 +88,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/v1/students', generalLimiter, studentsRouter);
+app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);

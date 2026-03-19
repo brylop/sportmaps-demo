@@ -37,13 +37,12 @@ import {
   useCancelBooking,
   useCancelSecondaryBooking,
   useFacilitySlots,
+  useAthleteFacilities,
   BookableSession,
 } from '@/hooks/useAthleteSessionBookings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FACILITY_ID   = 'b1ef2b27-0157-4173-a2b9-c27ab8668224';
-const FACILITY_NAME = 'GYM MMA BLAIR TEAM';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -192,13 +191,16 @@ export default function MyEnrollmentsPage() {
   // ── Modal State ──
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [scheduleEnrollment, setScheduleEnrollment] = useState<any>(null);
-  const [isReserving, setIsReserving] = useState(false);
+  const [reservingFacility, setReservingFacility] = useState<{ id: string; name: string } | null>(null);
 
   // ── Reservas Confirmadas del Atleta ──
   const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings();
   const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings();
+  const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities();
   const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking();
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
+
+  const athleteFacilities = facilitiesData?.facilities ?? [];
 
   if (activeIsLoading || myBookingsLoading || mySecLoading || !activeEnrollments) {
     return <LoadingSpinner fullScreen text="Cargando tu portal..." />;
@@ -421,26 +423,42 @@ export default function MyEnrollmentsPage() {
               <CardContent className="p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Instalaciones</h4>
-                  <Badge variant="outline" className="text-[9px] h-4 py-0 font-bold border-green-500/30 text-green-500 bg-green-500/5">1</Badge>
+                  <Badge variant="outline" className="text-[9px] h-4 py-0 font-bold border-green-500/30 text-green-500 bg-green-500/5">
+                    {athleteFacilities.length}
+                  </Badge>
                 </div>
 
-                <div className="flex items-center gap-4 bg-card/60 p-4 rounded-2xl border border-border/40">
-                  <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center border border-border/50 shadow-sm">
-                    <Building2 className="h-6 w-6 text-muted-foreground/60" />
+                {facilitiesLoading ? (
+                  <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+                ) : athleteFacilities.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground text-center py-4">
+                    Tu escuela no tiene instalaciones disponibles
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {athleteFacilities.map((facility) => (
+                      <div key={facility.id} className="flex items-center gap-4 bg-card/60 p-4 rounded-2xl border border-border/40">
+                        <div className="w-12 h-12 rounded-xl bg-background flex items-center justify-center border border-border/50 shadow-sm">
+                          <Building2 className="h-6 w-6 text-muted-foreground/60" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[12px] font-black uppercase tracking-tight leading-none mb-1">{facility.name}</p>
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter opacity-70">{facility.type}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setReservingFacility(facility);
+                          }}
+                          className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
+                        >
+                          Reservar
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-[12px] font-black uppercase tracking-tight leading-none mb-1">{FACILITY_NAME}</p>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter opacity-70">Gimnasio</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setIsReserving(true)}
-                    className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
-                  >
-                    Reservar
-                  </Button>
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -456,18 +474,18 @@ export default function MyEnrollmentsPage() {
       {scheduleEnrollment && (
         <ScheduleClassModal
           enrollment={scheduleEnrollment}
-          facilityId={FACILITY_ID}
-          facilityName={FACILITY_NAME}
+          facilityId={athleteFacilities[0]?.id ?? ''}
+          facilityName={athleteFacilities[0]?.name ?? ''}
           onClose={() => setScheduleEnrollment(null)}
         />
       )}
 
-      {isReserving && (
+      {reservingFacility && (
         <FacilityReserveModal
-          facilityId={FACILITY_ID}
-          facilityName={FACILITY_NAME}
+          facilityId={reservingFacility.id}
+          facilityName={reservingFacility.name}
           enrollment={planEnrollments[0] ?? null}
-          onClose={() => setIsReserving(false)}
+          onClose={() => setReservingFacility(null)}
         />
       )}
 
@@ -795,6 +813,17 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [allSessions, selectedDate]);
 
+  // Agrupar sesiones por horario para visualización compacta
+  const groupedSessions = useMemo(() => {
+    const groups: Record<string, BookableSession[]> = {};
+    sessionsForDay.forEach(s => {
+      const key = `${s.start_time}-${s.end_time}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(s);
+    });
+    return Object.values(groups);
+  }, [sessionsForDay]);
+
   if (isLoading) return <SkeletonList />;
 
   const noCredits = !isUnlimited && (creditsLeft ?? 0) <= 0;
@@ -878,11 +907,16 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize">
               {format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es })}
-              {' · '}{sessionsForDay.length} horario{sessionsForDay.length !== 1 ? 's' : ''}
+              {' · '}{groupedSessions.length} bloque{groupedSessions.length !== 1 ? 's' : ''} de horario
             </p>
-            {sessionsForDay.map(s => (
-              <SessionSlot key={s.id} session={s} noCredits={noCredits}
-                isBooking={isPending} onBook={() => setConfirming(s)} />
+            {groupedSessions.map(group => (
+              <CompactSessionSlot 
+                key={`${group[0].start_time}-${group[0].end_time}`} 
+                sessions={group} 
+                noCredits={noCredits}
+                isBooking={isPending} 
+                onBook={(s) => setConfirming(s)} 
+              />
             ))}
           </div>
         ) : (
@@ -1365,14 +1399,25 @@ function FacilityReserveModal({ facilityId, facilityName, enrollment, onClose }:
   );
 }
 
-// ─── Session Slot ─────────────────────────────────────────────────────────────
+// ─── Compact Session Slot ─────────────────────────────────────────────────────
 
-function SessionSlot({ session, noCredits, isBooking, onBook }: {
-  session: BookableSession; noCredits: boolean; isBooking: boolean; onBook: () => void;
+function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
+  sessions: BookableSession[]; noCredits: boolean; isBooking: boolean; onBook: (s: BookableSession) => void;
 }) {
-  const isFull   = session.booking_status === 'full';
-  const isBooked = session.already_booked;
+  const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id);
+  const selectedSession = sessions.find(s => s.id === selectedSessionId) || sessions[0];
+  
+  const isFull   = selectedSession.booking_status === 'full';
+  const isBooked = selectedSession.already_booked;
   const isDisabled = noCredits || isFull || isBooked || isBooking;
+
+  // Si hay alguna sesión del grupo ya reservada, mostrar esa por defecto
+  const alreadyBookedSession = sessions.find(s => s.already_booked);
+  useMemo(() => {
+    if (alreadyBookedSession && selectedSessionId !== alreadyBookedSession.id) {
+      setSelectedSessionId(alreadyBookedSession.id);
+    }
+  }, [alreadyBookedSession]);
 
   return (
     <Card className={`overflow-hidden border-border/40 transition-all ${
@@ -1385,25 +1430,56 @@ function SessionSlot({ session, noCredits, isBooking, onBook }: {
         <div className="flex items-center gap-3 px-4 py-3">
           <div className={`w-1 self-stretch rounded-full ${isBooked ? 'bg-primary' : isFull ? 'bg-muted-foreground/20' : 'bg-primary/30'}`} />
           <div className="text-center shrink-0 w-16">
-            <p className="text-sm font-black leading-none">{fmtTime(session.start_time)}</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(session.end_time)}</p>
+            <p className="text-sm font-black leading-none">{fmtTime(selectedSession.start_time)}</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(selectedSession.end_time)}</p>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {session.coach?.name && <p className="text-xs font-semibold">{session.coach.name}</p>}
-              {isBooked  && <Badge className="text-[9px] h-4 px-1.5 bg-primary">Agendada</Badge>}
-              {isFull    && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Llena</Badge>}
-              {noCredits && <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-300 text-amber-600">Sin créditos</Badge>}
+            <div className="flex flex-col gap-1">
+              {sessions.length > 1 ? (
+                <div className="space-y-1.5">
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">Seleccionar Entrenador:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {sessions.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSelectedSessionId(s.id)}
+                        disabled={isBooked && !s.already_booked}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${
+                          selectedSessionId === s.id
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-muted/50 text-muted-foreground border-border/50 hover:border-primary/30'
+                        } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
+                      >
+                        {s.coach?.name || 'Staff'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {selectedSession.coach?.name && <p className="text-xs font-semibold">{selectedSession.coach.name}</p>}
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                {isBooked  && <Badge className="text-[9px] h-4 px-1.5 bg-primary">Agendada</Badge>}
+                {isFull    && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Llena</Badge>}
+                {noCredits && <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-300 text-amber-600">Sin créditos</Badge>}
+              </div>
             </div>
-            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
-              <span className="flex items-center gap-0.5"><Users className="h-3 w-3" />{session.available_spots}/{session.max_capacity}</span>
+            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-0.5"><Users className="h-3 w-3" />{selectedSession.available_spots}/{selectedSession.max_capacity}</span>
               <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />1h</span>
             </div>
           </div>
           {isBooked ? (
             <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
           ) : (
-            <Button size="sm" onClick={onBook} disabled={isDisabled} className="shrink-0 h-8 text-xs gap-1">
+            <Button 
+              size="sm" 
+              onClick={() => onBook(selectedSession)} 
+              disabled={isDisabled} 
+              className="shrink-0 h-8 text-xs gap-1"
+            >
               <CalendarCheck className="h-3.5 w-3.5" /> Agendar
             </Button>
           )}
