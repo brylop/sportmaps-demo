@@ -7,6 +7,7 @@
  * ⚠️ NEVER reference parent/child/student tables from here.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { Database } from '@/integrations/supabase/types';
 
 // ─── Dashboard Stats ────────────────────────────────────────
 export async function getAthleteDashboardStats() {
@@ -163,15 +164,15 @@ export async function getAthletePayments(params: {
   page?: number;
   limit?: number;
 }) {
-  const { data, error } = await supabase.rpc('get_athlete_payments', {
+  const { data, error } = await (supabase as any).rpc('get_athlete_payments_v2', {
+    p_limit:  params.limit  || 20,
+    p_page:   params.page   || 1,
     p_status: params.status || null,
-    p_page: params.page || 1,
-    p_limit: params.limit || 20
   });
 
   if (error) throw error;
   return data as unknown as {
-    data: any[];
+    data: Array<Database['public']['Tables']['payments']['Row']>;
     total: number;
     summary: {
       count_approved: number;

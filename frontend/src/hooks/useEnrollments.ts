@@ -11,14 +11,11 @@ export interface Enrollment {
   end_date: string | null;
   status: string;
   offering_plan_id: string | null;
-  offering_id: string | null;           // ← AÑADIR
-  secondary_sessions_used: number;      // ← AÑADIR
+  offering_id: string | null;
+  secondary_sessions_used: number;
   created_at: string;
   updated_at: string;
-}
-
-async function fetchMyPlan() {
-  return bffClient.request<{ enrollments: any[] }>('GET', '/api/v1/enrollments/my-plan');
+>>>>>>>>> Temporary merge branch 2
 }
 
 export function useEnrollments() {
@@ -48,28 +45,28 @@ export function useEnrollments() {
       // Objeto program que usan TeamCard y PlanCard
       program: e.team
         ? {
-            id:        e.team.id,
-            name:      e.team.name,
-            sport:     e.team.sport ?? '',
-            school_id: e.school_id,
-            school:    { name: '', city: '' },
-          }
+          id: e.team.id,
+          name: e.team.name,
+          sport: e.team.sport ?? '',
+          school_id: e.school_id,
+          school: { name: '', city: '' },
+        }
         : {
-            id:        e.offering?.id ?? e.offering_plan_id,
-            name:      e.offering?.name ?? e.offering_plan?.name ?? 'Plan',
-            sport:     e.offering?.sport ?? '',
-            school_id: e.school_id,
-            school:    { name: '', city: '' },
-          },
+          id: e.offering?.id ?? e.offering_plan_id,
+          name: e.offering?.name ?? e.offering_plan?.name ?? 'Plan',
+          sport: e.offering?.sport ?? '',
+          school_id: e.school_id,
+          school: { name: '', city: '' },
+        },
       // Objeto plan_details que usa PlanCard
       plan_details: e.offering_plan
         ? {
-            ...e.offering_plan,
-            price: e.offering_plan?.price,
-            currency: e.offering_plan?.currency,
-            secondary_session_label:
-              e.offering_plan?.metadata?.secondary_session_label ?? 'GYM',
-          }
+          ...e.offering_plan,
+          price: e.offering_plan?.price,
+          currency: e.offering_plan?.currency,
+          secondary_session_label:
+            e.offering_plan?.metadata?.secondary_session_label ?? 'GYM',
+        }
         : null,
     }));
 
@@ -80,7 +77,7 @@ export function useEnrollments() {
       const { error: updateError } = await supabase
         .from('enrollments')
         .update({
-          status:   'cancelled',
+          status: 'cancelled',
           end_date: new Date().toISOString().split('T')[0],
         })
         .eq('id', enrollmentId);
@@ -88,7 +85,7 @@ export function useEnrollments() {
       if (updateError) throw updateError;
 
       toast({
-        title:       'Inscripción cancelada',
+        title: 'Inscripción cancelada',
         description: 'La inscripción ha sido cancelada exitosamente',
       });
 
@@ -97,16 +94,16 @@ export function useEnrollments() {
       return { success: true };
     } catch (err: any) {
       toast({
-        title:       'Error',
+        title: 'Error',
         description: 'No se pudo cancelar la inscripción',
-        variant:     'destructive',
+        variant: 'destructive',
       });
       return { success: false, error: err };
     }
   };
 
   return {
-    enrollments:       rawEnrollments,
+    enrollments: rawEnrollments,
     activeEnrollments,
     pastEnrollments,
     loading,

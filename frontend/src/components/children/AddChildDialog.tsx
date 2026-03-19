@@ -556,12 +556,12 @@ export function AddChildDialog({ open, onOpenChange, onSuccess }: AddChildDialog
                               className="flex gap-4"
                             >
                               <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="true" id="r1" />
-                                <Label htmlFor="r1">Sí</Label>
+                                <RadioGroupItem value="true" id="add-child-allergy-yes" />
+                                <Label htmlFor="add-child-allergy-yes">Sí</Label>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="false" id="r2" />
-                                <Label htmlFor="r2">No</Label>
+                                <RadioGroupItem value="false" id="add-child-allergy-no" />
+                                <Label htmlFor="add-child-allergy-no">No</Label>
                               </div>
                             </RadioGroup>
                           </FormControl>
