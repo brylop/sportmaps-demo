@@ -60,7 +60,7 @@ const UserProfile = ({ onNavigate }: UserProfileProps) => {
       date: "Mañana",
       time: "9:00 - 10:30 AM",
       instructor: "María García",
-      location: "Spirit All Stars Gym",
+      location: "NPC Gym",
       image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       status: "confirmed"
     },

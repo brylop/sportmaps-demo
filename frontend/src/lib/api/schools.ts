@@ -31,7 +31,7 @@ class SchoolsAPI {
     async getSchoolBySlug(slug: string): Promise<SchoolProfile | null> {
         try {
             // For the demo school, fetch real data from DB
-            if (slug === 'academia-demo' || slug === 'spirit-all-stars' || slug === 'demo') {
+            if (slug === 'academia-demo' || slug === 'npc' || slug === 'demo') {
                 return await this.getDemoSchoolProfile(slug);
             }
 
@@ -80,7 +80,7 @@ class SchoolsAPI {
 
             return {
                 id: school.id,
-                name: school.name || 'Spirit All Stars',
+                name: school.name || 'NPC',
                 slug: slug,
                 description: school.description || 'Formación integral en cheerleading y gimnasia de alto rendimiento.',
                 banner_url: school.cover_image_url || "https://images.unsplash.com/photo-1510531704581-5b2870972060?auto=format&fit=crop&q=80&w=2000",
@@ -91,13 +91,13 @@ class SchoolsAPI {
                 },
                 address: school.address || "Carrera 45 # 127-10",
                 city: school.city || "Bogotá",
-                email: school.email || "info@spiritallstars.co",
+                email: school.email || "info@npc.co",
                 phone: school.phone || "+57 321 987 6543",
                 services: [
                     { title: "Clínicas de Stunts", description: "Perfeccionamiento de elevaciones y técnica", price: "$60.000/sesión" },
                     { title: "Tumbling Personalizado", description: "Técnica individual de acrobacia", price: "$80.000/hora" },
                     { title: "Condicionamiento Core", description: "Preparación física específica para cheerleading", price: "Incluido" },
-                    { title: "Pro-Shop Spirit", description: "Venta de moños, uniformes y accesorios", price: "Varios" }
+                    { title: "Pro-Shop NPC", description: "Venta de moños, uniformes y accesorios", price: "Varios" }
                 ],
                 programs: (programs || []).map((p: any) => ({
                     name: p.name,
@@ -120,12 +120,12 @@ class SchoolsAPI {
      * Hardcoded fallback for demo purposes
      */
     private getDemoFallback(slug: string): SchoolProfile | null {
-        if (slug === 'academia-demo' || slug === 'academiadepor-tigres' || slug === 'demo' || slug === 'spirit-all-stars') {
+        if (slug === 'academia-demo' || slug === 'academiadepor-tigres' || slug === 'demo' || slug === 'npc') {
             return {
                 id: 'demo-school',
-                name: 'Spirit All Stars',
+                name: 'NPC',
                 slug: slug,
-                description: 'Liderando el cheerleading de alto rendimiento. Formamos atletas integrales con disciplina, pasión y técnica de nivel mundial en acrobatics y stunts.',
+                description: 'Liderando el deporte de alto rendimiento con NPC. Formamos atletas integrales con disciplina y pasión.',
                 banner_url: "https://images.unsplash.com/photo-1510531704581-5b2870972060?auto=format&fit=crop&q=80&w=2000",
                 branding: {
                     primaryColor: "#003366",
@@ -139,7 +139,7 @@ class SchoolsAPI {
                     { title: "Clínicas de Stunts", description: "Perfeccionamiento de elevaciones", price: "$60.000/sesión" },
                     { title: "Tumbling Personalizado", description: "Técnica individual de acrobacia", price: "$80.000/hora" },
                     { title: "Condicionamiento Core", description: "Preparación física específica", price: "Incluido" },
-                    { title: "Pro-Shop Spirit", description: "Venta de moños y uniformes", price: "Varios" }
+                    { title: "Pro-Shop NPC", description: "Venta de moños y uniformes", price: "Varios" }
                 ],
                 programs: [
                     { name: "Butterfly (Junior Prep)", age: "6-12 años", schedule: "Mar-Jue 4:00 PM" },

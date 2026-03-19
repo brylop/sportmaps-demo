@@ -36,7 +36,7 @@ const SchoolSearch = ({ onNavigate }: SchoolSearchProps) => {
   const schools = [
     {
       id: 1,
-      name: "Spirit All Stars",
+      name: "NPC",
       location: "Bogotá - Sede Norte, Fontibón, La Granja",
       image: "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&auto=format&fit=crop",
       rating: 4.9,

@@ -29,7 +29,7 @@ export default function ParentCheckoutPage() {
   const amount = parseInt(searchParams.get('amount') || '150000');
   const concept = searchParams.get('concept') || 'Mensualidad Octubre 2024';
   const studentName = searchParams.get('student') || 'Juan Vargas';
-  const schoolName = searchParams.get('school') || 'Spirit All Stars';
+  const schoolName = searchParams.get('school') || 'NPC';
   const teamName = searchParams.get('team') || '';
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
