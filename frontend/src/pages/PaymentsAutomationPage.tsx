@@ -359,7 +359,6 @@ export default function PaymentsAutomationPage() {
     return p.child?.full_name?.toLowerCase().includes(term) ||
       p.parent?.full_name?.toLowerCase().includes(term) ||
       p.concept?.toLowerCase().includes(term) ||
-      p.program?.name?.toLowerCase().includes(term) ||
       p.team?.name?.toLowerCase().includes(term);
   });
 
@@ -370,7 +369,6 @@ export default function PaymentsAutomationPage() {
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.parent?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.concept?.toLowerCase().includes(historySearch.toLowerCase()) ||
-      p.program?.name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.team?.name?.toLowerCase().includes(historySearch.toLowerCase());
     const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
     return searchMatch && statusMatch;
@@ -484,7 +482,7 @@ export default function PaymentsAutomationPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-bold text-sm truncate">{payment.child?.full_name || 'Sin estudiante'}</p>
-                            <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
+                            <p className="text-xs text-muted-foreground truncate">{payment.team?.name || payment.concept}</p>
                             <p className="text-xs text-muted-foreground">{payment.parent?.full_name || 'Desconocido'}</p>
                           </div>
                           <div className="text-right shrink-0">
@@ -530,7 +528,7 @@ export default function PaymentsAutomationPage() {
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-bold">{payment.child?.full_name || 'Sin estudiante'}</span>
-                                <span className="text-xs text-muted-foreground">{payment.program?.name || payment.team?.name || payment.concept}</span>
+                                <span className="text-xs text-muted-foreground">{payment.team?.name || payment.concept}</span>
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{payment.parent?.full_name || 'Desconocido'}</span></TableCell>
@@ -676,7 +674,7 @@ export default function PaymentsAutomationPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-medium text-sm truncate">{payment.child?.full_name || payment.parent?.full_name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{payment.program?.name || payment.team?.name || payment.concept}</p>
+                          <p className="text-xs text-muted-foreground truncate">{payment.team?.name || payment.concept}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
@@ -720,8 +718,7 @@ export default function PaymentsAutomationPage() {
                           <TableCell className="font-medium">{payment.child?.full_name || payment.parent?.full_name}</TableCell>
                           <TableCell className="text-sm">
                             <div className="font-medium text-blue-600">{payment.concept}</div>
-                            {payment.program?.name && <div className="text-xs text-muted-foreground mt-0.5">P: {payment.program.name}</div>}
-                            {payment.team?.name && <div className="text-xs text-muted-foreground mt-0.5">T: {payment.team.name}</div>}
+                            {payment.team?.name && <div className="text-xs text-muted-foreground mt-0.5">Equipo: {payment.team.name}</div>}
                           </TableCell>
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                           <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
