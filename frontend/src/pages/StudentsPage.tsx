@@ -7,7 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, Mail, FileUp, Loader2, RefreshCw, Share2 } from 'lucide-react';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
-import { CreateStudentModal } from '@/components/students/CreateStudentModal';
+import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
+import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI, Student } from '@/lib/api/students';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -22,7 +24,9 @@ export default function StudentsPage() {
   const { schoolId, schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [showCreateChildModal, setShowCreateChildModal] = useState(false);
+  const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -176,11 +180,11 @@ export default function StudentsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => setShowTypeSelector(true)}
             className="flex-1 md:flex-initial"
           >
             <UserPlus className="h-4 w-4 mr-2" />
-            Nuevo Alumno
+            Nuevo Atleta
           </Button>
           <Button
             size="sm"
@@ -347,10 +351,32 @@ export default function StudentsPage() {
         </CardContent>
       </Card>
 
-      {/* Create Student Modal */}
-      <CreateStudentModal
-        open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+      {/* Modal de selección de tipo */}
+      <StudentTypeSelector
+        open={showTypeSelector}
+        onClose={() => setShowTypeSelector(false)}
+        onSelectChild={() => {
+          setShowTypeSelector(false);
+          setShowCreateChildModal(true);
+        }}
+        onSelectAdult={() => {
+          setShowTypeSelector(false);
+          setShowCreateAdultModal(true);
+        }}
+      />
+
+      {/* Registro de Menor */}
+      <CreateChildModal
+        open={showCreateChildModal}
+        onClose={() => setShowCreateChildModal(false)}
+        onSuccess={loadStudents}
+        schoolId={schoolId || ''}
+      />
+
+      {/* Registro de Adulto */}
+      <CreateAdultAthleteModal
+        open={showCreateAdultModal}
+        onClose={() => setShowCreateAdultModal(false)}
         onSuccess={loadStudents}
         schoolId={schoolId || ''}
       />
