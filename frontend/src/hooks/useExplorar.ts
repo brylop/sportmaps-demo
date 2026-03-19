@@ -8,7 +8,7 @@ export interface School {
   description: string | null;
   city: string | null;
   sports: string[];
-  program_sports: string[];
+  team_sports: string[];
   logo_url: string | null;
   cover_image_url: string | null;
   verified: boolean;
@@ -16,7 +16,7 @@ export interface School {
   review_count: number;
   min_price: number | null;
   max_price: number | null;
-  program_count: number;
+  team_count: number;
   branches_count: number;
   main_lat: number | null;
   main_lng: number | null;
@@ -25,6 +25,10 @@ export interface School {
 }
 
 export interface SchoolDetail extends School {
+  school_type: string | null;
+  created_at: string;
+  min_plan_price: number | null;
+  max_plan_price: number | null;
   phone: string | null;
   email: string | null;
   website: string | null;
@@ -37,7 +41,7 @@ export interface SchoolDetail extends School {
   is_open_now: boolean;
   staff: any[] | null;
   branches: any[] | null;
-  programs_detail: any[] | null;
+  teams_detail: any[] | null;
   offerings_detail: any[] | null;
   facilities_detail: any[] | null;
   recent_reviews: any[] | null;

@@ -16,7 +16,7 @@ export interface SchoolProfile {
     branding?: any;
     city?: string;
     services?: any[];
-    programs?: any[];
+    teams?: any[];
     staff?: any[];
 }
 
@@ -99,7 +99,7 @@ class SchoolsAPI {
                     { title: "Condicionamiento Core", description: "Preparación física específica para cheerleading", price: "Incluido" },
                     { title: "Pro-Shop Spirit", description: "Venta de moños, uniformes y accesorios", price: "Varios" }
                 ],
-                programs: (programs || []).map((p: any) => ({
+                teams: (programs || []).map((p: any) => ({
                     name: p.name,
                     age: p.age_min && p.age_max ? `${p.age_min}-${p.age_max} años` : (p.sport || 'Todos'),
                     schedule: p.schedule || 'Horario por definir'
@@ -141,7 +141,7 @@ class SchoolsAPI {
                     { title: "Condicionamiento Core", description: "Preparación física específica", price: "Incluido" },
                     { title: "Pro-Shop Spirit", description: "Venta de moños y uniformes", price: "Varios" }
                 ],
-                programs: [
+                teams: [
                     { name: "Butterfly (Junior Prep)", age: "6-12 años", schedule: "Mar-Jue 4:00 PM" },
                     { name: "Firesquad (Senior L3)", age: "12-18 años", schedule: "Lun-Mié-Vie 5:30 PM" },
                     { name: "Bombsquad (Coed L5)", age: "16+ años", schedule: "Lun a Sáb 7:00 PM" },

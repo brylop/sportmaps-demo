@@ -9,8 +9,8 @@ import { CheckCircle2, Calendar, MapPin, Clock, Loader2, Sparkles } from 'lucide
 import { useToast } from '@/hooks/use-toast';
 
 interface TrialConfirmationProps {
-  programId: string;
-  programName: string;
+  teamId: string;
+  teamName: string;
   schoolName: string;
   schoolAddress?: string;
   slotId: string;
@@ -22,8 +22,8 @@ interface TrialConfirmationProps {
 }
 
 export function TrialConfirmation({
-  programId,
-  programName,
+  teamId,
+  teamName,
   schoolName,
   schoolAddress,
   slotId,
@@ -57,7 +57,7 @@ export function TrialConfirmation({
         .from('bookings')
         .insert({
           athlete_id: user.id,
-          program_id: programId,
+          team_id: teamId,
           availability_slot_id: slotId,
           booking_type: 'trial',
           status: 'trial_confirmed',
@@ -129,7 +129,7 @@ export function TrialConfirmation({
         {/* Summary */}
         <div className="rounded-xl bg-muted/50 p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-lg">{programName}</h4>
+            <h4 className="font-semibold text-lg">{teamName}</h4>
             <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200">
               Gratis
             </Badge>

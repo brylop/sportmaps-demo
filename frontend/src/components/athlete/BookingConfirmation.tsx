@@ -12,8 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 type BookingStep = 'select_slot' | 'confirm_trial' | 'confirm_program' | 'success';
 
 interface BookingConfirmationProps {
-  programId: string;
-  programName: string;
+  teamId: string;
+  teamName: string;
   programPrice: number;
   sport: string;
   schoolId: string;
@@ -32,8 +32,8 @@ interface SelectedSlotData {
 }
 
 export function BookingConfirmation({
-  programId,
-  programName,
+  teamId,
+  teamName,
   programPrice,
   sport,
   schoolId,
@@ -75,7 +75,7 @@ export function BookingConfirmation({
         .from('bookings')
         .insert({
           athlete_id: user.id,
-          program_id: programId,
+          team_id: teamId,
           availability_slot_id: selectedSlot.id,
           booking_type: 'program',
           status: 'pending', // Will be 'confirmed' after payment
@@ -134,7 +134,7 @@ export function BookingConfirmation({
           Volver al programa
         </Button>
         <SlotPicker
-          programId={programId}
+          teamId={teamId}
           schoolId={schoolId}
           bookingType={bookingType}
           onSlotSelected={handleSlotSelected}
@@ -147,8 +147,8 @@ export function BookingConfirmation({
   if (step === 'confirm_trial' && selectedSlot) {
     return (
       <TrialConfirmation
-        programId={programId}
-        programName={programName}
+        teamId={teamId}
+        teamName={teamName}
         schoolName={schoolName}
         schoolAddress={schoolAddress}
         slotId={selectedSlot.id}
@@ -185,7 +185,7 @@ export function BookingConfirmation({
           {/* Program summary */}
           <div className="rounded-xl bg-muted/50 p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-lg">{programName}</h4>
+              <h4 className="font-semibold text-lg">{teamName}</h4>
               <Badge variant="secondary">{sport}</Badge>
             </div>
             <div className="space-y-2 text-sm text-muted-foreground">

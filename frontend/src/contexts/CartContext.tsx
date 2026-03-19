@@ -14,7 +14,7 @@ export interface CartItem {
   metadata: {
     schoolId?: string;
     schoolName?: string;
-    programId?: string;
+    teamId?: string;
     productId?: string;
     vendorId?: string;
     vendorName?: string;

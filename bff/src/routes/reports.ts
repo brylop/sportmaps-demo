@@ -38,13 +38,16 @@ router.get(
 
             const teams = allTeams || [];
             let realTotalCapacity = 0;
-            const programCapacityMap = new Map<string, number>();
+            const teamCapacityMap = new Map<string, number>();
             const teamIdToName = new Map<string, string>();
 
-            teams.forEach((t: any) => {
-                const cap = t.max_students || 0;
-                realTotalCapacity += cap;
-                programCapacityMap.set(t.name, (programCapacityMap.get(t.name) || 0) + cap);
+            allTeams?.forEach(t => {
+                const cap = t.max_students || 0; // Changed from max_capacity to max_students to match select
+                if (cap > 0) {
+                    // Agrupar por nombre (ej. "Pre-infantil") ignorando la sede
+                    teamCapacityMap.set(t.name, (teamCapacityMap.get(t.name) || 0) + cap);
+                    realTotalCapacity += cap; // Added this line to correctly calculate total capacity
+                }
                 teamIdToName.set(t.id, t.name);
             });
 
@@ -53,7 +56,9 @@ router.get(
             //    Solución: filtrar por los team_ids ya obtenidos en el paso anterior.
             const teamIds = teams.map((t: any) => t.id);
 
-            const programOccupiedMap = new Map<string, number>();
+            const allEnrollmentsSet = new Set<string>(); // para estudiantes únicos 
+
+            const teamOccupiedMap = new Map<string, number>();
             let totalStudents = 0;
             const growthMap = new Map<string, { nuevos: number; retiros: number; sortKey: number }>();
             const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -83,7 +88,9 @@ router.get(
                     const mKey = MONTHS[d.getMonth()];
 
                     if (e.status === 'active') {
-                        programOccupiedMap.set(teamName, (programOccupiedMap.get(teamName) || 0) + 1);
+                        if (teamName) {
+                            teamOccupiedMap.set(teamName, (teamOccupiedMap.get(teamName) || 0) + 1);
+                        }
                         totalStudents++;
                         if (d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear) {
                             netGrowthThisMonth++;
@@ -95,10 +102,12 @@ router.get(
                 });
             }
 
-            const occupancyData = Array.from(programCapacityMap.entries()).map(([name, capacity]) => ({
+            // 4) Combinar Mapas: Capacidad vs Ocupación
+            const occupancyData = Array.from(teamCapacityMap.entries()).map(([name, capacity]) => ({
                 name,
-                occupied: programOccupiedMap.get(name) || 0,
-                vacant: Math.max(0, capacity - (programOccupiedMap.get(name) || 0)),
+                occupied: teamOccupiedMap.get(name) || 0,
+                vacant: Math.max(0, capacity - (teamOccupiedMap.get(name) || 0)),
+                total_capacity: capacity
             })).slice(0, 10);
 
             const growthDataList = Array.from(growthMap.entries())
@@ -207,7 +216,7 @@ router.get(
             const students = (studentsRaw || []).map((s: any) => ({
                 id: s.id,
                 full_name: s.full_name || 'Sin nombre',
-                program: teamNameMap.get(s.team_id) || '—',
+                team: teamNameMap.get(s.team_id) || '—',
                 sede: branchNameMap.get(s.branch_id) || 'Principal',
                 status: s.status || 'active',
                 fee: 0, // simplified
@@ -245,7 +254,7 @@ router.get(
                 amount: p.amount || 0,
                 status: p.status || 'pending',
                 month: p.payment_month || '—',
-                program: '—',
+                team: '—',
             }));
 
             // 3. Coaches — sin join ambiguo
@@ -274,7 +283,7 @@ router.get(
                 id: m.id,
                 name: profileMap.get(m.profile_id)?.full_name || 'Sin nombre',
                 email: profileMap.get(m.profile_id)?.email || '—',
-                program: '—',
+                team: '—',
                 sede: branchNameMap.get(m.branch_id) || 'Principal',
                 students: 0,
             }));
@@ -302,19 +311,19 @@ router.get(
                 })
             );
 
-            // 5. Programs
-            let programsQuery = supabase
+            // 5. Teams
+            let teamsQuery = supabase
                 .from('teams')
                 .select('id, name, monthly_fee, description')
                 .eq('school_id', schoolId);
 
-            if (branchFilterId) programsQuery = programsQuery.eq('branch_id', branchFilterId);
+            if (branchFilterId) teamsQuery = teamsQuery.eq('branch_id', branchFilterId);
 
-            const { data: programsData, error: programsErr } = await programsQuery;
-            if (programsErr) throw programsErr;
+            const { data: teamsData, error: teamsErr } = await teamsQuery;
+            if (teamsErr) throw teamsErr;
 
-            const programs = await Promise.all(
-                (programsData || []).map(async (p: any) => {
+            const teams = await Promise.all(
+                (teamsData || []).map(async (p: any) => {
                     const { count } = await supabase
                         .from('children')
                         .select('id', { count: 'exact', head: true })
@@ -329,7 +338,7 @@ router.get(
                 })
             );
 
-            return res.json({ students, payments, coaches, sedes, programs });
+            return res.json({ students, payments, coaches, sedes, teams });
 
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error en reporte de dashboard');
@@ -381,7 +390,7 @@ router.get(
             const { data: attendance, error: attendanceErr } = await supabase
                 .from('attendance_records')
                 .select('status, child_id')
-                .eq('program_id', teamId);
+                .eq('team_id', teamId);
 
             if (attendanceErr) throw attendanceErr;
 

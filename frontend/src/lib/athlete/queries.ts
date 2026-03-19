@@ -50,7 +50,7 @@ export async function getAthleteBookings(userId: string, filters?: { status?: st
     .from('bookings')
     .select(`
       *,
-      programs:program_id (
+      teams:team_id (
         name, sport, price_monthly,
         schools:school_id (name, address, logo_url, city)
       )
@@ -74,9 +74,8 @@ export interface AthleteEnrollment {
   end_date: string | null;
   expires_at: string | null;
   sessions_used: number;
-  program_id: string | null;
   team_id: string | null;
-  program_name: string;
+  team_name: string;
   sport: string;
   level: string;
   image_url: string | null;
@@ -212,7 +211,7 @@ export async function getAthleteCalendarEvents(userId: string, startDate: string
     .from('bookings')
     .select(`
       id, scheduled_at, booking_type, status, notes,
-      programs:program_id (name, sport,
+      teams:team_id (name, sport,
         schools:school_id (name, address))
     `)
     .eq('athlete_id', userId)
@@ -224,13 +223,13 @@ export async function getAthleteCalendarEvents(userId: string, startDate: string
 
   return (bookings || []).map(b => ({
     id: b.id,
-    title: b.programs?.name || 'Sesión',
+    title: b.teams?.name || 'Sesión',
     start: b.scheduled_at,
     type: b.booking_type as 'trial' | 'session' | 'program',
     status: b.status,
-    school: b.programs?.schools?.name,
-    address: b.programs?.schools?.address,
-    sport: b.programs?.sport,
+    school: b.teams?.schools?.name,
+    address: b.teams?.schools?.address,
+    sport: b.teams?.sport,
   }));
 }
 

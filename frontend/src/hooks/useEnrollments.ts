@@ -4,8 +4,21 @@ import { useSchoolContext } from './useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+export interface Enrollment {
+  id: string;
+  user_id: string;
+  start_date: string;
+  end_date: string | null;
+  status: string;
+  offering_plan_id: string | null;
+  offering_id: string | null;
+  secondary_sessions_used: number;
+  created_at: string;
+  updated_at: string;
+}
+
 async function fetchMyPlan() {
-  return bffClient.request<{ enrollments: any[] }>('GET', '/api/v1/enrollments/my-plan');
+  return bffClient.request<{ enrollments: Enrollment[] }>('GET', '/api/v1/enrollments/my-plan');
 }
 
 export function useEnrollments() {

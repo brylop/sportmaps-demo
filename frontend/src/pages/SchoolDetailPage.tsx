@@ -332,7 +332,7 @@ export default function SchoolDetailPage() {
       <EnrollmentAuthModal
         open={authModalOpen}
         onOpenChange={setAuthModalOpen}
-        program={selectedProgram ? {
+        team={selectedProgram ? {
           id: selectedProgram.id,
           name: selectedProgram.name,
           price: selectedProgram.price_monthly
@@ -348,7 +348,7 @@ export default function SchoolDetailPage() {
         open={childSelectionOpen}
         onOpenChange={setChildSelectionOpen}
         onChildSelected={handleChildSelected}
-        programName={selectedProgram?.name}
+        teamName={selectedProgram?.name || 'Clase de Prueba'}
         schoolId={id}
       />
 
@@ -364,7 +364,7 @@ export default function SchoolDetailPage() {
             description: school?.name,
             amount: selectedProgram.price_monthly,
             schoolId: school?.id,
-            programId: selectedProgram.id,
+            teamId: selectedProgram.id,
             childId: selectedChildId || undefined, // Pass selected child
           }}
           onSuccess={handlePaymentSuccess}

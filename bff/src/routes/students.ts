@@ -240,7 +240,6 @@ router.post(
                     medical_info: s.medical_info,
                     school_id: schoolId,
                     branch_id: resolveBranchId(s),
-                    program_id: resolveTeamId(s),
                     team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                     date_of_birth: s.date_of_birth || null,
                     gender: s.gender || null,
@@ -286,7 +285,6 @@ router.post(
                         grade: s.grade,
                         medical_info: s.medical_info,
                         branch_id: resolveBranchId(s),
-                        program_id: resolveTeamId(s),
                         team_id: resolveTeamId(s),  // Sincronizar para que la vista filtre correctamente
                         date_of_birth: s.date_of_birth || null,
                         gender: s.gender || null,
@@ -319,7 +317,7 @@ router.post(
                 );
 
                 // Create enrollments & payments
-                const enrollmentRecords: Array<{ child_id: string; program_id: string; team_id: string; school_id: string; status: string; start_date: string }> = [];
+                const enrollmentRecords: Array<{ child_id: string; team_id: string; school_id: string; status: string; start_date: string }> = [];
                 const paymentRecords: Array<any> = [];
 
                 const dueDate = new Date();
@@ -333,7 +331,6 @@ router.post(
                     if (teamId) {
                         enrollmentRecords.push({
                             child_id: childId,
-                            program_id: teamId,
                             team_id: teamId,
                             school_id: schoolId,
                             status: 'active',
@@ -374,20 +371,20 @@ router.post(
                 if (enrollmentRecords.length > 0) {
                     // Check which enrollments already exist to avoid duplicates
                     const childIdsForEnroll = enrollmentRecords.map(e => e.child_id);
-                    const programIdsForEnroll = [...new Set(enrollmentRecords.map(e => e.program_id))];
+                    const teamIdsForEnroll = [...new Set(enrollmentRecords.map(e => e.team_id))];
 
                     const { data: existingEnrollments } = await supabase
                         .from('enrollments')
-                        .select('child_id, program_id')
+                        .select('child_id, team_id')
                         .in('child_id', childIdsForEnroll)
-                        .in('program_id', programIdsForEnroll);
+                        .in('team_id', teamIdsForEnroll);
 
                     const existingEnrollSet = new Set(
-                        (existingEnrollments ?? []).map(e => `${e.child_id}:${e.program_id}`)
+                        (existingEnrollments ?? []).map(e => `${e.child_id}:${e.team_id}`)
                     );
 
                     const newEnrollments = enrollmentRecords.filter(
-                        e => !existingEnrollSet.has(`${e.child_id}:${e.program_id}`)
+                        e => !existingEnrollSet.has(`${e.child_id}:${e.team_id}`)
                     );
 
                     if (newEnrollments.length > 0) {
@@ -409,7 +406,7 @@ router.post(
             let invitationsCreated = 0;
 
             // Recolectar correos únicos de padres con la info del primer hijo que encontremos para la plantilla
-            const parentEmailMap = new Map<string, { childName: string; programId: string | null; fee: number; parentName: string }>();
+            const parentEmailMap = new Map<string, { childName: string; teamId: string | null; fee: number; parentName: string }>();
 
             for (const s of students) {
                 if (s.parent_email && s.parent_email.trim() !== '') {
@@ -417,7 +414,7 @@ router.post(
                     if (!parentEmailMap.has(emailKey)) {
                         parentEmailMap.set(emailKey, {
                             childName: `${s.first_name} ${s.last_name}`.trim(),
-                            programId: existingTeamMap.get(s.team?.trim()?.toLowerCase() || '') || null,
+                            teamId: existingTeamMap.get(s.team?.trim()?.toLowerCase() || '') || null,
                             fee: s.monthly_fee || 150000,
                             parentName: s.parent_name || emailKey.split('@')[0]
                         });
@@ -454,7 +451,7 @@ router.post(
                             invited_by: senderId,
                             status: 'pending',
                             child_name: info.childName,
-                            program_id: info.programId,
+                            team_id: info.teamId,
                             monthly_fee: info.fee
                         });
                         emailsToSend.push({ ...info, email });

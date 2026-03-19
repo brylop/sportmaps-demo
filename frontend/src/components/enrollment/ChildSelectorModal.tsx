@@ -24,8 +24,8 @@ interface ChildSelectorModalProps {
     onChildSelected: (childId: string, childName: string) => void;
 
     // Optional props - used in PendingEnrollment flow
-    programId?: string;
-    programName?: string;
+    teamId?: string;
+    teamName?: string;
     schoolId?: string;
     schoolName?: string;
 }
@@ -63,8 +63,8 @@ export function ChildSelectorModal({
     open,
     onOpenChange,
     onChildSelected,
-    programId,
-    programName,
+    teamId,
+    teamName,
     schoolId,
     schoolName,
 }: ChildSelectorModalProps) {
@@ -164,11 +164,11 @@ export function ChildSelectorModal({
 
     // Build dialog description based on context
     const description = (() => {
-        if (schoolName && programName) {
-            return `Selecciona al niño/a que participará en "${programName}" en ${schoolName}.`;
+        if (schoolName && teamName) {
+            return `Selecciona al niño/a que participará en "${teamName}" en ${schoolName}.`;
         }
-        if (programName) {
-            return `Selecciona al niño/a que participará en "${programName}".`;
+        if (teamName) {
+            return `Selecciona al niño/a que participará en "${teamName}".`;
         }
         return 'Selecciona al hijo que quieres inscribir.';
     })();

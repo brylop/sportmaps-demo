@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useSchoolDetail } from "@/hooks/useExplorar";
 import { useFavoritos } from "@/hooks/useFavoritos";
 import { SchoolMap } from "@/components/SchoolMap";
-import type { SchoolDetail, Program, Offering, Review } from "@/types/school.types";
+import type { SchoolDetail, Team, Offering, Review } from "@/types/school.types";
 
 // ─── utils ───────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ function cop(n: number | null) {
 }
 function timeShort(t: string) { return t?.slice(0, 5) ?? ""; }
 function accentFor(s: SchoolDetail) {
-  const sport = s.sports?.[0] ?? s.program_sports?.[0];
+  const sport = s.sports?.[0] ?? s.team_sports?.[0];
   return (sport && SPORT_COLORS[sport]) || s.branding_settings?.primary_color || "#6366f1";
 }
 
@@ -130,7 +130,7 @@ function TabNav({ active, onChange, accent }: { active: string; onChange: (t: st
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ProgramCard({ program, accent }: { program: Program; accent: string }) {
+function ProgramCard({ program, accent }: { program: Team; accent: string }) {
   const [open, setOpen] = useState(false);
   const byDay = (program.classes ?? []).reduce((acc, c) => {
     if (!acc[c.day_of_week]) acc[c.day_of_week] = [];
@@ -323,7 +323,7 @@ export default function SchoolProfilePage() {
         {!loading && school?.description && <p className="fade-up" style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.7, margin: "0 0 16px" }}>{school.description}</p>}
         {!loading && school && (
           <div className="fade-up" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
-            {(school.sports ?? school.program_sports ?? []).map(s => (
+            {(school.sports ?? school.team_sports ?? []).map(s => (
               <span key={s} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: `${SPORT_COLORS[s] ?? accent}18`, color: SPORT_COLORS[s] ?? accent, border: `1px solid ${SPORT_COLORS[s] ?? accent}44`, fontWeight: 600 }}>{s}</span>
             ))}
           </div>
@@ -358,8 +358,8 @@ export default function SchoolProfilePage() {
 
             {tab === "programas" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {!(school.programs_detail?.length) ? <p style={{ color: "#475569", fontSize: 14 }}>Aún sin programas publicados.</p>
-                  : school.programs_detail!.map(p => <ProgramCard key={p.id} program={p} accent={accent} />)}
+                {!(school.teams_detail?.length) ? <p style={{ color: "#475569", fontSize: 14 }}>Aún sin programas publicados.</p>
+                  : school.teams_detail!.map(p => <ProgramCard key={p.id} program={p} accent={accent} />)}
               </div>
             )}
 

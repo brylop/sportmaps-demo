@@ -26,7 +26,7 @@ interface Payment {
   due_date: string | null;
   payment_date: string | null;
   created_at: string;
-  program_name?: string;
+  team_name?: string;
   school_name?: string;
   concept?: string;
   amount_paid?: number;
@@ -276,7 +276,7 @@ export default function AthletePaymentsPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-foreground group-hover:text-emerald-700 transition-colors truncate">
-                        {enrollment.program_name}
+                        {enrollment.team_name}
                       </p>
                       <p className="text-sm text-muted-foreground truncate">
                         {enrollment.school_name} • {enrollment.sport}
@@ -302,10 +302,9 @@ export default function AthletePaymentsPage() {
           onOpenChange={setShowPaymentModal}
           studentId={user?.id || undefined} 
           schoolId={selectedEnrollment.school_id}
-          programId={selectedEnrollment.program_id || undefined}
           teamId={selectedEnrollment.team_id || undefined}
           amount={selectedEnrollment.price_monthly}
-          concept={`Pago mensualidad - ${selectedEnrollment.program_name}`}
+          concept={`Pago mensualidad - ${selectedEnrollment.team_name}`}
           mode="create"
           onSuccess={() => {
             fetchPayments();
@@ -407,7 +406,7 @@ function PaymentCard({
             
             <div className="space-y-1 min-w-0 flex-1">
               <p className="text-sm font-medium leading-none truncate pr-2">
-                {payment.program_name || 'Servicio deportivo'}
+                {payment.team_name || 'Servicio deportivo'}
               </p>
               
               <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -457,4 +456,5 @@ function PaymentCard({
     </Card>
   );
 }
+
 

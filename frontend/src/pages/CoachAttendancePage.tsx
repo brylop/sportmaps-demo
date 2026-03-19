@@ -199,7 +199,7 @@ export default function CoachAttendancePage() {
       if (selectedClassId) {
         const { data: cls } = await supabase
           .from('classes')
-          .select('program_id')
+          .select('team_id')
           .eq('id', selectedClassId)
           .single();
 
@@ -208,7 +208,7 @@ export default function CoachAttendancePage() {
         const recordsWithProgram = records.map(r => ({
           ...r,
           child_id: r.childId, // Map childId to child_id for generic logic
-          program_id: cls.program_id,
+          team_id: cls.team_id,
           school_id: schoolId,
           class_id: selectedClassId,
           attendance_date: new Date().toISOString().split('T')[0],

@@ -93,19 +93,19 @@ export default function AttendanceSupervisionPage() {
       if (teamIds.length > 0) {
         const { data: records } = await supabase
           .from('attendance_records')
-          .select('child_id, status, program_id')
-          .in('program_id', teamIds)
+          .select('child_id, status, team_id')
+          .in('team_id', teamIds)
           .eq('attendance_date', selectedDate);
 
         (records || []).forEach((r: any) => {
-          if (!recordsMap[r.program_id]) {
-            recordsMap[r.program_id] = { present: 0, absent: 0, late: 0, excused: 0, total: 0 };
+          if (!recordsMap[r.team_id]) {
+            recordsMap[r.team_id] = { present: 0, absent: 0, late: 0, excused: 0, total: 0 };
           }
-          recordsMap[r.program_id].total++;
-          if (r.status === 'present') recordsMap[r.program_id].present++;
-          else if (r.status === 'absent') recordsMap[r.program_id].absent++;
-          else if (r.status === 'late') recordsMap[r.program_id].late++;
-          else if (r.status === 'excused') recordsMap[r.program_id].excused++;
+          recordsMap[r.team_id].total++;
+          if (r.status === 'present') recordsMap[r.team_id].present++;
+          else if (r.status === 'absent') recordsMap[r.team_id].absent++;
+          else if (r.status === 'late') recordsMap[r.team_id].late++;
+          else if (r.status === 'excused') recordsMap[r.team_id].excused++;
         });
       }
 
@@ -155,7 +155,7 @@ export default function AttendanceSupervisionPage() {
       const { data: records, error } = await supabase
         .from('attendance_records')
         .select('child_id, status')
-        .eq('program_id', selectedSession.team_id)
+        .eq('team_id', selectedSession.team_id)
         .eq('attendance_date', selectedSession.session_date);
 
       if (error) throw error;
