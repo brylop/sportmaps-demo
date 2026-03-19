@@ -118,8 +118,7 @@ export function ChildSelectorModal({
                     full_name: newChildName.trim(),
                     date_of_birth: dobValue,
                     parent_id: user.id,
-                    // Note: school_id is NOT included to avoid NOT NULL constraint issues
-                    // School assignment happens at enrollment time if needed
+                    school_id: schoolId as string,
                 })
                 .select('id, full_name, date_of_birth, grade')
                 .single();

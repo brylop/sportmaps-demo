@@ -5,6 +5,12 @@ import { z } from 'zod';
 
 const router = Router();
 
+// ── Helper ──────────────────────────────────────────────────────────────────
+function todayInBogota(): string {
+  return new Date()
+    .toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }); // 'YYYY-MM-DD'
+}
+
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
 const BookSessionSchema = z.object({
@@ -360,7 +366,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           .eq('school_id', resolvedSchoolId)
           .eq('is_bookable', true).eq('finalized', false)
           .in('offering_id', offeringIds)
-          .gte('session_date', new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0])
+          .gte('session_date', todayInBogota())
           .lte('session_date', new Date(Date.now() + 28 * 86400000).toISOString().split('T')[0])
           .order('session_date', { ascending: true }).order('start_time', { ascending: true })
       : { data: [] };
@@ -378,7 +384,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           .eq('school_id', resolvedSchoolId)
           .eq('is_bookable', true).eq('finalized', false)
           .in('team_id', teamIds)
-          .gte('session_date', new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0])
+          .gte('session_date', todayInBogota())
           .lte('session_date', new Date(Date.now() + 28 * 86400000).toISOString().split('T')[0])
           .order('session_date', { ascending: true }).order('start_time', { ascending: true })
       : { data: [] };
@@ -502,7 +508,7 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       if ((enrollment as any).team_id !== session.team_id)
         return res.status(403).json({ error: 'Sesión no pertenece a tu equipo' });
     }
-    if ((enrollment as any).expires_at && new Date((enrollment as any).expires_at) < new Date()) {
+    if ((enrollment as any).expires_at && (enrollment as any).expires_at < todayInBogota()) {
       return res.status(400).json({ error: 'Tu plan ha expirado', code: 'PLAN_EXPIRED' });
     }
 
@@ -643,7 +649,7 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
     if (!enrollments?.length) return res.json({ sessions: [] });
 
     const resolvedSchoolId = (enrollments[0] as any).school_id;
-    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    const today = todayInBogota();
     const in14  = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
 
     const teamIds = [...new Set(
@@ -712,8 +718,10 @@ const BookSecondarySchema = z.object({
   enrollment_id:    z.string().uuid(),
   facility_id:      z.string().uuid(),
   reservation_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  start_time:       z.string().regex(/^\d{2}:\d{2}$/),
-  end_time:         z.string().regex(/^\d{2}:\d{2}$/),
+  slots: z.array(z.object({
+    start_time:       z.string().regex(/^\d{2}:\d{2}$/),
+    end_time:         z.string().regex(/^\d{2}:\d{2}$/),
+  })).min(1).max(2),
   notes:            z.string().optional(),
 });
 
@@ -724,7 +732,7 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
 
     const parsed = BookSecondarySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-    const { enrollment_id, facility_id, reservation_date, start_time, end_time, notes } = parsed.data;
+    const { enrollment_id, facility_id, reservation_date, slots, notes } = parsed.data;
 
     // Validar enrollment y créditos secundarios
     const { data: enrollment, error: eErr } = await supabase
@@ -735,15 +743,27 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
     if (eErr || !enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
     if ((enrollment as any).user_id !== userId) return res.status(403).json({ error: 'No autorizado' });
     if ((enrollment as any).status !== 'active') return res.status(400).json({ error: 'Inscripción no activa' });
-    if ((enrollment as any).expires_at && new Date((enrollment as any).expires_at) < new Date()) {
+    if ((enrollment as any).expires_at && (enrollment as any).expires_at < todayInBogota()) {
       return res.status(400).json({ error: 'Tu plan ha expirado' });
     }
 
     const plan = (enrollment as any).offering_plans as any;
     const maxSec = plan?.max_secondary_sessions ?? 0;
+    const currentUsed = (enrollment as any).secondary_sessions_used ?? 0;
+
     if (maxSec === 0) return res.status(400).json({ error: 'Tu plan no incluye clases secundarias' });
-    if (((enrollment as any).secondary_sessions_used ?? 0) >= maxSec) {
-      return res.status(400).json({ error: 'No tienes clases secundarias disponibles' });
+
+    // Calcular créditos a descontar
+    let creditsToDeduct = slots.length;
+    if (slots.length === 2) {
+      const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
+      if (sorted[0].end_time === sorted[1].start_time) {
+        creditsToDeduct = 1;
+      }
+    }
+
+    if (currentUsed + creditsToDeduct > maxSec) {
+      return res.status(400).json({ error: 'No tienes suficientes clases secundarias disponibles' });
     }
 
     // Validar instalación
@@ -751,44 +771,63 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       .from('facilities').select('id, school_id, capacity, name').eq('id', facility_id).single();
     if (fErr || !facility) return res.status(404).json({ error: 'Instalación no encontrada' });
 
-    // Verificar cupo del slot
-    const { count: slotCount } = await supabase
-      .from('facility_reservations').select('*', { count: 'exact', head: true })
-      .eq('facility_id', facility_id).eq('reservation_date', reservation_date)
-      .eq('start_time', `${start_time}:00`).neq('status', 'cancelled');
+    // Verificar cupo y duplicados para cada slot
+    for (const slot of slots) {
+      const { count: slotCount } = await supabase
+        .from('facility_reservations').select('*', { count: 'exact', head: true })
+        .eq('facility_id', facility_id).eq('reservation_date', reservation_date)
+        .eq('start_time', `${slot.start_time}:00`).neq('status', 'cancelled');
 
-    if ((slotCount ?? 0) >= ((facility as any).capacity ?? 20)) {
-      return res.status(409).json({ error: 'No hay cupo disponible en ese horario' });
+      if ((slotCount ?? 0) >= ((facility as any).capacity ?? 20)) {
+        return res.status(409).json({ error: `No hay cupo disponible a las ${slot.start_time}` });
+      }
+
+      const { data: existing } = await supabase
+        .from('facility_reservations').select('id')
+        .eq('facility_id', facility_id).eq('user_id', userId).eq('reservation_date', reservation_date)
+        .eq('start_time', `${slot.start_time}:00`).neq('status', 'cancelled').maybeSingle();
+
+      if (existing) {
+        return res.status(409).json({ error: `Ya tienes agendada esta clase a las ${slot.start_time}.` });
+      }
     }
 
-    // Crear reserva
-    const { data: reservation, error: rErr } = await supabase
-      .from('facility_reservations')
-      .insert({
-        facility_id, user_id: userId, reservation_date,
-        start_time: `${start_time}:00`, end_time: `${end_time}:00`,
-        status: 'confirmed', school_id: (facility as any).school_id,
-        notes: notes ?? `Clase ${plan?.metadata?.secondary_session_label ?? 'GYM'}`,
-        booker_type: 'athlete', resv_type: 'secondary_class', payment_status: 'paid',
-      })
-      .select().single();
-    if (rErr) throw rErr;
+    // Crear reservas
+    const createdReservations = [];
+    for (const slot of slots) {
+      const { data: reservation, error: rErr } = await supabase
+        .from('facility_reservations')
+        .insert({
+          facility_id, user_id: userId, reservation_date,
+          start_time: `${slot.start_time}:00`, end_time: `${slot.end_time}:00`,
+          status: 'confirmed', school_id: (facility as any).school_id,
+          notes: notes ?? `Clase ${plan?.metadata?.secondary_session_label ?? 'GYM'}`,
+          booker_type: 'athlete', resv_type: 'secondary_class', payment_status: 'paid',
+        })
+        .select().single();
 
-    // Descontar crédito
+      if (rErr) throw rErr;
+      createdReservations.push(reservation);
+    }
+
+    // Descontar créditos
     const { error: uErr } = await supabase.from('enrollments')
-      .update({ secondary_sessions_used: ((enrollment as any).secondary_sessions_used ?? 0) + 1 })
+      .update({ secondary_sessions_used: currentUsed + creditsToDeduct })
       .eq('id', enrollment_id);
 
     if (uErr) {
-      await supabase.from('facility_reservations').update({ status: 'cancelled' }).eq('id', (reservation as any).id);
+      // Rollback (cancelar reservas creadas)
+      const ids = createdReservations.map(r => (r as any).id);
+      await supabase.from('facility_reservations').update({ status: 'cancelled' }).in('id', ids);
       throw uErr;
     }
 
     return res.status(201).json({
-      reservation,
-      secondary_sessions_remaining: maxSec - ((enrollment as any).secondary_sessions_used ?? 0) - 1,
+      reservations: createdReservations,
+      secondary_sessions_remaining: maxSec - (currentUsed + creditsToDeduct),
     });
   } catch (err: any) {
+    (req as any).log?.error({ err }, 'Error booking secondary');
     return res.status(500).json({ error: err.message });
   }
 });
@@ -803,7 +842,8 @@ router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res:
       .from('facility_reservations')
       .select('id, reservation_date, start_time, end_time, status, notes, facilities:facility_id(id, name, type)')
       .eq('user_id', userId).eq('resv_type', 'secondary_class')
-      .gte('reservation_date', new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0])
+      .neq('status', 'cancelled')
+      .gte('reservation_date', todayInBogota())
       .order('reservation_date', { ascending: true }).order('start_time', { ascending: true });
 
     if (error) throw error;
@@ -820,12 +860,16 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
     const { id } = req.params;
 
     const { data: reservation, error: rErr } = await supabase
-      .from('facility_reservations').select('id, user_id, status, reservation_date').eq('id', id).single();
+      .from('facility_reservations')
+      .select('id, user_id, status, reservation_date, start_time')
+      .eq('id', id).single();
 
     if (rErr || !reservation) return res.status(404).json({ error: 'Reserva no encontrada' });
     if ((reservation as any).user_id !== userId) return res.status(403).json({ error: 'No autorizado' });
     if ((reservation as any).status === 'cancelled') return res.status(400).json({ error: 'Ya cancelada' });
-    if (new Date((reservation as any).reservation_date) < new Date()) {
+
+    // Verificar si es pasada usando solo fecha (según requerimiento de hoy vs hoy)
+    if ((reservation as any).reservation_date < todayInBogota()) {
       return res.status(400).json({ error: 'No puedes cancelar una clase pasada' });
     }
 
@@ -845,6 +889,135 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
     }
 
     return res.json({ success: true, message: 'Reserva cancelada y crédito devuelto' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /generate-offering-sessions ─────────────────────────────────────────
+// Genera attendance_sessions para el módulo de OFFERINGS/PLANES.
+// El coach se resuelve desde school_staff de la escuela (no desde offering_coaches).
+// Llamar desde el panel admin cuando se configure/actualice disponibilidad del coach.
+router.post('/generate-offering-sessions',
+  requireAuth,
+  requireRole('owner', 'admin', 'school_admin'),
+  async (req: Request, res: Response) => {
+    try {
+      const { schoolId } = req;
+      const parsed = z.object({
+        offering_id: z.string().uuid(),
+        weeks: z.number().int().min(1).max(8).optional().default(2),
+      }).safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+      }
+
+      const { data, error } = await supabase.rpc('fn_generate_offering_sessions', {
+        p_school_id:   schoolId,
+        p_offering_id: parsed.data.offering_id,
+        p_weeks:       parsed.data.weeks,
+      });
+
+      if (error) throw error;
+
+      const created = (data ?? []).filter((r: any) => r.was_created);
+      return res.json({
+        message: `${created.length} sesiones creadas`,
+        sessions: data,
+      });
+    } catch (err: any) {
+      (req as any).log?.error({ err }, 'Error generating offering sessions');
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ── GET /extend-horizon ──────────────────────────────────────────────────────
+// Llamar al cargar el panel admin de sesiones o el módulo "Mis Clases" del atleta
+router.get('/extend-horizon', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { data, error } = await supabase.rpc('fn_extend_session_horizon', {
+      p_school_id: schoolId,
+      p_min_weeks: 2,
+      p_target_weeks: 4,
+    });
+    if (error) throw error;
+    res.json({ sessions_created: data });
+  } catch (err: any) {
+    (req as any).log?.error({ err }, 'Error extending session horizon');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/v1/session-bookings/facility/:id/slots?date=YYYY-MM-DD
+// Devuelve los slots disponibles de la facilidad para una fecha,
+// generados desde available_hours y restando los ya reservados.
+router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { schoolId } = req;
+
+    // Fecha en timezone Colombia — si no viene en query, usar hoy
+    const dateStr = (req.query.date as string) || todayInBogota();
+
+    // Obtener facilidad con available_hours
+    const { data: facility, error: fErr } = await supabase
+      .from('facilities')
+      .select('id, name, capacity, available_hours')
+      .eq('id', id)
+      .single();
+
+    if (fErr || !facility) return res.status(404).json({ error: 'Instalación no encontrada' });
+
+    // Calcular día de la semana en Colombia
+    const date = new Date(dateStr + 'T12:00:00');
+    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+    const dayName = dayNames[date.getDay()];
+    
+    const hours = (facility.available_hours as any)?.[dayName];
+    if (!hours || hours.length === 0) {
+      return res.json({ slots: [], message: 'Instalación cerrada ese día' });
+    }
+
+    // Parsear rango y generar slots de 1 hora
+    const [openStr, closeStr] = hours[0].split('-');
+    const [openH]  = openStr.split(':').map(Number);
+    const [closeH] = closeStr.split(':').map(Number);
+
+    const allSlots: { start: string; end: string }[] = [];
+    for (let h = openH; h < closeH; h++) {
+      allSlots.push({
+        start: `${String(h).padStart(2,'0')}:00`,
+        end:   `${String(h + 1).padStart(2,'0')}:00`,
+      });
+    }
+
+    // Obtener reservas activas para esa fecha y facilidad
+    const { data: booked } = await supabase
+      .from('facility_reservations')
+      .select('start_time, user_id')
+      .eq('facility_id', id)
+      .eq('reservation_date', dateStr)
+      .neq('status', 'cancelled');
+
+    const bookedTimes = new Set((booked ?? []).map((b: any) => b.start_time.slice(0, 5)));
+    const myBookedTimes = new Set(
+      (booked ?? [])
+        .filter((b: any) => b.user_id === req.user?.id)
+        .map((b: any) => b.start_time.slice(0, 5))
+    );
+
+    // Enriquecer slots con disponibilidad
+    const slots = allSlots.map(slot => ({
+      start: slot.start,
+      end:   slot.end,
+      available:      !bookedTimes.has(slot.start),
+      already_booked: myBookedTimes.has(slot.start),
+    }));
+
+    return res.json({ slots, facility_name: facility.name });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

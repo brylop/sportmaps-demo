@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react';
-import { createWorker } from 'tesseract.js';
+import Tesseract from 'tesseract.js';
 
 export interface ReceiptValidationResult {
     valid: boolean;
@@ -232,7 +232,7 @@ export function useReceiptValidator() {
 
     const validate = async (file: File): Promise<ReceiptValidationResult> => {
         setValidating(true);
-        let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+        let worker: any | null = null;
 
         try {
             let imageSource: File | Blob = file;
@@ -255,7 +255,7 @@ export function useReceiptValidator() {
             // FIX: createWorker con paths CDN → Vite no toca estos workers
             // Antes: Tesseract.recognize() creaba workers internos que el
             // minificador renombraba rompiendo sus callbacks ("g is not a function")
-            worker = await createWorker('spa+eng', 1, {
+            worker = await Tesseract.createWorker('spa+eng', 1, {
                 ...TESSERACT_CDN,
                 // logger solo en dev para no exponer el callback al minificador en prod
                 logger: import.meta.env.DEV

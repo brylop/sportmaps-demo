@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { bffClient } from '@/lib/api/bffClient';
+import { useSchoolContext } from './useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
 export interface Enrollment {
@@ -16,114 +17,101 @@ export interface Enrollment {
   updated_at: string;
 }
 
-export interface EnrollmentWithProgram extends Enrollment {
-  id: string;
-  enrollment_status: string;
-  program_name: string;
-  sport: string;
-  level: string;
-  image_url: string;
-  price_monthly: number;
-  school_id: string;
-  school_name: string;
-  school_logo: string;
-  school_primary_color: string;
-  payment_id: string | null;
-  payment_status: string | null;
-  payment_amount_cents: number | null;
-  payment_due_date: string | null;
-  has_pending_payment: boolean;
-  has_processing_payment: boolean;
-  program: {
-    id: string;
-    name: string;
-    sport: string;
-    school_id: string;
-    school: {
-      name: string;
-      city: string;
-    };
-  };
+async function fetchMyPlan() {
+  return bffClient.request<{ enrollments: any[] }>('GET', '/api/v1/enrollments/my-plan');
 }
 
-/**
- * Custom hook for managing user enrollments
- * Provides CRUD operations for enrollments with proper error handling
- */
 export function useEnrollments() {
-  const [enrollments, setEnrollments] = useState<EnrollmentWithProgram[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (user) {
-      fetchEnrollments();
-    }
-  }, [user]);
+  const { data, isLoading: loading, error, refetch } = useQuery({
+    queryKey: ['enrollments', schoolId],
+    queryFn: fetchMyPlan,
+    enabled: !!schoolId,
+    staleTime: 30_000,
+  });
 
-  const fetchEnrollments = async () => {
-    if (!user) return;
+  const rawEnrollments = data?.enrollments ?? [];
 
-    try {
-      setLoading(true);
-      setError(null);
+  // Normaliza al shape que espera MyEnrollmentsPage (TeamCard / PlanCard)
+  const activeEnrollments = rawEnrollments
+    .filter((e: any) => e.status === 'active')
+    .map((e: any) => ({
+      ...e,
+      // offering_id resuelto desde el BFF (offering_plans → offerings)
+      offering_id: e.offering?.id ?? e.offering_plan?.offering_id ?? null,
+      // Precio unificado desde el BFF
+      price_monthly: e.price_monthly ?? e.offering_plan?.price ?? e.team?.price_monthly ?? null,
+      currency: e.currency ?? 'COP',
+      // Objeto program que usan TeamCard y PlanCard
+      program: e.team
+        ? {
+            id:        e.team.id,
+            name:      e.team.name,
+            sport:     e.team.sport ?? '',
+            school_id: e.school_id,
+            school:    { name: '', city: '' },
+          }
+        : {
+            id:        e.offering?.id ?? e.offering_plan_id,
+            name:      e.offering?.name ?? e.offering_plan?.name ?? 'Plan',
+            sport:     e.offering?.sport ?? '',
+            school_id: e.school_id,
+            school:    { name: '', city: '' },
+          },
+      // Objeto plan_details que usa PlanCard
+      plan_details: e.offering_plan
+        ? {
+            ...e.offering_plan,
+            price: e.offering_plan?.price,
+            currency: e.offering_plan?.currency,
+            secondary_session_label:
+              e.offering_plan?.metadata?.secondary_session_label ?? 'GYM',
+          }
+        : null,
+    }));
 
-      const { data, error: fetchError } = await supabase.rpc('get_athlete_enrollments');
-
-      if (fetchError) throw fetchError;
-      setEnrollments((data as any) || []);
-    } catch (err: any) {
-      console.error('Error fetching enrollments:', err);
-      setError(err.message);
-      toast({
-        title: 'Error',
-        description: 'No se pudieron cargar tus inscripciones',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const pastEnrollments = rawEnrollments.filter((e: any) => e.status !== 'active');
 
   const cancelEnrollment = async (enrollmentId: string) => {
     try {
       const { error: updateError } = await supabase
         .from('enrollments')
-        .update({ status: 'cancelled', end_date: new Date().toISOString().split('T')[0] })
+        .update({
+          status:   'cancelled',
+          end_date: new Date().toISOString().split('T')[0],
+        })
         .eq('id', enrollmentId);
 
       if (updateError) throw updateError;
 
       toast({
-        title: 'Inscripción cancelada',
+        title:       'Inscripción cancelada',
         description: 'La inscripción ha sido cancelada exitosamente',
       });
 
-      await fetchEnrollments();
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId] });
       return { success: true };
     } catch (err: any) {
-      console.error('Error cancelling enrollment:', err);
       toast({
-        title: 'Error',
+        title:       'Error',
         description: 'No se pudo cancelar la inscripción',
-        variant: 'destructive',
+        variant:     'destructive',
       });
       return { success: false, error: err };
     }
   };
 
-  const activeEnrollments = enrollments.filter((e) => e.status === 'active');
-  const pastEnrollments = enrollments.filter((e) => e.status !== 'active');
-
   return {
-    enrollments,
+    enrollments:       rawEnrollments,
     activeEnrollments,
     pastEnrollments,
     loading,
     error,
-    refetch: fetchEnrollments,
+    refetch,
     cancelEnrollment,
   };
 }

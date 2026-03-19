@@ -121,9 +121,9 @@ export default function AthletePaymentsPage() {
     .reduce((sum, p) => sum + p.amount_cents, 0);
 
   const pendingPaymentsCount = summary?.count_pending || 0;
-  // Fix NaN by using summary.count_approved directly instead of deriving it
   const historyPaymentsCount = summary?.count_approved || 0;
-  const totalPending = (summary?.pending_cents || 0) / 100;
+  const rawPending = summary?.pending_cents || 0;
+  const totalPending = (isNaN(rawPending) ? 0 : rawPending) / 100;
   const totalApprovedCount = summary?.count_approved || 0;
 
   const formatCurrencyLocal = (cents: number) =>
@@ -312,7 +312,7 @@ export default function AthletePaymentsPage() {
                       </p>
                       {enrollment.price_monthly > 0 && (
                         <p className="text-xs font-medium text-emerald-600 mt-1">
-                          Mensualidad: ${enrollment.price_monthly.toLocaleString('es-CO')}
+                          Mensualidad: ${ (enrollment.price_monthly || 0).toLocaleString('es-CO') }
                         </p>
                       )}
                     </div>

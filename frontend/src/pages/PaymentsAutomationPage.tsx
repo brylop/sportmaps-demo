@@ -256,11 +256,20 @@ export default function PaymentsAutomationPage() {
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
     const newStatus = action === 'approve' ? 'paid' : 'failed';
+    const payment = payments.find(p => p.id === paymentId);
+
     try {
-      const { error: updateError } = await supabase.from('payments').update({ status: newStatus }).eq('id', paymentId);
+      const updatePayload: any = { status: newStatus };
+      
+      if (action === 'approve' && profile && payment) {
+        updatePayload.approved_by = profile.id;
+        updatePayload.approved_at = new Date().toISOString();
+        updatePayload.amount_paid = payment.amount;
+      }
+
+      const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
       if (updateError) throw updateError;
       if (action === 'approve') {
-        const payment = payments.find(p => p.id === paymentId);
         if (payment) {
           if (payment.team_id && (payment.child_id || payment.parent_id)) {
             let enrollQuery = supabase.from('enrollments').update({ status: 'active' }).eq('team_id', payment.team_id).eq('status', 'pending');
