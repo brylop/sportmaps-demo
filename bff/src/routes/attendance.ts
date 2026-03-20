@@ -57,13 +57,14 @@ router.post(
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
         try {
             const { schoolId } = req;
-            const { teamId, records } = req.body as {
-                teamId: string;
+            const { teamId, sessionId, records } = req.body as {
+                teamId?: string;
+                sessionId?: string;
                 records: { childId?: string; userId?: string; status: string }[];
             };
 
-            if (!teamId || !Array.isArray(records) || records.length === 0) {
-                return res.status(400).json({ error: 'teamId y records son requeridos.' });
+            if ((!teamId && !sessionId) || !Array.isArray(records) || records.length === 0) {
+                return res.status(400).json({ error: 'teamId (o sessionId) y records son requeridos.' });
             }
 
             const invalidRecord = records.find((r) => !r.childId && !r.userId);
@@ -73,45 +74,67 @@ router.post(
 
             const today = new Date().toISOString().split('T')[0];
 
-            // 1. Verificar si ya existe sesión hoy
-            const { data: existing, error: existingErr } = await supabase
-                .from('attendance_sessions')
-                .select('id, finalized')
-                .eq('team_id', teamId)
-                .eq('session_date', today)
-                .maybeSingle();
+            let existingSessionId = sessionId;
 
-            if (existingErr) throw existingErr;
+            // 1. Verificar si ya existe sesión (por ID o por teamId hoy)
+            if (existingSessionId) {
+                const { data: existing, error: existingErr } = await supabase
+                    .from('attendance_sessions')
+                    .select('id, finalized')
+                    .eq('id', existingSessionId)
+                    .maybeSingle();
+                
+                if (existingErr) throw existingErr;
+                if (existing?.finalized) {
+                    return res.status(409).json({ error: 'La sesión ya fue finalizada y no puede modificarse.', finalized: true });
+                }
+            } else if (teamId) {
+                const { data: existing, error: existingErr } = await supabase
+                    .from('attendance_sessions')
+                    .select('id, finalized')
+                    .eq('team_id', teamId)
+                    .eq('session_date', today)
+                    .maybeSingle();
 
-            // Bloquear si ya está finalizada
-            if (existing?.finalized) {
-                return res.status(409).json({
-                    error: 'La sesión de hoy ya fue finalizada y no puede modificarse.',
-                    finalized: true,
-                });
+                if (existingErr) throw existingErr;
+                if (existing?.finalized) {
+                    return res.status(409).json({ error: 'La sesión de hoy ya fue finalizada.', finalized: true });
+                }
+                if (existing) {
+                    existingSessionId = existing.id;
+                }
             }
 
-            // 2. Crear sesión si no existe (upsert seguro con el UNIQUE constraint)
-            const { data: session, error: sessionErr } = await supabase
-                .from('attendance_sessions')
-                .upsert(
-                    {
-                        school_id: schoolId,
-                        team_id: teamId,
-                        session_date: today,
-                        created_by: req.user?.id,
-                    },
-                    { onConflict: 'team_id,session_date', ignoreDuplicates: false }
-                )
-                .select('id, finalized')
-                .single();
+            // 2. Crear sesión si no existe (solo si viene por teamId)
+            let finalSessionId = existingSessionId;
+            if (!finalSessionId && teamId) {
+                const { data: session, error: sessionErr } = await supabase
+                    .from('attendance_sessions')
+                    .upsert(
+                        {
+                            school_id: schoolId,
+                            team_id: teamId,
+                            session_date: today,
+                            created_by: req.user?.id,
+                        },
+                        { onConflict: 'team_id,session_date', ignoreDuplicates: false }
+                    )
+                    .select('id, finalized')
+                    .single();
 
-            if (sessionErr) throw sessionErr;
+                if (sessionErr) throw sessionErr;
+                finalSessionId = session.id;
+            }
 
-            // 3. Guardar registros de asistencia (upsert — permite edición antes de finalizar)
+            if (!finalSessionId) {
+                 return res.status(404).json({ error: 'No se pudo encontrar o crear la sesión de asistencia.' });
+            }
+
+            // 3. Guardar registros de asistencia
             const attendanceRecords = records.map(({ childId, userId, status }) => ({
                 school_id: schoolId,
-                team_id: teamId,
+                team_id: teamId || null,
+                session_id: finalSessionId, // Agregado para robustez
                 ...(childId ? { child_id: childId } : { user_id: userId }),
                 attendance_date: today,
                 status,
@@ -141,7 +164,7 @@ router.post(
                 if (adultErr) throw adultErr;
             }
 
-            return res.json({ success: true, sessionId: session.id });
+            return res.json({ success: true, sessionId: finalSessionId });
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error guardando sesión de asistencia');
             return res.status(500).json({ error: 'Error interno guardando la asistencia.' });
