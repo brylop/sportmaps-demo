@@ -151,35 +151,43 @@ router.get('/:id/bookings', requireAuth, requireRole('owner', 'admin', 'school_a
     const { id: sessionId } = req.params;
     const { schoolId } = req;
     const { data, error } = await supabase.from('session_bookings')
-      .select('id, status, booking_type, is_secondary, booked_at, user_id, child_id, enrollment_id')
+      .select('id, status, booking_type, is_secondary, booked_at, user_id, child_id, unregistered_athlete_id, enrollment_id')
       .eq('session_id', sessionId).eq('school_id', schoolId).neq('status', 'cancelled');
 
     if (error) throw error;
     if (!data?.length) return res.json({ bookings: [] });
 
-    const uIds = [...new Set(data.map(b => b.user_id).filter(Boolean))];
-    const cIds = [...new Set(data.map(b => b.child_id).filter(Boolean))];
-    const eIds = [...new Set(data.map(b => b.enrollment_id))];
+    const uIds  = [...new Set(data.map(b => b.user_id).filter(Boolean))];
+    const cIds  = [...new Set(data.map(b => b.child_id).filter(Boolean))];
+    const urIds = [...new Set(data.map(b => (b as any).unregistered_athlete_id).filter(Boolean))];
+    const eIds  = [...new Set(data.map(b => b.enrollment_id))];
 
-    const [pRes, cRes, eRes] = await Promise.all([
-      uIds.length ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', uIds) : Promise.resolve({ data: [] }),
-      cIds.length ? supabase.from('children').select('id, full_name, avatar_url').in('id', cIds) : Promise.resolve({ data: [] }),
+    const [pRes, cRes, urRes, eRes] = await Promise.all([
+      uIds.length  ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', uIds)           : Promise.resolve({ data: [] }),
+      cIds.length  ? supabase.from('children').select('id, full_name, avatar_url').in('id', cIds)           : Promise.resolve({ data: [] }),
+      urIds.length ? supabase.from('unregistered_athletes').select('id, full_name').in('id', urIds)         : Promise.resolve({ data: [] }),
       supabase.from('enrollments').select('id, sessions_used, plan:offering_plans(name)').in('id', eIds),
     ]);
 
-    const pM = Object.fromEntries((pRes.data || []).map(p => [p.id, p]));
-    const cM = Object.fromEntries((cRes.data || []).map(c => [c.id, c]));
-    const eM = Object.fromEntries((eRes.data || []).map(e => [e.id, e]));
+    const pM  = Object.fromEntries((pRes.data  || []).map(p => [p.id, p]));
+    const cM  = Object.fromEntries((cRes.data  || []).map(c => [c.id, c]));
+    const urM = Object.fromEntries((urRes.data || []).map((u: any) => [u.id, u]));
+    const eM  = Object.fromEntries((eRes.data  || []).map(e => [e.id, e]));
 
     res.json({
-      bookings: data.map(b => ({
-        ...b,
-        person: b.user_id ? pM[b.user_id as string] : cM[b.child_id as string],
-        enrollment: eM[b.enrollment_id],
-      }))
+      bookings: data.map(b => {
+        const urId = (b as any).unregistered_athlete_id;
+        const person = b.user_id
+          ? pM[b.user_id as string]
+          : b.child_id
+            ? cM[b.child_id as string]
+            : urM[urId];
+        return { ...b, person, enrollment: eM[b.enrollment_id] };
+      })
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
+
 
 router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) => {
   try {

@@ -899,9 +899,12 @@ function OfferingCard({
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
                                             <div className="font-semibold text-xs text-foreground/90">{plan.name}</div>
-                                            {plan.enrollments && plan.enrollments.length > 0 && (
-                                                <Badge variant="secondary" className="text-[9px] h-4 px-1 py-0 bg-green-50 text-green-700 border-green-200">
-                                                    {plan.enrollments.length} {plan.enrollments.length === 1 ? 'inscrito' : 'inscritos'}
+                                            {plan.current_students > 0 && (
+                                                <Badge
+                                                    variant="secondary"
+                                                    className="text-[9px] h-4 px-1 py-0 bg-green-50 text-green-700 border-green-200"
+                                                >
+                                                    {plan.current_students} {plan.current_students === 1 ? 'inscrito' : 'inscritos'}
                                                 </Badge>
                                             )}
                                         </div>

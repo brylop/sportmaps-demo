@@ -49,6 +49,7 @@ export interface OfferingPlan {
     is_active: boolean;
     sort_order: number;
     metadata: Record<string, unknown>;
+    current_students: number;
     created_at: string;
     updated_at: string;
     enrollments?: Enrollment[];
