@@ -220,9 +220,9 @@ const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
 // ── Worker CDN paths (evita que Vite minifique los internals de Tesseract) ────
 
 const TESSERACT_CDN = {
-    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/worker.min.js',
-    langPath:   'https://tessdata.projectnaptha.com/4.0.0',
-    corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@7/',
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  langPath:   'https://cdn.jsdelivr.net/npm/@tesseract.js-data/spa/4.0.0_best_int',
+  corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/',
 } as const;
 
 // ── Hook principal ────────────────────────────────────────────────────────────
@@ -241,33 +241,49 @@ export function useReceiptValidator() {
                 try {
                     imageSource = await pdfPageToImageBlob(file);
                 } catch (err) {
-                    console.error('Error convirtiendo PDF:', err);
                     return {
                         valid: false,
                         extractedDate: null,
                         extractedAmount: null,
                         extractedReference: null,
-                        rejectionReason: 'No se pudo procesar el PDF. Intenta convertirlo a imagen (JPG/PNG) y vuelve a subirlo.',
+                        rejectionReason: 'No se pudo procesar el PDF. Conviértelo a imagen (JPG/PNG) e inténtalo de nuevo.',
                     };
                 }
             }
 
-            // FIX: createWorker con paths CDN → Vite no toca estos workers
-            // Antes: Tesseract.recognize() creaba workers internos que el
-            // minificador renombraba rompiendo sus callbacks ("g is not a function")
-            worker = await Tesseract.createWorker('spa+eng', 1, {
+            // ✅ Timeout de 25s — si CDN falla, pedir reintento (NO pasar silenciosamente)
+            const workerPromise = Tesseract.createWorker('spa', 1, {
                 ...TESSERACT_CDN,
-                // logger solo en dev para no exponer el callback al minificador en prod
                 logger: import.meta.env.DEV
                     ? (msg: { status: string; progress?: number }) =>
                         console.log('[OCR]', msg.status, Math.round((msg.progress ?? 0) * 100) + '%')
-                    : () => {},
+                    : () => { },
             });
+
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('TIMEOUT')), 25000)
+            );
+
+            try {
+                worker = await Promise.race([workerPromise, timeoutPromise]);
+            } catch (err: any) {
+                // ✅ Timeout o fallo de CDN → pedir reintento, NO dejar pasar
+                return {
+                    valid: false,
+                    extractedDate: null,
+                    extractedAmount: null,
+                    extractedReference: null,
+                    rejectionReason:
+                        'El análisis tardó demasiado. Verifica tu conexión e inténtalo de nuevo. ' +
+                        'Si el problema persiste, asegúrate de que la imagen sea nítida.',
+                };
+            }
 
             const { data } = await worker.recognize(imageSource);
             const text = data.text || '';
             const textLower = text.toLowerCase();
 
+            // ── Validación 1: ¿es un comprobante? ────────────────────────────────
             const receiptKeywords = [
                 'transferencia', 'transacción', 'transaccion',
                 'comprobante', 'recibo', 'pago', 'operación', 'operacion',
@@ -286,11 +302,12 @@ export function useReceiptValidator() {
                     extractedReference: null,
                     rejectionReason:
                         'No pudimos leer el comprobante o no parece ser un soporte válido. ' +
-                        'Por favor, asegúrate de que la imagen sea nítida o que el PDF sea legible e inténtalo de nuevo.',
+                        'Asegúrate de que la imagen sea nítida y que sea un comprobante de pago.',
                     rawText: text,
                 };
             }
 
+            // ── Validación 2: fecha de hoy obligatoria ────────────────────────────
             const { found: dateFound, isToday } = extractDate(text);
 
             if (!isToday) {
@@ -310,6 +327,7 @@ export function useReceiptValidator() {
                 };
             }
 
+            // ── Validación OK ─────────────────────────────────────────────────────
             return {
                 valid: true,
                 extractedDate: dateFound,
@@ -326,10 +344,9 @@ export function useReceiptValidator() {
                 extractedDate: null,
                 extractedAmount: null,
                 extractedReference: null,
-                rejectionReason: 'Error al analizar el archivo. Intenta de nuevo.',
+                rejectionReason: 'Error al analizar el archivo. Intenta de nuevo con una imagen más nítida.',
             };
         } finally {
-            // Siempre terminar el worker para liberar memoria
             if (worker) await worker.terminate();
             setValidating(false);
         }

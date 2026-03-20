@@ -107,7 +107,7 @@ export default function MyPaymentsPage() {
 
   useEffect(() => {
     if (user && profile) {
-      if (profile.role === 'athlete') {
+      if (profile.role === 'athlete' || profile.role === 'parent') {
         window.location.href = '/athlete-payments';
         return;
       }

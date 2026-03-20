@@ -25,6 +25,7 @@ interface PaymentCheckoutModalProps {
   paymentId?: string;
   teamId?: string;
   childId?: string;
+  childName?: string;
   branchId?: string;
   amount: number;
   concept: string;
@@ -33,7 +34,7 @@ interface PaymentCheckoutModalProps {
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, branchId, amount, concept, mode = 'update', onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -77,13 +78,17 @@ export function PaymentCheckoutModal({
       setCheckingPending(true);
       setPendingPaymentDate(null);
       try {
-        const response = await supabase.from('school_athletes' as any).select('athlete_type').eq('id', studentId).single();
-        const athleteData = response.data as unknown as { athlete_type: string } | null;
-        const idField = athleteData?.athlete_type === 'adult' ? 'user_id' : 'child_id';
+        const effectiveChildId = childId || null;
+        const idColumn = effectiveChildId ? 'child_id' : 'user_id';
+        const idValue = effectiveChildId || studentId;
 
         const query = (supabase as any).from('payments').select('id, payment_date, created_at')
-          .eq(idField, studentId).eq('status', 'awaiting_approval').limit(1);
+          .eq(idColumn, idValue)
+          .eq('status', 'awaiting_approval')
+          .limit(1);
+        
         if (mode === 'update' && paymentId) query.neq('id', paymentId);
+        
         const { data, error } = await query;
         if (error) { console.error('[PaymentCheckoutModal]', error); return; }
         if (data && data.length > 0) {
@@ -121,29 +126,13 @@ export function PaymentCheckoutModal({
       if (!user) throw new Error('Usuario no autenticado');
 
       // Build the correct child/user IDs for the payment
-      // If childId is provided (from enrollment), use it directly.
-      // Otherwise fall back to lookup (legacy path for update mode).
-      let payloadChildId: string | null = childId || null;
-      let payloadBranchId: string | null = branchId || null;
+      const payloadChildId: string | null = childId || null;
+      const payloadBranchId: string | null = branchId || null;
 
-      if (!payloadChildId && studentId) {
-        // Legacy path: try to look up from school_athletes
-        const { data: athleteData } = await supabase
-          .from('school_athletes' as any)
-          .select('*, branch_id')
-          .eq('id', studentId)
-          .single();
-        if (athleteData) {
-          const athlete = athleteData as unknown as SchoolAthlete;
-          const ids = getPaymentPayload(athlete);
-          payloadChildId = ids.child_id || null;
-          payloadBranchId = (athleteData as any).branch_id || null;
-        }
-      }
-
-      // Duplicate check
+      // Duplicate check (already handled via checkPendingPayment but double check here)
       const idColumn = payloadChildId ? 'child_id' : 'user_id';
       const idValue = payloadChildId || user.id;
+
       const duplicateQuery = (supabase as any).from('payments').select('id')
         .eq(idColumn, idValue)
         .eq('status', 'awaiting_approval').limit(1);
@@ -227,27 +216,19 @@ export function PaymentCheckoutModal({
       if (error) throw error;
 
       // Notificar al padre/atleta por email (fire-and-forget)
-      supabase
-        .from('school_athletes' as any)
-        .select('full_name, parent_email')
-        .eq('id', studentId)
-        .single()
-        .then((response: any) => {
-          const child = response.data as { full_name: string; parent_email: string } | null;
-          const parentEmail = (!payloadChildId) ? user?.email : child?.parent_email;
-          if (parentEmail) {
-            emailClient.send({
-              type: 'payment_confirmation',
-              to: parentEmail,
-              data: {
-                studentName: child?.full_name || 'tu cuenta',
-                amount: formatCurrency(amount),
-                concept,
-                paymentMethod: selectedMethod === 'pse' ? 'PSE' : 'Tarjeta',
-              },
-            }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
-          }
-        });
+      const parentEmail = user?.email;
+      if (parentEmail) {
+        emailClient.send({
+          type: 'payment_confirmation',
+          to: parentEmail,
+          data: {
+            studentName: childName || (childId ? 'tu hijo' : 'tu cuenta'),
+            amount: formatCurrency(amount),
+            concept,
+            paymentMethod: selectedMethod === 'pse' ? 'PSE' : (selectedMethod === 'card' ? 'Tarjeta' : 'Transferencia'),
+          },
+        }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
+      }
 
       setPaymentStatus('success');
       toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(amount)} fue procesado correctamente` });
