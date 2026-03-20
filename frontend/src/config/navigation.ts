@@ -103,6 +103,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

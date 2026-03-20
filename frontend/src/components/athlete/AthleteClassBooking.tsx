@@ -47,8 +47,8 @@ function groupByDate(sessions: BookableSession[]) {
 
 // ─── Tab: Clases disponibles ──────────────────────────────────────────────────
 
-function AvailableTab() {
-  const { data, isLoading } = useAvailableSessions();
+function AvailableTab({ childId }: { childId?: string }) {
+  const { data, isLoading } = useAvailableSessions(childId);
   const { mutate: book, isPending } = useBookSession();
   const { toast } = useToast();
   const [confirming, setConfirming] = useState<BookableSession | null>(null);
@@ -226,8 +226,8 @@ function SessionCard({ session, onBook, isBooking }: {
 
 // ─── Tab: Mis reservas ────────────────────────────────────────────────────────
 
-function MyBookingsTab() {
-  const { data: bookings, isLoading } = useMyBookings();
+function MyBookingsTab({ childId }: { childId?: string }) {
+  const { data: bookings, isLoading } = useMyBookings(childId);
   const { mutate: cancel, isPending } = useCancelBooking();
   const { toast } = useToast();
   const [cancelling, setCancelling] = useState<MyBooking | null>(null);
@@ -353,9 +353,10 @@ function SkeletonList() {
 
 interface AthleteClassBookingProps {
   mode?: 'all' | 'available' | 'my';
+  childId?: string;
 }
 
-export function AthleteClassBooking({ mode = 'all' }: AthleteClassBookingProps) {
+export function AthleteClassBooking({ mode = 'all', childId }: AthleteClassBookingProps) {
   const [tab, setTab] = useState<'available' | 'my'>(
     mode === 'all' ? 'available' : (mode as 'available' | 'my')
   );
@@ -383,7 +384,7 @@ export function AthleteClassBooking({ mode = 'all' }: AthleteClassBookingProps) 
         </div>
       )}
 
-      {tab === 'available' ? <AvailableTab /> : <MyBookingsTab />}
+      {tab === 'available' ? <AvailableTab childId={childId} /> : <MyBookingsTab childId={childId} />}
     </div>
   );
 }

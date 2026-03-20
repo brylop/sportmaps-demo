@@ -5,1061 +5,800 @@ import { z } from 'zod';
 
 const router = Router();
 
-// ── Helper ──────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function todayInBogota(): string {
   return new Date()
-    .toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }); // 'YYYY-MM-DD'
+    .toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+}
+
+async function validateChildAccess(childId: string, parentId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('children')
+    .select('id')
+    .eq('id', childId)
+    .eq('parent_id', parentId)
+    .maybeSingle();
+  return !error && !!data;
+}
+
+/**
+ * Verifica que un enrollment pertenece al atleta autenticado.
+ * Para adulto: enrollment.user_id === userId
+ * Para hijo:   enrollment.child_id === childId (y childId ya fue validado contra parent)
+ */
+async function validateEnrollmentOwnership(
+  enrollmentId: string,
+  userId: string,
+  childId?: string
+): Promise<{ valid: boolean; schoolId?: string }> {
+  const { data: enrollment, error } = await supabase
+    .from('enrollments')
+    .select('id, user_id, child_id, school_id, status')
+    .eq('id', enrollmentId)
+    .maybeSingle();
+
+  if (error || !enrollment || enrollment.status !== 'active') {
+    return { valid: false };
+  }
+
+  const belongs = childId
+    ? enrollment.child_id === childId
+    : enrollment.user_id === userId;
+
+  return { valid: belongs, schoolId: enrollment.school_id };
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
 const BookSessionSchema = z.object({
-    enrollment_id: z.string().uuid(),
-    user_id: z.string().uuid().optional(),
-    child_id: z.string().uuid().optional(),
-    is_secondary: z.boolean().default(false),
-    booking_type: z.enum(['reservation', 'drop_in', 'walk_in']).default('reservation'),
+  enrollment_id: z.string().uuid(),
+  user_id: z.string().uuid().optional(),
+  child_id: z.string().uuid().optional(),
+  is_secondary: z.boolean().default(false),
+  booking_type: z.enum(['reservation', 'drop_in', 'walk_in']).default('reservation'),
 }).refine(
-    (data) => (data.user_id && !data.child_id) || (!data.user_id && data.child_id),
-    { message: 'Debe especificar user_id o child_id, no ambos' }
+  (data) => (data.user_id && !data.child_id) || (!data.user_id && data.child_id),
+  { message: 'Debe especificar user_id o child_id, no ambos' }
 );
 
-// ── GET /api/v1/sessions/:id/availability ────────────────────────────────────
+const AthleteBookSchema = z.object({
+  session_id: z.string().uuid(),
+  enrollment_id: z.string().uuid(),
+  is_secondary: z.boolean().optional().default(false),
+  child_id: z.string().uuid().optional(),
+});
 
-// MOVED athlete routes here to avoid path collision with /:id/availability and /:id/book
+const BookSecondarySchema = z.object({
+  enrollment_id: z.string().uuid(),
+  facility_id: z.string().uuid(),
+  reservation_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  slots: z.array(z.object({
+    start_time: z.string().regex(/^\d{2}:\d{2}$/),
+    end_time: z.string().regex(/^\d{2}:\d{2}$/),
+  })).min(1).max(2),
+  notes: z.string().optional(),
+  child_id: z.string().uuid().optional(),
+});
+
+// ── ADMIN / SCHOOL STAFF ROUTES ──────────────────────────────────────────────
 
 router.get('/:id/availability', requireAuth, async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { schoolId } = req;
+  try {
+    const { id } = req.params;
+    const { schoolId } = req;
+    const { data: s, error: e } = await supabase
+      .from('attendance_sessions')
+      .select('id, max_capacity, current_bookings, requires_capacity_check, finalized, session_date')
+      .eq('id', id).eq('school_id', schoolId).single();
 
-        const { data: session, error } = await supabase
-            .from('attendance_sessions')
-            .select('id, max_capacity, current_bookings, requires_capacity_check, finalized, session_date, team_id')
-            .eq('id', id)
-            .eq('school_id', schoolId)
-            .single();
-
-        if (error || !session) {
-            return res.status(404).json({ error: 'Sesión no encontrada' });
-        }
-
-        const available = session.max_capacity
-            ? Math.max(0, session.max_capacity - session.current_bookings)
-            : null;
-
-        res.json({
-            session_id: session.id,
-            session_date: session.session_date,
-            team_id: session.team_id,
-            max_capacity: session.max_capacity,
-            current_bookings: session.current_bookings,
-            available_spots: available,
-            requires_capacity_check: session.requires_capacity_check,
-            is_full: session.max_capacity ? session.current_bookings >= session.max_capacity : false,
-            finalized: session.finalized,
-        });
-    } catch (err) {
-        (req as any).log?.error({ err }, 'Error fetching availability');
-        res.status(500).json({ error: 'Error al consultar disponibilidad' });
-    }
+    if (e || !s) return res.status(404).json({ error: 'Sesión no encontrada' });
+    res.json({
+      ...s,
+      available_spots: s.max_capacity ? Math.max(0, s.max_capacity - s.current_bookings) : null,
+      is_full: s.max_capacity ? s.current_bookings >= s.max_capacity : false,
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
-
-// ── POST /api/v1/sessions/:id/book ──────────────────────────────────────────
 
 router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
-    try {
-        const { id: sessionId } = req.params;
-        const { schoolId } = req;
+  try {
+    const { id: sessionId } = req.params;
+    const { schoolId } = req;
+    const parsed = BookSessionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
 
-        const parsed = BookSessionSchema.safeParse(req.body);
-        if (!parsed.success) {
-            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-        }
+    const { enrollment_id, user_id, child_id, is_secondary, booking_type } = parsed.data;
 
-        const { enrollment_id, user_id, child_id, is_secondary, booking_type } = parsed.data;
+    const { data, error } = await supabase.from('session_bookings').insert({
+      school_id: schoolId, session_id: sessionId, enrollment_id,
+      user_id: user_id || null, child_id: child_id || null,
+      is_secondary, booking_type, status: 'confirmed',
+    }).select().single();
 
-        // El trigger fn_process_session_booking valida aforo, créditos y concurrencia
-        const { data, error } = await supabase
-            .from('session_bookings')
-            .insert({
-                school_id: schoolId,
-                session_id: sessionId,
-                enrollment_id,
-                user_id: user_id || null,
-                child_id: child_id || null,
-                is_secondary,
-                booking_type,
-                status: 'confirmed',
-            })
-            .select()
-            .single();
+    if (error) return res.status(409).json({ error: error.message });
 
-        if (error) {
-            const msg = error.message || '';
-            if (msg.includes('Sesión llena')) {
-                return res.status(409).json({ error: 'Sesión llena', code: 'SESSION_FULL' });
-            }
-            if (msg.includes('Sesiones agotadas') || msg.includes('secundarias agotadas')) {
-                return res.status(409).json({ error: 'Sesiones agotadas en tu plan', code: 'SESSIONS_EXHAUSTED' });
-            }
-            if (msg.includes('plan ha expirado')) {
-                return res.status(409).json({ error: 'Tu plan ha expirado', code: 'PLAN_EXPIRED' });
-            }
-            if (msg.includes('finalizada')) {
-                return res.status(409).json({ error: 'Sesión ya finalizada', code: 'SESSION_FINALIZED' });
-            }
-            if (msg.includes('enrollment no está activo')) {
-                return res.status(409).json({ error: 'Tu inscripción no está activa', code: 'ENROLLMENT_INACTIVE' });
-            }
-            if (error.code === '23505') {
-                return res.status(409).json({ error: 'Ya tienes una reserva en esta sesión', code: 'ALREADY_BOOKED' });
-            }
-            throw error;
-        }
+    const f = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
+    const { data: enr } = await supabase.from('enrollments').select(f).eq('id', enrollment_id).single();
+    if (enr) await supabase.from('enrollments').update({ [f]: ((enr as any)[f] || 0) + 1 }).eq('id', enrollment_id);
 
-        res.status(201).json({ booking: data });
-    } catch (err) {
-        (req as any).log?.error({ err }, 'Error creating booking');
-        res.status(500).json({ error: 'Error al crear reserva' });
-    }
+    res.status(201).json({ booking: data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /api/v1/sessions/:id/bookings ───────────────────────────────────────
+router.get('/:id/bookings', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: Request, res: Response) => {
+  try {
+    const { id: sessionId } = req.params;
+    const { schoolId } = req;
+    const { data, error } = await supabase.from('session_bookings')
+      .select('id, status, booking_type, is_secondary, booked_at, user_id, child_id, enrollment_id')
+      .eq('session_id', sessionId).eq('school_id', schoolId).neq('status', 'cancelled');
 
-router.get('/:id/bookings',
-    requireAuth,
-    requireRole('owner', 'admin', 'school_admin', 'coach'),
-    async (req: Request, res: Response) => {
-        try {
-            const { id: sessionId } = req.params;
-            const { schoolId } = req;
+    if (error) throw error;
+    if (!data?.length) return res.json({ bookings: [] });
 
-            const { data, error } = await supabase
-                .from('session_bookings')
-                .select(`
-                    id, status, booking_type, is_secondary, booked_at,
-                    cancelled_at, user_id, child_id, enrollment_id
-                `)
-                .eq('session_id', sessionId)
-                .eq('school_id', schoolId)
-                .neq('status', 'cancelled')
-                .order('booked_at', { ascending: true });
+    const uIds = [...new Set(data.map(b => b.user_id).filter(Boolean))];
+    const cIds = [...new Set(data.map(b => b.child_id).filter(Boolean))];
+    const eIds = [...new Set(data.map(b => b.enrollment_id))];
 
-            if (error) throw error;
-            if (!data || data.length === 0) {
-                return res.json({ bookings: [] });
-            }
+    const [pRes, cRes, eRes] = await Promise.all([
+      uIds.length ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', uIds) : Promise.resolve({ data: [] }),
+      cIds.length ? supabase.from('children').select('id, full_name, avatar_url').in('id', cIds) : Promise.resolve({ data: [] }),
+      supabase.from('enrollments').select('id, sessions_used, plan:offering_plans(name)').in('id', eIds),
+    ]);
 
-            // ── 3 queries en paralelo en lugar de N×3 ──────────────────────
-            const userIds = [...new Set(data.filter(b => b.user_id).map(b => b.user_id))];
-            const childIds = [...new Set(data.filter(b => b.child_id).map(b => b.child_id))];
-            const enrollIds = [...new Set(data.map(b => b.enrollment_id))];
+    const pM = Object.fromEntries((pRes.data || []).map(p => [p.id, p]));
+    const cM = Object.fromEntries((cRes.data || []).map(c => [c.id, c]));
+    const eM = Object.fromEntries((eRes.data || []).map(e => [e.id, e]));
 
-            const [profilesRes, childrenRes, enrollmentsRes] = await Promise.all([
-                userIds.length
-                    ? supabase
-                        .from('profiles')
-                        .select('id, full_name, avatar_url')
-                        .in('id', userIds)
-                    : Promise.resolve({ data: [], error: null }),
-                childIds.length
-                    ? supabase
-                        .from('children')
-                        .select('id, full_name, avatar_url')
-                        .in('id', childIds)
-                    : Promise.resolve({ data: [], error: null }),
-                supabase
-                    .from('enrollments')
-                    .select(`
-                        id, sessions_used, secondary_sessions_used, offering_plan_id,
-                        plan:offering_plans(name, max_sessions, max_secondary_sessions)
-                    `)
-                    .in('id', enrollIds),
-            ]);
-
-            if (enrollmentsRes.error) throw enrollmentsRes.error;
-
-            // ── Mapas para lookup O(1) ──────────────────────────────────────
-            const profileMap = Object.fromEntries(
-                (profilesRes.data || []).map(p => [p.id, p])
-            );
-            const childMap = Object.fromEntries(
-                (childrenRes.data || []).map(c => [c.id, c])
-            );
-            const enrollmentMap = Object.fromEntries(
-                (enrollmentsRes.data || []).map(e => [e.id, e])
-            );
-
-            const enriched = data.map(booking => ({
-                ...booking,
-                person: booking.user_id
-                    ? (profileMap[booking.user_id as string] ?? null)
-                    : (childMap[booking.child_id as string] ?? null),
-                enrollment: booking.enrollment_id ? (enrollmentMap[booking.enrollment_id] ?? null) : null,
-            }));
-
-            res.json({ bookings: enriched });
-        } catch (err) {
-            (req as any).log?.error({ err }, 'Error listing bookings');
-            res.status(500).json({ error: 'Error al listar reservas' });
-        }
-    }
-);
-
-// ── DELETE /api/v1/sessions/bookings/:id (cancel booking) ───────────────────
+    res.json({
+      bookings: data.map(b => ({
+        ...b,
+        person: b.user_id ? pM[b.user_id as string] : cM[b.child_id as string],
+        enrollment: eM[b.enrollment_id],
+      }))
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) => {
-    try {
-        const { id } = req.params;
-        const { schoolId } = req;
-        const userId = req.user.id;
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { data: b, error } = await supabase
+      .from('session_bookings')
+      .select('id, user_id, child_id, status, session_id, enrollment_id, is_secondary')
+      .eq('id', id).single();
 
-        const { data: booking, error: fetchErr } = await supabase
-            .from('session_bookings')
-            .select('id, user_id, child_id, status, session_id')
-            .eq('id', id)
-            .eq('school_id', schoolId)
-            .single();
+    if (error || !b) return res.status(404).json({ error: 'Reserva no encontrada' });
+    if (b.status !== 'confirmed') return res.status(400).json({ error: 'Solo reservas confirmadas' });
 
-        if (fetchErr || !booking) {
-            return res.status(404).json({ error: 'Reserva no encontrada' });
-        }
-
-        if (booking.status !== 'confirmed') {
-            return res.status(400).json({ error: 'Solo se pueden cancelar reservas confirmadas' });
-        }
-
-        // Verificar ownership
-        const isOwner = booking.user_id === userId;
-        let isParent = false;
-        if (booking.child_id) {
-            const { data: child } = await supabase
-                .from('children')
-                .select('parent_id')
-                .eq('id', booking.child_id)
-                .single();
-            isParent = child?.parent_id === userId;
-        }
-
-        if (!isOwner && !isParent && !['owner', 'admin', 'super_admin', 'school_admin'].includes(req.role)) {
-            return res.status(403).json({ error: 'No tienes permiso para cancelar esta reserva' });
-        }
-
-        // Cancelar — trigger trg_decrement_bookings_on_cancel decrementa current_bookings
-        const { error: updateErr } = await supabase
-            .from('session_bookings')
-            .update({
-                status: 'cancelled',
-                cancelled_at: new Date().toISOString(),
-                cancelled_reason: 'Cancelado por usuario',
-            })
-            .eq('id', id);
-
-        if (updateErr) throw updateErr;
-
-        res.json({ success: true });
-    } catch (err) {
-        (req as any).log?.error({ err }, 'Error cancelling booking');
-        res.status(500).json({ error: 'Error al cancelar reserva' });
+    if (b.user_id !== userId && !['owner', 'admin', 'school_admin'].includes(req.role)) {
+      let isParent = false;
+      if (b.child_id) {
+        const { data: child } = await supabase.from('children').select('parent_id').eq('id', b.child_id).single();
+        isParent = child?.parent_id === userId;
+      }
+      if (!isParent) return res.status(403).json({ error: 'Sin permiso' });
     }
-});
 
-// ── GET /api/v1/sessions/my-bookings ────────────────────────────────────────
+    await supabase.from('session_bookings')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .eq('id', id);
+
+    const f = b.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
+    const { data: enr } = await supabase.from('enrollments').select(f).eq('id', b.enrollment_id).single();
+    if (enr) await supabase.from('enrollments')
+      .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
+      .eq('id', b.enrollment_id);
+
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 router.get('/my-bookings', requireAuth, async (req: Request, res: Response) => {
-    try {
-        const { schoolId } = req;
-        const userId = req.user.id;
-        const { child_id, status: statusFilter } = req.query;
+  try {
+    const userId = req.user.id;
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'No autorizado' });
 
-        let query = supabase
-            .from('session_bookings')
-            .select(`
-                id, status, booking_type, is_secondary, booked_at, session_id,
-                session:attendance_sessions(id, session_date, team_id, finalized)
-            `)
-            .eq('school_id', schoolId)
-            .order('booked_at', { ascending: false })
-            .limit(50);
+    let query = supabase.from('session_bookings')
+      .select(`id, status, booked_at, session:attendance_sessions(id, session_date)`)
+      .order('booked_at', { ascending: false });
+    if (child_id) query = query.eq('child_id', child_id);
+    else query = query.eq('user_id', userId);
 
-        if (child_id) {
-            query = query.eq('child_id', child_id as string);
-        } else {
-            query = query.eq('user_id', userId);
-        }
-
-        if (statusFilter) {
-            query = query.eq('status', statusFilter as string);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
-
-        res.json({ bookings: data });
-    } catch (err) {
-        (req as any).log?.error({ err }, 'Error fetching my bookings');
-        res.status(500).json({ error: 'Error al obtener mis reservas' });
-    }
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ bookings: data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// AGREGAR al final de bff/src/routes/session-bookings.ts
-// ANTES de: export default router;
-//
-// Nuevos endpoints (9 total):
-//   GET  /athlete/available          — sesiones bookables del atleta
-//   POST /athlete/book               — reservar sesión principal
-//   GET  /athlete/my-bookings        — reservas activas del atleta
-//   DELETE /athlete/:id/cancel       — cancelar reserva principal
-//   POST /generate-sessions          — generar sesiones (owner/coach)
-//   GET  /athlete/upcoming           — sesiones panel lateral "Clases Programadas"
-//   POST /athlete/book-secondary     — reservar clase GYM (secundaria)
-//   GET  /athlete/secondary-bookings — reservas GYM del atleta
-//   DELETE /athlete/secondary/:id/cancel — cancelar reserva GYM
-// ═══════════════════════════════════════════════════════════════════════════
+// ── ATHLETE / PARENT ROUTES ──────────────────────────────────────────────────
 
-// ── GET /athlete/available ────────────────────────────────────────────────────
 router.get('/athlete/available', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'No autorizado' });
 
-    // Enrollments activos — con offering_id resuelto desde offering_plans
-    const { data: enrollments, error: enrollErr } = await supabase
-      .from('enrollments')
-      .select(`
-        id, school_id, team_id, offering_plan_id,
-        sessions_used, expires_at,
-        offering_plans!enrollments_offering_plan_id_fkey(
-          max_sessions, offering_id
-        )
-      `)
-      .eq('user_id', userId)
-      .eq('status', 'active');
+    // ── Fetch enrollments separados por tipo ──────────────────────────────
+    let q = supabase.from('enrollments').select(`
+      id, school_id, team_id, offering_plan_id, sessions_used,
+      offering_plans!enrollments_offering_plan_id_fkey(max_sessions, offering_id)
+    `).eq('status', 'active');
+    if (child_id) q = q.eq('child_id', child_id);
+    else q = q.eq('user_id', userId);
 
-    if (enrollErr) throw enrollErr;
-    if (!enrollments?.length) return res.json({ sessions: [] });
+    const { data: enrs, error: eErr } = await q;
+    if (eErr || !enrs?.length) return res.json({ sessions: [] });
 
-    const resolvedSchoolId = (enrollments[0] as any).school_id;
+    const sId = enrs[0].school_id;
 
-    // Separar enrollments por tipo
-    const planEnrollments  = enrollments.filter((e: any) => e.offering_plan_id);
-    const teamEnrollments  = enrollments.filter((e: any) => e.team_id && !e.offering_plan_id);
+    // Enrollments de EQUIPO: tienen team_id y NO tienen offering_plan_id
+    const teamEnrollments = enrs.filter(e => e.team_id && !e.offering_plan_id);
+    // Enrollments de PLAN:   tienen offering_plan_id (con o sin team_id — arquitectura desacoplada)
+    const planEnrollments = enrs.filter(e => e.offering_plan_id);
 
-    const offeringIds = [...new Set(
-      planEnrollments.map((e: any) => (e.offering_plans as any)?.offering_id).filter(Boolean)
-    )];
-    const teamIds = [...new Set(
-      teamEnrollments.map((e: any) => e.team_id).filter(Boolean)
-    )];
+    const tIds = teamEnrollments.map(e => e.team_id).filter(Boolean);
+    const oIds = planEnrollments
+      .map(e => (e.offering_plans as any)?.offering_id)
+      .filter(Boolean);
 
-    // Buscar sesiones por offering_id (planes desacoplados)
-    const offeringSessions = offeringIds.length
-      ? await supabase
-          .from('attendance_sessions')
+    const today = todayInBogota();
+
+    const [tRes, oRes] = await Promise.all([
+      tIds.length
+        ? supabase.from('attendance_sessions')
           .select(`
-            id, team_id, offering_id, session_date, start_time, end_time,
-            max_capacity, current_bookings, finalized, is_bookable,
-            school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
-          `)
-          .eq('school_id', resolvedSchoolId)
-          .eq('is_bookable', true).eq('finalized', false)
-          .in('offering_id', offeringIds)
-          .gte('session_date', todayInBogota())
-          .lte('session_date', new Date(Date.now() + 28 * 86400000).toISOString().split('T')[0])
-          .order('session_date', { ascending: true }).order('start_time', { ascending: true })
-      : { data: [] };
-
-    // Buscar sesiones por team_id (equipos sin plan)
-    const teamSessions = teamIds.length
-      ? await supabase
-          .from('attendance_sessions')
+              id, team_id, session_date, start_time, end_time,
+              max_capacity, current_bookings,
+              team:teams!attendance_sessions_team_id_fkey(id, name, sport),
+              coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
+            `)
+          .eq('school_id', sId)
+          .in('team_id', tIds)
+          .eq('is_bookable', true)
+          .eq('finalized', false)
+          .gte('session_date', today)
+        : Promise.resolve({ data: [] }),
+      oIds.length
+        ? supabase.from('attendance_sessions')
           .select(`
-            id, team_id, offering_id, session_date, start_time, end_time,
-            max_capacity, current_bookings, finalized, is_bookable,
-            teams(id, name, sport),
-            school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
-          `)
-          .eq('school_id', resolvedSchoolId)
-          .eq('is_bookable', true).eq('finalized', false)
-          .in('team_id', teamIds)
-          .gte('session_date', todayInBogota())
-          .lte('session_date', new Date(Date.now() + 28 * 86400000).toISOString().split('T')[0])
-          .order('session_date', { ascending: true }).order('start_time', { ascending: true })
-      : { data: [] };
+              id, offering_id, session_date, start_time, end_time,
+              max_capacity, current_bookings,
+              coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
+            `)
+          .eq('school_id', sId)
+          .in('offering_id', oIds)
+          .eq('is_bookable', true)
+          .eq('finalized', false)
+          .gte('session_date', today)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-    const allSessions = [
-      ...((offeringSessions as any).data ?? []),
-      ...((teamSessions as any).data ?? []),
-    ];
+    const teamSessions = (tRes.data || []).map((s: any) => ({ ...s, session_type: 'team' as const }));
+    const offeringSessions = (oRes.data || []).map((s: any) => ({ ...s, session_type: 'offering' as const }));
+    const allSessions = [...teamSessions, ...offeringSessions];
 
     if (!allSessions.length) return res.json({ sessions: [] });
 
-    // Bookings existentes del atleta
-    const sessionIds = allSessions.map((s: any) => s.id);
-    const { data: myBookings } = await supabase
-      .from('session_bookings').select('session_id')
-      .eq('user_id', userId).in('session_id', sessionIds).neq('status', 'cancelled');
-    const bookedIds = new Set((myBookings ?? []).map((b: any) => b.session_id));
+    // ── Bookings del atleta para marcar already_booked ────────────────────
+    const sIds = allSessions.map(s => s.id);
+    let bQ = supabase.from('session_bookings')
+      .select('session_id')
+      .in('session_id', sIds)
+      .neq('status', 'cancelled');
+    if (child_id) bQ = bQ.eq('child_id', child_id);
+    else bQ = bQ.eq('user_id', userId);
 
-    // Enriquecer sesiones
-    const enriched = allSessions.map((s: any) => {
-      // Resolver enrollment y nombre del contexto
-      let enrollment: any = null;
-      let contextName = '';
+    const { data: booked } = await bQ;
+    const bookedSet = new Set((booked || []).map(b => b.session_id));
 
-      if (s.offering_id) {
-        enrollment = planEnrollments.find(
-          (e: any) => (e.offering_plans as any)?.offering_id === s.offering_id
-        );
-        // Nombre del plan (se puede mejorar con join al offering)
-        contextName = 'Plan';
-      } else if (s.team_id) {
-        enrollment = teamEnrollments.find((e: any) => e.team_id === s.team_id);
-        contextName = (s.teams as any)?.name ?? 'Equipo';
+    // ── Mapear manteniendo teams y offerings separados ────────────────────
+    const sessions = allSessions.map((s: any) => {
+      const availableSpots = Math.max(0, s.max_capacity - s.current_bookings);
+      const alreadyBooked = bookedSet.has(s.id);
+      const isFull = s.current_bookings >= s.max_capacity;
+
+      if (s.session_type === 'team') {
+        // Enrollment del equipo correspondiente
+        const enrollment = teamEnrollments.find(e => e.team_id === s.team_id);
+        return {
+          id: s.id,
+          session_type: 'team',
+          session_date: s.session_date,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          max_capacity: s.max_capacity,
+          current_bookings: s.current_bookings,
+          available_spots: availableSpots,
+          already_booked: alreadyBooked,
+          // Datos del equipo — nunca offering
+          team: s.team ?? null,
+          team_id: s.team_id,
+          offering_id: null,
+          coach: s.coach ?? null,
+          // Créditos: equipos no tienen límite de sesiones
+          sessions_left: null,
+          enrollment_id: enrollment?.id ?? null,
+          booking_status: alreadyBooked ? 'already_booked' : isFull ? 'full' : 'open',
+        };
       }
 
-      const plan = (enrollment as any)?.offering_plans as any;
-      const sessionsLeft = plan?.max_sessions != null
-        ? Math.max(0, plan.max_sessions - ((enrollment as any)?.sessions_used ?? 0))
-        : null;
+      // session_type === 'offering'
+      const enrollment = planEnrollments.find(
+        e => (e.offering_plans as any)?.offering_id === s.offering_id
+      );
+      const plan = (enrollment as any)?.offering_plans ?? null;
+      const maxSess = plan?.max_sessions ?? null;
+      const used = enrollment?.sessions_used ?? 0;
+      const sessLeft = maxSess !== null ? Math.max(0, maxSess - used) : null;
+      const noCredits = sessLeft !== null && sessLeft <= 0;
 
       return {
         id: s.id,
+        session_type: 'offering',
         session_date: s.session_date,
         start_time: s.start_time,
         end_time: s.end_time,
         max_capacity: s.max_capacity,
         current_bookings: s.current_bookings,
-        available_spots: Math.max(0, s.max_capacity - s.current_bookings),
-        // team puede ser null para sesiones de offering
-        team: s.teams
-          ? { id: (s.teams as any).id, name: (s.teams as any).name, sport: (s.teams as any).sport }
-          : { id: s.offering_id, name: contextName, sport: '' },
-        coach: (s.school_staff as any)
-          ? { id: (s.school_staff as any).id, name: (s.school_staff as any).full_name, specialty: (s.school_staff as any).specialty }
-          : null,
+        available_spots: availableSpots,
+        already_booked: alreadyBooked,
+        // Datos del offering — nunca team
+        team: null,
+        team_id: null,
+        offering_id: s.offering_id,
+        coach: s.coach ?? null,
+        // Créditos del plan
+        sessions_left: sessLeft,
         enrollment_id: enrollment?.id ?? null,
-        offering_id: s.offering_id ?? null,
-        sessions_left: sessionsLeft,
-        booking_status: bookedIds.has(s.id) ? 'already_booked'
-          : s.current_bookings >= s.max_capacity ? 'full'
-          : (sessionsLeft !== null && sessionsLeft <= 0) ? 'no_credits'
-          : 'open',
-        already_booked: bookedIds.has(s.id),
+        booking_status: alreadyBooked ? 'already_booked'
+          : isFull ? 'full'
+            : noCredits ? 'no_credits'
+              : 'open',
       };
     });
 
-    return res.json({ sessions: enriched });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /athlete/book ────────────────────────────────────────────────────────
-const AthleteBookSchema = z.object({
-  session_id:    z.string().uuid(),
-  enrollment_id: z.string().uuid(),
-  is_secondary:  z.boolean().optional().default(false),
+    res.json({ sessions });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/athlete/book-session', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { schoolId } = req;
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
-
     const parsed = AthleteBookSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-    const { session_id, enrollment_id, is_secondary } = parsed.data;
+    if (!parsed.success) return res.status(400).json({ error: 'invalid' });
+    const { session_id, enrollment_id, child_id, is_secondary } = parsed.data;
 
-    // Validar sesión
-    const { data: session, error: sErr } = await supabase
+    // ── 1. Validar ownership del child_id ─────────────────────────────────
+    if (child_id && !(await validateChildAccess(child_id, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    // ── 2. Validar que el enrollment pertenece al atleta ──────────────────
+    const { valid: enrollmentValid, schoolId: enrollmentSchoolId } =
+      await validateEnrollmentOwnership(enrollment_id, userId, child_id);
+    if (!enrollmentValid)
+      return res.status(403).json({ error: 'enrollment_unauthorized' });
+
+    // ── 3. Validar sesión y capacidad ─────────────────────────────────────
+    const { data: s } = await supabase
       .from('attendance_sessions')
-      .select('id, team_id, offering_id, school_id, is_bookable, max_capacity, current_bookings, finalized')
-      .eq('id', session_id).single();
+      .select('school_id, max_capacity, current_bookings')
+      .eq('id', session_id)
+      .single();
+    if (!s) return res.status(404).json({ error: 'not_found' });
+    if (s.current_bookings >= s.max_capacity)
+      return res.status(409).json({ error: 'session_full' });
 
-    if (sErr || !session) return res.status(404).json({ error: 'Sesión no encontrada' });
-    if (!session.is_bookable) return res.status(400).json({ error: 'Sesión no permite reservas' });
-    if (session.finalized) return res.status(400).json({ error: 'Sesión ya finalizada' });
-    if (session.current_bookings >= session.max_capacity) return res.status(409).json({ error: 'Sesión llena', code: 'SESSION_FULL' });
+    // ── 4. Insertar booking ───────────────────────────────────────────────
+    const { data: b, error } = await supabase.from('session_bookings').insert({
+      school_id: s.school_id,
+      session_id,
+      enrollment_id,
+      is_secondary: !!is_secondary,
+      user_id: child_id ? null : userId,
+      child_id: child_id || null,
+      status: 'confirmed',
+    }).select().single();
 
-    // Validar enrollment
-    const { data: enrollment, error: eErr } = await supabase
-      .from('enrollments')
-      .select('id, user_id, team_id, offering_plan_id, status, sessions_used, secondary_sessions_used, expires_at, offering_plans!enrollments_offering_plan_id_fkey(max_sessions, max_secondary_sessions)')
-      .eq('id', enrollment_id).eq('user_id', userId).eq('status', 'active').single();
+    if (error) return res.status(409).json({ error: error.message });
 
-    if (eErr || !enrollment) return res.status(403).json({ error: 'Inscripción no válida' });
-    const sessionIsForOffering = !!session.offering_id;
-    const sessionIsForTeam = !!session.team_id && !session.offering_id;
+    // ── 5. Incrementar contador de sesiones usadas ────────────────────────
+    const f = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
+    const { data: enr } = await supabase
+      .from('enrollments').select(f).eq('id', enrollment_id).single();
+    if (enr) await supabase.from('enrollments')
+      .update({ [f]: ((enr as any)[f] || 0) + 1 })
+      .eq('id', enrollment_id);
 
-    if (sessionIsForOffering) {
-      // Validar que el enrollment tiene acceso a ese offering
-      const { data: ep } = await supabase
-        .from('offering_plans')
-        .select('offering_id')
-        .eq('id', (enrollment as any).offering_plan_id)
-        .single();
-      if (!ep || ep.offering_id !== session.offering_id)
-        return res.status(403).json({ error: 'Sesión no pertenece a tu plan' });
-    } else if (sessionIsForTeam) {
-      if ((enrollment as any).team_id !== session.team_id)
-        return res.status(403).json({ error: 'Sesión no pertenece a tu equipo' });
-    }
-    if ((enrollment as any).expires_at && (enrollment as any).expires_at < todayInBogota()) {
-      return res.status(400).json({ error: 'Tu plan ha expirado', code: 'PLAN_EXPIRED' });
-    }
-
-    const plan = (enrollment as any).offering_plans as any;
-    if (!is_secondary && plan?.max_sessions != null && (enrollment as any).sessions_used >= plan.max_sessions) {
-      return res.status(400).json({ error: 'Sin sesiones disponibles en tu plan', code: 'NO_CREDITS' });
-    }
-
-    // Verificar duplicado
-    const { data: existing } = await supabase
-      .from('session_bookings').select('id')
-      .eq('session_id', session_id).eq('user_id', userId).neq('status', 'cancelled').maybeSingle();
-    if (existing) return res.status(409).json({ error: 'Ya tienes reserva para esta sesión', code: 'ALREADY_BOOKED' });
-
-    // Crear booking
-    const { data: booking, error: bErr } = await supabase
-      .from('session_bookings')
-      .insert({ school_id: session.school_id, session_id, enrollment_id, user_id: userId, status: 'confirmed', booking_type: 'reservation', is_secondary })
-      .select().single();
-    if (bErr) throw bErr;
-
-    // Incrementar contadores
-    const field = is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    await supabase.from('enrollments').update({ [field]: ((enrollment as any)[field] ?? 0) + 1 }).eq('id', enrollment_id);
-
-    return res.status(201).json({ booking, message: 'Reserva confirmada' });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
+    res.status(201).json({ booking: b });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /athlete/my-bookings ──────────────────────────────────────────────────
 router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { schoolId } = req;
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
 
-    const { data: enrollments } = await supabase
-      .from('enrollments')
-      .select('school_id')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .limit(1);
-
-    const resolvedSchoolId = (enrollments?.[0] as any)?.school_id ?? schoolId;
-
-    const { data, error } = await supabase
-      .from('session_bookings')
-      .select(`
-        id, status, booking_type, is_secondary, booked_at, enrollment_id,
-        attendance_sessions(
-          id, session_date, start_time, end_time, finalized,
-          school_staff!attendance_sessions_coach_id_fkey(id, full_name)
-        ),
-        enrollments(
-          offering_plans!enrollments_offering_plan_id_fkey(name),
-          teams(name)
-        )
-      `)
-      .eq('user_id', userId)
-      .eq('school_id', resolvedSchoolId)
+    // ── Fetch bookings con sesión y enrollment ────────────────────────────
+    // No anidamos offering_plans y teams en el mismo join para no mezclarlos.
+    // Los resolvemos en paralelo por separado.
+    let q = supabase.from('session_bookings').select(`
+      id, status, booked_at, is_secondary, enrollment_id,
+      attendance_sessions(
+        id, session_date, start_time, end_time, finalized,
+        coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name)
+      )
+    `)
       .neq('status', 'cancelled')
       .order('booked_at', { ascending: false });
 
+    if (child_id) q = q.eq('child_id', child_id);
+    else q = q.eq('user_id', userId);
+
+    const { data: bookings, error } = await q;
     if (error) throw error;
-    return res.json(data ?? []);
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
+    if (!bookings?.length) return res.json([]);
+
+    // ── Resolver enrollments por tipo (team vs plan) ──────────────────────
+    const enrollmentIds = [...new Set(bookings.map(b => b.enrollment_id).filter(Boolean))];
+    const { data: enrollments } = await supabase
+      .from('enrollments')
+      .select('id, team_id, offering_plan_id')
+      .in('id', enrollmentIds);
+
+    const enrollmentMap = Object.fromEntries((enrollments || []).map(e => [e.id, e]));
+
+    // IDs de teams y plans referenciados
+    const teamIds = [...new Set(
+      (enrollments || []).map(e => e.team_id).filter(Boolean)
+    )];
+    const planIds = [...new Set(
+      (enrollments || []).map(e => e.offering_plan_id).filter(Boolean)
+    )];
+
+    const [teamsRes, plansRes] = await Promise.all([
+      teamIds.length
+        ? supabase.from('teams').select('id, name').in('id', teamIds)
+        : Promise.resolve({ data: [] }),
+      planIds.length
+        ? supabase.from('offering_plans').select('id, name').in('id', planIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const teamMap = Object.fromEntries((teamsRes.data || []).map(t => [t.id, t]));
+    const planMap = Object.fromEntries((plansRes.data || []).map(p => [p.id, p]));
+
+    // ── Mapear respuesta con tipos separados ──────────────────────────────
+    const result = bookings.map((b: any) => {
+      const enrollment = enrollmentMap[b.enrollment_id] ?? null;
+      const isTeamBooking = enrollment?.team_id && !enrollment?.offering_plan_id;
+
+      return {
+        id: b.id,
+        status: b.status,
+        booked_at: b.booked_at,
+        is_secondary: b.is_secondary,
+        booking_type: isTeamBooking ? 'team' : 'offering',
+        enrollment_id: b.enrollment_id,
+        attendance_sessions: b.attendance_sessions,
+        // Nombre de contexto sin mezclar fuentes
+        enrollments: isTeamBooking
+          ? { teams: teamMap[enrollment.team_id] ?? null, offering_plans: null }
+          : { teams: null, offering_plans: planMap[enrollment?.offering_plan_id] ?? null },
+      };
+    });
+
+    res.json(result);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── DELETE /athlete/:id/cancel ────────────────────────────────────────────────
 router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
+    const { child_id } = req.query;
 
-    const { data: booking, error: fErr } = await supabase
+    // ── 1. Validar ownership del child_id ─────────────────────────────────
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    // ── 2. Fetch booking ──────────────────────────────────────────────────
+    const { data: b } = await supabase
       .from('session_bookings')
-      .select('id, session_id, enrollment_id, is_secondary, status, attendance_sessions(session_date, finalized)')
-      .eq('id', id).eq('user_id', userId).single();
+      .select('id, user_id, child_id, session_id, enrollment_id, is_secondary, status')
+      .eq('id', id)
+      .maybeSingle();
 
-    if (fErr || !booking) return res.status(404).json({ error: 'Reserva no encontrada' });
-    if ((booking as any).status === 'cancelled') return res.status(400).json({ error: 'Ya cancelada' });
-    if (((booking as any).attendance_sessions as any)?.finalized) return res.status(400).json({ error: 'Sesión ya finalizada' });
+    if (!b) return res.status(404).json({ error: 'not_found' });
+    if (b.status === 'cancelled') return res.status(400).json({ error: 'already_cancelled' });
 
-    await supabase.from('session_bookings').update({ status: 'cancelled', cancelled_at: new Date().toISOString() }).eq('id', id);
-    await supabase.rpc('decrement_session_bookings', { p_session_id: (booking as any).session_id });
+    // ── 3. Verificar que el booking pertenece al usuario autenticado ───────
+    const bookingBelongsToUser = child_id
+      ? b.child_id === child_id
+      : b.user_id === userId;
 
-    const field = (booking as any).is_secondary ? 'secondary_sessions_used' : 'sessions_used';
-    const { data: enr } = await supabase.from('enrollments').select(field).eq('id', (booking as any).enrollment_id).single();
-    if (enr) {
-      await supabase.from('enrollments').update({ [field]: Math.max(0, ((enr as any)[field] ?? 1) - 1) }).eq('id', (booking as any).enrollment_id);
-    }
+    if (!bookingBelongsToUser)
+      return res.status(403).json({ error: 'unauthorized' });
 
-    return res.json({ success: true, message: 'Reserva cancelada y crédito devuelto' });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
+    // ── 4. Cancelar y decrementar ─────────────────────────────────────────
+    await supabase.from('session_bookings')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .eq('id', id);
+
+    const f = b.is_secondary ? 'secondary_sessions_used' : 'sessions_used';
+    const { data: enr } = await supabase
+      .from('enrollments').select(f).eq('id', b.enrollment_id).single();
+    if (enr) await supabase.from('enrollments')
+      .update({ [f]: Math.max(0, ((enr as any)[f] || 0) - 1) })
+      .eq('id', b.enrollment_id);
+
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /generate-sessions ───────────────────────────────────────────────────
-router.post('/generate-sessions', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { schoolId } = req;
-    const parsed = z.object({
-      team_id: z.string().uuid(),
-      weeks:   z.number().int().min(1).max(8).optional().default(2),
-    }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-
-    const { data, error } = await supabase.rpc('fn_generate_bookable_sessions', {
-      p_school_id: schoolId,
-      p_team_id:   parsed.data.team_id,
-      p_weeks:     parsed.data.weeks,
-    });
-    if (error) throw error;
-
-    const created = (data ?? []).filter((r: any) => r.was_created);
-    return res.json({ message: `${created.length} sesiones creadas`, sessions: data });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ── GET /athlete/upcoming ─────────────────────────────────────────────────────
 router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
 
-    const { data: enrollments } = await supabase
-      .from('enrollments')
-      .select('team_id, school_id, offering_plan_id, offering_plans!enrollments_offering_plan_id_fkey(offering_id)')
-      .eq('user_id', userId).eq('status', 'active');
+    let q = supabase.from('session_bookings').select(`
+      id,
+      attendance_sessions!inner(
+        id, session_date, start_time, end_time,
+        team:teams!attendance_sessions_team_id_fkey(name),
+        coach:school_staff!attendance_sessions_coach_id_fkey(full_name)
+      )
+    `)
+      .neq('status', 'cancelled')
+      .gte('attendance_sessions.session_date', todayInBogota())
+      .order('session_date', { ascending: true, referencedTable: 'attendance_sessions' })
+      .limit(5);
 
-    if (!enrollments?.length) return res.json({ sessions: [] });
+    if (child_id) q = q.eq('child_id', child_id);
+    else q = q.eq('user_id', userId);
 
-    const resolvedSchoolId = (enrollments[0] as any).school_id;
-    const today = todayInBogota();
-    const in14  = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-
-    const teamIds = [...new Set(
-      enrollments.filter((e: any) => e.team_id && !e.offering_plan_id)
-        .map((e: any) => e.team_id).filter(Boolean)
-    )];
-    const offeringIds = [...new Set(
-      enrollments.filter((e: any) => e.offering_plan_id)
-        .map((e: any) => (e.offering_plans as any)?.offering_id).filter(Boolean)
-    )];
-
-    const [teamRes, offeringRes] = await Promise.all([
-      teamIds.length
-        ? supabase.from('attendance_sessions')
-            .select('id, session_date, start_time, end_time, current_bookings, max_capacity, teams:team_id(id, name, sport), coach:coach_id(id, full_name, specialty)')
-            .eq('school_id', resolvedSchoolId).in('team_id', teamIds)
-            .eq('is_bookable', true).eq('finalized', false)
-            .gte('session_date', today).lte('session_date', in14)
-            .order('session_date', { ascending: true }).order('start_time', { ascending: true }).limit(5)
-        : Promise.resolve({ data: [] }),
-      offeringIds.length
-        ? supabase.from('attendance_sessions')
-            .select('id, session_date, start_time, end_time, current_bookings, max_capacity, offering_id, coach:coach_id(id, full_name, specialty)')
-            .eq('school_id', resolvedSchoolId).in('offering_id', offeringIds)
-            .eq('is_bookable', true).eq('finalized', false)
-            .gte('session_date', today).lte('session_date', in14)
-            .order('session_date', { ascending: true }).order('start_time', { ascending: true }).limit(5)
-        : Promise.resolve({ data: [] }),
-    ]);
-
-    const allSessions = [
-      ...((teamRes as any).data ?? []),
-      ...((offeringRes as any).data ?? []),
-    ].sort((a: any, b: any) =>
-      a.session_date.localeCompare(b.session_date) || a.start_time.localeCompare(b.start_time)
-    ).slice(0, 10);
-
-    const sIds = allSessions.map((s: any) => s.id);
-    const { data: booked } = sIds.length
-      ? await supabase.from('session_bookings').select('session_id')
-          .eq('user_id', userId).in('session_id', sIds).in('status', ['confirmed', 'attended'])
-      : { data: [] };
-    const bookedSet = new Set((booked ?? []).map((b: any) => b.session_id));
-
-    return res.json({
-      sessions: allSessions.map((s: any) => ({
-        id: s.id,
-        session_date: s.session_date,
-        start_time: s.start_time,
-        end_time: s.end_time,
-        available_spots: Math.max(0, (s.max_capacity ?? 20) - (s.current_bookings ?? 0)),
-        max_capacity: s.max_capacity ?? 20,
-        current_bookings: s.current_bookings ?? 0,
-        already_booked: bookedSet.has(s.id),
-        team: s.teams ?? (s.offering_id ? { id: s.offering_id, name: 'Plan', sport: '' } : null),
-        coach: s.coach ? { id: s.coach.id, name: s.coach.full_name, specialty: s.coach.specialty } : null,
-      })),
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /athlete/book-secondary ──────────────────────────────────────────────
-const BookSecondarySchema = z.object({
-  enrollment_id:    z.string().uuid(),
-  facility_id:      z.string().uuid(),
-  reservation_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  slots: z.array(z.object({
-    start_time:       z.string().regex(/^\d{2}:\d{2}$/),
-    end_time:         z.string().regex(/^\d{2}:\d{2}$/),
-  })).min(1).max(2),
-  notes:            z.string().optional(),
+    const { data } = await q;
+    res.json({ sessions: (data || []).map((d: any) => d.attendance_sessions) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
-
     const parsed = BookSecondarySchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-    const { enrollment_id, facility_id, reservation_date, slots, notes } = parsed.data;
+    if (!parsed.success) return res.status(400).json({ error: 'invalid' });
+    const { enrollment_id, facility_id, reservation_date, slots, child_id } = parsed.data;
 
-    // Validar enrollment y créditos secundarios
-    const { data: enrollment, error: eErr } = await supabase
+    // ── 1. Validar ownership del child_id ─────────────────────────────────
+    if (child_id && !(await validateChildAccess(child_id, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    // ── 2. Validar que el enrollment pertenece al atleta ──────────────────
+    const { valid: enrollmentValid } =
+      await validateEnrollmentOwnership(enrollment_id, userId, child_id);
+    if (!enrollmentValid)
+      return res.status(403).json({ error: 'enrollment_unauthorized' });
+
+    // ── 3. Insertar reserva ───────────────────────────────────────────────
+    const { data: b, error } = await supabase.from('facility_reservations').insert({
+      facility_id,
+      school_id: req.schoolId,
+      user_id: child_id ? null : userId,
+      child_id: child_id || null,
+      enrollment_id,
+      reservation_date,
+      start_time: slots[0].start_time,
+      end_time: slots[slots.length - 1].end_time,
+      status: 'confirmed',
+      resv_type: 'secondary_class',
+    }).select().single();
+
+    if (error) throw error;
+
+    // ── 4. Incrementar secundarias usadas ─────────────────────────────────
+    const { data: enr } = await supabase
       .from('enrollments')
-      .select('id, user_id, status, secondary_sessions_used, expires_at, offering_plans!enrollments_offering_plan_id_fkey(max_secondary_sessions, metadata)')
-      .eq('id', enrollment_id).single();
-
-    if (eErr || !enrollment) return res.status(404).json({ error: 'Inscripción no encontrada' });
-    if ((enrollment as any).user_id !== userId) return res.status(403).json({ error: 'No autorizado' });
-    if ((enrollment as any).status !== 'active') return res.status(400).json({ error: 'Inscripción no activa' });
-    if ((enrollment as any).expires_at && (enrollment as any).expires_at < todayInBogota()) {
-      return res.status(400).json({ error: 'Tu plan ha expirado' });
-    }
-
-    const plan = (enrollment as any).offering_plans as any;
-    const maxSec = plan?.max_secondary_sessions ?? 0;
-    const currentUsed = (enrollment as any).secondary_sessions_used ?? 0;
-
-    if (maxSec === 0) return res.status(400).json({ error: 'Tu plan no incluye clases secundarias' });
-
-    // Calcular créditos a descontar
-    let creditsToDeduct = slots.length;
-    if (slots.length === 2) {
-      const sorted = [...slots].sort((a, b) => a.start_time.localeCompare(b.start_time));
-      if (sorted[0].end_time === sorted[1].start_time) {
-        creditsToDeduct = 1;
-      }
-    }
-
-    if (currentUsed + creditsToDeduct > maxSec) {
-      return res.status(400).json({ error: 'No tienes suficientes clases secundarias disponibles' });
-    }
-
-    // Validar instalación
-    const { data: facility, error: fErr } = await supabase
-      .from('facilities').select('id, school_id, capacity, name').eq('id', facility_id).single();
-    if (fErr || !facility) return res.status(404).json({ error: 'Instalación no encontrada' });
-
-    // Verificar cupo y duplicados para cada slot
-    for (const slot of slots) {
-      const { count: slotCount } = await supabase
-        .from('facility_reservations').select('*', { count: 'exact', head: true })
-        .eq('facility_id', facility_id).eq('reservation_date', reservation_date)
-        .eq('start_time', `${slot.start_time}:00`).neq('status', 'cancelled');
-
-      if ((slotCount ?? 0) >= ((facility as any).capacity ?? 20)) {
-        return res.status(409).json({ error: `No hay cupo disponible a las ${slot.start_time}` });
-      }
-
-      const { data: existing } = await supabase
-        .from('facility_reservations').select('id')
-        .eq('facility_id', facility_id).eq('user_id', userId).eq('reservation_date', reservation_date)
-        .eq('start_time', `${slot.start_time}:00`).neq('status', 'cancelled').maybeSingle();
-
-      if (existing) {
-        return res.status(409).json({ error: `Ya tienes agendada esta clase a las ${slot.start_time}.` });
-      }
-    }
-
-    // Crear reservas
-    const createdReservations = [];
-    for (const slot of slots) {
-      const { data: reservation, error: rErr } = await supabase
-        .from('facility_reservations')
-        .insert({
-          facility_id, user_id: userId, reservation_date,
-          start_time: `${slot.start_time}:00`, end_time: `${slot.end_time}:00`,
-          status: 'confirmed', school_id: (facility as any).school_id,
-          notes: notes ?? `Clase ${plan?.metadata?.secondary_session_label ?? 'GYM'}`,
-          booker_type: 'athlete', resv_type: 'secondary_class', payment_status: 'paid',
-        })
-        .select().single();
-
-      if (rErr) throw rErr;
-      createdReservations.push(reservation);
-    }
-
-    // Descontar créditos
-    const { error: uErr } = await supabase.from('enrollments')
-      .update({ secondary_sessions_used: currentUsed + creditsToDeduct })
+      .select('secondary_sessions_used')
+      .eq('id', enrollment_id)
+      .single();
+    if (enr) await supabase.from('enrollments')
+      .update({ secondary_sessions_used: ((enr as any).secondary_sessions_used || 0) + 1 })
       .eq('id', enrollment_id);
 
-    if (uErr) {
-      // Rollback (cancelar reservas creadas)
-      const ids = createdReservations.map(r => (r as any).id);
-      await supabase.from('facility_reservations').update({ status: 'cancelled' }).in('id', ids);
-      throw uErr;
-    }
-
-    return res.status(201).json({
-      reservations: createdReservations,
-      secondary_sessions_remaining: maxSec - (currentUsed + creditsToDeduct),
-    });
-  } catch (err: any) {
-    (req as any).log?.error({ err }, 'Error booking secondary');
-    return res.status(500).json({ error: err.message });
-  }
+    res.status(201).json({ reservation: b });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /athlete/secondary-bookings ──────────────────────────────────────────
 router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
 
-    const { data, error } = await supabase
-      .from('facility_reservations')
-      .select('id, reservation_date, start_time, end_time, status, notes, facilities:facility_id(id, name, type)')
-      .eq('user_id', userId).eq('resv_type', 'secondary_class')
+    let q = supabase.from('facility_reservations')
+      .select('id, status, reservation_date, start_time, end_time, facilities(name, id)')
+      .eq('resv_type', 'secondary_class')
       .neq('status', 'cancelled')
-      .gte('reservation_date', todayInBogota())
-      .order('reservation_date', { ascending: true }).order('start_time', { ascending: true });
+      .order('reservation_date', { ascending: false });
 
-    if (error) throw error;
-    return res.json(data ?? []);
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
+    if (child_id) q = q.eq('child_id', child_id);
+    else q = q.eq('user_id', userId);
+
+    const { data } = await q;
+    res.json(data || []);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── DELETE /athlete/secondary/:id/cancel ──────────────────────────────────────
 router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { id } = req.params;
+    const { child_id } = req.query;
 
-    const { data: reservation, error: rErr } = await supabase
+    // ── 1. Validar ownership del child_id ─────────────────────────────────
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    // ── 2. Fetch reserva ──────────────────────────────────────────────────
+    const { data: r } = await supabase
       .from('facility_reservations')
-      .select('id, user_id, status, reservation_date, start_time')
-      .eq('id', id).single();
-
-    if (rErr || !reservation) return res.status(404).json({ error: 'Reserva no encontrada' });
-    if ((reservation as any).user_id !== userId) return res.status(403).json({ error: 'No autorizado' });
-    if ((reservation as any).status === 'cancelled') return res.status(400).json({ error: 'Ya cancelada' });
-
-    // Verificar si es pasada usando solo fecha (según requerimiento de hoy vs hoy)
-    if ((reservation as any).reservation_date < todayInBogota()) {
-      return res.status(400).json({ error: 'No puedes cancelar una clase pasada' });
-    }
-
-    await supabase.from('facility_reservations')
-      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() }).eq('id', id);
-
-    // Devolver crédito
-    const { data: enr } = await supabase
-      .from('enrollments').select('id, secondary_sessions_used')
-      .eq('user_id', userId).eq('status', 'active').not('offering_plan_id', 'is', null)
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
-
-    if (enr && ((enr as any).secondary_sessions_used ?? 0) > 0) {
-      await supabase.from('enrollments')
-        .update({ secondary_sessions_used: (enr as any).secondary_sessions_used - 1 })
-        .eq('id', (enr as any).id);
-    }
-
-    return res.json({ success: true, message: 'Reserva cancelada y crédito devuelto' });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ── POST /generate-offering-sessions ─────────────────────────────────────────
-// Genera attendance_sessions para el módulo de OFFERINGS/PLANES.
-// El coach se resuelve desde school_staff de la escuela (no desde offering_coaches).
-// Llamar desde el panel admin cuando se configure/actualice disponibilidad del coach.
-router.post('/generate-offering-sessions',
-  requireAuth,
-  requireRole('owner', 'admin', 'school_admin'),
-  async (req: Request, res: Response) => {
-    try {
-      const { schoolId } = req;
-      const parsed = z.object({
-        offering_id: z.string().uuid(),
-        weeks: z.number().int().min(1).max(8).optional().default(2),
-      }).safeParse(req.body);
-
-      if (!parsed.success) {
-        return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
-      }
-
-      const { data, error } = await supabase.rpc('fn_generate_offering_sessions', {
-        p_school_id:   schoolId,
-        p_offering_id: parsed.data.offering_id,
-        p_weeks:       parsed.data.weeks,
-      });
-
-      if (error) throw error;
-
-      const created = (data ?? []).filter((r: any) => r.was_created);
-      return res.json({
-        message: `${created.length} sesiones creadas`,
-        sessions: data,
-      });
-    } catch (err: any) {
-      (req as any).log?.error({ err }, 'Error generating offering sessions');
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-// ── GET /extend-horizon ──────────────────────────────────────────────────────
-// Llamar al cargar el panel admin de sesiones o el módulo "Mis Clases" del atleta
-router.get('/extend-horizon', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { schoolId } = req;
-    const { data, error } = await supabase.rpc('fn_extend_session_horizon', {
-      p_school_id: schoolId,
-      p_min_weeks: 2,
-      p_target_weeks: 4,
-    });
-    if (error) throw error;
-    res.json({ sessions_created: data });
-  } catch (err: any) {
-    (req as any).log?.error({ err }, 'Error extending session horizon');
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/v1/session-bookings/facility/:id/slots?date=YYYY-MM-DD
-// Devuelve los slots disponibles de la facilidad para una fecha,
-// generados desde available_hours y restando los ya reservados.
-router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { schoolId } = req;
-
-    // Fecha en timezone Colombia — si no viene en query, usar hoy
-    const dateStr = (req.query.date as string) || todayInBogota();
-
-    // Obtener facilidad con available_hours
-    const { data: facility, error: fErr } = await supabase
-      .from('facilities')
-      .select('id, name, capacity, available_hours')
+      .select('id, user_id, child_id, enrollment_id, status')
       .eq('id', id)
+      .maybeSingle();
+
+    if (!r) return res.status(404).json({ error: 'not_found' });
+    if (r.status === 'cancelled') return res.status(400).json({ error: 'already_cancelled' });
+
+    // ── 3. Verificar que la reserva pertenece al usuario autenticado ───────
+    const reservationBelongsToUser = child_id
+      ? r.child_id === child_id
+      : r.user_id === userId;
+
+    if (!reservationBelongsToUser)
+      return res.status(403).json({ error: 'unauthorized' });
+
+    // ── 4. Cancelar y decrementar ─────────────────────────────────────────
+    await supabase.from('facility_reservations')
+      .update({ status: 'cancelled' })
+      .eq('id', id);
+
+    const { data: enr } = await supabase
+      .from('enrollments')
+      .select('secondary_sessions_used')
+      .eq('id', r.enrollment_id)
       .single();
+    if (enr) await supabase.from('enrollments')
+      .update({ secondary_sessions_used: Math.max(0, ((enr as any).secondary_sessions_used || 0) - 1) })
+      .eq('id', r.enrollment_id);
 
-    if (fErr || !facility) return res.status(404).json({ error: 'Instalación no encontrada' });
-
-    // Calcular día de la semana en Colombia
-    const date = new Date(dateStr + 'T12:00:00');
-    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
-    const dayName = dayNames[date.getDay()];
-    
-    const hours = (facility.available_hours as any)?.[dayName];
-    if (!hours || hours.length === 0) {
-      return res.json({ slots: [], message: 'Instalación cerrada ese día' });
-    }
-
-    // Parsear rango y generar slots de 1 hora
-    const [openStr, closeStr] = hours[0].split('-');
-    const [openH]  = openStr.split(':').map(Number);
-    const [closeH] = closeStr.split(':').map(Number);
-
-    const allSlots: { start: string; end: string }[] = [];
-    for (let h = openH; h < closeH; h++) {
-      allSlots.push({
-        start: `${String(h).padStart(2,'0')}:00`,
-        end:   `${String(h + 1).padStart(2,'0')}:00`,
-      });
-    }
-
-    // Obtener reservas activas para esa fecha y facilidad
-    const { data: booked } = await supabase
-      .from('facility_reservations')
-      .select('start_time, user_id')
-      .eq('facility_id', id)
-      .eq('reservation_date', dateStr)
-      .neq('status', 'cancelled');
-
-    const bookedTimes = new Set((booked ?? []).map((b: any) => b.start_time.slice(0, 5)));
-    const myBookedTimes = new Set(
-      (booked ?? [])
-        .filter((b: any) => b.user_id === req.user?.id)
-        .map((b: any) => b.start_time.slice(0, 5))
-    );
-
-    // Enriquecer slots con disponibilidad
-    const slots = allSlots.map(slot => ({
-      start: slot.start,
-      end:   slot.end,
-      available:      !bookedTimes.has(slot.start),
-      already_booked: myBookedTimes.has(slot.start),
-    }));
-
-    return res.json({ slots, facility_name: facility.name });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /athlete/facilities ───────────────────────────────────────────────────
-// Devuelve las instalaciones (status=available, booking_enabled=true)
-// que pertenecen a las escuelas donde el atleta tiene enrollments activos.
 router.get('/athlete/facilities', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { child_id } = req.query;
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
 
-    // 1. Obtener school_ids de los enrollments activos del atleta
-    const { data: enrollments, error: eErr } = await supabase
-      .from('enrollments')
+    let q = supabase.from('enrollments')
       .select('school_id')
-      .eq('user_id', userId)
       .eq('status', 'active');
+    if (child_id) q = q.eq('child_id', child_id);
+    else q = q.eq('user_id', userId);
 
-    if (eErr) throw eErr;
-    if (!enrollments?.length) return res.json({ facilities: [] });
+    const { data: enrs } = await q;
+    const sIds = [...new Set((enrs || []).map(e => e.school_id))];
+    if (!sIds.length) return res.json({ facilities: [] });
 
-    const schoolIds = [...new Set(
-      enrollments.map((e: any) => e.school_id).filter(Boolean)
-    )];
-
-    // 2. Cargar instalaciones de esas escuelas
-    const { data: facilities, error: fErr } = await supabase
+    const { data: facs } = await supabase
       .from('facilities')
-      .select('id, name, type, capacity, description, available_hours, booking_enabled, branch_id, school_id')
-      .in('school_id', schoolIds)
+      .select('id, name, type, school_id')
+      .in('school_id', sIds)
       .eq('status', 'available')
       .eq('booking_enabled', true);
 
-    if (fErr) throw fErr;
-    return res.json({ facilities: facilities ?? [] });
-  } catch (err: any) {
-    (req as any).log?.error({ err }, 'Error fetching athlete facilities');
-    return res.status(500).json({ error: err.message });
-  }
+    res.json({ facilities: facs || [] });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { date, child_id } = req.query;
+    const userId = req.user?.id;
+
+    if (child_id && !(await validateChildAccess(child_id as string, userId)))
+      return res.status(403).json({ error: 'unauthorized' });
+
+    const dStr = (date as string) || todayInBogota();
+
+    const { data: f } = await supabase.from('facilities').select('*').eq('id', id).single();
+    if (!f) return res.status(404).json({ error: 'not_found' });
+
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dName = days[new Date(dStr + 'T12:00:00').getDay()];
+    const hs = (f.available_hours as any)?.[dName] || [];
+
+    let slots: { start: string; end: string }[] = [];
+    if (hs.length > 0) {
+      const [start, end] = hs[0].split('-').map((h: string) => parseInt(h));
+      for (let i = start; i < end; i++) {
+        slots.push({
+          start: `${String(i).padStart(2, '0')}:00`,
+          end: `${String(i + 1).padStart(2, '0')}:00`,
+        });
+      }
+    }
+
+    const { data: booked } = await supabase
+      .from('facility_reservations')
+      .select('start_time, user_id, child_id')
+      .eq('facility_id', id)
+      .eq('reservation_date', dStr)
+      .neq('status', 'cancelled');
+
+    const bookedSet = new Set((booked || []).map(b => b.start_time.slice(0, 5)));
+    const mySet = new Set(
+      (booked || [])
+        .filter(b => child_id ? b.child_id === child_id : b.user_id === userId)
+        .map(b => b.start_time.slice(0, 5))
+    );
+
+    res.json({
+      facility_name: f.name,
+      slots: slots.map(s => ({
+        ...s,
+        available: !bookedSet.has(s.start),
+        already_booked: mySet.has(s.start),
+      })),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── UTILITY ROUTES ────────────────────────────────────────────────────────────
+
+router.post('/generate-sessions', requireAuth, requireRole('owner', 'admin'), async (req: Request, res: Response) => {
+  try {
+    const { team_id, weeks } = req.body;
+    const { data, error } = await supabase.rpc('fn_generate_bookable_sessions', {
+      p_school_id: req.schoolId, p_team_id: team_id, p_weeks: weeks || 2,
+    });
+    if (error) throw error;
+    res.json({ message: 'success', sessions: data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/generate-offering-sessions', requireAuth, requireRole('owner', 'admin'), async (req: Request, res: Response) => {
+  try {
+    const { offering_id, weeks } = req.body;
+    const { data, error } = await supabase.rpc('fn_generate_offering_sessions', {
+      p_school_id: req.schoolId, p_offering_id: offering_id, p_weeks: weeks || 2,
+    });
+    if (error) throw error;
+    res.json({ message: 'success', sessions: data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/extend-horizon', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { data, error } = await supabase.rpc('fn_extend_session_horizon', {
+      p_school_id: req.schoolId, p_min_weeks: 2, p_target_weeks: 4,
+    });
+    if (error) throw error;
+    res.json({ sessions_created: data });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 export default router;
-
