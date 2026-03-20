@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
   const hasAutoOpenedRef = useRef(false);
@@ -140,6 +141,7 @@ export default function DashboardPage() {
       console.log('Onboarding status updated:', status);
 
       if (status) {
+        setOnboardingStatus(status.onboarding_status);
         // 2. Gestionar invitaciones
         const { data: invitations, error: inviteError } = await supabase
           .from('invitations')
@@ -366,7 +368,7 @@ export default function DashboardPage() {
         />
       )}
 
-      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
+      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed' && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
           <DashboardChecklist
             steps={onboardingSteps}

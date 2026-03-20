@@ -11,16 +11,16 @@ export const getStepsForRole = (role: string, status: any) => {
                 return [
                     { id: 'create_school', title: 'Registrar Academia', description: 'Nombre, logo y dirección fiscal.', completed: false, href: '/setup/school', icon: Building },
                     { id: 'create_branch', title: 'Configurar Sedes', description: 'Crea tu sede principal o sucursales.', completed: status.has_branches, href: '/branches', icon: Building },
-                    { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users }
+                    { id: 'create_team', title: 'Equipos y Planes', description: 'Crea tus equipos, grupos o planes de entrenamiento.', completed: status.has_teams || status.has_plans, href: '/teams', icon: Users }
                 ];
             }
 
             // Operational flow (Branch Admin or Owner)
             return [
                 { id: 'create_branch', title: 'Configurar Sede Principal', description: 'Edita dirección, ciudad y capacidad de tu sede.', completed: status.has_branches, href: '/branches', icon: Building },
-                { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users },
+                { id: 'create_team', title: 'Equipos y Planes', description: 'Crea tus equipos, grupos o planes de entrenamiento.', completed: status.has_teams || status.has_plans, href: '/teams', icon: Users },
                 { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
-                { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
+                { id: 'invite_parents', title: 'Atletas y Familias', description: 'Registra a tus deportistas o envía invitaciones a sus familias.', completed: status.has_students, href: '/students', icon: Bell }
             ];
 
         case USER_ROLES.PARENT: {
