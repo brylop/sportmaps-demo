@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2, Flag } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2, Flag, CalendarCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { Badge } from '@/components/ui/badge';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
@@ -42,26 +43,32 @@ export default function CoachAttendancePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
-  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [selectedItem, setSelectedItem] = useState<string>('');
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
 
+  const isTeam = selectedItem.startsWith('team:');
+  const isSession = selectedItem.startsWith('session:');
+  const selectedTeamId = isTeam ? selectedItem.split(':')[1] : '';
+  const selectedSessionId = isSession ? selectedItem.split(':')[1] : '';
+
+  // ── 0. Perfil Staff del Entrenador ────────────────────────────────────────
+  const { data: staffData } = useQuery({
+    queryKey: ['staff-profile', user?.email],
+    queryFn: async () => {
+      if (!user?.email) return null;
+      const { data } = await supabase.from('school_staff').select('id').eq('email', user.email).maybeSingle();
+      return data;
+    },
+    enabled: !!user?.email
+  });
+  const staffId = staffData?.id;
+
   // ── 1. Equipos del entrenador ─────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery({
-    queryKey: ['coach-teams', schoolId, user?.id],
+    queryKey: ['coach-teams', schoolId, user?.id, staffId],
     queryFn: async () => {
       if (!schoolId || !user?.id) return [];
-
-      let staffId: string | null = null;
-      if (user.email) {
-        const { data: staffData } = await supabase
-          .from('school_staff')
-          .select('id')
-          .eq('email', user.email)
-          .maybeSingle();
-        if (staffData) staffId = staffData.id;
-      }
 
       const { data: teamsData, error } = await (supabase
         .from('teams')
@@ -81,6 +88,35 @@ export default function CoachAttendancePage() {
         .sort((a: any, b: any) => a.name.localeCompare(b.name)) as TeamItem[];
     },
     enabled: !!schoolId && !!user?.id,
+  });
+
+  // ── 1.5. Clases Programadas Hoy (Planes) ──────────────────────────────────
+  const { data: planSessions = [], isLoading: loadingPlans } = useQuery({
+    queryKey: ['coach-plan-sessions', schoolId, user?.id, staffId],
+    queryFn: async () => {
+      if (!schoolId || (!user?.id && !staffId)) return [];
+      const today = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('attendance_sessions')
+        .select(`
+          id, start_time, end_time, title,
+          offering_plans!attendance_sessions_offering_id_fkey(name)
+        `)
+        .eq('school_id', schoolId)
+        .eq('coach_id', staffId || user!.id)
+        .eq('session_date', today)
+        .not('offering_id', 'is', null)
+        .not('finalized', 'is', true);
+
+      if (error) throw error;
+      return (data || []).map((s: any) => ({
+        id: s.id,
+        name: s.title || s.offering_plans?.name || 'Clase de Plan',
+        start_time: s.start_time,
+        end_time: s.end_time
+      }));
+    },
+    enabled: !!schoolId && (!!user?.id || !!staffId),
   });
 
   // ── 2. Roster del equipo seleccionado ────────────────────────────────────
@@ -103,58 +139,48 @@ export default function CoachAttendancePage() {
         }));
       }
 
-      if (selectedClassId) {
-        const { data, error } = await supabase
-          .from('class_enrollments')
-          .select(`
-            enrollment_id,
-            enrollments!inner (
-              child_id,
-              students!inner (
-                id,
-                full_name,
-                avatar_url
-              )
-            )
-          `)
-          .eq('class_id', selectedClassId);
-
-        if (error) {
-          console.error("Error fetching roster", error);
-          throw error;
-        }
-
-        return (data || []).map((item: any) => ({
-          id: item.enrollments?.students?.id,
-          full_name: item.enrollments?.students?.full_name,
-          photo_url: item.enrollments?.students?.avatar_url,
-        })) as StudentItem[];
-      }
-
       return [];
     },
     enabled: !!selectedTeamId,
   });
 
-  // ── 3. Sesión de hoy (consulta al BFF) ────────────────────────────────────
+  // ── 3. Sesión Activa (consulta al BFF o Supabase) ────────────────────────
   const {
     data: sessionData,
     isLoading: loadingSession,
   } = useQuery<{ session: AttendanceSession | null; records: { child_id?: string; user_id?: string; status: string }[] }>({
-    queryKey: ['attendance-session', selectedTeamId],
+    queryKey: ['attendance-session', selectedItem],
     queryFn: async () => {
-      if (!selectedTeamId) return { session: null, records: [] };
-      const token = await getBearerToken();
-      const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Error consultando sesión');
-      return res.json();
+      if (!selectedItem) return { session: null, records: [] };
+      if (isTeam) {
+        const token = await getBearerToken();
+        const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${selectedTeamId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('Error consultando sesión');
+        return res.json();
+      } else if (isSession) {
+        const { data: session, error: sErr } = await supabase
+          .from('attendance_sessions')
+          .select('id, team_id, session_date, finalized, finalized_at, created_by, created_at')
+          .eq('id', selectedSessionId)
+          .single();
+        if (sErr) throw sErr;
+
+        const { data: records, error: rErr } = await supabase
+          .from('attendance_records')
+          .select('child_id, user_id, status')
+          .eq('attendance_date', session.session_date); 
+          // Note: records without team_id but with attendance_date
+
+        return { session, records: records || [] };
+      }
+      return { session: null, records: [] };
     },
-    enabled: !!selectedTeamId,
+    enabled: !!selectedItem,
     // Al obtener la sesión existente, pre-cargar el estado de asistencia
     onSuccess: (data) => {
-      if (data.records.length > 0) {
+      if (data?.records?.length > 0) {
         const preloaded: Record<string, AttendanceStatus> = {};
         data.records.forEach((r) => {
           const athleteId = r.child_id ?? r.user_id;
@@ -166,6 +192,44 @@ export default function CoachAttendancePage() {
   } as any);
 
   const session = sessionData?.session ?? null;
+  // ── 3.5. Reservas (Drop-ins) para la sesión activa ───────────────────────
+  const activeSessionId = isSession ? selectedSessionId : session?.id;
+  const { data: sessionBookings = [], isLoading: loadingBookings } = useQuery({
+    queryKey: ['session-bookings', activeSessionId],
+    queryFn: async () => {
+      if (!activeSessionId) return [];
+      const token = await getBearerToken();
+      const res = await fetch(`${BFF_URL}/api/v1/session-bookings/${activeSessionId}/bookings`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.bookings || [];
+    },
+    enabled: !!activeSessionId
+  });
+
+  // ── Combinar Roster ──────────────────────────────────────────────────────
+  const combinedRoster = useMemo(() => {
+    const base = [...roster];
+    const baseIds = new Set(base.map(r => r.id));
+
+    sessionBookings.forEach((b: any) => {
+      if (b.person && !baseIds.has(b.person.id)) {
+        base.push({
+          id: b.person.id,
+          full_name: b.person.full_name,
+          photo_url: b.person.avatar_url,
+          athlete_type: b.child_id ? 'child' : 'adult',
+          is_booking: true
+        } as any);
+        baseIds.add(b.person.id);
+      }
+    });
+    
+    return base.sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [roster, sessionBookings]);
+
   const isFinalized = session?.finalized === true;
   // El entrenador puede editar si la sesión existe pero no está finalizada
   const isEditMode = session !== null && !isFinalized;
@@ -176,54 +240,33 @@ export default function CoachAttendancePage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const records = Object.entries(attendanceState).map(([athleteId, status]) => {
-        const student = roster.find(s => s.id === athleteId);
+        const student = combinedRoster.find(s => s.id === athleteId);
         return {
           childId: student?.athlete_type === 'adult' ? null : athleteId,
           userId: student?.athlete_type === 'adult' ? athleteId : null,
           status,
         };
       });
-      if (selectedTeamId) {
+
+      if (selectedItem) {
         if (records.length === 0) throw new Error('No hay asistencias para guardar.');
         const token = await getBearerToken();
+        const payload: any = { records };
+        if (isTeam) payload.teamId = selectedTeamId;
+        if (isSession) payload.sessionId = selectedSessionId;
+
         const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ teamId: selectedTeamId, records }),
+          body: JSON.stringify(payload),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || 'Error guardando asistencia');
         return body;
       }
-
-      if (selectedClassId) {
-        const { data: cls } = await supabase
-          .from('classes')
-          .select('team_id')
-          .eq('id', selectedClassId)
-          .single();
-
-        if (!cls) throw new Error("Clase no encontrada");
-
-        const recordsWithProgram = records.map(r => ({
-          ...r,
-          child_id: r.childId, // Map childId to child_id for generic logic
-          team_id: cls.team_id,
-          school_id: schoolId,
-          class_id: selectedClassId,
-          attendance_date: new Date().toISOString().split('T')[0],
-          marked_by: user?.id
-        }));
-
-        const { error } = await supabase
-          .from('attendance_records')
-          .insert(recordsWithProgram);
-
-        if (error) throw error;
-      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedTeamId] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
       toast({ title: '✅ Asistencia guardada', description: 'Puedes editarla o finalizarla cuando quieras.' });
     },
     onError: (err: any) => {
@@ -245,7 +288,7 @@ export default function CoachAttendancePage() {
       return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedTeamId] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-session', selectedItem] });
       toast({ title: '🏁 Sesión finalizada', description: 'Los datos quedan bloqueados para reportes.' });
     },
     onError: (err: any) => {
@@ -254,14 +297,14 @@ export default function CoachAttendancePage() {
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const handleTeamChange = (teamId: string) => {
-    setSelectedTeamId(teamId);
+  const handleItemChange = (val: string) => {
+    setSelectedItem(val);
     setAttendanceState({});
   };
 
   const markAllPresent = () => {
     const newState: Record<string, AttendanceStatus> = {};
-    roster.forEach((s) => (newState[s.id] = 'present'));
+    combinedRoster.forEach((s) => (newState[s.id] = 'present'));
     setAttendanceState(newState);
     toast({ title: '✅ Todos marcados como presentes' });
   };
@@ -286,24 +329,38 @@ export default function CoachAttendancePage() {
           <CardTitle className="text-sm font-medium">Seleccionar Clase / Grupo</CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingTeams ? (
-            <LoadingSpinner text="Cargando equipos..." />
+          {loadingTeams || loadingPlans ? (
+            <LoadingSpinner text="Cargando clases..." />
           ) : (
-            <Select value={selectedTeamId} onValueChange={handleTeamChange}>
+            <Select value={selectedItem} onValueChange={handleItemChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Selecciona tu clase" />
+                <SelectValue placeholder="Selecciona tu clase o grupo" />
               </SelectTrigger>
               <SelectContent>
-                {teams.length === 0 ? (
+                {teams.length === 0 && planSessions.length === 0 ? (
                   <div className="p-2 text-sm text-muted-foreground text-center">
-                    No tienes equipos asignados
+                    No tienes equipos asignados ni clases programadas
                   </div>
                 ) : (
-                  teams.map((team) => (
-                    <SelectItem key={team.id} value={team.id}>
-                      {team.name}
-                    </SelectItem>
-                  ))
+                  <>
+                    {teams.length > 0 && <SelectGroup>
+                      <SelectLabel>Tus Equipos Regulares</SelectLabel>
+                      {teams.map((team) => (
+                        <SelectItem key={`team:${team.id}`} value={`team:${team.id}`}>
+                          {team.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>}
+
+                    {planSessions.length > 0 && <SelectGroup>
+                      <SelectLabel>Clases Reservadas Hoy</SelectLabel>
+                      {planSessions.map((ps: any) => (
+                        <SelectItem key={`session:${ps.id}`} value={`session:${ps.id}`}>
+                          {ps.name} ({ps.start_time.substring(0,5)} - {ps.end_time.substring(0,5)})
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>}
+                  </>
                 )}
               </SelectContent>
             </Select>
@@ -312,10 +369,10 @@ export default function CoachAttendancePage() {
       </Card>
 
       {/* Contenido principal */}
-      {selectedTeamId && (
+      {selectedItem && (
         <>
-          {loadingRoster || loadingSession ? (
-            <LoadingSpinner text="Cargando..." />
+          {loadingRoster || loadingSession || loadingBookings ? (
+            <LoadingSpinner text="Cargando lista de estudiantes..." />
           ) : (
             <>
               {/* Banner de estado de sesión */}
@@ -348,7 +405,7 @@ export default function CoachAttendancePage() {
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-primary" />
                   <p className="font-medium">
-                    {roster.length} estudiante{roster.length !== 1 ? 's' : ''}
+                    {combinedRoster.length} estudiante{combinedRoster.length !== 1 ? 's' : ''}
                   </p>
                 </div>
                 {!isFinalized && (
@@ -356,7 +413,7 @@ export default function CoachAttendancePage() {
                     onClick={markAllPresent}
                     variant="outline"
                     size="sm"
-                    disabled={roster.length === 0}
+                    disabled={combinedRoster.length === 0}
                   >
                     ✅ Todos Presentes
                   </Button>
@@ -364,15 +421,15 @@ export default function CoachAttendancePage() {
               </div>
 
               {/* Lista de estudiantes */}
-              {roster.length === 0 ? (
+              {combinedRoster.length === 0 ? (
                 <Card>
                   <CardContent className="pt-6 text-center text-muted-foreground">
-                    No hay estudiantes activos inscritos en este equipo.
+                    No hay estudiantes listados para esta clase o grupo.
                   </CardContent>
                 </Card>
               ) : (
                 <div className="space-y-3">
-                  {roster.map((student) => (
+                  {combinedRoster.map((student: any) => (
                     <Card key={student.id}>
                       <CardContent className="pt-6">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -387,6 +444,12 @@ export default function CoachAttendancePage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <p className="font-semibold">{student.full_name}</p>
+                              {student.is_booking && (
+                                <Badge variant="secondary" className="text-[10px] h-4 px-1.5 flex items-center gap-1">
+                                  <CalendarCheck className="w-3 h-3" />
+                                  Reserva
+                                </Badge>
+                              )}
                               {attendanceState[student.id] === 'present' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
                               {attendanceState[student.id] === 'absent' && <XCircle className="w-4 h-4 text-red-500" />}
                               {attendanceState[student.id] === 'late' && <Clock className="w-4 h-4 text-yellow-500" />}
@@ -422,7 +485,7 @@ export default function CoachAttendancePage() {
               )}
 
               {/* Acciones del pie */}
-              {roster.length > 0 && !isFinalized && (
+              {combinedRoster.length > 0 && !isFinalized && (
                 <div className="sticky bottom-16 sm:bottom-0 z-10 bg-background/95 backdrop-blur border-t pt-3 pb-3 px-0 -mx-0 flex flex-col sm:flex-row gap-3">
                   {/* Guardar / Guardar cambios */}
                   <Button
@@ -434,8 +497,8 @@ export default function CoachAttendancePage() {
                     {saveMutation.isPending
                       ? 'Guardando...'
                       : isEditMode
-                        ? `Guardar cambios (${markedCount} / ${roster.length})`
-                        : `Guardar asistencia (${markedCount} / ${roster.length})`}
+                        ? `Guardar cambios (${markedCount} / ${combinedRoster.length})`
+                        : `Guardar asistencia (${markedCount} / ${combinedRoster.length})`}
                   </Button>
 
                   {/* Finalizar sesión — solo visible si ya fue guardada al menos una vez */}
