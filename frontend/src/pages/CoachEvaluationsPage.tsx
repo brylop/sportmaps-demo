@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,23 +29,14 @@ export default function CoachEvaluationsPage() {
     const [comments, setComments] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // 1. Obtener staffId si existe (vía hook)
+    const { staffId } = useCoachStaffId();
+
     // Fetch Teams
     const { data: teamsResult = [] } = useQuery({
-        queryKey: ['coach-teams', user?.id, schoolId],
+        queryKey: ['coach-teams', user?.id, schoolId, staffId],
         queryFn: async () => {
-            if (!user?.id) return [];
-
-            // 1. Obtener staffId si existe (vía coach_auth_id)
-            let staffId = null;
-            if (user.id && schoolId) {
-                const { data: staffData } = await supabase
-                    .from('school_staff')
-                    .select('id')
-                    .eq('coach_auth_id', user.id)
-                    .eq('school_id', schoolId)
-                    .maybeSingle();
-                if (staffData) staffId = staffData.id;
-            }
+            if (!user?.id || !schoolId) return [];
 
             // 2. Traer todos los equipos donde el usuario es coach (directo o via tabla de relación)
             const { data: teamsData, error } = await (supabase

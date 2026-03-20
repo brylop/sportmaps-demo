@@ -55,7 +55,7 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
             coach_id: coachId,
             ...input,
           },
-          { onConflict: 'coach_id,day_of_week', ignoreDuplicates: false }
+          { onConflict: 'coach_id,day_of_week,start_time,end_time', ignoreDuplicates: false }
         )
         .select()
         .single();

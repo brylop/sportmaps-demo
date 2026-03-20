@@ -36,9 +36,18 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url)
 
-  // Supabase API y Edge Functions → siempre network, nunca cachear
+  // Supabase API y Edge Functions → Network First
   if (url.hostname.includes('supabase.co')) {
-    return // dejar pasar sin interceptar
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone()
+          caches.open('supabase-api').then(cache => cache.put(event.request, clone))
+          return response
+        })
+        .catch(() => caches.match(event.request))
+    )
+    return
   }
 
   // Assets estáticos → cache first

@@ -16,9 +16,17 @@ export async function registerSW() {
         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
           // Hay nueva versión disponible → notificar al usuario
           window.dispatchEvent(new CustomEvent('pwa:update-available'));
+          // Opcional: recargar automáticamente si registerType es autoUpdate
+          // window.location.reload();
         }
       });
     });
+
+    // Verificar actualizaciones periódicamente (cada 60 min)
+    setInterval(() => {
+      reg.update();
+    }, 60 * 60 * 1000);
+
   } catch (err) {
     console.error('[PWA] Error registrando SW:', err);
   }

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,26 +21,8 @@ export default function CoachPlansPage() {
   const { schoolId } = useSchoolContext();
   const navigate = useNavigate();
 
-  // ── 1. Resolver school_staff.id vía coach_auth_id ─────────────────────────
-  // El desacople: auth.uid() ≠ school_staff.id; se puentea por coach_auth_id
-  const { data: staffRecord, isLoading: isStaffLoading } = useQuery({
-    queryKey: ['staff-record', user?.id, schoolId],
-    queryFn: async () => {
-      if (!user || !schoolId) return null;
-      const { data, error } = await supabase
-        .from('school_staff')
-        .select('id, full_name')
-        .eq('coach_auth_id', user.id)
-        .eq('school_id', schoolId)
-        .maybeSingle();
-      if (error) throw error;
-      return data; // { id: staff_uuid, full_name }
-    },
-    enabled: !!user?.id && !!schoolId,
-    staleTime: 60_000,
-  });
-
-  const staffId = staffRecord?.id ?? null;
+  // ── 1. Resolver school_staff.id vía hook ─────────────────────────────────
+  const { staffId, isLoading: isStaffLoading } = useCoachStaffId();
 
   // ── 2. Clases fijas asignadas (attendance_sessions) ───────────────────────
   const { data: schoolPlans, isLoading: isSchoolPlansLoading } = useQuery({
@@ -52,10 +35,9 @@ export default function CoachPlansPage() {
         .from('attendance_sessions')
         .select(`
           id, session_date, start_time, end_time,
-          offerings (name),
-          offering_plans (name)
+          offerings (name)
         `)
-        .eq('coach_id', staffId)          // ✅ usa school_staff.id
+        .eq('coach_id', staffId)
         .eq('school_id', schoolId)
         .not('offering_id', 'is', null)
         .gte('session_date', today)
@@ -152,7 +134,7 @@ export default function CoachPlansPage() {
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-semibold text-primary">{plan.offerings?.name || 'Clase Especial'}</h4>
-                          <p className="text-sm text-muted-foreground">{plan.offering_plans?.name || 'Plan General'}</p>
+                          <p className="text-sm text-muted-foreground">Sesión de entrenamiento</p>
                         </div>
                         <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
                           Reserva / Plan

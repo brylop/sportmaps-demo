@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import {
   BarChart3, Download, TrendingUp, Users, Trophy,
   Calendar, AlertCircle, CheckCircle, Shirt, Swords,
@@ -169,27 +170,18 @@ export default function CoachReportsPage() {
   const { schoolId } = useSchoolContext();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
+  // 0. Staff profile vía hook (vínculo directo Supabase)
+  const { staffId } = useCoachStaffId();
+
   // ── 1. Equipos del coach ──────────────────────────────────────────────────
   const {
     data: teams = [],
     isLoading: teamsLoading,
     isError: teamsError,
   } = useQuery<TeamOption[]>({
-    queryKey: ['coach-teams', user?.id, schoolId],
+    queryKey: ['coach-teams', user?.id, schoolId, staffId],
     queryFn: async () => {
-      if (!user?.id) return [];
-
-      // Buscar staffId vinculado al coach_auth_id (vínculo directo Supabase)
-      let staffId: string | null = null;
-      if (user.id && schoolId) {
-        const { data: staffData } = await supabase
-          .from('school_staff')
-          .select('id')
-          .eq('coach_auth_id', user.id)
-          .eq('school_id', schoolId)
-          .maybeSingle();
-        if (staffData) staffId = staffData.id;
-      }
+      if (!user?.id || !schoolId) return [];
 
       // Obtener equipos con tabla de relación team_coaches incluida
       const { data: teamsData, error } = await (supabase

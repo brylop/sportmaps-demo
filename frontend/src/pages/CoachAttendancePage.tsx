@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -216,21 +217,7 @@ export default function CoachAttendancePage() {
   );
 
   // ── 0. Staff profile ────────────────────────────────────────────────────
-  const { data: staffData } = useQuery({
-    queryKey: ['staff-profile', user?.id, schoolId],
-    queryFn: async () => {
-      if (!user?.id || !schoolId) return null;
-      const { data } = await supabase
-        .from('school_staff')
-        .select('id')
-        .eq('coach_auth_id', user.id)
-        .eq('school_id', schoolId)
-        .maybeSingle();
-      return data;
-    },
-    enabled: !!user?.id && !!schoolId
-  });
-  const staffId = staffData?.id;
+  const { staffId } = useCoachStaffId();
 
   // ── 1. Equipos ──────────────────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery<TeamItem[]>({
