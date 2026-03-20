@@ -70,6 +70,7 @@ const MyPaymentsPage = lazy(() => import("./pages/MyPaymentsPage"));
 
 // ─── Coach pages (lazy) ───────────────────────────────────────────────────────
 const CoachAttendancePage = lazy(() => import("./pages/CoachAttendancePage"));
+const CoachPlansPage = lazy(() => import("./pages/CoachPlansPage"));
 const ResultsPage = lazy(() => import("./pages/ResultsPage"));
 const TrainingPlansPage = lazy(() => import("./pages/TrainingPlansPage"));
 const CoachReportsPage = lazy(() => import("./pages/CoachReportsPage"));
@@ -240,6 +241,7 @@ const App = () => (
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="coach-plans" element={<CoachPlansPage />} />
                       <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={<TrainingPlansPage />} />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
