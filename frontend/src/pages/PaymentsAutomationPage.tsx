@@ -21,6 +21,7 @@ import { FileUpload } from '@/components/common/FileUpload';
 import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
+import { todayColombia } from '@/lib/dateUtils';
 
 interface BillingSettings {
   school_id: string;
@@ -116,6 +117,7 @@ interface TeamSubscription {
   plan_price?: number;
   has_team: boolean;
   has_plan: boolean;
+  start_date: string;
 }
 
 export default function PaymentsAutomationPage() {
@@ -270,6 +272,7 @@ export default function PaymentsAutomationPage() {
         .select(`
           id, child_id, user_id, unregistered_athlete_id,
           team_id, offering_plan_id,
+          start_date,
           team:teams!enrollments_team_id_fkey ( name, price_monthly ),
           plan:offering_plans!enrollments_offering_plan_id_fkey ( name, price )
         `)
@@ -309,6 +312,7 @@ export default function PaymentsAutomationPage() {
           // Tipo
           has_team: !!e.team_id,
           has_plan: !!e.offering_plan_id,
+          start_date: e.start_date,
         };
       }));
 
@@ -702,7 +706,16 @@ export default function PaymentsAutomationPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-bold text-sm">{formatCurrency(sub.price_monthly || sub.plan_price || 0)}</p>
-                      <p className="text-xs text-muted-foreground">Día {billing?.payment_cutoff_day || 10}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {billing?.billing_cycle_type === 'rolling_30'
+                          ? (() => {
+                              const d = new Date(sub.start_date + 'T12:00:00');
+                              d.setDate(d.getDate() + 30);
+                              return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
+                            })()
+                          : `Día ${billing?.payment_cutoff_day || 10}`
+                        }
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -740,7 +753,14 @@ export default function PaymentsAutomationPage() {
                               <TableCell>
                                 <span className="flex items-center gap-1.5 text-sm">
                                   <Clock className="h-3.5 w-3.5 text-amber-500" />
-                                  Día {billing?.payment_cutoff_day || 10} (Prox. Mes)
+                                  {billing?.billing_cycle_type === 'rolling_30'
+                                    ? (() => {
+                                        const d = new Date(sub.start_date + 'T12:00:00');
+                                        d.setDate(d.getDate() + 30);
+                                        return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) + ' (+30d)';
+                                      })()
+                                    : `Día ${billing?.payment_cutoff_day || 10} (Prox. Mes)`
+                                  }
                                 </span>
                               </TableCell>
                               <TableCell>
@@ -792,7 +812,14 @@ export default function PaymentsAutomationPage() {
                               <TableCell>
                                 <span className="flex items-center gap-1.5 text-sm">
                                   <Clock className="h-3.5 w-3.5 text-amber-500" />
-                                  Día {billing?.payment_cutoff_day || 10} (Prox. Mes)
+                                  {billing?.billing_cycle_type === 'rolling_30'
+                                    ? (() => {
+                                        const d = new Date(sub.start_date + 'T12:00:00');
+                                        d.setDate(d.getDate() + 30);
+                                        return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) + ' (+30d)';
+                                      })()
+                                    : `Día ${billing?.payment_cutoff_day || 10} (Prox. Mes)`
+                                  }
                                 </span>
                               </TableCell>
                               <TableCell>
@@ -1287,22 +1314,39 @@ function BackfillPaymentsCard({
 
       const withoutPayment = [];
       for (const e of enrollments || []) {
-        // Verificar si YA existe un pago para este enrollment específico
+        // ── Base del query de existencia ──────────────────────────────────
         let payQuery = (supabase.from('payments') as any)
-          .select('id')
+          .select('id, due_date')
           .eq('school_id', schoolId)
           .in('status', ['pending', 'awaiting_approval', 'paid']);
 
-        if (e.child_id)                     payQuery = payQuery.eq('child_id', e.child_id);
-        else if (e.user_id)                 payQuery = payQuery.eq('parent_id', e.user_id);
-        else if (e.unregistered_athlete_id) payQuery = payQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
+        // Columna correcta por tipo de atleta
+        if (e.child_id)
+          payQuery = payQuery.eq('child_id', e.child_id);
+        else if (e.user_id)
+          payQuery = payQuery.eq('user_id', e.user_id);
+        else if (e.unregistered_athlete_id)
+          payQuery = payQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
 
-        // Filtrar por el tipo específico del enrollment
         if (e.team_id)          payQuery = payQuery.eq('team_id', e.team_id);
         if (e.offering_plan_id) payQuery = payQuery.eq('offering_plan_id', e.offering_plan_id);
 
-        const { data: existing } = await payQuery.maybeSingle();
-        if (!existing) withoutPayment.push(e);
+        if (billing.billing_cycle_type === 'rolling_30') {
+          // Para rolling_30: buscar si ya existe un pago FUTURO
+          // Si solo hay pagos pasados → necesita nuevo ciclo
+          const { data: futurePay } = await payQuery
+            .gte('due_date', todayColombia())
+            .maybeSingle();
+          if (futurePay) continue; // Ya tiene cobro futuro, no regenerar
+          // No hay pago futuro → incluir en backfill
+          withoutPayment.push(e);
+        } else {
+          // prorated y fixed_calendar: lógica actual con filtro de fecha
+          const { data: existing } = await payQuery
+            .gte('due_date', todayColombia())
+            .maybeSingle();
+          if (!existing) withoutPayment.push(e);
+        }
       }
 
       // Obtener nombres y calcular montos
@@ -1311,9 +1355,22 @@ function BackfillPaymentsCard({
         let fee = 0;
 
         if (e.child_id) {
-          const { data } = await supabase.from('children').select('full_name, monthly_fee').eq('id', e.child_id).single();
+          const { data } = await supabase.from('children').select('full_name').eq('id', e.child_id).single();
           name = data?.full_name || name;
-          fee  = data?.monthly_fee || 0;
+          // Fee del equipo o plan, no del niño
+          if (e.team_id) {
+            const { data: t } = await (supabase.from('teams') as any)
+              .select('price_monthly')
+              .eq('id', e.team_id)
+              .single();
+            fee = t?.price_monthly || 0;
+          } else if (e.offering_plan_id) {
+            const { data: p } = await (supabase.from('offering_plans') as any)
+              .select('price')
+              .eq('id', e.offering_plan_id)
+              .single();
+            fee = p?.price || 0;
+          }
         } else if (e.user_id) {
           const { data } = await supabase.from('profiles').select('full_name').eq('id', e.user_id).single();
           name = data?.full_name || name;
@@ -1341,12 +1398,36 @@ function BackfillPaymentsCard({
 
 
 
+        // ── Obtener último due_date para rolling_30 ──────────────────────
+        let lastDueDate: string | null = null;
+        if (billing.billing_cycle_type === 'rolling_30') {
+          let lastPayQuery = (supabase.from('payments') as any)
+            .select('due_date')
+            .eq('school_id', schoolId)
+            .in('status', ['pending', 'awaiting_approval', 'paid'])
+            // ✅ SIN filtro de fecha — buscar el último due_date histórico
+            .order('due_date', { ascending: false })
+            .limit(1);
+
+          if (e.child_id)                     lastPayQuery = lastPayQuery.eq('child_id', e.child_id);
+          else if (e.user_id)                 lastPayQuery = lastPayQuery.eq('user_id', e.user_id);
+          else if (e.unregistered_athlete_id) lastPayQuery = lastPayQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
+
+          if (e.team_id)          lastPayQuery = lastPayQuery.eq('team_id', e.team_id);
+          if (e.offering_plan_id) lastPayQuery = lastPayQuery.eq('offering_plan_id', e.offering_plan_id);
+
+          const { data: lastPay } = await lastPayQuery.maybeSingle();
+          lastDueDate = lastPay?.due_date || null;
+        }
+        // ────────────────────────────────────────────────────────────────
+
         const { calcFirstPayment } = await import('@/lib/prorationUtils');
         const calc = calcFirstPayment(
           e.start_date,
           fee,
           billing.billing_cycle_type || 'prorated',
-          billing.payment_cutoff_day || 10
+          billing.payment_cutoff_day || 10,
+          lastDueDate
         );
 
         return {

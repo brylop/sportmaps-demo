@@ -9,6 +9,7 @@ import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, Histo
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { todayColombia, daysDiffFromToday } from '@/lib/dateUtils';
 
 interface OverdueAccount {
   id: string;
@@ -66,12 +67,12 @@ export default function FinancesPage() {
   // Calculate Aggregates
   const financialSummary = {
     totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    pendingPayments: payments?.filter(p => p.status === 'pending' && new Date(p.due_date) >= new Date()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    pendingPayments: payments?.filter(p => p.status === 'pending' && p.due_date >= todayColombia()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
   };
 
   // Map Overdue Accounts
-  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())) || [];
+  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())) || [];
 
   const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
 
@@ -84,7 +85,7 @@ export default function FinancesPage() {
         student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Estudiante',
         concept: p.concept,
         amount: Number(p.amount),
-        daysOverdue: Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 3600 * 24)),
+        daysOverdue: daysDiffFromToday(p.due_date),
         status: 'overdue'
       })));
     }

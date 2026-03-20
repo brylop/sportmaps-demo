@@ -26,7 +26,6 @@ interface Invitation {
   id: string;
   invited_email: string;
   child_name: string;
-  team_name: string;
   monthly_fee: number | null;
   status: string;
   created_at: string;
@@ -193,7 +192,6 @@ export default function InvitationsManagementPage() {
         id: inv.id,
         invited_email: inv.email,
         child_name: inv.child_name || '',
-        team_name: teams.find(t => t.id === inv.team_id)?.name || 'N/A',
         parent_phone: inv.parent_phone || '',
         monthly_fee: inv.monthly_fee != null ? Number(inv.monthly_fee) : null,
         status: inv.status,
@@ -232,7 +230,7 @@ export default function InvitationsManagementPage() {
       return (
         inv.invited_email.toLowerCase().includes(s) ||
         inv.child_name.toLowerCase().includes(s) ||
-        inv.team_name.toLowerCase().includes(s) ||
+        (teams.find(t => t.id === inv.team_id)?.name || '').toLowerCase().includes(s) ||
         (inv.parent_phone && inv.parent_phone.includes(s))
       );
     })

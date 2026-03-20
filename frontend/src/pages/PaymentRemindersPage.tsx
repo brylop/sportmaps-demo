@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { paymentRemindersAPI, PaymentReminder, ReminderBatch } from '@/lib/api/payment-reminders';
+import { daysDiffFromToday } from '@/lib/dateUtils';
 import {
     Bell, DollarSign, AlertTriangle, Clock, Send, CheckCircle2, Users,
     ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter
@@ -288,7 +289,7 @@ export default function PaymentRemindersPage() {
                                                 {first.status === 'overdue' ? (
                                                     <Badge variant="destructive" className="text-[10px]">
                                                         <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                                        {first.daysOverdue}d vencido
+                                                        {Math.max(0, daysDiffFromToday(first.dueDate))}d vencido
                                                     </Badge>
                                                 ) : (
                                                     <Badge variant="secondary" className="text-[10px]">
@@ -361,7 +362,7 @@ export default function PaymentRemindersPage() {
                                                 <TableCell>
                                                     {r.status === 'overdue' ? (
                                                         <Badge variant="destructive" className="text-[10px]">
-                                                            {r.daysOverdue}d
+                                                            {Math.max(0, daysDiffFromToday(r.dueDate))}d
                                                         </Badge>
                                                     ) : (
                                                         <Badge variant="secondary" className="text-[10px]">Pend.</Badge>

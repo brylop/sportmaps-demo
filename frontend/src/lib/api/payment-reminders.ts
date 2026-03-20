@@ -1,5 +1,5 @@
-// Payment Reminders API: Generates and sends payment reminders to parents
 import { supabase } from '@/integrations/supabase/client';
+import { daysDiffFromToday } from '@/lib/dateUtils';
 
 export interface PaymentReminder {
     id: string;
@@ -95,16 +95,11 @@ class PaymentRemindersAPI {
         const childMap = new Map((children || []).map(c => [c.id, c]));
         const teamMap = new Map((teamsData || []).map(p => [p.id, p]));
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
         const reminders: PaymentReminder[] = payments.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
             const team = teamMap.get(payment.team_id || '');
-            const dueDate = new Date(payment.due_date);
-            dueDate.setHours(0, 0, 0, 0);
-            const daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
+            const daysOverdue = Math.max(0, daysDiffFromToday(payment.due_date));
 
             return {
                 id: payment.id,
@@ -137,20 +132,14 @@ class PaymentRemindersAPI {
 
     /**
      * Mark overdue payments in the database (batch update status)
+     * Delegated to Postgres RPC for server-side date validation and grace periods
      */
     async markOverduePayments(schoolId: string): Promise<number> {
-        const today = new Date().toISOString().split('T')[0];
-
-        const { data, error } = await supabase
-            .from('payments')
-            .update({ status: 'overdue' })
-            .eq('school_id', schoolId)
-            .eq('status', 'pending')
-            .lt('due_date', today)
-            .select('id');
+        const { data, error } = await (supabase as any)
+            .rpc('mark_overdue_payments', { p_school_id: schoolId });
 
         if (error) throw error;
-        return data?.length || 0;
+        return (data as number) || 0;
     }
 }
 

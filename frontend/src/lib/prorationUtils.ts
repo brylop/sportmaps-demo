@@ -41,7 +41,8 @@ export function calcFirstPayment(
   startDate: string,
   monthlyFee: number,
   cycleType: BillingCycleType,
-  cutoffDay: number = 10
+  cutoffDay: number = 10,
+  lastDueDate?: string | null,
 ): PaymentCalc {
   const date = new Date(startDate + 'T12:00:00');
   const day   = date.getDate();
@@ -89,8 +90,12 @@ export function calcFirstPayment(
     }
 
     case 'rolling_30': {
-      // 30 días exactos desde start_date
-      const due = new Date(date);
+      // Si ya existe un cobro previo → siguiente = último due_date + 30 días
+      // Si es el primer cobro        → start_date + 30 días
+      const base = lastDueDate
+        ? new Date(lastDueDate + 'T12:00:00')
+        : date;
+      const due = new Date(base);
       due.setDate(due.getDate() + 30);
       const dueDate = due.toISOString().split('T')[0];
 
@@ -98,7 +103,7 @@ export function calcFirstPayment(
         amount: monthlyFee,
         dueDate,
         isFullMonth: true,
-        description: `Ciclo 30 días: ${startDate} → ${dueDate}`,
+        description: `Ciclo 30 días — vence ${due.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`,
       };
     }
   }

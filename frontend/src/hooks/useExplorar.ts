@@ -17,6 +17,7 @@ export interface School {
   min_price: number | null;
   max_price: number | null;
   team_count: number;
+  program_count: number;
   branches_count: number;
   main_lat: number | null;
   main_lng: number | null;

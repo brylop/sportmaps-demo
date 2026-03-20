@@ -35,10 +35,14 @@ const studentSchema = z.object({
   date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
-  team_id: z.string().min(1, 'Selecciona un equipo'),
-  monthly_fee: z.number().min(10000, 'Mínimo $10.000 COP'),
+  team_id: z.string().optional(),
+  offering_plan_id: z.string().optional(),
+  monthly_fee: z.number().min(0).optional(),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
+}).refine(data => data.team_id || data.offering_plan_id, {
+  message: 'Debes seleccionar al menos un equipo o un plan',
+  path: ['team_id'],
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
@@ -64,6 +68,27 @@ export default function SchoolStudentsManagementPage() {
   const [loadingDocs, setLoadingDocs] = useState(false);
 
   const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+
+  const { data: offeringPlans = [] } = useQuery({
+    queryKey: ['offering-plans', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await (supabase as any)
+        .from('offering_plans')
+        .select('id, name, price, offering_id, offerings!offering_plans_offering_id_fkey(name)')
+        .eq('school_id', schoolId)
+        .eq('is_active', true)
+        .order('name');
+      if (error) return [];
+      return (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        price: p.price || 0,
+        offering_name: p.offerings?.name || '',
+      }));
+    },
+    enabled: !!schoolId,
+  });
 
   // Para coaches: obtener coachId para filtrar solo sus estudiantes
   const [coachId, setCoachId] = useState<string | undefined>(undefined);
@@ -154,6 +179,7 @@ export default function SchoolStudentsManagementPage() {
       parent_email: '',
       parent_phone: '',
       team_id: '',
+      offering_plan_id: '',
       monthly_fee: Number(defaultMonthlyFee) || 0,
       medical_info: '',
       notes: '',
@@ -230,9 +256,20 @@ export default function SchoolStudentsManagementPage() {
         full_name:     data.full_name,
         date_of_birth: data.date_of_birth,
         medical_info:  data.medical_info,
-        team_id:       data.team_id,
+        team_id:       data.team_id || null,
         branch_id:     selectedTeam?.branch_id || activeBranchId || undefined,
       });
+      // Upsert enrollment con team y/o plan
+      if (schoolId && (data.team_id || data.offering_plan_id)) {
+        await (supabase as any).from('enrollments').upsert({
+          child_id:         editingStudent.id,
+          school_id:        schoolId,
+          branch_id:        selectedTeam?.branch_id || activeBranchId || null,
+          team_id:          data.team_id || null,
+          offering_plan_id: data.offering_plan_id || null,
+          status:           'active',
+        }, { onConflict: 'child_id,school_id' });
+      }
       return data;
     },
     onSuccess: () => {
@@ -271,14 +308,15 @@ export default function SchoolStudentsManagementPage() {
     setEditingStudent(student);
     setEditingAthleteType(athleteType);
     form.reset({
-      full_name:    student.full_name,
-      date_of_birth: student.date_of_birth || '',
-      parent_email: student.parent_email || '',
-      parent_phone: student.parent_phone || '',
-      team_id:      student.team_id || '',
-      monthly_fee:  student.price_monthly || Number(defaultMonthlyFee) || 0,
-      medical_info: student.medical_info || '',
-      notes:        student.notes || '',
+      full_name:        student.full_name,
+      date_of_birth:    student.date_of_birth || '',
+      parent_email:     student.parent_email || '',
+      parent_phone:     student.parent_phone || '',
+      team_id:          student.team_id || '',
+      offering_plan_id: student.offering_plan_id || '',
+      monthly_fee:      student.price_monthly || Number(defaultMonthlyFee) || 0,
+      medical_info:     student.medical_info || '',
+      notes:            student.notes || '',
     });
     setDialogOpen(true);
   };
@@ -723,54 +761,102 @@ export default function SchoolStudentsManagementPage() {
                 </div>
               </div>
             </div>
-            {/* Equipo y Mensualidad */}
+            {/* ── Equipo y Plan — dos secciones independientes ─────────── */}
             {(!editingStudent || editingAthleteType === 'child') && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <h3 className="font-semibold flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />Equipo y Mensualidad
+                  <DollarSign className="w-4 h-4" />Equipo y/o Plan
                 </h3>
-                <div className="grid gap-4 sm:grid-cols-2">
+
+                {/* ── Sección Equipo ── */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Trophy className="h-4 w-4 text-red-500" />
+                    Equipo
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="team_id">Seleccionar Equipo</Label>
+                      <Select
+                        value={form.watch('team_id') || '__none__'}
+                        onValueChange={(v) => {
+                          const val = v === '__none__' ? '' : v;
+                          form.setValue('team_id', val);
+                          if (val) {
+                            const t = teams.find(p => p.id === val);
+                            if (t) form.setValue('monthly_fee', t.monthly_fee);
+                          } else {
+                            form.setValue('monthly_fee', 0);
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="team_id">
+                          <SelectValue placeholder="Sin equipo asignado" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin equipo</SelectItem>
+                          {teams.map(team => (
+                            <SelectItem key={team.id} value={team.id}>
+                              {team.name} — {formatCurrency(team.monthly_fee)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {form.formState.errors.team_id && (
+                        <p className="text-sm text-destructive">{form.formState.errors.team_id.message}</p>
+                      )}
+                    </div>
+                    {form.watch('team_id') && form.watch('team_id') !== '__none__' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="monthly_fee">Mensualidad (COP)</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id="monthly_fee"
+                            type="number"
+                            className="pl-9"
+                            placeholder="150000"
+                            {...form.register('monthly_fee', { valueAsNumber: true })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Sección Plan ── */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Zap className="h-4 w-4 text-purple-500" />
+                    Plan de Servicio
+                  </div>
                   <div className="space-y-2">
-                    <Label htmlFor="team_id">Equipo *</Label>
-                    <Select value={form.watch('team_id')} onValueChange={handleTeamChange}>
-                      <SelectTrigger id="team_id">
-                        <SelectValue placeholder="Seleccionar equipo" />
+                    <Label htmlFor="offering_plan_id">Seleccionar Plan</Label>
+                    <Select
+                      value={form.watch('offering_plan_id') || '__none__'}
+                      onValueChange={(v) => form.setValue('offering_plan_id', v === '__none__' ? '' : v)}
+                    >
+                      <SelectTrigger id="offering_plan_id">
+                        <SelectValue placeholder="Sin plan asignado" />
                       </SelectTrigger>
                       <SelectContent>
-                        {teams.map(team => (
-                          <SelectItem key={team.id} value={team.id}>
-                            {team.name} — {formatCurrency(team.monthly_fee)}
+                        <SelectItem value="__none__">Sin plan</SelectItem>
+                        {offeringPlans.map((plan: any) => (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {plan.offering_name ? `${plan.offering_name} — ` : ''}{plan.name}
+                            {plan.price > 0 ? ` (${formatCurrency(plan.price)})` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {form.formState.errors.team_id && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.team_id.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="monthly_fee"
-                        type="number"
-                        className="pl-9"
-                        placeholder="150000"
-                        {...form.register('monthly_fee', { valueAsNumber: true })}
-                      />
-                    </div>
-                    {form.formState.errors.monthly_fee && (
-                      <p className="text-sm text-destructive">
-                        {form.formState.errors.monthly_fee.message}
-                      </p>
+                    {offeringPlans.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No hay planes activos para esta escuela.</p>
                     )}
                   </div>
                 </div>
               </div>
             )}
+
 
             {/* Para adultos y unregistered — mensaje informativo en lugar del selector */}
             {editingStudent && editingAthleteType !== 'child' && (
