@@ -38,7 +38,7 @@ const BFF_URL = import.meta.env.VITE_BFF_URL ?? '';
 
 // ── Componente ────────────────────────────────────────────────────────────────
 export default function CoachAttendancePage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -51,6 +51,8 @@ export default function CoachAttendancePage() {
   const isSession = selectedItem.startsWith('session:');
   const selectedTeamId = isTeam ? selectedItem.split(':')[1] : '';
   const selectedSessionId = isSession ? selectedItem.split(':')[1] : '';
+
+  const isAdmin = ['admin', 'super_admin', 'school_admin', 'school'].includes(profile?.role || '');
 
   // ── 0. Perfil Staff del Entrenador ────────────────────────────────────────
   const { data: staffData } = useQuery({
@@ -66,7 +68,7 @@ export default function CoachAttendancePage() {
 
   // ── 1. Equipos del entrenador ─────────────────────────────────────────────
   const { data: teams = [], isLoading: loadingTeams } = useQuery({
-    queryKey: ['coach-teams', schoolId, user?.id, staffId],
+    queryKey: ['coach-teams', schoolId, user?.id, staffId, isAdmin],
     queryFn: async () => {
       if (!schoolId || !user?.id) return [];
 
@@ -79,6 +81,7 @@ export default function CoachAttendancePage() {
 
       return (teamsData || [])
         .filter((team: any) => {
+          if (isAdmin) return true;
           const isDirectCoach = team.coach_id === user.id || (staffId && team.coach_id === staffId);
           const isAssigned = team.team_coaches?.some(
             (tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)
@@ -92,21 +95,27 @@ export default function CoachAttendancePage() {
 
   // ── 1.5. Clases Programadas Hoy (Planes) ──────────────────────────────────
   const { data: planSessions = [], isLoading: loadingPlans } = useQuery({
-    queryKey: ['coach-plan-sessions', schoolId, user?.id, staffId],
+    queryKey: ['coach-plan-sessions', schoolId, user?.id, staffId, isAdmin],
     queryFn: async () => {
-      if (!schoolId || (!user?.id && !staffId)) return [];
+      if (!schoolId || (!user?.id && !staffId && !isAdmin)) return [];
       const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
+      
+      let query = supabase
         .from('attendance_sessions')
         .select(`
           id, start_time, end_time, title,
           offering_plans!attendance_sessions_offering_id_fkey(name)
         `)
         .eq('school_id', schoolId)
-        .eq('coach_id', staffId || user!.id)
         .eq('session_date', today)
         .not('offering_id', 'is', null)
         .not('finalized', 'is', true);
+
+      if (!isAdmin) {
+        query = query.eq('coach_id', staffId || user!.id);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return (data || []).map((s: any) => ({
@@ -116,7 +125,7 @@ export default function CoachAttendancePage() {
         end_time: s.end_time
       }));
     },
-    enabled: !!schoolId && (!!user?.id || !!staffId),
+    enabled: !!schoolId && (!!user?.id || !!staffId || isAdmin),
   });
 
   // ── 2. Roster del equipo seleccionado ────────────────────────────────────
