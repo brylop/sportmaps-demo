@@ -293,7 +293,7 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
                 <SelectItem value="club">Club Deportivo</SelectItem>
                 <SelectItem value="academia">Academia</SelectItem>
                 <SelectItem value="gimnasio">Gimnasio/Centro Fitness</SelectItem>
-                <SelectItem value="universidad">Universidad/Colegio</SelectItem>
+                <SelectItem value="universidad">Universidad/Escuela Deportiva</SelectItem>
                 <SelectItem value="federacion">Federación/Liga</SelectItem>
               </SelectContent>
             </Select>

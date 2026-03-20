@@ -878,8 +878,8 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                   <p className="text-muted-foreground text-xs">
                     {fmtTime(confirming?.start_time ?? '')} — {fmtTime(confirming?.end_time ?? '')}
                   </p>
-                  {confirming?.coach?.name && (
-                    <p className="text-muted-foreground text-xs">Coach: {confirming.coach.name}</p>
+                  {confirming?.coach && (confirming.coach.full_name || confirming.coach.name) && (
+                    <p className="text-muted-foreground text-xs">Coach: {confirming.coach.full_name || confirming.coach.name}</p>
                   )}
                 </div>
                 <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${isUnlimited ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-amber-500/10 text-amber-700 border-amber-200'

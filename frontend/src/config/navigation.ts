@@ -93,7 +93,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Seguimiento',
         items: [
-          { title: 'Progreso Académico', href: '/academic-progress', icon: BookOpen },
+          { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
           { title: 'Pagos', href: '/my-payments', icon: DollarSign }
         ]

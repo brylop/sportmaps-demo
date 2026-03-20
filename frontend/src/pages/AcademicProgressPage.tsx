@@ -56,13 +56,13 @@ export default function AcademicProgressPage() {
   };
 
   if (isLoading && selectedChildId) {
-    return <LoadingSpinner fullScreen text="Cargando progreso académico..." />;
+    return <LoadingSpinner fullScreen text="Cargando progreso deportivo..." />;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Progreso Académico</h1>
+        <h1 className="text-3xl font-bold">Progreso Deportivo</h1>
         <p className="text-muted-foreground mt-1">
           Seguimiento del desarrollo deportivo de tus hijos
         </p>
@@ -168,7 +168,7 @@ export default function AcademicProgressPage() {
             <Award className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <h3 className="text-lg font-semibold mb-2">Selecciona un hijo</h3>
             <p className="text-muted-foreground">
-              Elige un hijo del menú superior para ver su progreso académico
+              Elige un hijo del menú superior para ver su progreso deportivo
             </p>
           </CardContent>
         </Card>
@@ -177,7 +177,7 @@ export default function AcademicProgressPage() {
       {error && (
         <ErrorState
           title="Error al cargar"
-          message="No pudimos cargar el progreso académico"
+          message="No pudimos cargar el progreso deportivo"
           onRetry={refetch}
         />
       )}

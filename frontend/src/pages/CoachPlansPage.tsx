@@ -166,7 +166,7 @@ export default function CoachPlansPage() {
                 Tus Horarios Disponibles (Reservables)
               </CardTitle>
               <CardDescription>
-                Esta es la disponibilidad que el colegio te ha configurado y que los atletas o padres pueden reservar.
+                Esta es la disponibilidad que la escuela deportiva te ha configurado y que los atletas o padres pueden reservar.
               </CardDescription>
             </CardHeader>
             <CardContent>

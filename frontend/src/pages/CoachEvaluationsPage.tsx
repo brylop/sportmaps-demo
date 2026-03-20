@@ -115,7 +115,7 @@ export default function CoachEvaluationsPage() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold">Evaluaciones</h1>
-                <p className="text-muted-foreground mt-1">Registra el progreso académico y deportivo de tus atletas</p>
+                <p className="text-muted-foreground mt-1">Registra el progreso deportivo de tus atletas</p>
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
