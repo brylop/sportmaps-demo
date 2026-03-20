@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,8 +12,8 @@ import {
 import {
   Users, Calendar, Clock, MapPin, Zap, Trophy,
   ChevronRight, CalendarCheck, Map as MapIcon,
-  Building2, Star, Target, CalendarDays,
-  XCircle, CheckCircle2, X, ChevronLeft,
+  Building2, Star, Target,
+  XCircle, CheckCircle2, ChevronLeft,
 } from 'lucide-react';
 import {
   format, parseISO, addDays, startOfDay,
@@ -26,7 +26,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
-import { AthleteClassBooking } from '@/components/athlete/AthleteClassBooking';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   useAvailableSessions,
   useUpcomingSessions,
@@ -41,8 +44,14 @@ import {
   BookableSession,
 } from '@/hooks/useAthleteSessionBookings';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Tipos de instalación ─────────────────────────────────────────────────────
 
+interface Facility {
+  id: string;
+  name: string;
+  type: string;
+  school_id: string;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,14 +71,6 @@ function fmtDateLong(d: string) {
   return format(parseISO(d), "EEEE d 'de' MMMM", { locale: es });
 }
 
-function groupByDate(sessions: BookableSession[]) {
-  return sessions.reduce<Record<string, BookableSession[]>>((acc, s) => {
-    acc[s.session_date] = [...(acc[s.session_date] ?? []), s];
-    return acc;
-  }, {});
-}
-
-// próximos 14 días a partir de mañana:
 function getNextAvailableDates(count = 14) {
   const dates: string[] = [];
   let d = startOfDay(new Date());
@@ -82,85 +83,27 @@ function getNextAvailableDates(count = 14) {
 
 function getPlanVisual(name: string = '') {
   const n = name.toLowerCase();
-  
+
   if (n.includes('elite') || n.includes('premium') || n.includes('oro') || n.includes('gold') || n.includes('black')) {
-    return {
-      gradient: 'from-zinc-900 via-zinc-800 to-black',
-      accent: 'text-amber-400',
-      tag: 'bg-amber-400/20 text-amber-400 border-amber-400/30',
-      icon: Trophy,
-      glow: 'shadow-amber-900/20',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-zinc-900 via-zinc-800 to-black', accent: 'text-amber-400', tag: 'bg-amber-400/20 text-amber-400 border-amber-400/30', icon: Trophy, glow: 'shadow-amber-900/20' };
   }
-  
   if (n.includes('combate') || n.includes('mma') || n.includes('box') || n.includes('warrior')) {
-    return {
-      gradient: 'from-rose-700 via-rose-800 to-red-950',
-      accent: 'text-white',
-      tag: 'bg-white/20 text-white border-white/20',
-      icon: Target,
-      glow: 'shadow-red-900/30',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-rose-700 via-rose-800 to-red-950', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Target, glow: 'shadow-red-900/30' };
   }
-  
   if (n.includes('gym') || n.includes('fitness') || n.includes('musculo') || n.includes('iron')) {
-    return {
-      gradient: 'from-orange-500 via-orange-600 to-amber-700',
-      accent: 'text-white',
-      tag: 'bg-white/20 text-white border-white/20',
-      icon: Zap,
-      glow: 'shadow-orange-900/20',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-orange-500 via-orange-600 to-amber-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-orange-900/20' };
   }
-  
   if (n.includes('yoga') || n.includes('zen') || n.includes('paz') || n.includes('balance') || n.includes('wellness')) {
-    return {
-      gradient: 'from-emerald-500 via-teal-600 to-cyan-700',
-      accent: 'text-white',
-      tag: 'bg-white/20 text-white border-white/20',
-      icon: Star,
-      glow: 'shadow-emerald-900/20',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-emerald-500 via-teal-600 to-cyan-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Star, glow: 'shadow-emerald-900/20' };
   }
-
   if (n.includes('basico') || n.includes('básico') || n.includes('estandar') || n.includes('estándar') || n.includes('base') || n.includes('inicial')) {
-    return {
-      gradient: 'from-slate-500 via-slate-600 to-slate-700',
-      accent: 'text-white',
-      tag: 'bg-white/20 text-white border-white/20',
-      icon: Target,
-      glow: 'shadow-slate-900/20',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-slate-500 via-slate-600 to-slate-700', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Target, glow: 'shadow-slate-900/20' };
   }
-
   if (n.includes('full') || n.includes('completo') || n.includes('total') || n.includes('platinum')) {
-    return {
-      gradient: 'from-blue-600 via-blue-700 to-indigo-900',
-      accent: 'text-white',
-      tag: 'bg-white/20 text-white border-white/20',
-      icon: Zap,
-      glow: 'shadow-blue-900/30',
-      label: 'PLAN'
-    };
+    return { gradient: 'from-blue-600 via-blue-700 to-indigo-900', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-blue-900/30' };
   }
-  
-  // Default (Blue/Purple)
-  return {
-    gradient: 'from-[#6366f1] via-[#8b5cf6] to-[#a855f7]',
-    accent: 'text-white',
-    tag: 'bg-white/20 text-white border-white/20',
-    icon: Zap,
-    glow: 'shadow-purple-900/30',
-    label: 'PLAN'
-  };
+  return { gradient: 'from-[#6366f1] via-[#8b5cf6] to-[#a855f7]', accent: 'text-white', tag: 'bg-white/20 text-white border-white/20', icon: Zap, glow: 'shadow-purple-900/30' };
 }
-
-
 
 // ─── Shared Stat ──────────────────────────────────────────────────────────────
 
@@ -181,59 +124,123 @@ const StatItem = ({ icon: Icon, label, value, colorClass }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MyEnrollmentsPage() {
-  const { activeEnrollments, loading: activeIsLoading } = useEnrollments();
-  const { data: upcomingData } = useUpcomingSessions();
   const { user } = useAuth();
+  const { currentUserRole, schoolId } = useSchoolContext();
+  const [selectedChildId, setSelectedChildId] = useState<string | undefined>(undefined);
+
+  // ── Fetch Children (if parent) ──
+  const { data: children, isLoading: childrenLoading } = useQuery({
+    queryKey: ['children', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('children')
+        .select('id, full_name, avatar_url')
+        .eq('parent_id', user?.id);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: currentUserRole === 'parent' && !!user?.id,
+  });
+
+  // Auto-select first child
+  useEffect(() => {
+    if (currentUserRole === 'parent' && children?.length && !selectedChildId) {
+      setSelectedChildId(children[0].id);
+    }
+  }, [children, currentUserRole, selectedChildId]);
+
+  const { activeEnrollments, loading: activeIsLoading } = useEnrollments(selectedChildId);
+  const { data: upcomingData } = useUpcomingSessions(selectedChildId);
   const { toast } = useToast();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'groups' | 'classes' | 'reservations'>('groups');
-  // ── Modal State ──
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [scheduleEnrollment, setScheduleEnrollment] = useState<any>(null);
-  const [reservingFacility, setReservingFacility] = useState<{ id: string; name: string } | null>(null);
+  const [reservingFacility, setReservingFacility] = useState<Facility | null>(null);
 
-  // ── Reservas Confirmadas del Atleta ──
-  const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings();
-  const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings();
-  const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities();
-  const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking();
+  const { data: myBookingsData, isLoading: myBookingsLoading } = useMyBookings(selectedChildId);
+  const { data: mySecBookings, isLoading: mySecLoading } = useMySecondaryBookings(selectedChildId);
+  const { data: facilitiesData, isLoading: facilitiesLoading } = useAthleteFacilities(selectedChildId);
+  const { mutate: cancelBooking, isPending: isCanceling } = useCancelBooking(selectedChildId);
   const [cancelingBookingId, setCancelingBookingId] = useState<string | null>(null);
 
-  const athleteFacilities = facilitiesData?.facilities ?? [];
+  const athleteFacilities: Facility[] = facilitiesData?.facilities ?? [];
 
-  if (activeIsLoading || myBookingsLoading || mySecLoading || !activeEnrollments) {
-    return <LoadingSpinner fullScreen text="Cargando tu portal..." />;
-  }
-
-  const teamEnrollments = activeEnrollments.filter((e: any) => e.team_id && !e.offering_plan_id);
-  const planEnrollments = activeEnrollments.filter((e: any) => e.offering_plan_id);
+  // ── Derivados de enrollments (ANTES del early return — regla de hooks) ──────
+  const teamEnrollments = (activeEnrollments ?? []).filter((e: any) => e.team_id && !e.offering_plan_id);
+  const planEnrollments = (activeEnrollments ?? []).filter((e: any) => e.offering_plan_id);
 
   const upcomingSessions = upcomingData?.sessions ?? [];
-  
-  // Encontrar si algún plan tiene secundarias (GYM) para el label de la pestaña
-  const enrollmentWithSec = activeEnrollments.find((e: any) => (e.offering_plans?.max_secondary_sessions ?? 0) > 0);
-  const secondaryLabel = enrollmentWithSec?.offering_plans?.secondary_session_label || 'Reservas';
+
+  const enrollmentWithSec = (activeEnrollments ?? []).find(
+    (e: any) => (e.plan_details?.max_secondary_sessions ?? 0) > 0
+  );
+  const secondaryLabel = enrollmentWithSec?.plan_details?.secondary_session_label || 'Reservas';
+
+  const enrollmentForFacility = useMemo(() => {
+    return planEnrollments.find((e: any) => {
+      const max  = e.plan_details?.max_secondary_sessions ?? 0;
+      const used = e.secondary_sessions_used ?? 0;
+      return max > 0 && used < max;
+    }) ?? planEnrollments[0] ?? null;
+  }, [planEnrollments]);
 
   const totalMyClasses = myBookingsData?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
   const totalMyReservations = mySecBookings?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
+
+  if (activeIsLoading || myBookingsLoading || mySecLoading || (currentUserRole === 'parent' && childrenLoading) || !activeEnrollments) {
+    return <LoadingSpinner fullScreen text={currentUserRole === 'parent' ? "Cargando inscripciones..." : "Cargando tu portal..."} />;
+  }
 
   return (
     <div className="min-h-screen bg-background pb-12">
       <div className="container max-w-7xl mx-auto px-4 pt-2 space-y-8">
 
         {/* Header */}
-        <div>
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em] mb-1">Portal del Atleta</p>
-          <h1 className="text-4xl font-black tracking-tight flex items-center gap-3">Mis Inscripciones</h1>
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em] mb-1">
+              {currentUserRole === 'parent' ? 'Portal Familiar' : 'Portal del Atleta'}
+            </p>
+            <h1 className="text-4xl font-black tracking-tight flex items-center gap-3 text-balance">
+              {currentUserRole === 'parent'
+                ? (selectedChildId ? `Inscripciones de ${children?.find(c => c.id === selectedChildId)?.full_name}` : 'Inscripciones')
+                : 'Mis Inscripciones'
+              }
+            </h1>
+          </div>
+
+          {currentUserRole === 'parent' && children && children.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center bg-muted/30 p-2 rounded-2xl border border-border/20 self-start md:self-auto">
+              {children.map((child: any) => (
+                <button
+                  key={child.id}
+                  onClick={() => setSelectedChildId(child.id)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all ${selectedChildId === child.id
+                      ? 'bg-primary text-primary-foreground shadow-md'
+                      : 'hover:bg-muted text-muted-foreground'
+                    }`}
+                >
+                  <Avatar className="h-6 w-6 border-2 border-white/10">
+                    <AvatarImage src={child.avatar_url || ''} />
+                    <AvatarFallback className="text-[10px] bg-slate-200 text-slate-700">
+                      {child.full_name.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-bold truncate max-w-[120px]">{child.full_name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatItem icon={Users}    label="Equipos"  value={teamEnrollments.length} colorClass="bg-blue-500/10 text-blue-500" />
-          <StatItem icon={Zap}      label="Planes"   value={planEnrollments.length} colorClass="bg-purple-500/10 text-purple-500" />
-          <StatItem icon={Calendar} label="Clases"   value={totalMyClasses}          colorClass="bg-green-500/10 text-green-500" />
-          <StatItem icon={MapIcon}  label="Reservas" value={totalMyReservations}                      colorClass="bg-amber-500/10 text-amber-500" />
+          <StatItem icon={Users} label="Equipos" value={teamEnrollments.length} colorClass="bg-blue-500/10 text-blue-500" />
+          <StatItem icon={Zap} label="Planes" value={planEnrollments.length} colorClass="bg-purple-500/10 text-purple-500" />
+          <StatItem icon={Calendar} label="Clases" value={totalMyClasses} colorClass="bg-green-500/10 text-green-500" />
+          <StatItem icon={MapIcon} label="Reservas" value={totalMyReservations} colorClass="bg-amber-500/10 text-amber-500" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -244,22 +251,21 @@ export default function MyEnrollmentsPage() {
             {/* Tabs */}
             <div className="flex gap-2 p-1.5 bg-muted/40 rounded-2xl border border-border/30 w-fit">
               {[
-                { key: 'groups',       icon: Trophy,        label: 'Mis Grupos',  count: (teamEnrollments.length + planEnrollments.length) },
-                { key: 'classes',      icon: CalendarCheck, label: 'Mis Clases',  count: totalMyClasses },
-                { key: 'reservations', icon: MapPin,        label: 'Mis Reservas',count: totalMyReservations },
+                { key: 'groups', icon: Trophy, label: 'Mis Grupos', count: teamEnrollments.length + planEnrollments.length },
+                { key: 'classes', icon: CalendarCheck, label: 'Mis Clases', count: totalMyClasses },
+                { key: 'reservations', icon: MapPin, label: 'Mis Reservas', count: totalMyReservations },
               ].map(({ key, icon: Icon, label, count }) => (
                 <button
                   key={key}
                   onClick={() => setActiveTab(key as any)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                    activeTab === key
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === key
                       ? 'bg-background text-foreground shadow-lg border border-border/50'
                       : 'text-muted-foreground hover:text-foreground'
-                  }`}
+                    }`}
                 >
                   <Icon className="h-4 w-4" />
                   {label}
-                  {count != null && count > 0 && <span className="opacity-40">{count}</span>}
+                  {count > 0 && <span className="opacity-40">{count}</span>}
                 </button>
               ))}
             </div>
@@ -267,7 +273,6 @@ export default function MyEnrollmentsPage() {
             {/* Tab: Mis Grupos */}
             {activeTab === 'groups' && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                {/* Equipos */}
                 <section>
                   <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
                     Equipos ({teamEnrollments.length})
@@ -285,7 +290,6 @@ export default function MyEnrollmentsPage() {
                   )}
                 </section>
 
-                {/* Planes */}
                 <section>
                   <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
                     Planes ({planEnrollments.length})
@@ -305,25 +309,15 @@ export default function MyEnrollmentsPage() {
               </div>
             )}
 
-            {/* Tab: Mis Clases */}
             {activeTab === 'classes' && (
               <div className="animate-in fade-in duration-500">
-                <MyBookingsTab 
-                  hasSecondary={!!enrollmentWithSec} 
-                  secLabel={secondaryLabel}
-                  filter="primary"
-                />
+                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="primary" childId={selectedChildId} />
               </div>
             )}
 
-            {/* Tab: Mis Reservas */}
             {activeTab === 'reservations' && (
               <div className="animate-in fade-in duration-500">
-                <MyBookingsTab 
-                  hasSecondary={!!enrollmentWithSec} 
-                  secLabel={secondaryLabel}
-                  filter="secondary"
-                />
+                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="secondary" childId={selectedChildId} />
               </div>
             )}
           </div>
@@ -331,7 +325,7 @@ export default function MyEnrollmentsPage() {
           {/* ── Side panel ── */}
           <div className="lg:col-span-4 space-y-6 sticky top-8">
 
-            {/* Clases Programadas — datos reales */}
+            {/* Clases Programadas */}
             <Card className="border-border/40 bg-muted/20">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
@@ -347,7 +341,6 @@ export default function MyEnrollmentsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {/* Reservas confirmadas del atleta - Filtrado para futuras o hoy */}
                     {myBookingsData
                       ?.filter((b) => {
                         const s = b.attendance_sessions;
@@ -359,19 +352,16 @@ export default function MyEnrollmentsPage() {
                       .map((b) => {
                         const s = b.attendance_sessions;
                         if (!s) return null;
-
                         const today = new Date().toLocaleDateString('en-CA');
                         const isPast = s.session_date < today;
-
-                        // Nombre: plan o equipo
-                        const contextName = b.enrollments?.offering_plans?.name
-                          ?? b.enrollments?.teams?.name
-                          ?? 'Clase';
+                        // ✅ FIX: usar b.booking_type para determinar la fuente del nombre
+                        const contextName = b.booking_type === 'team'
+                          ? b.enrollments?.teams?.name
+                          : b.enrollments?.offering_plans?.name ?? 'Clase';
 
                         return (
-                          <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${
-                            isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-primary/5 border-primary/20'
-                          }`}>
+                          <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-primary/5 border-primary/20'
+                            }`}>
                             <div className="text-center shrink-0 w-10">
                               <p className="text-[9px] font-black uppercase text-muted-foreground capitalize leading-none">
                                 {format(parseISO(s.session_date), 'EEE', { locale: es })}
@@ -393,21 +383,16 @@ export default function MyEnrollmentsPage() {
                                 </p>
                               )}
                             </div>
-
                             {!isPast && !s.finalized && b.status === 'confirmed' && (
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCancelingBookingId(b.id);
-                                }}
+                                onClick={(e) => { e.stopPropagation(); setCancelingBookingId(b.id); }}
                                 className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-background shadow-sm border rounded-full hover:text-destructive hover:border-destructive/30"
                                 title="Cancelar clase"
                               >
                                 <XCircle className="h-3.5 w-3.5" />
                               </button>
                             )}
-
-                            {(!(!isPast && !s.finalized && b.status === 'confirmed')) && (
+                            {!(!isPast && !s.finalized && b.status === 'confirmed') && (
                               <CheckCircle2 className="h-4 w-4 text-primary shrink-0 transition-opacity group-hover:opacity-20" />
                             )}
                           </div>
@@ -448,9 +433,7 @@ export default function MyEnrollmentsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => {
-                            setReservingFacility(facility);
-                          }}
+                          onClick={() => setReservingFacility(facility)}
                           className="h-8 text-[10px] font-black uppercase px-4 border-border/80 hover:bg-primary/5 hover:border-primary/20"
                         >
                           Reservar
@@ -461,7 +444,6 @@ export default function MyEnrollmentsPage() {
                 )}
               </CardContent>
             </Card>
-
           </div>
         </div>
       </div>
@@ -471,29 +453,27 @@ export default function MyEnrollmentsPage() {
         <TeamDetailModal enrollment={selectedTeam} onClose={() => setSelectedTeam(null)} />
       )}
 
+      {/* ✅ FIX: pasar facilities completo en lugar de [0] hardcodeado */}
       {scheduleEnrollment && (
         <ScheduleClassModal
           enrollment={scheduleEnrollment}
-          facilityId={athleteFacilities[0]?.id ?? ''}
-          facilityName={athleteFacilities[0]?.name ?? ''}
+          facilities={athleteFacilities}
+          childId={selectedChildId}
           onClose={() => setScheduleEnrollment(null)}
         />
       )}
 
+      {/* ✅ FIX: enrollment calculado con lógica de créditos, no [0] */}
       {reservingFacility && (
         <FacilityReserveModal
-          facilityId={reservingFacility.id}
-          facilityName={reservingFacility.name}
-          enrollment={planEnrollments[0] ?? null}
+          facility={reservingFacility}
+          enrollment={enrollmentForFacility}
+          childId={selectedChildId}
           onClose={() => setReservingFacility(null)}
         />
       )}
 
-      {/* ── AlertDialog: Cancelar Reserva ── */}
-      <AlertDialog
-        open={!!cancelingBookingId}
-        onOpenChange={(open) => !open && setCancelingBookingId(null)}
-      >
+      <AlertDialog open={!!cancelingBookingId} onOpenChange={(open) => !open && setCancelingBookingId(null)}>
         <AlertDialogContent className="sm:max-w-[400px]">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
@@ -574,15 +554,13 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
   const secLeft = Math.max(0, (plan?.max_secondary_sessions ?? 0) - (enrollment.secondary_sessions_used ?? 0));
   const secLabel = plan?.secondary_session_label || 'GYM';
 
-  // "Plan" (Offering) arriba, "Tarifa" (offering_plan) abajo
-  const offeringName = enrollment.offering?.name || enrollment.program?.name || 'Mi Plan';
-  const tariffName = enrollment.offering_plan?.name || 'Plan';
-  
-  // Usar el nombre de la TARIFA (Full, Gold, etc) para el visual
+  // Offering arriba (nombre del programa), plan_details abajo (tarifa)
+  const offeringName = enrollment.offering?.name ?? enrollment.program?.name ?? 'Mi Plan';
+  const tariffName = enrollment.offering_plan?.name ?? plan?.name ?? 'Plan';
+
   const visual = getPlanVisual(tariffName);
   const VisualIcon = visual.icon;
 
-  // Días restantes
   const daysLeft = enrollment.expires_at
     ? Math.max(0, Math.ceil((new Date(enrollment.expires_at).getTime() - Date.now()) / 86400000))
     : null;
@@ -596,20 +574,13 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
         <Badge className={`absolute top-3 right-3 ${visual.tag} text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity`}>
           ACTIVO
         </Badge>
-
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center border border-white/20 shrink-0">
             <VisualIcon className={`h-7 w-7 ${visual.accent}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">
-              {offeringName}
-            </p>
-            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">
-              {tariffName}
-            </h4>
-
-            {/* Créditos */}
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">{offeringName}</p>
+            <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{tariffName}</h4>
             <div className="flex items-center gap-2 mt-3 flex-wrap">
               <div className="flex items-center gap-1 px-2 py-0.5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
                 <Zap className="h-3 w-3" />
@@ -622,22 +593,18 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
                 </div>
               )}
             </div>
-
             {daysLeft !== null && (
               <p className="text-[10px] font-bold opacity-60 flex items-center gap-1 mt-2">
-                <Clock className="h-3 w-3" />
-                {daysLeft} días restantes
+                <Clock className="h-3 w-3" />{daysLeft} días restantes
               </p>
             )}
           </div>
           <ChevronRight className="h-6 w-6 opacity-40 self-center shrink-0" />
         </div>
-
         <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
           <p className="text-[10px] uppercase font-black tracking-widest opacity-60">Toca para gestionar clases</p>
           <CalendarCheck className="h-3.5 w-3.5 opacity-60" />
         </div>
-
         <VisualIcon className="absolute -bottom-4 -right-4 h-32 w-32 opacity-10 rotate-12" />
       </CardContent>
     </Card>
@@ -646,10 +613,11 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
 
 // ─── Modal: Gestión de clases ─────────────────────────────────────────────────
 
-function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
+// ✅ FIX: recibe facilities[] en lugar de facilityId/facilityName hardcodeados
+function ScheduleClassModal({ enrollment, facilities, childId, onClose }: {
   enrollment: any;
-  facilityId: string;
-  facilityName: string;
+  facilities: Facility[];
+  childId?: string;
   onClose: () => void;
 }) {
   const plan = enrollment.plan_details;
@@ -658,8 +626,10 @@ function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
   const hasSecondary = (plan?.max_secondary_sessions ?? 0) > 0;
   const secLeft = Math.max(0, (plan?.max_secondary_sessions ?? 0) - (enrollment.secondary_sessions_used ?? 0));
   const secLabel = plan?.secondary_session_label || 'GYM';
-  const planName = enrollment.program?.name ?? plan?.name ?? '';
-  const teamName = enrollment.program?.name ?? '';
+
+  // ✅ FIX: nombre correcto según tipo de enrollment
+  const displayName = enrollment.offering?.name ?? enrollment.program?.name ?? 'Clases';
+  const planName = plan?.name ?? enrollment.program?.name ?? '';
 
   const [tab, setTab] = useState<'primary' | 'secondary'>('primary');
 
@@ -668,13 +638,12 @@ function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
       <DialogContent className="sm:max-w-xl max-h-[88vh] flex flex-col gap-0 p-0 overflow-hidden">
         <DialogTitle className="sr-only">Gestión de Clases</DialogTitle>
 
-        {/* Header */}
+        {/* ✅ FIX: displayName en lugar de teamName */}
         <div className="px-6 pt-5 pb-3 border-b border-border/30">
           <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Gestión de Clases</p>
-          <h2 className="text-lg font-black tracking-tight">{teamName}</h2>
+          <h2 className="text-lg font-black tracking-tight">{displayName}</h2>
         </div>
 
-        {/* Plan summary bar */}
         <div className="px-6 py-3 border-b border-border/30 bg-muted/20 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center">
@@ -701,7 +670,6 @@ function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
           )}
         </div>
 
-        {/* Tabs */}
         <div className="px-6 pt-3 pb-1">
           <div className="flex gap-1 p-1 bg-muted/40 rounded-lg border border-border/30">
             <ModalTab active={tab === 'primary'} onClick={() => setTab('primary')}>
@@ -715,7 +683,6 @@ function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
           {tab === 'primary' && (
             <PrimarySessionsTab
@@ -723,16 +690,18 @@ function ScheduleClassModal({ enrollment, facilityId, facilityName, onClose }: {
               creditsLeft={creditsLeft}
               isUnlimited={isUnlimited}
               planName={planName}
+              childId={childId}
             />
           )}
           {tab === 'secondary' && hasSecondary && (
+            // ✅ FIX: pasar facilities[] para que el usuario elija
             <SecondarySessionsTab
               enrollment={enrollment}
-              facilityId={facilityId}
-              facilityName={facilityName}
+              facilities={facilities}
               secLabel={secLabel}
               secLeft={secLeft}
               maxSec={plan.max_secondary_sessions}
+              childId={childId}
             />
           )}
         </div>
@@ -745,9 +714,8 @@ function ModalTab({ active, onClick, children }: { active: boolean; onClick: () 
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-colors ${
-        active ? 'bg-background text-foreground shadow-sm border border-border/40' : 'text-muted-foreground hover:text-foreground'
-      }`}
+      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold rounded-md transition-colors ${active ? 'bg-background text-foreground shadow-sm border border-border/40' : 'text-muted-foreground hover:text-foreground'
+        }`}
     >
       {children}
     </button>
@@ -756,45 +724,36 @@ function ModalTab({ active, onClick, children }: { active: boolean; onClick: () 
 
 // ── Tab: Clases Principales ───────────────────────────────────────────────────
 
-function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: {
-  enrollment: any; creditsLeft: number | null; isUnlimited: boolean; planName: string;
+function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, childId }: {
+  enrollment: any; creditsLeft: number | null; isUnlimited: boolean; planName: string; childId?: string;
 }) {
-  const { data, isLoading } = useAvailableSessions();
-  const { mutate: book, isPending } = useBookSession();
+  const { data, isLoading } = useAvailableSessions(childId);
+  const { mutate: book, isPending } = useBookSession(childId);
   const { toast } = useToast();
   const [confirming, setConfirming] = useState<BookableSession | null>(null);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  // Filtrar sesiones:
-  // - Si el enrollment tiene offering_plan_id → buscar por offering_id en la sesión
-  // - Si solo tiene team_id → buscar por team_id
   const allSessions = useMemo(() => {
     const sessions = data?.sessions ?? [];
 
-    // 1. Intentar match exacto por enrollment_id (el BFF ya lo resolvió)
     const byEnrollment = sessions.filter(
-      (s) =>
-        s.enrollment_id === enrollment.id &&
+      s => s.enrollment_id === enrollment.id &&
         (s.booking_status === 'open' || s.booking_status === 'already_booked')
     );
     if (byEnrollment.length > 0) return byEnrollment;
 
-    // 2. Plan desacoplado → usar offering_id que ahora viene del RPC
     if (enrollment.offering_id) {
       const byOffering = sessions.filter(
-        (s) =>
-          s.offering_id === enrollment.offering_id &&
+        s => s.offering_id === enrollment.offering_id &&
           (s.booking_status === 'open' || s.booking_status === 'already_booked')
       );
       if (byOffering.length > 0) return byOffering;
     }
 
-    // 3. Solo equipo (team_id != null, sin plan desacoplado)
     if (enrollment.team_id) {
       return sessions.filter(
-        (s) =>
-          s.team?.id === enrollment.team_id &&
+        s => s.team?.id === enrollment.team_id &&
           (s.booking_status === 'open' || s.booking_status === 'already_booked')
       );
     }
@@ -802,9 +761,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
     return [];
   }, [data, enrollment]);
 
-  const availableDates = useMemo(() =>
-    new Set(allSessions.map(s => s.session_date))
-  , [allSessions]);
+  const availableDates = useMemo(() => new Set(allSessions.map(s => s.session_date)), [allSessions]);
 
   const sessionsForDay = useMemo(() => {
     if (!selectedDate) return [];
@@ -813,7 +770,6 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [allSessions, selectedDate]);
 
-  // Agrupar sesiones por horario para visualización compacta
   const groupedSessions = useMemo(() => {
     const groups: Record<string, BookableSession[]> = {};
     sessionsForDay.forEach(s => {
@@ -827,43 +783,33 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
   if (isLoading) return <SkeletonList />;
 
   const noCredits = !isUnlimited && (creditsLeft ?? 0) <= 0;
-  if (noCredits) {
-    return <EmptyCenter icon={Zap} title="Sin créditos disponibles"
-      desc={`Tu plan ${planName} no tiene más clases este período`} color="amber" />;
-  }
-  if (allSessions.length === 0) {
-    return <EmptyCenter icon={CalendarCheck} title="Sin clases disponibles"
-      desc="No hay horarios programados. Consulta con tu academia." />;
-  }
+  if (noCredits) return <EmptyCenter icon={Zap} title="Sin créditos disponibles" desc={`Tu plan ${planName} no tiene más clases este período`} color="amber" />;
+  if (allSessions.length === 0) return <EmptyCenter icon={CalendarCheck} title="Sin clases disponibles" desc="No hay horarios programados. Consulta con tu academia." />;
 
-  // Calendario
-  const monthStart  = startOfMonth(calendarDate);
-  const monthEnd    = endOfMonth(calendarDate);
-  const days        = eachDayOfInterval({ start: monthStart, end: monthEnd });
-  const startPad    = (monthStart.getDay() + 6) % 7; // Lu=0
-  const todayDate   = startOfDay(new Date());
+  const monthStart = startOfMonth(calendarDate);
+  const monthEnd = endOfMonth(calendarDate);
+  const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startPad = (monthStart.getDay() + 6) % 7;
+  const todayDate = startOfDay(new Date());
 
   return (
     <>
       <div className="space-y-4">
-        {/* Mini calendario */}
         <div className="rounded-xl border border-border/40 overflow-hidden bg-muted/10">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1))}
-              className="p-1 rounded-md hover:bg-muted/60 transition-colors">
+            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1))} className="p-1 rounded-md hover:bg-muted/60 transition-colors">
               <ChevronLeft className="h-4 w-4" />
             </button>
             <p className="text-sm font-black uppercase tracking-wider capitalize">
               {format(calendarDate, 'MMMM yyyy', { locale: es })}
             </p>
-            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1))}
-              className="p-1 rounded-md hover:bg-muted/60 transition-colors">
+            <button onClick={() => setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1))} className="p-1 rounded-md hover:bg-muted/60 transition-colors">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
 
           <div className="grid grid-cols-7 text-center border-b border-border/20">
-            {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => (
+            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map(d => (
               <div key={d} className="py-2 text-[10px] font-black text-muted-foreground uppercase">{d}</div>
             ))}
           </div>
@@ -871,26 +817,19 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
           <div className="grid grid-cols-7 p-1">
             {Array.from({ length: startPad }).map((_, i) => <div key={`p${i}`} />)}
             {days.map(day => {
-              const dateStr    = format(day, 'yyyy-MM-dd');
-              const hasSess    = availableDates.has(dateStr);
-              const isPast     = isBefore(day, todayDate);
-              const isToday_   = isToday(day);
+              const dateStr = format(day, 'yyyy-MM-dd');
+              const hasSess = availableDates.has(dateStr);
+              const isPast = isBefore(day, todayDate);
+              const isToday_ = isToday(day);
               const isSelected = selectedDate === dateStr;
-
               return (
                 <button key={dateStr} disabled={!hasSess || isPast}
                   onClick={() => setSelectedDate(isSelected ? null : dateStr)}
-                  className={`
-                    relative flex flex-col items-center justify-center py-2 mx-0.5 my-0.5
-                    text-xs font-semibold rounded-lg transition-all
-                    ${isSelected
-                      ? 'bg-primary text-primary-foreground shadow-md'
-                      : hasSess && !isPast
-                        ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
-                        : 'text-muted-foreground/30 cursor-default'
-                    }
-                    ${isToday_ && !isSelected ? 'ring-1 ring-primary/50' : ''}
-                  `}
+                  className={`relative flex flex-col items-center justify-center py-2 mx-0.5 my-0.5 text-xs font-semibold rounded-lg transition-all
+                    ${isSelected ? 'bg-primary text-primary-foreground shadow-md'
+                      : hasSess && !isPast ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
+                        : 'text-muted-foreground/30 cursor-default'}
+                    ${isToday_ && !isSelected ? 'ring-1 ring-primary/50' : ''}`}
                 >
                   {format(day, 'd')}
                   {hasSess && !isPast && !isSelected && (
@@ -902,7 +841,6 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
           </div>
         </div>
 
-        {/* Horarios del día seleccionado */}
         {selectedDate ? (
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize">
@@ -910,12 +848,12 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
               {' · '}{groupedSessions.length} bloque{groupedSessions.length !== 1 ? 's' : ''} de horario
             </p>
             {groupedSessions.map(group => (
-              <CompactSessionSlot 
-                key={`${group[0].start_time}-${group[0].end_time}`} 
-                sessions={group} 
+              <CompactSessionSlot
+                key={`${group[0].start_time}-${group[0].end_time}`}
+                sessions={group}
                 noCredits={noCredits}
-                isBooking={isPending} 
-                onBook={(s) => setConfirming(s)} 
+                isBooking={isPending}
+                onBook={(s) => setConfirming(s)}
               />
             ))}
           </div>
@@ -926,7 +864,6 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
         )}
       </div>
 
-      {/* Dialog confirmación */}
       <AlertDialog open={!!confirming} onOpenChange={(o) => { if (!o) setConfirming(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -934,11 +871,9 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm">
                 <div className="rounded-lg border p-3 space-y-1 bg-muted/20">
-                  <p className="font-bold text-foreground">{confirming?.team.name}</p>
+                  <p className="font-bold text-foreground">{confirming?.team?.name ?? planName}</p>
                   <p className="text-muted-foreground capitalize text-xs">
-                    {confirming?.session_date
-                      ? format(parseISO(confirming.session_date), "EEEE d 'de' MMMM", { locale: es })
-                      : ''}
+                    {confirming?.session_date ? format(parseISO(confirming.session_date), "EEEE d 'de' MMMM", { locale: es }) : ''}
                   </p>
                   <p className="text-muted-foreground text-xs">
                     {fmtTime(confirming?.start_time ?? '')} — {fmtTime(confirming?.end_time ?? '')}
@@ -947,11 +882,8 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
                     <p className="text-muted-foreground text-xs">Coach: {confirming.coach.name}</p>
                   )}
                 </div>
-                <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${
-                  isUnlimited
-                    ? 'bg-green-500/10 text-green-700 border-green-200'
-                    : 'bg-amber-500/10 text-amber-700 border-amber-200'
-                }`}>
+                <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${isUnlimited ? 'bg-green-500/10 text-green-700 border-green-200' : 'bg-amber-500/10 text-amber-700 border-amber-200'
+                  }`}>
                   {isUnlimited
                     ? 'Plan ilimitado — no se descuenta crédito'
                     : `Se usará 1 clase (quedarán ${(creditsLeft ?? 1) - 1})`}
@@ -965,8 +897,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
               if (!confirming) return;
               book({ session_id: confirming.id, enrollment_id: confirming.enrollment_id }, {
                 onSuccess: () => {
-                  toast({ title: '✅ Clase agendada',
-                    description: `${format(parseISO(confirming.session_date), "EEE d MMM", { locale: es })} · ${fmtTime(confirming.start_time)}` });
+                  toast({ title: '✅ Clase agendada', description: `${format(parseISO(confirming.session_date), "EEE d MMM", { locale: es })} · ${fmtTime(confirming.start_time)}` });
                   setConfirming(null);
                   setSelectedDate(null);
                 },
@@ -987,28 +918,42 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName }: 
 
 // ── Tab: Clases Secundarias (GYM) ─────────────────────────────────────────────
 
-function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, secLeft, maxSec }: {
-  enrollment: any; facilityId: string; facilityName: string;
-  secLabel: string; secLeft: number; maxSec: number;
+// ✅ FIX: recibe facilities[] y permite al usuario elegir instalación
+function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSec, childId }: {
+  enrollment: any;
+  facilities: Facility[];
+  secLabel: string;
+  secLeft: number;
+  maxSec: number;
+  childId?: string;
 }) {
-  const { mutate: bookSec, isPending } = useBookSecondarySession();
+  const { mutate: bookSec, isPending } = useBookSecondarySession(childId);
   const { toast } = useToast();
-  
-  // Hoy en Colombia (UTC-5)
+
   const todayStr = useMemo(() => new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString().split('T')[0], []);
-  
-  // State for multi-selection
+
+  // ✅ FIX: estado para la instalación seleccionada — no hardcodeado
+  const [selectedFacilityId, setSelectedFacilityId] = useState<string>(facilities[0]?.id ?? '');
+  const selectedFacility = facilities.find(f => f.id === selectedFacilityId) ?? facilities[0];
+
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedSlots, setSelectedSlots] = useState<{ start: string; end: string }[]>([]);
   const [isConfirming, setIsConfirming] = useState(false);
 
-  const { data: slotsData, isLoading: slotsLoading } = useFacilitySlots(facilityId, selectedDate);
+  // Reset slots al cambiar instalación o fecha
+  const handleFacilityChange = (id: string) => {
+    setSelectedFacilityId(id);
+    setSelectedSlots([]);
+  };
+
+  const { data: slotsData, isLoading: slotsLoading } = useFacilitySlots(
+    selectedFacilityId, selectedDate, childId
+  );
   const availableDates = getNextAvailableDates(14);
   const slots = slotsData?.slots ?? [];
 
   const toggleSlot = (slot: { start: string; end: string; available: boolean; already_booked: boolean }) => {
     if (!slot.available || slot.already_booked) return;
-
     const exists = selectedSlots.find(s => s.start === slot.start);
     if (exists) {
       setSelectedSlots(selectedSlots.filter(s => s.start !== slot.start));
@@ -1024,28 +969,40 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
   const calculateCredits = () => {
     if (selectedSlots.length === 0) return 0;
     if (selectedSlots.length === 1) return 1;
-    
     const sorted = [...selectedSlots].sort((a, b) => a.start.localeCompare(b.start));
-    if (sorted[0].end === sorted[1].start) return 1; // Consecutive
-    
-    return 2; // Not consecutive
+    return sorted[0].end === sorted[1].start ? 1 : 2;
   };
 
   const creditsNeeded = calculateCredits();
 
   if (secLeft <= 0) {
-    return (
-      <EmptyCenter icon={Building2} title={`Sin clases ${secLabel}`}
-        desc={`Has usado las ${maxSec} clases incluidas en tu plan este período`} color="blue" />
-    );
+    return <EmptyCenter icon={Building2} title={`Sin clases ${secLabel}`} desc={`Has usado las ${maxSec} clases incluidas en tu plan este período`} color="blue" />;
   }
 
   return (
     <>
+      {/* ✅ FIX: selector de instalación visible solo si hay más de una */}
+      {facilities.length > 1 && (
+        <div className="flex gap-2 flex-wrap mb-3">
+          {facilities.map(f => (
+            <button
+              key={f.id}
+              onClick={() => handleFacilityChange(f.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${selectedFacilityId === f.id
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'border-border/50 text-muted-foreground hover:border-blue-400/50 hover:text-foreground'
+                }`}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 mb-3 flex items-center justify-between">
         <p className="text-[11px] text-blue-600 font-medium flex items-center gap-1.5">
           <Building2 className="h-3.5 w-3.5" />
-          {facilityName} · {secLeft} de {maxSec} {secLabel} disponibles
+          {selectedFacility?.name} · {secLeft} de {maxSec} {secLabel} disponibles
         </p>
         {selectedSlots.length > 0 && (
           <Button size="sm" className="h-7 text-[10px] bg-blue-600 hover:bg-blue-700" onClick={() => setIsConfirming(true)}>
@@ -1062,11 +1019,8 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
             <button
               key={date}
               onClick={() => { setSelectedDate(date); setSelectedSlots([]); }}
-              className={`shrink-0 flex flex-col items-center px-4 py-2.5 rounded-2xl border transition-all ${
-                isSel
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20'
-                  : 'bg-muted/30 border-border/40 hover:border-blue-400/30'
-              }`}
+              className={`shrink-0 flex flex-col items-center px-4 py-2.5 rounded-2xl border transition-all ${isSel ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20' : 'bg-muted/30 border-border/40 hover:border-blue-400/30'
+                }`}
             >
               <span className={`uppercase text-[9px] font-black tracking-widest ${isSel ? 'text-white/70' : 'text-muted-foreground'}`}>
                 {format(d, 'EEE', { locale: es })}
@@ -1077,40 +1031,31 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
         })}
       </div>
 
-      {slotsLoading ? (
-        <SkeletonList />
-      ) : slots.length === 0 ? (
-        <EmptyCenter icon={Building2} title="Instalación cerrada"
-          desc="No hay horarios disponibles para este día" color="blue" />
+      {slotsLoading ? <SkeletonList /> : slots.length === 0 ? (
+        <EmptyCenter icon={Building2} title="Instalación cerrada" desc="No hay horarios disponibles para este día" color="blue" />
       ) : (
         <div className="space-y-2">
           {slots.map((slot) => {
             const isSelected = selectedSlots.some(s => s.start === slot.start);
             const isBooked = slot.already_booked;
-
             return (
-              <Card 
-                key={slot.start} 
-                onClick={() => toggleSlot(slot)}
-                className={`overflow-hidden border-border/40 transition-all cursor-pointer ${
-                  isBooked ? 'bg-green-500/5 border-green-500/30 opacity-80' : 
-                  isSelected ? 'bg-blue-600/10 border-blue-600 shadow-md transform scale-[1.01]' : 
-                  !slot.available ? 'opacity-40 grayscale cursor-not-allowed' :
-                  'hover:border-blue-400/40 hover:bg-muted/10'
-                }`}
+              <Card key={slot.start} onClick={() => toggleSlot(slot)}
+                className={`overflow-hidden border-border/40 transition-all cursor-pointer ${isBooked ? 'bg-green-500/5 border-green-500/30 opacity-80' :
+                    isSelected ? 'bg-blue-600/10 border-blue-600 shadow-md transform scale-[1.01]' :
+                      !slot.available ? 'opacity-40 grayscale cursor-not-allowed' :
+                        'hover:border-blue-400/40 hover:bg-muted/10'
+                  }`}
               >
                 <CardContent className="p-0">
                   <div className="flex items-center gap-3 px-4 py-3">
-                    <div className={`w-1 self-stretch rounded-full ${
-                      isBooked ? 'bg-green-600' : isSelected ? 'bg-blue-600' : 'bg-blue-400/30'
-                    }`} />
+                    <div className={`w-1 self-stretch rounded-full ${isBooked ? 'bg-green-600' : isSelected ? 'bg-blue-600' : 'bg-blue-400/30'}`} />
                     <div className="text-center shrink-0 w-16">
                       <p className="text-sm font-black leading-none">{fmtTime(slot.start + ':00')}</p>
                       <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(slot.end + ':00')}</p>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="text-xs font-semibold">{facilityName}</p>
+                        <p className="text-xs font-semibold">{selectedFacility?.name}</p>
                         {isBooked && <Badge className="text-[9px] h-4 px-1.5 bg-green-600">Agendada</Badge>}
                         {isSelected && <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-blue-600 text-blue-600 bg-blue-500/5">Seleccionada</Badge>}
                         {!slot.available && !isBooked && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Ocupado</Badge>}
@@ -1126,9 +1071,7 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
                         <CheckCircle2 className="h-3.5 w-3.5 text-white" />
                       </div>
                     ) : (
-                      <div className={`h-5 w-5 rounded-full border-2 transition-colors ${
-                        !slot.available ? 'border-muted' : 'border-muted hover:border-blue-400'
-                      }`} />
+                      <div className={`h-5 w-5 rounded-full border-2 transition-colors ${!slot.available ? 'border-muted' : 'border-muted hover:border-blue-400'}`} />
                     )}
                   </div>
                 </CardContent>
@@ -1150,45 +1093,34 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
                 <div className="rounded-2xl border border-border/50 p-4 bg-muted/20 space-y-3">
                   <div className="pb-2 border-b border-border/30">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Instalación</p>
-                    <p className="font-bold text-foreground">{facilityName}</p>
+                    <p className="font-bold text-foreground">{selectedFacility?.name}</p>
                   </div>
-                  
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Fecha y Horarios</p>
                     <p className="text-foreground font-bold text-sm capitalize mb-2">{fmtDateLong(selectedDate ?? '')}</p>
                     <div className="grid grid-cols-1 gap-1.5">
-                      {selectedSlots.sort((a,b) => a.start.localeCompare(b.start)).map((s, idx) => (
+                      {selectedSlots.sort((a, b) => a.start.localeCompare(b.start)).map((s, idx) => (
                         <div key={idx} className="flex items-center gap-2 bg-background/50 rounded-lg px-2.5 py-1.5 border border-border/30">
                           <Clock className="h-3 w-3 text-blue-600" />
-                          <p className="text-foreground text-xs font-bold">
-                            {fmtTime(s.start + ':00')} — {fmtTime(s.end + ':00')}
-                          </p>
+                          <p className="text-foreground text-xs font-bold">{fmtTime(s.start + ':00')} — {fmtTime(s.end + ':00')}</p>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
-                
-                <div className={`rounded-xl px-4 py-3 text-sm font-medium border-2 ${
-                  creditsNeeded === 1 ? 'bg-emerald-500/5 text-emerald-700 border-emerald-500/20' : 'bg-blue-500/5 text-blue-700 border-blue-500/20'
-                }`}>
+                <div className={`rounded-xl px-4 py-3 text-sm font-medium border-2 ${creditsNeeded === 1 ? 'bg-emerald-500/5 text-emerald-700 border-emerald-500/20' : 'bg-blue-500/5 text-blue-700 border-blue-500/20'}`}>
                   <div className="flex items-center gap-2.5">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center ${creditsNeeded === 1 ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white'}`}>
                       <Zap className="h-4 w-4 fill-current" />
                     </div>
                     <div>
-                      <p className="font-black text-sm">
-                        Costo: {creditsNeeded} {creditsNeeded === 1 ? 'crédito' : 'créditos'}
-                      </p>
+                      <p className="font-black text-sm">Costo: {creditsNeeded} {creditsNeeded === 1 ? 'crédito' : 'créditos'}</p>
                       <p className="text-[10px] opacity-70">
-                        {creditsNeeded === 1 
-                          ? 'Ahorras 1 crédito por reservar horas consecutivas.' 
-                          : 'Se descuentan créditos individuales por horas separadas.'}
+                        {creditsNeeded === 1 ? 'Ahorras 1 crédito por reservar horas consecutivas.' : 'Se descuentan créditos individuales por horas separadas.'}
                       </p>
                     </div>
                   </div>
                 </div>
-
                 <div className="bg-muted/10 p-3 rounded-xl border border-dashed border-border flex items-center gap-2 justify-center">
                   <p className="text-[10px] font-medium text-muted-foreground">
                     Te quedarán <span className="text-foreground font-bold">{secLeft - creditsNeeded}</span> clases {secLabel}.
@@ -1199,15 +1131,16 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-2">
             <AlertDialogCancel className="rounded-2xl border-border/50 font-bold hover:bg-muted/50">Volver</AlertDialogCancel>
-            <AlertDialogAction 
-              disabled={isPending} 
+            <AlertDialogAction
+              disabled={isPending}
               onClick={() => {
-                if (!selectedDate || selectedSlots.length === 0) return;
-                bookSec({ 
-                  enrollment_id: enrollment.id, 
-                  facility_id: facilityId, 
-                  reservation_date: selectedDate, 
-                  slots: selectedSlots.map(s => ({ start_time: s.start, end_time: s.end }))
+                if (!selectedDate || selectedSlots.length === 0 || !selectedFacilityId) return;
+                bookSec({
+                  enrollment_id: enrollment.id,
+                  facility_id: selectedFacilityId,
+                  reservation_date: selectedDate,
+                  slots: selectedSlots.map(s => ({ start_time: s.start, end_time: s.end })),
+                  ...(childId && { child_id: childId }),
                 }, {
                   onSuccess: () => {
                     toast({ title: "Reserva confirmada", description: "Tus clases de gimnasio han sido agendadas." });
@@ -1230,15 +1163,13 @@ function SecondarySessionsTab({ enrollment, facilityId, facilityName, secLabel, 
 
 // ── Tab: Mis Reservas ─────────────────────────────────────────────────────────
 
-function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: { 
-  hasSecondary: boolean; 
-  secLabel: string;
-  filter?: 'all' | 'primary' | 'secondary';
+function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId }: {
+  hasSecondary: boolean; secLabel: string; filter?: 'all' | 'primary' | 'secondary'; childId?: string;
 }) {
-  const { data: primary,   isLoading: l1 } = useMyBookings();
-  const { data: secondary, isLoading: l2 } = useMySecondaryBookings();
-  const { mutate: cancelP, isPending: cp } = useCancelBooking();
-  const { mutate: cancelS, isPending: cs } = useCancelSecondaryBooking();
+  const { data: primary, isLoading: l1 } = useMyBookings(childId);
+  const { data: secondary, isLoading: l2 } = useMySecondaryBookings(childId);
+  const { mutate: cancelP, isPending: cp } = useCancelBooking(childId);
+  const { mutate: cancelS, isPending: cs } = useCancelSecondaryBooking(childId);
   const { toast } = useToast();
   const [cancelling, setCancelling] = useState<{ id: string; type: 'p' | 's'; label: string } | null>(null);
 
@@ -1248,7 +1179,7 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
   const secondaryBookings = (filter === 'all' || filter === 'secondary') ? (secondary ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled') : [];
 
   if (primaryBookings.length === 0 && secondaryBookings.length === 0) {
-    return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc='Agenda clases desde la pestaña de Grupos' />;
+    return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc="Agenda clases desde la pestaña de Grupos" />;
   }
 
   return (
@@ -1263,7 +1194,10 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
                 if (!s) return null;
                 const sessionDate = parseISO(s.session_date);
                 const isPast = isBefore(sessionDate, startOfDay(new Date()));
-                const isToday = format(sessionDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                // ✅ FIX: nombre según booking_type, sin acceder a s.teams (no existe en nuevo BFF)
+                const contextName = b.booking_type === 'team'
+                  ? b.enrollments?.teams?.name ?? 'Clase'
+                  : b.enrollments?.offering_plans?.name ?? 'Clase';
                 return (
                   <Card key={b.id} className="overflow-hidden border-border/40">
                     <CardContent className="p-0">
@@ -1271,7 +1205,7 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
                         <div className={`w-1 self-stretch rounded-full ${isPast ? 'bg-muted-foreground/30' : 'bg-primary'}`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-xs">{s.teams?.name}</p>
+                            <p className="font-semibold text-xs">{contextName}</p>
                             {s.finalized && <Badge variant="secondary" className="text-[9px] h-4">Finalizada</Badge>}
                             {b.status === 'attended' && <Badge className="text-[9px] h-4 bg-green-600">Asistió</Badge>}
                           </div>
@@ -1280,7 +1214,8 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
                           </p>
                         </div>
                         {!isPast && !s.finalized && b.status === 'confirmed' && (
-                          <Button variant="ghost" size="sm" onClick={() => setCancelling({ id: b.id, type: 'p', label: fmtDateShort(s.session_date) })}
+                          <Button variant="ghost" size="sm"
+                            onClick={() => setCancelling({ id: b.id, type: 'p', label: fmtDateShort(s.session_date) })}
                             className="shrink-0 h-7 px-2 hover:text-destructive">
                             <XCircle className="h-3.5 w-3.5" />
                           </Button>
@@ -1301,7 +1236,7 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
               {secondaryBookings.map((b: any) => {
                 const resvDate = parseISO(b.reservation_date);
                 const isPast = isBefore(resvDate, startOfDay(new Date()));
-                const isToday = format(resvDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                // ✅ FIX: isToday eliminado — no se usa en ningún lado
                 return (
                   <Card key={b.id} className="overflow-hidden border-border/40">
                     <CardContent className="p-0">
@@ -1314,7 +1249,8 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
                           </p>
                         </div>
                         {!isPast && b.status !== 'cancelled' && (
-                          <Button variant="ghost" size="sm" onClick={() => setCancelling({ id: b.id, type: 's', label: fmtDateShort(b.reservation_date) })}
+                          <Button variant="ghost" size="sm"
+                            onClick={() => setCancelling({ id: b.id, type: 's', label: fmtDateShort(b.reservation_date) })}
                             className="shrink-0 h-7 px-2 hover:text-destructive">
                             <XCircle className="h-3.5 w-3.5" />
                           </Button>
@@ -1358,11 +1294,11 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all' }: {
 }
 
 // ─── Modal: Reservar Instalación (standalone) ─────────────────────────────────
-// Para el botón "Reservar" del side panel — usa SecondarySessionsTab
-// Solo disponible si el atleta tiene un enrollment con secundarias
 
-function FacilityReserveModal({ facilityId, facilityName, enrollment, onClose }: {
-  facilityId: string; facilityName: string; enrollment: any | null; onClose: () => void;
+// ✅ FIX: recibe facility completo (no facilityId/facilityName separados)
+// enrollment ya viene calculado con lógica de créditos desde el padre
+function FacilityReserveModal({ facility, enrollment, childId, onClose }: {
+  facility: Facility; enrollment: any | null; childId?: string; onClose: () => void;
 }) {
   const plan = enrollment?.plan_details;
   const hasSecondary = (plan?.max_secondary_sessions ?? 0) > 0;
@@ -1372,25 +1308,24 @@ function FacilityReserveModal({ facilityId, facilityName, enrollment, onClose }:
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
-        <DialogTitle className="sr-only">Reservar {facilityName}</DialogTitle>
-
+        <DialogTitle className="sr-only">Reservar {facility.name}</DialogTitle>
         <div className="px-6 pt-5 pb-3 border-b border-border/30">
           <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Instalación</p>
-          <h2 className="text-lg font-black tracking-tight">{facilityName}</h2>
+          <h2 className="text-lg font-black tracking-tight">{facility.name}</h2>
         </div>
-
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {!enrollment || !hasSecondary ? (
             <EmptyCenter icon={Building2} title="Sin acceso al gimnasio"
               desc="Tu plan actual no incluye clases de gimnasio. Consulta con tu academia los planes disponibles." color="blue" />
           ) : (
+            // Pasamos una sola instalación como array para reutilizar SecondarySessionsTab
             <SecondarySessionsTab
               enrollment={enrollment}
-              facilityId={facilityId}
-              facilityName={facilityName}
+              facilities={[facility]}
               secLabel={secLabel}
               secLeft={secLeft}
               maxSec={plan.max_secondary_sessions}
+              childId={childId}
             />
           )}
         </div>
@@ -1406,26 +1341,25 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState(sessions[0]?.id);
   const selectedSession = sessions.find(s => s.id === selectedSessionId) || sessions[0];
-  
-  const isFull   = selectedSession.booking_status === 'full';
+
+  const isFull = selectedSession.booking_status === 'full';
   const isBooked = selectedSession.already_booked;
   const isDisabled = noCredits || isFull || isBooked || isBooking;
 
-  // Si hay alguna sesión del grupo ya reservada, mostrar esa por defecto
+  // ✅ FIX: useEffect en lugar de useMemo para side-effects
   const alreadyBookedSession = sessions.find(s => s.already_booked);
-  useMemo(() => {
+  useEffect(() => {
     if (alreadyBookedSession && selectedSessionId !== alreadyBookedSession.id) {
       setSelectedSessionId(alreadyBookedSession.id);
     }
-  }, [alreadyBookedSession]);
+  }, [alreadyBookedSession?.id]);
 
   return (
-    <Card className={`overflow-hidden border-border/40 transition-all ${
-      isBooked ? 'bg-primary/5 border-primary/20' :
-      isFull   ? 'opacity-50' :
-      noCredits ? 'opacity-60' :
-      'hover:border-primary/30'
-    }`}>
+    <Card className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20' :
+        isFull ? 'opacity-50' :
+          noCredits ? 'opacity-60' :
+            'hover:border-primary/30'
+      }`}>
       <CardContent className="p-0">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className={`w-1 self-stretch rounded-full ${isBooked ? 'bg-primary' : isFull ? 'bg-muted-foreground/20' : 'bg-primary/30'}`} />
@@ -1440,29 +1374,23 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">Seleccionar Entrenador:</p>
                   <div className="flex flex-wrap gap-1">
                     {sessions.map(s => (
-                      <button
-                        key={s.id}
-                        onClick={() => setSelectedSessionId(s.id)}
-                        disabled={isBooked && !s.already_booked}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${
-                          selectedSessionId === s.id
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-muted/50 text-muted-foreground border-border/50 hover:border-primary/30'
-                        } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
+                      <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${selectedSessionId === s.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border/50 hover:border-primary/30'
+                          } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
                       >
-                        {s.coach?.name || 'Staff'}
+                        {s.coach?.full_name || 'Entrenador'}
                       </button>
                     ))}
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {selectedSession.coach?.name && <p className="text-xs font-semibold">{selectedSession.coach.name}</p>}
+                  {selectedSession.coach?.full_name && <p className="text-xs font-semibold">{selectedSession.coach.full_name}</p>}
                 </div>
               )}
               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                {isBooked  && <Badge className="text-[9px] h-4 px-1.5 bg-primary">Agendada</Badge>}
-                {isFull    && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Llena</Badge>}
+                {isBooked && <Badge className="text-[9px] h-4 px-1.5 bg-primary">Agendada</Badge>}
+                {isFull && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Llena</Badge>}
                 {noCredits && <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-300 text-amber-600">Sin créditos</Badge>}
               </div>
             </div>
@@ -1474,12 +1402,7 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
           {isBooked ? (
             <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
           ) : (
-            <Button 
-              size="sm" 
-              onClick={() => onBook(selectedSession)} 
-              disabled={isDisabled} 
-              className="shrink-0 h-8 text-xs gap-1"
-            >
+            <Button size="sm" onClick={() => onBook(selectedSession)} disabled={isDisabled} className="shrink-0 h-8 text-xs gap-1">
               <CalendarCheck className="h-3.5 w-3.5" /> Agendar
             </Button>
           )}
@@ -1550,10 +1473,10 @@ function EmptyCenter({ icon: Icon, title, desc, color = 'muted' }: {
   icon: any; title: string; desc: string; color?: string;
 }) {
   const colorMap: Record<string, string> = {
-    muted:  'bg-muted/40 text-muted-foreground',
-    amber:  'bg-amber-500/10 text-amber-500',
-    blue:   'bg-blue-500/10 text-blue-500',
-    green:  'bg-green-500/10 text-green-500',
+    muted: 'bg-muted/40 text-muted-foreground',
+    amber: 'bg-amber-500/10 text-amber-500',
+    blue: 'bg-blue-500/10 text-blue-500',
+    green: 'bg-green-500/10 text-green-500',
   };
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center space-y-2">

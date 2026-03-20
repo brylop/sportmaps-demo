@@ -2,9 +2,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSchoolContext } from './useSchoolContext';
 import { bffClient } from '@/lib/api/bffClient';
 
-async function bff<T>(path: string, init?: RequestInit): Promise<T> {
+async function bff<T>(path: string, init?: RequestInit, childId?: string): Promise<T> {
   const method = (init?.method || 'GET').toUpperCase();
-  const fullPath = `/api/v1/session-bookings${path}`;
+  let queryString = '';
+  if (childId) {
+    queryString = path.includes('?') ? `&child_id=${childId}` : `?child_id=${childId}`;
+  }
+  const fullPath = `/api/v1/session-bookings${path}${queryString}`;
   
   if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
     const body = init?.body ? JSON.parse(init.body as string) : undefined;
@@ -56,69 +60,72 @@ export interface MyBooking {
   };
 }
 
-export function useAvailableSessions() {
+export function useAvailableSessions(childId?: string) {
   const { schoolId } = useSchoolContext();
   return useQuery<{ sessions: BookableSession[] }>({
-    queryKey: ['athlete-available-sessions', schoolId],
-    queryFn: () => bff('/athlete/available'),
+    queryKey: ['athlete-available-sessions', schoolId, childId],
+    queryFn: () => bff('/athlete/available', undefined, childId),
     staleTime: 60_000,
     enabled: !!schoolId,
   });
 }
 
-export function useUpcomingSessions() {
+export function useUpcomingSessions(childId?: string) {
   const { schoolId } = useSchoolContext();
   return useQuery<{ sessions: BookableSession[] }>({
-    queryKey: ['athlete-upcoming-sessions', schoolId],
-    queryFn: () => bff('/athlete/upcoming'),
+    queryKey: ['athlete-upcoming-sessions', schoolId, childId],
+    queryFn: () => bff('/athlete/upcoming', undefined, childId),
     staleTime: 60_000,
     enabled: !!schoolId,
   });
 }
 
-export function useMyBookings() {
+export function useMyBookings(childId?: string) {
+  const { schoolId } = useSchoolContext();
   return useQuery<MyBooking[]>({
-    queryKey: ['athlete-my-bookings'],
-    queryFn: () => bff('/athlete/my-bookings'),
+    queryKey: ['athlete-my-bookings', schoolId, childId],
+    queryFn: () => bff('/athlete/my-bookings', undefined, childId),
     staleTime: 30_000,
+    enabled: !!schoolId,
   });
 }
 
-export function useMySecondaryBookings() {
+export function useMySecondaryBookings(childId?: string) {
+  const { schoolId } = useSchoolContext();
   return useQuery<MyBooking[]>({
-    queryKey: ['athlete-my-secondary-bookings'],
-    queryFn: () => bff('/athlete/secondary-bookings'),
+    queryKey: ['athlete-my-secondary-bookings', schoolId, childId],
+    queryFn: () => bff('/athlete/secondary-bookings', undefined, childId),
     staleTime: 30_000,
+    enabled: !!schoolId,
   });
 }
 
-export function useFacilitySlots(facilityId: string, date: string | null) {
+export function useFacilitySlots(facilityId: string, date: string | null, childId?: string) {
   const { schoolId } = useSchoolContext();
   return useQuery<{ slots: { start: string; end: string; available: boolean; already_booked: boolean }[]; facility_name: string }>({
-    queryKey: ['facility-slots', facilityId, date, schoolId],
-    queryFn: () => bff(`/facility/${facilityId}/slots?date=${date}`),
+    queryKey: ['facility-slots', facilityId, date, schoolId, childId],
+    queryFn: () => bff(`/facility/${facilityId}/slots?date=${date}`, undefined, childId),
     enabled: !!date && !!facilityId && !!schoolId,
     staleTime: 30_000,
   });
 }
 
-export function useBookSession() {
+export function useBookSession(childId?: string) {
   const queryClient = useQueryClient();
   const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (payload: { session_id: string; enrollment_id: string }) =>
-      bff('/athlete/book-session', { method: 'POST', body: JSON.stringify(payload) }),
+      bff('/athlete/book-session', { method: 'POST', body: JSON.stringify({ ...payload, child_id: childId }) }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings'] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
     },
   });
 }
 
-export function useBookSecondarySession() {
+export function useBookSecondarySession(childId?: string) {
   const queryClient = useQueryClient();
   const { schoolId } = useSchoolContext();
   return useMutation({
@@ -129,48 +136,46 @@ export function useBookSecondarySession() {
       slots: { start_time: string; end_time: string }[];
       notes?: string;
     }) =>
-      bff('/athlete/book-secondary', { method: 'POST', body: JSON.stringify(payload) }),
+      bff('/athlete/book-secondary', { method: 'POST', body: JSON.stringify({ ...payload, child_id: childId }) }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings'] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
     },
   });
 }
 
-export function useCancelBooking() {
+export function useCancelBooking(childId?: string) {
   const queryClient = useQueryClient();
   const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (bookingId: string) =>
-      bff(`/athlete/${bookingId}/cancel`, { method: 'DELETE' }),
+      bff(`/athlete/cancel-booking?booking_id=${bookingId}${childId ? `&child_id=${childId}` : ''}`, { method: 'DELETE' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings'] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-upcoming-sessions', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-bookings', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
     },
   });
 }
 
-export function useCancelSecondaryBooking() {
+export function useCancelSecondaryBooking(childId?: string) {
   const queryClient = useQueryClient();
   const { schoolId } = useSchoolContext();
   return useMutation({
     mutationFn: (bookingId: string) =>
-      bff(`/athlete/secondary/${bookingId}/cancel`, { method: 'DELETE' }),
+      bff(`/athlete/cancel-secondary?booking_id=${bookingId}${childId ? `&child_id=${childId}` : ''}`, { method: 'DELETE' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings'] });
-      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId] });
-      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-my-secondary-bookings', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-available-sessions', schoolId, childId] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] });
     },
   });
 }
-export function useAthleteFacilities() {
+export function useAthleteFacilities(childId?: string) {
   return useQuery({
-    queryKey: ['athlete-facilities'],
-    queryFn: () => bff<{ facilities: { id: string; name: string; type: string; school_id: string }[] }>('/athlete/facilities'),
+    queryKey: ['athlete-facilities', childId],
+    queryFn: () => bff<{ facilities: { id: string; name: string; type: string; school_id: string }[] }>('/athlete/facilities', undefined, childId),
     staleTime: 5 * 60 * 1000,
   });
 }
