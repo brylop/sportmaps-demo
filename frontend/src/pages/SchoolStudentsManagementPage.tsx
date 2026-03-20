@@ -929,7 +929,7 @@ export default function SchoolStudentsManagementPage() {
         <DialogContent className="w-[95vw] max-w-md">
           <DialogHeader>
             <DialogTitle>Perfil del Atleta</DialogTitle>
-            <DialogDescription>Detalles académicos y de contacto</DialogDescription>
+            <DialogDescription>Detalles deportivos y de contacto</DialogDescription>
           </DialogHeader>
           {viewingStudent && (
             <div className="space-y-4">

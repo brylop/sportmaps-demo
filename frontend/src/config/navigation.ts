@@ -151,7 +151,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Gestión Académica',
+        title: 'Gestión Deportiva',
         items: [
           {
             title: 'Equipos y Planes',
@@ -250,7 +250,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Gestión Académica',
+        title: 'Gestión Deportiva',
         items: [
           {
             title: 'Equipos y Planes',
@@ -293,7 +293,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Gestión Académica',
+        title: 'Gestión Deportiva',
         items: [
           {
             title: 'Equipos y Planes',
@@ -334,7 +334,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Gestión Académica',
+        title: 'Gestión Deportiva',
         items: [
           {
             title: 'Equipos y Planes',

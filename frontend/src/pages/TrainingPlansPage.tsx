@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +24,7 @@ import {
 
 export default function TrainingPlansPage() {
   const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
@@ -31,16 +33,37 @@ export default function TrainingPlansPage() {
 
   // Fetch teams
   const { data: teams } = useQuery({
-    queryKey: ['coach-teams', user?.id],
+    queryKey: ['coach-teams', user?.id, schoolId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!user?.id || !schoolId) return [];
+
+      // 1. Obtener staffId si existe
+      const { data: staffData } = await supabase
+        .from('school_staff')
+        .select('id')
+        .eq('coach_auth_id', user.id)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      const staffId = staffData?.id;
+
+      // 2. Traer todos los equipos donde el usuario es coach (directo o via tabla de relación)
+      const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('*')
-        .eq('coach_id', user?.id);
+        .select('id, name, coach_id, age_group, sport, team_coaches(coach_id)')
+        .eq('school_id', schoolId) as any);
+
       if (error) throw error;
-      return data;
+
+      // 3. Filtrar
+      return (teamsData || []).filter((team: any) => {
+        const isDirectCoach = team.coach_id === user.id || (staffId && team.coach_id === staffId);
+        const isAssignedInTable = team.team_coaches?.some(
+          (tc: any) => tc.coach_id === user.id || (staffId && tc.coach_id === staffId)
+        );
+        return isDirectCoach || isAssignedInTable;
+      }).sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!schoolId,
   });
 
   // Fetch training plans

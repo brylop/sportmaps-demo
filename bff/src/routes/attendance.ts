@@ -279,8 +279,22 @@ router.post('/session', requireAuth, requireRole('owner', 'super_admin', 'admin'
 
       let finalSessionId = existingSessionId;
       if (!finalSessionId && teamId) {
+        // Resolver staffId para el coach
+        const { data: staffData } = await supabase
+          .from('school_staff')
+          .select('id')
+          .eq('coach_auth_id', req.user?.id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+
         const { data: session, error } = await supabase.from('attendance_sessions')
-          .insert({ school_id: schoolId, team_id: teamId, session_date: today, created_by: req.user?.id })
+          .insert({ 
+            school_id: schoolId, 
+            team_id: teamId, 
+            session_date: today, 
+            created_by: req.user?.id, 
+            coach_id: staffData?.id || null 
+          })
           .select('id, finalized').single();
         if (error) throw error;
         finalSessionId = session.id;
@@ -383,8 +397,22 @@ router.post('/walk-in', requireAuth, requireRole('owner', 'super_admin', 'admin'
         if (existing) {
           finalSessionId = existing.id;
         } else {
+          // Resolver staffId para el coach
+          const { data: staffData } = await supabase
+            .from('school_staff')
+          .select('id')
+          .eq('coach_auth_id', req.user?.id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+
           const { data: newSession, error } = await supabase.from('attendance_sessions')
-            .insert({ school_id: schoolId, team_id: teamId, session_date: today, created_by: req.user?.id })
+            .insert({ 
+              school_id: schoolId, 
+              team_id: teamId, 
+              session_date: today, 
+              created_by: req.user?.id, 
+              coach_id: staffData?.id || null 
+            })
             .select('id').single();
           if (error) throw error;
           finalSessionId = newSession.id;

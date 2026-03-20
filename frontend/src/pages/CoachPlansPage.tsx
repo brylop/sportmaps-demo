@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { CalendarIcon, Clock, Users, FileText, Plus, User } from 'lucide-react';
+import { CalendarIcon, Clock, Users, FileText, Plus } from 'lucide-react';
 import { AvailabilityManager } from '@/components/school/AvailabilityManager';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,11 +20,32 @@ export default function CoachPlansPage() {
   const { schoolId } = useSchoolContext();
   const navigate = useNavigate();
 
-  // Fetch Session/Plans assigned to this coach
-  const { data: schoolPlans, isLoading: isSchoolPlansLoading } = useQuery({
-    queryKey: ['coach-school-plans', user?.id, schoolId],
+  // ── 1. Resolver school_staff.id vía coach_auth_id ─────────────────────────
+  // El desacople: auth.uid() ≠ school_staff.id; se puentea por coach_auth_id
+  const { data: staffRecord, isLoading: isStaffLoading } = useQuery({
+    queryKey: ['staff-record', user?.id, schoolId],
     queryFn: async () => {
-      if (!user || !schoolId) return [];
+      if (!user || !schoolId) return null;
+      const { data, error } = await supabase
+        .from('school_staff')
+        .select('id, full_name')
+        .eq('coach_auth_id', user.id)
+        .eq('school_id', schoolId)
+        .maybeSingle();
+      if (error) throw error;
+      return data; // { id: staff_uuid, full_name }
+    },
+    enabled: !!user?.id && !!schoolId,
+    staleTime: 60_000,
+  });
+
+  const staffId = staffRecord?.id ?? null;
+
+  // ── 2. Clases fijas asignadas (attendance_sessions) ───────────────────────
+  const { data: schoolPlans, isLoading: isSchoolPlansLoading } = useQuery({
+    queryKey: ['coach-school-plans', staffId, schoolId],
+    queryFn: async () => {
+      if (!staffId || !schoolId) return [];
       const today = new Date().toISOString().split('T')[0];
 
       const { data, error } = await supabase
@@ -34,7 +55,7 @@ export default function CoachPlansPage() {
           offerings (name),
           offering_plans (name)
         `)
-        .eq('coach_id', user.id)
+        .eq('coach_id', staffId)          // ✅ usa school_staff.id
         .eq('school_id', schoolId)
         .not('offering_id', 'is', null)
         .gte('session_date', today)
@@ -44,14 +65,14 @@ export default function CoachPlansPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!user?.id && !!schoolId,
+    enabled: !!staffId && !!schoolId,
   });
 
-  // Fetch Coach Availability (The slots the school gave them)
+  // ── 3. Horarios de disponibilidad (coach_availability) ────────────────────
   const { data: availabilitySlots, isLoading: isAvailabilityLoading } = useQuery({
-    queryKey: ['coach-availability-slots', user?.id, schoolId],
+    queryKey: ['coach-availability-slots', staffId, schoolId],
     queryFn: async () => {
-      if (!user || !schoolId) return [];
+      if (!staffId || !schoolId) return [];
 
       const { data, error } = await supabase
         .from('coach_availability')
@@ -59,7 +80,7 @@ export default function CoachPlansPage() {
           id, day_of_week, start_time, end_time, available_for_group_classes, available_for_personal_classes,
           group_class_athletes(count)
         `)
-        .eq('coach_id', user.id)
+        .eq('coach_id', staffId)          // ✅ usa school_staff.id
         .eq('school_id', schoolId)
         .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true });
@@ -67,10 +88,10 @@ export default function CoachPlansPage() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !!user?.id && !!schoolId,
+    enabled: !!staffId && !!schoolId,
   });
 
-  // Fetch Personal Classes (Calendar Events)
+  // ── 4. Eventos privados (calendar_events — usa auth.uid directamente) ──────
   const { data: personalEvents, isLoading: isPersonalEventsLoading } = useQuery({
     queryKey: ['coach-personal-events', user?.id],
     queryFn: async () => {
@@ -90,7 +111,7 @@ export default function CoachPlansPage() {
     enabled: !!user?.id,
   });
 
-  const isLoading = isSchoolPlansLoading || isPersonalEventsLoading || isAvailabilityLoading;
+  const isLoading = isStaffLoading || isSchoolPlansLoading || isPersonalEventsLoading || isAvailabilityLoading;
 
   if (isLoading) {
     return <LoadingSpinner text="Cargando tus planes y disponibilidad..." fullScreen />;
@@ -282,11 +303,20 @@ export default function CoachPlansPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 flex-1 min-h-[500px]">
-              {user && schoolId ? (
-                <AvailabilityManager coachId={user.id} schoolId={schoolId} />
+              {staffId && schoolId ? (
+                <AvailabilityManager coachId={staffId} schoolId={schoolId} />  // ✅ usa school_staff.id
+              ) : user && schoolId && !isStaffLoading ? (
+                <div className="flex flex-col items-center justify-center h-full text-center gap-3 p-6">
+                  <p className="text-muted-foreground font-medium text-sm">
+                    No encontramos tu perfil de entrenador en esta escuela deportiva.
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Contacta al administrador para que te agregue como entrenador.
+                  </p>
+                </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No se pudo cargar la información del usuario.
+                  Cargando...
                 </div>
               )}
             </CardContent>

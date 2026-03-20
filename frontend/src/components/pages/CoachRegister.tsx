@@ -307,7 +307,7 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
             <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
               <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
               <p className="text-sm text-muted-foreground mb-2">
-                Certificaciones deportivas, títulos académicos, etc.
+                Certificaciones deportivas, títulos deportivos, etc.
               </p>
               <Button type="button" variant="outline" size="sm" className="border-primary text-primary">
                 Seleccionar Archivos

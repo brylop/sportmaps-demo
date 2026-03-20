@@ -217,17 +217,18 @@ export default function CoachAttendancePage() {
 
   // ── 0. Staff profile ────────────────────────────────────────────────────
   const { data: staffData } = useQuery({
-    queryKey: ['staff-profile', user?.email],
+    queryKey: ['staff-profile', user?.id, schoolId],
     queryFn: async () => {
-      if (!user?.email) return null;
+      if (!user?.id || !schoolId) return null;
       const { data } = await supabase
         .from('school_staff')
         .select('id')
-        .eq('email', user.email)
+        .eq('coach_auth_id', user.id)
+        .eq('school_id', schoolId)
         .maybeSingle();
       return data;
     },
-    enabled: !!user?.email,
+    enabled: !!user?.id && !!schoolId
   });
   const staffId = staffData?.id;
 
