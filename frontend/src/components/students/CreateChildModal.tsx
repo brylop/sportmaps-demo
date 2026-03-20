@@ -277,6 +277,25 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
 
     try {
       setSubmitting(true);
+
+      // Verificar si ya existe un hijo con el mismo documento en esta escuela
+      const { data: existingChild } = await supabase
+        .from('children')
+        .select('id, full_name')
+        .eq('school_id', schoolId)
+        .eq('doc_number', docNumber.trim())
+        .maybeSingle();
+
+      if (existingChild) {
+        toast({
+          title: 'Menor ya registrado',
+          description: `Ya existe un menor con documento ${docNumber} en esta escuela: "${existingChild.full_name}". Edítalo desde la lista de atletas.`,
+          variant: 'destructive',
+        });
+        setSubmitting(false);
+        return;
+      }
+
       await bffClient.post('/api/v1/students/create-one', {
         type: 'child',
         // Identificación

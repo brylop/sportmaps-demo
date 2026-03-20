@@ -425,7 +425,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
               </div>
             )}
 
-            {/* No encontrado */}
+            {/* No encontrado — mostrar formulario directamente */}
             {searchDone && !foundProfile && !showUnregisteredForm && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 space-y-3">
                 <div className="flex items-start gap-3">
@@ -435,7 +435,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                       No se encontró ningún atleta
                     </p>
                     <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                      Puedes registrarlo manualmente. Podrá activar su cuenta después con la invitación.
+                      Regístralo y asígnale equipo/plan. Se le enviará invitación para que active su cuenta.
                     </p>
                   </div>
                 </div>
@@ -445,13 +445,14 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   className="w-full"
                   onClick={() => {
                     setShowUnregisteredForm(true);
+                    setSendInvite(true);
                     // Pre-llenar email y doc si se buscó por esos campos
                     if (searchQuery.includes('@')) setNotFoundEmail(searchQuery.trim().toLowerCase());
                     else setUDocNumber(searchQuery.trim());
                   }}
                 >
                   <UserPlus className="h-4 w-4 mr-2" />
-                  Registrar sin cuenta
+                  Registrar y Asignar Equipo/Plan
                 </Button>
               </div>
             )}

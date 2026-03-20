@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import {
   UserPlus, Search, X as XIcon, Clock, Check,
   Copy, MessageCircle, Send, Link as LinkIcon, Mail,
-  Users, CreditCard, ChevronDown,
+  Users, CreditCard, ChevronDown, Ban,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -366,6 +366,24 @@ export default function InvitationsManagementPage() {
     },
   });
 
+  // ── Mutación cancelar invitación ──────────────────────────────────────────────
+  const cancelInvitationMutation = useMutation({
+    mutationFn: async (invitationId: string) => {
+      const { error } = await (supabase.from('invitations') as any)
+        .update({ status: 'cancelled' })
+        .eq('id', invitationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      toast({ title: 'Invitación cancelada', description: 'La invitación fue cancelada correctamente.' });
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({ title: '❌ Error', description: `No se pudo cancelar: ${message}`, variant: 'destructive' });
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     sendInvitationMutation.mutate(formData);
@@ -580,6 +598,21 @@ export default function InvitationsManagementPage() {
                         {inv.status === 'pending' && (
                           <Button variant="ghost" size="sm" onClick={() => resendEmail(inv)} title="Reenviar email">
                             <Send className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {inv.status === 'pending' && (
+                          <Button
+                            variant="ghost" size="sm"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            title="Cancelar invitación"
+                            disabled={cancelInvitationMutation.isPending}
+                            onClick={() => {
+                              if (confirm(`¿Cancelar la invitación para ${inv.invited_email}?`)) {
+                                cancelInvitationMutation.mutate(inv.id);
+                              }
+                            }}
+                          >
+                            <Ban className="w-4 h-4" />
                           </Button>
                         )}
                       </div>

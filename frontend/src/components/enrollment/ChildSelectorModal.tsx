@@ -28,6 +28,7 @@ interface ChildSelectorModalProps {
     teamName?: string;
     schoolId?: string;
     schoolName?: string;
+    programName?: string;
 }
 
 interface Child {

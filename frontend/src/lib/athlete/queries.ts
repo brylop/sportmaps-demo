@@ -7,7 +7,7 @@
  * ⚠️ NEVER reference parent/child/student tables from here.
  */
 import { supabase } from '@/integrations/supabase/client';
-import { Database } from '@/integrations/supabase/types';
+import type { Database } from '@/integrations/supabase/types';
 
 // ─── Dashboard Stats ────────────────────────────────────────
 export async function getAthleteDashboardStats() {

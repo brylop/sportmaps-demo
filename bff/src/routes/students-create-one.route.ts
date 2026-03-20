@@ -122,7 +122,7 @@ async function createEnrollment(params: {
     .from('enrollments')
     .select('id')
     .eq('school_id', schoolId)
-    .in('status', ['active', 'pending_payment']);
+    .in('status', ['active', 'pending']);
 
   if (childId) existingQuery = existingQuery.eq('child_id', childId);
   if (userId)  existingQuery = existingQuery.eq('user_id', userId);
@@ -260,7 +260,7 @@ router.post(
 
           const eid = await createEnrollment({
             childId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date,
             teamId: data.team_id,
             log: req.log,
@@ -272,7 +272,7 @@ router.post(
         if (data.offering_plan_id && data.offering_id) {
           const eid = await createEnrollment({
             childId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date,
             offeringPlanId: data.offering_plan_id,
             offeringId: data.offering_id,
@@ -426,7 +426,7 @@ router.post(
 
           const eid = await createEnrollment({
             userId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date,
             teamId: data.team_id,
             log: req.log,
@@ -438,7 +438,7 @@ router.post(
         if (data.offering_plan_id && data.offering_id) {
           const eid = await createEnrollment({
             userId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date,
             offeringPlanId: data.offering_plan_id,
             offeringId: data.offering_id,
@@ -588,7 +588,7 @@ router.post(
 
           const eid = await createEnrollment({
             unregisteredAthleteId: uaId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date, teamId: data.team_id, log: req.log,
           });
           if (eid) enrollmentsCreated++;
@@ -597,7 +597,7 @@ router.post(
         if (data.offering_plan_id && data.offering_id) {
           const eid = await createEnrollment({
             unregisteredAthleteId: uaId, schoolId,
-            status: requireProof ? 'pending_payment' : 'active',
+            status: requireProof ? 'pending' : 'active',
             startDate: data.start_date,
             offeringPlanId: data.offering_plan_id,
             offeringId: data.offering_id, log: req.log,
