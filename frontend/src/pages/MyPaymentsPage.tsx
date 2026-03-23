@@ -9,7 +9,8 @@ import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus, Ale
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
-import { formatCurrency, getStoragePath } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, Loader2, Info, Percent } from 'lucide-react';
@@ -300,7 +301,7 @@ export default function MyPaymentsPage() {
     if (!receiptUrl) return;
 
     try {
-      const cleanPath = getStoragePath(receiptUrl);
+      const cleanPath = normalizeReceiptUrl(receiptUrl);
       const { data, error } = await supabase.storage
         .from('payment-receipts')
         .createSignedUrl(cleanPath, 300);

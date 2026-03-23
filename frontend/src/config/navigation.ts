@@ -171,6 +171,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
@@ -270,6 +271,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
@@ -313,6 +315,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
@@ -354,6 +357,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
           { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           { title: 'Finanzas', href: '/finances', icon: DollarSign },
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },

@@ -1,5 +1,5 @@
 import { USER_ROLES } from '../../constants/roles';
-import { Building, Users, Award, Bell, Activity, Shield, TrendingUp, Trophy, UserCircle, Calendar, Plus, Heart, ShoppingBag } from 'lucide-react';
+import { Building, Users, Award, Bell, Activity, Shield, TrendingUp, Trophy, UserCircle, Calendar, Plus, Heart, ShoppingBag, CreditCard } from 'lucide-react';
 
 export const getStepsForRole = (role: string, status: any) => {
     switch (role) {
@@ -20,6 +20,7 @@ export const getStepsForRole = (role: string, status: any) => {
                 { id: 'create_branch', title: 'Configurar Sede Principal', description: 'Edita dirección, ciudad y capacidad de tu sede.', completed: status.has_branches, href: '/branches', icon: Building },
                 { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users },
                 { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
+                { id: 'setup_payments', title: 'Configurar Pagos', description: 'Define datos bancarios y ciclo de cobro antes de inscribir atletas.', completed: status.payment_setup_completed === true, href: '/payments', icon: CreditCard },
                 { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
             ];
 

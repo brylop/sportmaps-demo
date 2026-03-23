@@ -16,7 +16,7 @@ import { Progress } from '@/components/ui/progress';
 import { FileUpload } from '@/components/common/FileUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { CheckCircle2 as CheckCircle, Loader2 as Loader, CreditCard as CardIcon } from 'lucide-react';
-import { getStoragePath } from '@/lib/utils';
+import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { todayColombia } from '@/lib/dateUtils';
 
 interface Payment {
@@ -157,7 +157,7 @@ export default function AthletePaymentsPage() {
     if (!receiptUrl) return;
 
     try {
-      const cleanPath = getStoragePath(receiptUrl);
+      const cleanPath = normalizeReceiptUrl(receiptUrl);
       const { data, error } = await supabase.storage
         .from('payment-receipts')
         .createSignedUrl(cleanPath, 3600);

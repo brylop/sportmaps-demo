@@ -12,7 +12,8 @@ import { Separator } from '@/components/ui/separator';
 import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
-import { formatCurrency, getStoragePath, maskSensitive } from '@/lib/utils';
+import { formatCurrency, maskSensitive } from '@/lib/utils';
+import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getUserFriendlyError } from '@/lib/error-translator';
@@ -186,7 +187,10 @@ export default function PaymentsAutomationPage() {
         billing_cycle_type: billing.billing_cycle_type,
       };
 
-      const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
+      const { error } = await supabase.from('school_settings').upsert({
+        ...payload,
+        payment_setup_completed: true,
+      }, { onConflict: 'school_id' });
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {
@@ -430,7 +434,7 @@ export default function PaymentsAutomationPage() {
       return;
     }
     try {
-      const cleanPath = getStoragePath(payment.receipt_url);
+      const cleanPath = normalizeReceiptUrl(payment.receipt_url);
       const { data, error } = await supabase.storage.from('payment-receipts').createSignedUrl(cleanPath, 300);
       if (error) throw error;
       setViewingProof({ open: true, url: data.signedUrl, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
