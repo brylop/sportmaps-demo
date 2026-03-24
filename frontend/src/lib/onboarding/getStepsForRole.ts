@@ -10,18 +10,16 @@ export const getStepsForRole = (role: string, status: any) => {
             if (!status.has_school && role === USER_ROLES.SCHOOL) {
                 return [
                     { id: 'create_school', title: 'Registrar Academia', description: 'Nombre, logo y dirección fiscal.', completed: false, href: '/setup/school', icon: Building },
-                    { id: 'create_branch', title: 'Configurar Sedes', description: 'Crea tu sede principal o sucursales.', completed: status.has_branches, href: '/branches', icon: Building },
-                    { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users }
                 ];
             }
 
-            // Operational flow (Branch Admin or Owner)
+            // Wizard guiado: sede → equipo → coach → atleta → pagos
             return [
-                { id: 'create_branch', title: 'Configurar Sede Principal', description: 'Edita dirección, ciudad y capacidad de tu sede.', completed: status.has_branches, href: '/branches', icon: Building },
-                { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users },
-                { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
-                { id: 'setup_payments', title: 'Configurar Pagos', description: 'Define datos bancarios y ciclo de cobro antes de inscribir atletas.', completed: status.payment_setup_completed === true, href: '/payments', icon: CreditCard },
-                { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
+                { id: 'confirm_branch', title: 'Tu Sede', description: 'Confirma la dirección de tu sede principal.', completed: status.has_branches, href: '/dashboard', icon: Building },
+                { id: 'create_team', title: 'Primer Equipo', description: 'Crea tu primer grupo o equipo deportivo.', completed: status.has_teams, href: '/dashboard', icon: Trophy },
+                { id: 'invite_staff', title: 'Entrenador', description: 'Invita a tu primer entrenador.', completed: status.has_staff, href: '/dashboard', icon: Users },
+                { id: 'add_student', title: 'Primer Atleta', description: 'Registra a tu primer deportista.', completed: !!status.has_students, href: '/dashboard', icon: Bell },
+                { id: 'setup_payments', title: 'Cobros', description: 'Configura cómo recibir pagos.', completed: status.payment_setup_completed === true, href: '/dashboard', icon: CreditCard },
             ];
 
         case USER_ROLES.PARENT: {

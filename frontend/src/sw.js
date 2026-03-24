@@ -36,16 +36,29 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url)
 
-  // Supabase API y Edge Functions → Network First
+  // Supabase API y Edge Functions → Network First, NO CACHEAR Auth ni Realtime
   if (url.hostname.includes('supabase.co')) {
+    // No interceptar peticiones de Auth o Realtime para evitar bloqueos del LockManager
+    if (url.pathname.includes('/auth/v1/') || url.pathname.includes('/realtime/v1/')) {
+      return; 
+    }
+
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          const clone = response.clone()
-          caches.open('supabase-api').then(cache => cache.put(event.request, clone))
+          if (response.ok && event.request.method === 'GET') {
+            const clone = response.clone()
+            caches.open('supabase-api').then(cache => cache.put(event.request, clone))
+          }
           return response
         })
-        .catch(() => caches.match(event.request))
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          return cached || new Response('Supabase connection error', { 
+            status: 503, 
+            headers: { 'Content-Type': 'text/plain' } 
+          });
+        })
     )
     return
   }
@@ -65,13 +78,26 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        const clone = response.clone()
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
+        if (response.ok && event.request.method === 'GET') {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
+        }
         return response
       })
-      .catch(() => caches.match(event.request)
-        .then(cached => cached || caches.match('/index.html'))
-      )
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        
+        const shell = await caches.match('/index.html');
+        if (shell) return shell;
+
+        // Si nada funciona, devolver una respuesta de error válida en lugar de undefined
+        return new Response('Network error occurred', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Headers({ 'Content-Type': 'text/plain' })
+        });
+      })
   )
 })
 

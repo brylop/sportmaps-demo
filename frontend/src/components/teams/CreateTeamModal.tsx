@@ -232,6 +232,15 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        if (!schoolId) {
+            toast({
+                title: 'Error',
+                description: 'No se ha seleccionado una escuela. Completa el onboarding primero.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
         if (!formData.name || !formData.sport) {
             toast({
                 title: 'Campos requeridos',

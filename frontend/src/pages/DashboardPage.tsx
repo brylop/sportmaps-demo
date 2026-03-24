@@ -20,6 +20,7 @@ import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
 import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
+import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -34,8 +35,10 @@ export default function DashboardPage() {
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const [rpcStatus, setRpcStatus] = useState<any>(null);
   const hasAutoOpenedRef = useRef(false);
 
   // Show welcome splash if it's the first time
@@ -140,6 +143,8 @@ export default function DashboardPage() {
       console.log('Onboarding status updated:', status);
 
       if (status) {
+        setOnboardingStatus(status.onboarding_status);
+        setRpcStatus(status);
         // 2. Gestionar invitaciones
         const { data: invitations, error: inviteError } = await supabase
           .from('invitations')
@@ -366,7 +371,25 @@ export default function DashboardPage() {
         />
       )}
 
-      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
+      {/* Wizard guiado para escuelas */}
+      {rpcStatus && ['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string)
+        && onboardingStatus !== 'completed'
+        && rpcStatus.has_school && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+          <SchoolOnboardingWizard
+            status={rpcStatus}
+            onComplete={() => {
+              setOnboardingStatus('completed');
+              refreshOnboardingData();
+            }}
+            onRefresh={refreshOnboardingData}
+          />
+        </div>
+      )}
+
+      {/* Checklist genérico para otros roles (parent, coach, athlete) */}
+      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed'
+        && !['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string) && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
           <DashboardChecklist
             steps={onboardingSteps}

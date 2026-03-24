@@ -253,10 +253,9 @@ export default function InvitationsManagementPage() {
     const team = invitation.team_id || formData.teamId;
 
     const params = new URLSearchParams({ school: schoolId || '', email: email || '', invite: inviteId, role });
-    if (role === 'parent') {
-      if (child) params.append('child', child);
-      if (team) params.append('program', team);
-    }
+    if (child) params.append('child', child);
+    if (team) params.append('program', team);
+    
     return `${window.location.origin}/register?${params.toString()}`;
   };
 
@@ -316,8 +315,8 @@ export default function InvitationsManagementPage() {
         p_email: data.parentEmail,
         p_role: data.role,
         p_child_name: data.role === 'parent' ? data.childName : null,
-        p_team_id: ['parent', 'athlete'].includes(data.role) ? (data.teamId || null) : null,
-        p_monthly_fee: data.role === 'parent' ? fee : null,
+        p_team_id: ['parent', 'athlete', 'coach'].includes(data.role) ? (data.teamId || null) : null,
+        p_monthly_fee: ['parent', 'athlete'].includes(data.role) ? fee : null,
         p_parent_phone: data.parentPhone || null,
         p_branch_id: (formData as any).selectedBranchId || activeBranchId || null,
         p_offering_plan_id: data.offeringPlanId || null,
@@ -574,8 +573,8 @@ export default function InvitationsManagementPage() {
                     </TableCell>
 
                     <TableCell className="font-semibold text-primary">
-                      {inv.role_to_assign === 'parent'
-                        ? (inv.monthly_fee != null ? formatCurrency(inv.monthly_fee) : '—')
+                      {['parent', 'athlete'].includes(inv.role_to_assign || '')
+                        ? (inv.monthly_fee != null ? formatCurrency(Number(inv.monthly_fee)) : '—')
                         : '—'}
                     </TableCell>
 
@@ -796,8 +795,8 @@ export default function InvitationsManagementPage() {
                   </Select>
                 </div>
 
-                {/* Plan de sesiones — solo para padre */}
-                {formData.role === 'parent' && (
+                {/* Plan de sesiones — para roles aplicables */}
+                {['parent', 'athlete', 'coach'].includes(formData.role) && (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5">
                       <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
@@ -828,7 +827,7 @@ export default function InvitationsManagementPage() {
                 )}
 
                 {/* Mensualidad manual — solo si no hay equipo ni plan seleccionado */}
-                {formData.role === 'parent' && !formData.teamId && !formData.offeringPlanId && (
+                {['parent', 'athlete'].includes(formData.role) && !formData.teamId && !formData.offeringPlanId && (
                   <div className="space-y-1.5">
                     <Label htmlFor="monthlyFee" className="text-sm font-medium">Cuota mensual</Label>
                     <Input
