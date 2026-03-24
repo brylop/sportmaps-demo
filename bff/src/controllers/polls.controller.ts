@@ -54,8 +54,8 @@ export const pollsController = {
           *,
           attendance_sessions (
             *,
-            team:teams(id, name, sport),
-            coach:profiles(id, full_name)
+            team:teams!team_id(id, name, sport),
+            coach:school_staff!coach_id(id, full_name)
           )
         `)
         .eq('school_id', schoolId)
@@ -157,8 +157,8 @@ export const pollsController = {
           attendance_sessions (
             id, title, start_time, end_time, max_capacity,
             current_bookings:session_bookings(count),
-            team:teams(id, name, sport),
-            coach:profiles(id, full_name)
+            team:teams!team_id(id, name, sport),
+            coach:school_staff!coach_id(id, full_name)
           )
         `)
         .eq('id', pollId)
@@ -281,6 +281,8 @@ export const pollsController = {
           *,
           attendance_sessions (
             *,
+            team:teams!team_id(id, name, sport),
+            coach:school_staff!coach_id(id, full_name),
             session_bookings (
               *,
               user:profiles(id, full_name, avatar_url),
