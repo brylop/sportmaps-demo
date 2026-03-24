@@ -42,6 +42,7 @@ const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const PublicPollPage = lazy(() => import("./pages/polls/PublicPollPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -100,6 +101,8 @@ const GoalsPage = lazy(() => import("./pages/GoalsPage"));
 const TrainingPage = lazy(() => import("./pages/TrainingPage"));
 const AthleteWellnessPage = lazy(() => import("./pages/AthleteWellnessPage"));
 const AthletePaymentsPage = lazy(() => import("./pages/AthletePaymentsPage"));
+const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
+const PollResultsPage = lazy(() => import("./pages/polls/PollResultsPage"));
 
 // ─── Store pages (lazy) ───────────────────────────────────────────────────────
 const StoreProductsPage = lazy(() => import("./pages/StoreProductsPage"));
@@ -203,6 +206,7 @@ const App = () => (
                     <Route path="/events" element={<EventsMapPage />} />
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
+                    <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
@@ -242,12 +246,14 @@ const App = () => (
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
-                      <Route path="coach-plans" element={<CoachPlansPage />} />
-                      <Route path="results" element={<ResultsPage />} />
                       <Route path="training-plans" element={<TrainingPlansPage />} />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
                       <Route path="announcements" element={<AnnouncementsPage />} />
+
+                      {/* Attendance Polls */}
+                      <Route path="dashboard/polls" element={<PollsPage />} />
+                      <Route path="dashboard/polls/:pollId/results" element={<PollResultsPage />} />
 
                       {/* School routes (role-guarded) */}
                       <Route path="students" element={

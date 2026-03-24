@@ -21,6 +21,7 @@ import billingEventsRouter from './routes/billing-events';
 import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
+import pollsRouter from './routes/polls.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -102,6 +103,9 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+
+// Polls de asistencia — link público + gestión admin/coach
+app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
