@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { supabase } from '../config/supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/supabase';
+import { createClient } from '@supabase/supabase-js';
+import { v4 as uuidv4 } from 'uuid';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -26,504 +28,415 @@ interface ConfirmAttendanceBody {
   // Invitado
   guest_name?: string;
   guest_phone?: string;
-  poll_token?: string;     // generado en el frontend, guardado en localStorage
-}
-
-interface ManualConfirmationBody {
-  user_id?: string;
-  enrollment_id?: string;
-  unregistered_athlete_id?: string;
-  guest_name?: string;
-  guest_phone?: string;
+  poll_token?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-function err(res: Response, status: number, message: string) {
-  return res.status(status).json({ error: message });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTROLADOR
+// CONTROLLER
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const pollsController = {
+  /**
+   * Listar todos los polls de la escuela
+   */
+  listPolls: async (req: Request, res: Response) => {
+    try {
+      const schoolId = req.headers['x-school-id'] as string;
+      const { status, date } = req.query;
 
-  // ── GET /polls ─────────────────────────────────────────────────────────────
-  // Lista todos los polls de la escuela con resumen de sesiones
-  async listPolls(req: Request, res: Response) {
-    const schoolId = req.schoolId;
-    const { status, date } = req.query;
-
-    let query = supabase
-      .from('attendance_polls')
-      .select(`
-        id, title, poll_date, status, created_at,
-        created_by:profiles!attendance_polls_created_by_fkey(id, full_name),
-        attendance_sessions(
-          id, title, start_time, end_time, max_capacity, current_bookings,
-          coach:school_staff(id, full_name)
-        )
-      `)
-      .eq('school_id', schoolId)
-      .order('poll_date', { ascending: false });
-
-    if (status) query = query.eq('status', status as string);
-    if (date)   query = query.eq('poll_date', date as string);
-
-    const { data, error } = await query;
-    if (error) return err(res, 500, error.message);
-    return res.json(data);
-  },
-
-  // ── GET /polls/:pollId/public ──────────────────────────────────────────────
-  // Ruta pública — devuelve el poll con sus sesiones y conteo de confirmados
-  // No expone datos personales de los confirmados
-  async getPublicPoll(req: Request, res: Response) {
-    const { pollId } = req.params;
-
-    const { data: poll, error } = await supabase
-      .from('attendance_polls')
-      .select(`
-        id, title, poll_date, status,
-        school:schools(id, name, logo_url),
-        attendance_sessions(
-          id, title, start_time, end_time, max_capacity, current_bookings,
-          team:teams(id, name, sport)
-        )
-      `)
-      .eq('id', pollId)
-      .eq('status', 'open')
-      .single();
-
-    if (error || !poll) return err(res, 404, 'Poll no encontrado o ya cerrado');
-
-    // Agregar conteo de confirmados por sesión sin exponer nombres
-    const sessionsWithCount = await Promise.all(
-      (poll.attendance_sessions as any[]).map(async (session) => {
-        const { count } = await supabase
-          .from('session_bookings')
-          .select('id', { count: 'exact', head: true })
-          .eq('session_id', session.id)
-          .eq('status', 'confirmed');
-
-        return { ...session, confirmed_count: count ?? 0 };
-      })
-    );
-
-    return res.json({ ...poll, attendance_sessions: sessionsWithCount });
-  },
-
-  // ── POST /polls ────────────────────────────────────────────────────────────
-  // Crea el poll y sus sesiones en una sola operación
-  async createPoll(req: Request, res: Response) {
-    const schoolId = req.schoolId;
-    const userId   = req.user.id;
-    const body     = req.body as CreatePollBody;
-
-    if (!body.title)      return err(res, 400, 'El título es requerido');
-    if (!body.poll_date)  return err(res, 400, 'La fecha es requerida');
-    if (!body.sessions?.length) return err(res, 400, 'Debes incluir al menos una sesión');
-
-    // 1. Crear el poll
-    const { data: poll, error: pollError } = await supabase
-      .from('attendance_polls')
-      .insert({
-        school_id:  schoolId,
-        title:      body.title,
-        poll_date:  body.poll_date,
-        created_by: userId,
-        status:     'open',
-      })
-      .select()
-      .single();
-
-    if (pollError) return err(res, 500, pollError.message);
-
-    // 2. Crear las sesiones vinculadas al poll
-    const sessionsToInsert = body.sessions.map((s) => ({
-      school_id:    schoolId,
-      poll_id:      poll.id,
-      session_date: body.poll_date,
-      title:        s.title,
-      start_time:   s.start_time,
-      end_time:     s.end_time,
-      max_capacity: s.max_capacity ?? 20,
-      is_bookable:  true,
-      coach_id:     s.coach_id ?? null,
-      team_id:      s.team_id  ?? null,
-      created_by:   userId,
-    }));
-
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('attendance_sessions')
-      .insert(sessionsToInsert)
-      .select();
-
-    if (sessionsError) {
-      // Rollback manual del poll si fallan las sesiones
-      await supabase.from('attendance_polls').delete().eq('id', poll.id);
-      return err(res, 500, sessionsError.message);
-    }
-
-    return res.status(201).json({ poll, sessions });
-  },
-
-  // ── POST /polls/:pollId/confirm ────────────────────────────────────────────
-  // Confirma asistencia desde el link público
-  // Maneja tanto atletas registrados como invitados
-  async confirmAttendance(req: Request, res: Response) {
-    const { pollId }  = req.params;
-    const body        = req.body as ConfirmAttendanceBody;
-
-    if (!body.session_id) return err(res, 400, 'session_id es requerido');
-
-    // 1. Verificar que el poll existe y está abierto
-    const { data: poll } = await supabase
-      .from('attendance_polls')
-      .select('id, status, school_id')
-      .eq('id', pollId)
-      .single();
-
-    if (!poll || poll.status !== 'open') {
-      return err(res, 400, 'El poll no existe o ya fue cerrado');
-    }
-
-    // 2. Verificar que la sesión pertenece al poll
-    const { data: session } = await supabase
-      .from('attendance_sessions')
-      .select('id, max_capacity, current_bookings')
-      .eq('id', body.session_id)
-      .eq('poll_id', pollId)
-      .single();
-
-    if (!session) return err(res, 404, 'Sesión no encontrada en este poll');
-
-    // 3. Verificar cupo disponible
-    if (session.current_bookings >= (session.max_capacity ?? 20)) {
-      return err(res, 409, 'Esta clase ya alcanzó su cupo máximo');
-    }
-
-    // ── Caso A: Atleta registrado ──────────────────────────────────────────
-    if (body.user_id && body.enrollment_id) {
-
-      // Verificar que el enrollment tiene plan activo
-      const { data: enrollment } = await supabase
-        .from('enrollments')
-        .select('id, status, sessions_used, offering_plan:offering_plans(max_sessions)')
-        .eq('id', body.enrollment_id)
-        .eq('user_id', body.user_id)
-        .eq('school_id', poll.school_id)
-        .single();
-
-      if (!enrollment || enrollment.status !== 'active') {
-        return err(res, 403, 'No tienes un plan activo en esta escuela');
+      if (!schoolId) {
+        return res.status(400).json({ error: 'Falta x-school-id en headers' });
       }
 
-      // Verificar que no confirmó ya esta sesión
-      const { count: alreadyBooked } = await supabase
-        .from('session_bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_id', body.session_id)
-        .eq('user_id', body.user_id)
-        .eq('status', 'confirmed');
+      let query = supabase
+        .from('attendance_polls')
+        .select(`
+          *,
+          attendance_sessions (
+            *,
+            team:teams(id, name, sport),
+            coach:profiles(id, full_name)
+          )
+        `)
+        .eq('school_id', schoolId)
+        .order('poll_date', { ascending: false });
 
-      if (alreadyBooked && alreadyBooked > 0) {
-        return err(res, 409, 'Ya confirmaste asistencia a esta clase');
+      if (status) query = query.eq('status', status);
+      if (date) query = query.eq('poll_date', date);
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      return res.status(200).json(data);
+    } catch (error: any) {
+      console.error('[listPolls] Error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+
+  /**
+   * Crear un nuevo poll con sus sesiones
+   */
+  createPoll: async (req: Request, res: Response) => {
+    try {
+      const schoolId = req.headers['x-school-id'] as string;
+      const createdBy = (req as any).user?.id;
+      const { title, poll_date, sessions }: CreatePollBody = req.body;
+
+      // Cliente con JWT para respetar RLS
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+
+      if (!schoolId || !title || !poll_date || !sessions?.length) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios' });
       }
 
-      const { data: booking, error: bookingError } = await supabase
-        .from('session_bookings')
+      // 1. Crear el poll
+      const { data: poll, error: pollErr } = await userClient
+        .from('attendance_polls')
         .insert({
-          school_id:    poll.school_id,
-          session_id:   body.session_id,
-          enrollment_id: body.enrollment_id,
-          user_id:      body.user_id,
-          status:       'confirmed',
-          booking_type: 'reservation',
+          title,
+          poll_date,
+          school_id: schoolId,
+          created_by: createdBy,
+          status: 'open'
         })
         .select()
         .single();
 
-      if (bookingError) return err(res, 500, bookingError.message);
-      return res.status(201).json({ booking, type: 'registered' });
+      if (pollErr) {
+        console.error('[createPoll] pollErr:', pollErr);
+        throw pollErr;
+      }
+
+      // 2. Crear las sesiones asociadas con campos requeridos por RLS / NOT NULL
+      const sessionsToInsert = sessions.map(s => ({
+        poll_id: poll.id,
+        school_id: schoolId,
+        session_date: poll_date,
+        title: s.title,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        max_capacity: s.max_capacity || 20,
+        coach_id: s.coach_id || null,
+        team_id: s.team_id || null,
+        is_bookable: true,
+      }));
+
+      const { data: createdSessions, error: sessErr } = await userClient
+        .from('attendance_sessions')
+        .insert(sessionsToInsert)
+        .select();
+
+      if (sessErr) {
+        console.error('[createPoll] sessErr:', sessErr);
+        throw sessErr;
+      }
+
+      return res.status(201).json({ poll, sessions: createdSessions });
+    } catch (error: any) {
+      console.error('[createPoll] Error:', error.message, error.details);
+      return res.status(500).json({ error: error.message, details: error.details });
     }
+  },
 
-    // ── Caso B: Invitado ───────────────────────────────────────────────────
-    if (body.guest_name && body.poll_token) {
+  /**
+   * Obtener datos públicos de un poll
+   */
+  getPublicPoll: async (req: Request, res: Response) => {
+    try {
+      const { pollId } = req.params;
 
-      // Verificar anti doble-voto por token
-      const { data: existingGuest } = await supabase
-        .from('unregistered_athletes')
-        .select('id')
-        .eq('poll_token', body.poll_token)
-        .eq('school_id', poll.school_id)
+      const { data, error } = await supabase
+        .from('attendance_polls')
+        .select(`
+          id, title, poll_date, status,
+          school:schools(id, name, logo_url),
+          attendance_sessions (
+            id, title, start_time, end_time, max_capacity,
+            current_bookings:session_bookings(count),
+            team:teams(id, name, sport),
+            coach:profiles(id, full_name)
+          )
+        `)
+        .eq('id', pollId)
+        .eq('status', 'open')
         .single();
 
-      // Si el invitado ya existe, verificar que no confirmó esta sesión
-      if (existingGuest) {
-        const { count: alreadyBooked } = await supabase
-          .from('session_bookings')
-          .select('id', { count: 'exact', head: true })
-          .eq('session_id', body.session_id)
-          .eq('unregistered_athlete_id', existingGuest.id)
-          .eq('status', 'confirmed');
+      if (error || !data) {
+        return res.status(404).json({ error: 'Poll no encontrado o cerrado' });
+      }
 
-        if (alreadyBooked && alreadyBooked > 0) {
-          return err(res, 409, 'Ya confirmaste asistencia a esta clase');
-        }
+      const sessions = (data.attendance_sessions as any[]).map(s => ({
+        ...s,
+        current_bookings: s.current_bookings?.[0]?.count || 0
+      }));
 
-        // Crear booking para invitado existente
-        const { data: booking, error: bookingError } = await supabase
-          .from('session_bookings')
+      return res.status(200).json({ ...data, attendance_sessions: sessions });
+    } catch (error: any) {
+      console.error('[getPublicPoll] Error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+
+  /**
+   * Confirmar asistencia (Público o Autenticado)
+   */
+  confirmAttendance: async (req: Request, res: Response) => {
+    try {
+      const { session_id, user_id, enrollment_id, guest_name, guest_phone, poll_token }: ConfirmAttendanceBody = req.body;
+
+      if (!session_id || (!user_id && !guest_name)) {
+        return res.status(400).json({ error: 'Datos insuficientes para confirmar' });
+      }
+
+      // Cliente Supabase. Si es público, usamos el global (service_role para saltar RLS de inserción de invitados si es necesario, 
+      // o preferiblemente el anon si las políticas están abiertas). 
+      // Dado que el usuario pidió usar JWT, si hay token lo usamos.
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const client = token 
+        ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: `Bearer ${token}` } } })
+        : supabase; // fallback a service_role si es público y no hay token
+
+      // 1. Verificar capacidad y obtener school_id
+      const { data: session, error: sessErr } = await supabase
+        .from('attendance_sessions')
+        .select('max_capacity, poll_id, school_id')
+        .eq('id', session_id)
+        .single();
+
+      if (sessErr || !session) throw new Error('Sesión no válida');
+
+      const { count } = await supabase
+        .from('session_bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', session_id)
+        .eq('status', 'confirmed');
+
+      if ((count || 0) >= session.max_capacity) {
+        return res.status(409).json({ error: 'Sesión llena' });
+      }
+
+      // 2. Registrar Invitado si no viene user_id
+      let finalUserId = user_id;
+      let finalUnregisteredId = null;
+
+      if (!user_id && guest_name) {
+        const { data: guest, error: guestErr } = await supabase
+          .from('unregistered_athletes')
           .insert({
-            school_id:               poll.school_id,
-            session_id:              body.session_id,
-            unregistered_athlete_id: existingGuest.id,
-            status:                  'confirmed',
-            booking_type:            'reservation',
+            full_name: guest_name,
+            phone: guest_phone,
+            school_id: session.school_id, // ✅ Fix: school_id requerido
+            poll_token: poll_token || uuidv4()
           })
           .select()
           .single();
-
-        if (bookingError) return err(res, 500, bookingError.message);
-        return res.status(201).json({ booking, type: 'guest' });
+        
+        if (guestErr) {
+          console.error('[confirmAttendance] guestErr:', guestErr);
+          throw guestErr;
+        }
+        finalUnregisteredId = guest.id;
       }
 
-      // Invitado nuevo — crear en unregistered_athletes
-      const { data: newGuest, error: guestError } = await supabase
-        .from('unregistered_athletes')
-        .insert({
-          school_id:  poll.school_id,
-          full_name:  body.guest_name,
-          phone:      body.guest_phone ?? null,
-          poll_token: body.poll_token,
-          is_active:  true,
-        })
-        .select()
-        .single();
-
-      if (guestError) return err(res, 500, guestError.message);
-
-      const { data: booking, error: bookingError } = await supabase
+      // 3. Crear el booking
+      const { data: booking, error: bookErr } = await client
         .from('session_bookings')
         .insert({
-          school_id:               poll.school_id,
-          session_id:              body.session_id,
-          unregistered_athlete_id: newGuest.id,
-          status:                  'confirmed',
-          booking_type:            'reservation',
+          session_id,
+          user_id: finalUserId,
+          unregistered_athlete_id: finalUnregisteredId, // Opcional, pero bueno tenerlo si existe la columna
+          enrollment_id: enrollment_id,
+          status: 'confirmed',
+          booking_type: finalUserId ? 'registered' : 'guest'
         })
         .select()
         .single();
 
-      if (bookingError) return err(res, 500, bookingError.message);
-      return res.status(201).json({ booking, guest: newGuest, type: 'guest' });
-    }
+      if (bookErr) {
+        console.error('[confirmAttendance] bookErr:', bookErr);
+        throw bookErr;
+      }
 
-    return err(res, 400, 'Debes proveer datos de atleta registrado o de invitado');
+      return res.status(201).json(booking);
+    } catch (error: any) {
+      console.error('[confirmAttendance] Error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
   },
 
-  // ── GET /polls/:pollId/results ─────────────────────────────────────────────
-  // Resultados completos del poll para admin y coach
-  // Incluye lista de confirmados por sesión con datos del atleta
-  async getPollResults(req: Request, res: Response) {
-    const { pollId } = req.params;
-    const schoolId   = req.schoolId;
+  /**
+   * Ver resultados (Solo Admin/Coach)
+   */
+  getPollResults: async (req: Request, res: Response) => {
+    try {
+      const { pollId } = req.params;
 
-    const { data: poll, error } = await supabase
-      .from('attendance_polls')
-      .select(`
-        id, title, poll_date, status,
-        attendance_sessions(
-          id, title, start_time, end_time, max_capacity, current_bookings,
-          team:teams(id, name, sport),
-          coach:school_staff(id, full_name),
-          session_bookings(
-            id, status, booked_at, booking_type,
-            user:profiles(id, full_name, phone, avatar_url),
-            unregistered:unregistered_athletes(id, full_name, phone),
-            enrollment:enrollments(
-              id, status,
-              offering_plan:offering_plans(id, name, max_sessions)
+      const { data, error } = await supabase
+        .from('attendance_polls')
+        .select(`
+          *,
+          attendance_sessions (
+            *,
+            session_bookings (
+              *,
+              user:profiles(id, full_name, avatar_url),
+              enrollment:enrollments(id, status, offering_plan:offering_plans(id, name))
             )
           )
-        )
-      `)
-      .eq('id', pollId)
-      .eq('school_id', schoolId)
-      .single();
+        `)
+        .eq('id', pollId)
+        .single();
 
-    if (error || !poll) return err(res, 404, 'Poll no encontrado');
-
-    return res.json(poll);
+      if (error) throw error;
+      return res.status(200).json(data);
+    } catch (error: any) {
+      console.error('[getPollResults] Error:', error.message);
+      return res.status(500).json({ error: error.message });
+    }
   },
 
-  // ── PATCH /polls/:pollId/close ─────────────────────────────────────────────
-  // Cierra el poll — no elimina nada, solo cambia el status
-  async closePoll(req: Request, res: Response) {
-    const { pollId } = req.params;
-    const schoolId   = req.schoolId;
-    const userId     = req.user.id;
+  /**
+   * Cerrar poll
+   */
+  closePoll: async (req: Request, res: Response) => {
+    try {
+      const { pollId } = req.params;
+      const { data, error } = await supabase
+        .from('attendance_polls')
+        .update({ status: 'closed' })
+        .eq('id', pollId)
+        .select()
+        .single();
 
-    const { data, error } = await supabase
-      .from('attendance_polls')
-      .update({
-        status:    'closed',
-        closed_at: new Date().toISOString(),
-        closed_by: userId,
-      })
-      .eq('id', pollId)
-      .eq('school_id', schoolId)
-      .select()
-      .single();
-
-    if (error) return err(res, 500, error.message);
-    if (!data)  return err(res, 404, 'Poll no encontrado');
-
-    return res.json(data);
+      if (error) throw error;
+      return res.status(200).json(data);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
+    }
   },
 
-  // ── DELETE /polls/:pollId ──────────────────────────────────────────────────
-  // Elimina el poll solo si está abierto y sin confirmaciones
-  async deletePoll(req: Request, res: Response) {
-    const { pollId } = req.params;
-    const schoolId   = req.schoolId;
+  /**
+   * Eliminar poll
+   */
+  deletePoll: async (req: Request, res: Response) => {
+    try {
+      const { pollId } = req.params;
+      
+      const { data: sessions } = await supabase
+        .from('attendance_sessions')
+        .select('id')
+        .eq('poll_id', pollId);
+      
+      const sessionIds = sessions?.map(s => s.id) || [];
 
-    // Verificar que no tiene confirmaciones
-    const { data: pollSessions } = await supabase
-      .from('attendance_sessions')
-      .select('id')
-      .eq('poll_id', pollId);
+      if (sessionIds.length > 0) {
+        const { count } = await supabase
+          .from('session_bookings')
+          .select('*', { count: 'exact', head: true })
+          .in('session_id', sessionIds);
 
-    const sessionIds = (pollSessions || []).map(s => s.id);
-
-    if (sessionIds.length > 0) {
-      const { count } = await supabase
-        .from('session_bookings')
-        .select('id', { count: 'exact', head: true })
-        .in('session_id', sessionIds);
-
-      if (count && count > 0) {
-        return err(res, 409, 'No puedes eliminar un poll que ya tiene confirmaciones. Ciérralo en su lugar.');
+        if (count && count > 0) {
+          return res.status(400).json({ error: 'No se puede eliminar un poll con asistencias registradas' });
+        }
       }
+
+      const { error } = await supabase.from('attendance_polls').delete().eq('id', pollId);
+      if (error) throw error;
+
+      return res.status(204).send();
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
     }
-
-    const { error } = await supabase
-      .from('attendance_polls')
-      .delete()
-      .eq('id', pollId)
-      .eq('school_id', schoolId);
-
-    if (error) return err(res, 500, error.message);
-    return res.status(204).send();
   },
 
-  // ── POST /polls/:pollId/sessions/:sessionId/confirmations ─────────────────
-  // Admin agrega manualmente un atleta a una clase (sin poll, o editando)
-  async addManualConfirmation(req: Request, res: Response) {
-    const { pollId, sessionId } = req.params;
-    const schoolId              = req.schoolId;
-    const body                  = req.body as ManualConfirmationBody;
+  /**
+   * Registro manual de asistencia (Admin/Coach)
+   */
+  addManualConfirmation: async (req: Request, res: Response) => {
+    try {
+      const { session_id, user_id, guest_name, guest_phone } = req.body;
+      const schoolId = req.headers['x-school-id'] as string;
 
-    // Verificar que la sesión existe y pertenece al poll
-    const { data: session } = await supabase
-      .from('attendance_sessions')
-      .select('id, max_capacity, current_bookings')
-      .eq('id', sessionId)
-      .eq('poll_id', pollId)
-      .single();
+      if (!session_id || (!user_id && !guest_name)) {
+        return res.status(400).json({ error: 'Datos insuficientes' });
+      }
 
-    if (!session) return err(res, 404, 'Sesión no encontrada');
+      let finalUserId = user_id;
+      let finalUnregisteredId = null;
 
-    if (session.current_bookings >= (session.max_capacity ?? 20)) {
-      return err(res, 409, 'La clase ya alcanzó su cupo máximo');
-    }
+      if (!user_id && guest_name) {
+        const { data: guest, error: guestErr } = await supabase
+          .from('unregistered_athletes')
+          .insert({
+            full_name: guest_name,
+            phone: guest_phone,
+            school_id: schoolId,
+            poll_token: 'manual-' + uuidv4()
+          })
+          .select()
+          .single();
+        
+        if (guestErr) throw guestErr;
+        finalUnregisteredId = guest.id;
+      }
 
-    let unregisteredId = body.unregistered_athlete_id ?? null;
-
-    // Si es invitado nuevo sin cuenta
-    if (!body.user_id && !unregisteredId && body.guest_name) {
-      const { data: newGuest, error: guestError } = await supabase
-        .from('unregistered_athletes')
+      const { data, error } = await supabase
+        .from('session_bookings')
         .insert({
-          school_id: schoolId,
-          full_name: body.guest_name,
-          phone:     body.guest_phone ?? null,
-          is_active: true,
+          session_id,
+          user_id: finalUserId,
+          unregistered_athlete_id: finalUnregisteredId,
+          status: 'confirmed',
+          booking_type: finalUserId ? 'registered' : 'guest'
         })
         .select()
         .single();
 
-      if (guestError) return err(res, 500, guestError.message);
-      unregisteredId = newGuest.id;
+      if (error) throw error;
+      return res.status(201).json(data);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
     }
-
-    const { data: booking, error } = await supabase
-      .from('session_bookings')
-      .insert({
-        school_id:               schoolId,
-        session_id:              sessionId,
-        enrollment_id:           body.enrollment_id ?? null,
-        user_id:                 body.user_id ?? null,
-        unregistered_athlete_id: unregisteredId,
-        status:                  'confirmed',
-        booking_type:            'reservation',
-      })
-      .select()
-      .single();
-
-    if (error) return err(res, 500, error.message);
-    return res.status(201).json(booking);
   },
 
-  // ── PATCH /polls/:pollId/sessions/:sessionId/confirmations/:bookingId ──────
-  // Edita una confirmación (cambiar de sesión, corregir datos de invitado)
-  async updateConfirmation(req: Request, res: Response) {
-    const { bookingId } = req.params;
-    const schoolId      = req.schoolId;
-    const userId        = req.user.id;
-    const { status, session_id } = req.body;
+  /**
+   * Actualizar estado de asistencia
+   */
+  updateConfirmation: async (req: Request, res: Response) => {
+    try {
+      const { bookingId } = req.params;
+      const { status } = req.body;
 
-    const updates: Record<string, any> = {
-      is_corrected:     true,
-      corrected_by:     userId,
-      corrected_at:     new Date().toISOString(),
-      correction_reason: req.body.correction_reason ?? 'Corrección manual por admin',
-    };
+      const { data, error } = await supabase
+        .from('session_bookings')
+        .update({ status })
+        .eq('id', bookingId)
+        .select()
+        .single();
 
-    if (status)     updates.status     = status;
-    if (session_id) updates.session_id = session_id;
-
-    const { data, error } = await supabase
-      .from('session_bookings')
-      .update(updates)
-      .eq('id', bookingId)
-      .eq('school_id', schoolId)
-      .select()
-      .single();
-
-    if (error) return err(res, 500, error.message);
-    if (!data)  return err(res, 404, 'Confirmación no encontrada');
-
-    return res.json(data);
+      if (error) throw error;
+      return res.status(200).json(data);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
+    }
   },
 
-  // ── DELETE /polls/:pollId/sessions/:sessionId/confirmations/:bookingId ─────
-  // Elimina una confirmación (admin o coach)
-  async deleteConfirmation(req: Request, res: Response) {
-    const { bookingId } = req.params;
-    const schoolId      = req.schoolId;
+  /**
+   * Eliminar asistencia
+   */
+  deleteConfirmation: async (req: Request, res: Response) => {
+    try {
+      const { bookingId } = req.params;
+      const { error } = await supabase.from('session_bookings').delete().eq('id', bookingId);
+      if (error) throw error;
 
-    const { error } = await supabase
-      .from('session_bookings')
-      .delete()
-      .eq('id', bookingId)
-      .eq('school_id', schoolId);
-
-    if (error) return err(res, 500, error.message);
-    return res.status(204).send();
-  },
+      return res.status(204).send();
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
 };
