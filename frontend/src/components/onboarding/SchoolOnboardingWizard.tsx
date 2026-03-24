@@ -31,6 +31,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+import { emailClient } from '@/lib/email-client';
 
 interface OnboardingStatus {
   has_school: boolean;
@@ -104,7 +105,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   // Payments form
   const [bankName, setBankName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [accountType, setAccountType] = useState('savings');
+  const [accountType, setAccountType] = useState('ahorros');
 
   // Load existing branch data
   useEffect(() => {
@@ -247,7 +248,23 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
 
       if (staffError) throw staffError;
 
-      toast({ title: 'Entrenador agregado' });
+      // Enviar email de invitacion al coach
+      const registrationUrl = `${window.location.origin}/register?email=${encodeURIComponent(coachEmail.trim())}&role=coach`;
+      try {
+        await emailClient.send({
+          type: 'coach_invitation',
+          to: coachEmail.trim().toLowerCase(),
+          data: {
+            coachName: coachName.trim(),
+            schoolName: schoolName || 'Tu Academia',
+            registrationUrl,
+          },
+        });
+      } catch (emailErr) {
+        console.warn('Email de coach no enviado:', emailErr);
+      }
+
+      toast({ title: 'Entrenador agregado e invitacion enviada' });
       onRefresh();
       goNext();
     } catch (err: any) {
@@ -285,7 +302,25 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
 
       if (error) throw error;
 
-      toast({ title: 'Atleta registrado' });
+      // Enviar email de invitacion al padre si tiene email
+      if (parentEmail.trim()) {
+        const registrationUrl = `${window.location.origin}/register?email=${encodeURIComponent(parentEmail.trim())}&role=parent`;
+        try {
+          await emailClient.send({
+            type: 'parent_invitation',
+            to: parentEmail.trim().toLowerCase(),
+            data: {
+              schoolName: schoolName || 'Tu Academia',
+              childName: studentName.trim(),
+              registrationUrl,
+            },
+          });
+        } catch (emailErr) {
+          console.warn('Email de padre no enviado:', emailErr);
+        }
+      }
+
+      toast({ title: parentEmail.trim() ? 'Atleta registrado e invitacion enviada al padre' : 'Atleta registrado' });
       onRefresh();
       goNext();
     } catch (err: any) {
@@ -538,10 +573,8 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="savings">Ahorros</SelectItem>
-                    <SelectItem value="checking">Corriente</SelectItem>
-                    <SelectItem value="nequi">Nequi</SelectItem>
-                    <SelectItem value="daviplata">Daviplata</SelectItem>
+                    <SelectItem value="ahorros">Ahorros</SelectItem>
+                    <SelectItem value="corriente">Corriente</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

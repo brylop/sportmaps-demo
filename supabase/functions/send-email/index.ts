@@ -13,6 +13,7 @@ type EmailType =
     | "enrollment_confirmation"
     | "welcome_school"
     | "parent_invitation"
+    | "coach_invitation"
     | "payment_reminder";
 
 interface EmailPayload {
@@ -131,6 +132,25 @@ function getSubjectAndHtml(type: EmailType, d: Record<string, string>): { subjec
           <p style="color: #888; font-size: 12px; margin-top: 20px;">
             Si el botón no funciona, copia y pega este enlace:<br>
             <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register"}</span>
+          </p>
+        `),
+            };
+
+        case "coach_invitation":
+            return {
+                subject: `${d.schoolName} te invita como Entrenador en SportMaps`,
+                html: wrapTemplate(`
+          <h2 style="color: #248223; margin-top: 0;">Te necesitamos en el equipo</h2>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Hola <strong>${d.coachName}</strong>, la academia <strong>${d.schoolName}</strong> te ha registrado como entrenador en SportMaps.
+          </p>
+          <p style="color: #4a4a4a; line-height: 1.6;">
+            Crea tu cuenta para gestionar tus equipos, planificar entrenamientos y llevar el control de asistencia.
+          </p>
+          ${orangeButton(d.registrationUrl || "https://app.sportmaps.co/register?role=coach", "Crear mi Cuenta")}
+          <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Si el boton no funciona, copia y pega este enlace:<br>
+            <span style="color: #248223; word-break: break-all;">${d.registrationUrl || "https://app.sportmaps.co/register?role=coach"}</span>
           </p>
         `),
             };
