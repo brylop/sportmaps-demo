@@ -26,6 +26,9 @@ import pollsRouter from './routes/polls.routes';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Necesario para express-rate-limit en entornos con proxy (Render, Vercel, Heroku)
+app.set('trust proxy', 1);
+
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
