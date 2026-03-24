@@ -124,7 +124,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Gestión',
         items: [
           { title: 'Asistencias', href: '/coach-attendance', icon: BarChart3 },
-          { title: 'Encuestas Asistencia', href: '/dashboard/polls', icon: Bell },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
           { title: 'Reportes', href: '/coach-reports', icon: FileText }
@@ -164,7 +163,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Encuestas Asistencia', href: '/dashboard/polls', icon: Bell },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -265,7 +263,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Encuestas Asistencia', href: '/dashboard/polls', icon: Bell },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -310,7 +307,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Encuestas Asistencia', href: '/dashboard/polls', icon: Bell },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -353,7 +349,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
-          { title: 'Encuestas Asistencia', href: '/dashboard/polls', icon: Bell },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
