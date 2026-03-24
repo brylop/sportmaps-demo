@@ -678,7 +678,7 @@ export default function RegisterPage() {
                                     key={sport.id}
                                     value={sport.nombre}
                                     onSelect={() => { setValue('sportId', sport.id); setSportOpen(false); }}
-                                    className="data-[selected=true]:bg-[#248223]/20 data-[selected=true]:text-[#f5f7f2]"
+                                    className="text-[#f5f7f2]/80 data-[selected=true]:bg-[#248223]/20 data-[selected=true]:text-[#f5f7f2]"
                                   >
                                     <Check className={cn("mr-2 h-4 w-4", field.value === sport.id ? "opacity-100" : "opacity-0")} />
                                     {sport.nombre}
