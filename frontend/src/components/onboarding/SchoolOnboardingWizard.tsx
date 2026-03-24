@@ -241,26 +241,11 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           school_id: schoolId,
           full_name: coachName.trim(),
           email: coachEmail.trim().toLowerCase(),
-          role: 'coach',
+          specialty: 'coach',
           status: 'active',
         });
 
       if (staffError) throw staffError;
-
-      // Create school_member invitation
-      const { error: memberError } = await supabase
-        .from('school_members')
-        .insert({
-          school_id: schoolId,
-          role: 'coach',
-          status: 'pending',
-          invite_email: coachEmail.trim().toLowerCase(),
-        });
-
-      // Not critical if member insert fails (might need profile_id)
-      if (memberError) {
-        console.warn('Member invite note:', memberError.message);
-      }
 
       toast({ title: 'Entrenador agregado' });
       onRefresh();
