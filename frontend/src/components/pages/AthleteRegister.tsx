@@ -10,7 +10,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ArrowLeft, User, Mail, Phone, Calendar, Users } from "lucide-react";
-
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import { cn } from "@/lib/utils";
+import { Controller } from "react-hook-form";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CustomCalendar } from "@/components/ui/calendar";
 interface AthleteRegisterProps {
   onNavigate: (page: string) => void;
 }
@@ -191,11 +196,50 @@ const AthleteRegister = ({ onNavigate }: AthleteRegisterProps) => {
 
           <div className="space-y-2">
             <Label htmlFor="birthDate">Fecha de Nacimiento</Label>
-            <Input
-              id="birthDate"
-              type="date"
-              {...athleteForm.register("birthDate")}
-              className="focus:border-primary focus:ring-primary"
+            <Controller
+              name="birthDate"
+              control={athleteForm.control}
+              render={({ field }) => (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal focus:border-primary focus:ring-primary",
+                        !field.value && "text-muted-foreground"
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {field.value ? (
+                        format(new Date(field.value + "T12:00:00"), "PPP", { locale: es })
+                      ) : (
+                        <span>Selecciona una fecha</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className=" w-auto p-0">
+                    <CustomCalendar
+                      mode="single"
+                      selected={field.value ? new Date(field.value + "T12:00:00") : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          field.onChange(format(date, "yyyy-MM-dd"));
+                        } else {
+                          field.onChange("");
+                        }
+                      }}
+                      disabled={(date) =>
+                        date > new Date() || date < new Date("1900-01-01")
+                      }
+                      defaultMonth={field.value ? new Date(field.value + "T12:00:00") : new Date(new Date().setFullYear(new Date().getFullYear() - 15))}
+                      initialFocus
+                      captionLayout="dropdown-buttons"
+                      fromYear={1920}
+                      toYear={new Date().getFullYear()}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )}
             />
             {athleteForm.formState.errors.birthDate && (
               <p className="text-destructive text-sm">{athleteForm.formState.errors.birthDate.message}</p>

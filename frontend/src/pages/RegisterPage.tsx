@@ -611,17 +611,66 @@ export default function RegisterPage() {
                   <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
                     Fecha de Nacimiento
                   </label>
-                  <div className="relative group">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <CalendarIcon className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
-                    </div>
-                    <input
-                      {...register('dateOfBirth')}
-                      type="date"
-                      max={new Date().toISOString().split('T')[0]}
-                      className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all text-[#f5f7f2] [color-scheme:dark]"
-                    />
-                  </div>
+                  <Controller
+                    name="dateOfBirth"
+                    control={control}
+                    render={({ field }) => (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "w-full bg-[#0f2614] border border-white/5 rounded-xl py-6 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all hover:bg-[#0f2614] hover:text-[#f5f7f2] justify-start text-left font-normal",
+                              !field.value && "text-[#4a5246]",
+                              field.value && "text-[#f5f7f2]"
+                            )}
+                          >
+                            <CalendarIcon className="absolute left-4 w-4 h-4 text-[#4a5246]" />
+                            {field.value ? (
+                              format(new Date(field.value + "T12:00:00"), "PPP", { locale: es })
+                            ) : (
+                              <span>Selecciona una fecha</span>
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0 bg-[#0f2614] border-white/10 text-[#f5f7f2] shadow-2xl" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value ? new Date(field.value + "T12:00:00") : undefined}
+                            onSelect={(date) => {
+                              if (date) {
+                                field.onChange(format(date, 'yyyy-MM-dd'));
+                              } else {
+                                field.onChange('');
+                              }
+                            }}
+                            disabled={(date) =>
+                              date > new Date() || date < new Date("1900-01-01")
+                            }
+                            defaultMonth={field.value ? new Date(field.value + "T12:00:00") : new Date(new Date().setFullYear(new Date().getFullYear() - 15))}
+                            captionLayout="dropdown-buttons"
+                            fromYear={1920}
+                            toYear={new Date().getFullYear()}
+                            initialFocus
+                            className="bg-[#0f2614] text-[#f5f7f2] rounded-xl"
+                            classNames={{
+                              head_cell: "text-[#8a9186] font-normal text-[0.8rem] w-9",
+                              cell: "h-9 w-9 text-center text-sm p-0",
+                              day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-white/10 rounded-md transition-colors",
+                              day_selected: "bg-[#248223] text-white hover:bg-[#2ea82d] hover:text-white focus:bg-[#248223] focus:text-white font-bold",
+                              day_today: "bg-white/5 text-[#4dcc4c] font-bold",
+                              day_outside: "text-[#8a9186]/50",
+                              day_disabled: "text-[#8a9186]/30",
+                              nav_button: "h-7 w-7 bg-transparent p-0 text-[#f5f7f2] hover:bg-white/10 rounded-md border border-white/10 transition-colors",
+                              dropdown: "bg-[#0f2614] border border-white/10 text-[#f5f7f2] rounded-md custom-scrollbar focus:ring-[#248223]",
+                              dropdown_month: "[&>option]:text-black",
+                              dropdown_year: "[&>option]:text-black"
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  />
                   {errors.dateOfBirth && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.dateOfBirth.message}</p>}
                 </div>
               )}

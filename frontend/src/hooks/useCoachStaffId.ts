@@ -20,7 +20,7 @@ export function useCoachStaffId() {
       
       const { data, error } = await supabase
         .from('school_staff')
-        .select('id, full_name, role, school_id')
+        .select('id, full_name, school_id')
         .eq('coach_auth_id', user.id)
         .eq('school_id', schoolId)
         .maybeSingle();
