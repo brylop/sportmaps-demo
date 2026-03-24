@@ -1,39 +1,55 @@
-# SportMaps ⚽🏀🎾
+# SportMaps — Frontend
 
-**Plataforma integral de gestión deportiva** con React, TypeScript, Tailwind CSS y Supabase.
+SPA React con PWA, multi-rol, multi-tenant.
 
-## 🚀 Inicio Rápido
+## Stack
 
-### Usuarios Demo
-Accede desde `/login` con:
-- **Padre**: `padre@sportmaps-demo.com`
-- **Entrenador**: `entrenador@sportmaps-demo.com`
-- **Escuela**: `escuela@sportmaps-demo.com`
-- **Deportista**: `deportista@sportmaps-demo.com`
+React 18 + TypeScript + Vite + TailwindCSS + shadcn/ui + Supabase Client + TanStack Query
 
-**Contraseña**: `DemoSportMaps2024!`
+## Setup
 
-## 🌟 Características
+```bash
+npm install
+npm run dev       # http://localhost:3001
+npm run build     # Build produccion en ./build
+npm run preview   # Preview del build
+```
 
-- ✅ **9 páginas funcionales** - Dashboard, Calendario, Equipos, Stats, Mensajes, Notificaciones, Configuración
-- ✅ **7 roles** con dashboards personalizados
-- ✅ **Sistema RBAC** completo con permisos granulares
-- ✅ **Navegación adaptativa** según rol
-- ✅ **Design system** profesional
-- ✅ **Animaciones** suaves y modernas
+## Estructura
 
-## 📚 Documentación
+```
+src/
+  pages/           88 paginas organizadas por feature
+  components/      173 componentes (UI, modals, forms, layouts)
+  hooks/           32 hooks custom (useSchoolContext, useAthleteData, etc.)
+  contexts/        AuthContext, ThemeContext, CartContext
+  config/          navigation.ts (sidebar por rol)
+  lib/             APIs, utilidades, constantes
+  integrations/    Tipos auto-generados de Supabase
+  pwa/             Service Worker, InstallBanner, UpdateBanner
+```
 
-- 📖 [Guía Rápida](./QUICKSTART.md)
-- 🏗️ [Arquitectura](./ARCHITECTURE.md)
-- 🔒 [Seguridad](./SECURITY.md)
-- ✨ [Mejores Prácticas](./BEST_PRACTICES.md)
-- 🛠️ [Guía Desarrollo](./README_DEV.md)
+## Roles y navegacion
 
-## 🛠️ Stack
+Cada rol tiene su sidebar definido en `src/config/navigation.ts`:
 
-React 18 • TypeScript • Tailwind CSS • Supabase • shadcn/ui • Vite
+| Rol | Items principales |
+|-----|------------------|
+| school | Dashboard, Invitaciones, Estudiantes, Staff, Equipos, Planes, Calendario, Asistencias, Pagos, Recordatorios, Sedes |
+| parent | Dashboard, Mis Hijos, Calendario, Asistencias, Pagos, Mensajes, Inscripciones |
+| coach | Dashboard, Equipos, Agenda, Estudiantes, Calendario, Asistencias, Resultados, Planes Entrenamiento, Reportes |
+| athlete | Dashboard, Calendario, Explorar, Inscripciones, Pagos |
 
----
+## Features tecnicas
 
-Ver [QUICKSTART.md](./QUICKSTART.md) para comenzar en 5 minutos.
+- Lazy loading en todas las paginas (React.lazy + Suspense)
+- PWA con Service Worker (instalable en mobile)
+- Multi-tenant via SchoolContext (school_id + branch_id)
+- Dark mode (parcial)
+- MobileBottomNav responsive (5 items por rol)
+- ErrorBoundary global
+- Code splitting: tesseract, pdfjs, leaflet en chunks separados
+
+## Cuentas demo
+
+Ver `docs/guides/DEMO_CREDENTIALS.md` en la raiz del proyecto.
