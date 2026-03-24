@@ -4,7 +4,7 @@ import { paymentRemindersAPI, PaymentReminder, ReminderBatch } from '@/lib/api/p
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import {
     Bell, DollarSign, AlertTriangle, Clock, Send, CheckCircle2, Users,
-    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter
+    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter, MessageCircle, Phone
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,15 +19,17 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { emailClient } from '@/lib/email-client';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function PaymentRemindersPage() {
-    const { schoolId, activeBranchId, activeBranchName } = useSchoolContext();
+    const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
     const [batch, setBatch] = useState<ReminderBatch | null>(null);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue'>('all');
     const [expandedParent, setExpandedParent] = useState<string | null>(null);
+    const [sendingAuto, setSendingAuto] = useState(false);
 
     useEffect(() => {
         if (schoolId) loadReminders();
@@ -119,6 +121,49 @@ export default function PaymentRemindersPage() {
         }
     };
 
+    const handleAutoSend = async () => {
+        if (!schoolId) return;
+        setSendingAuto(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('payment-reminders-cron', {
+                body: { school_id: schoolId },
+            });
+            if (error) throw error;
+            const result = data as { sent?: number; failed?: number };
+            if (result.sent && result.sent > 0) {
+                toast.success(`${result.sent} recordatorio${result.sent > 1 ? 's' : ''} enviado${result.sent > 1 ? 's' : ''} por email`);
+            } else {
+                toast.info('No hay recordatorios pendientes para enviar hoy');
+            }
+            if (result.failed && result.failed > 0) {
+                toast.warning(`${result.failed} no pudieron enviarse`);
+            }
+            loadReminders();
+        } catch (err: any) {
+            toast.error(err.message || 'Error al ejecutar envio automatico');
+        } finally {
+            setSendingAuto(false);
+        }
+    };
+
+    const sendWhatsApp = (reminder: PaymentReminder) => {
+        if (!reminder.parentPhone) {
+            toast.warning('Este padre no tiene telefono registrado');
+            return;
+        }
+        // Limpiar telefono: quitar espacios, guiones, etc.
+        const cleanPhone = reminder.parentPhone.replace(/[\s\-\(\)]/g, '');
+        // Si no empieza con +, asumir Colombia
+        const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+
+        const isOverdue = reminder.status === 'overdue';
+        const msg = isOverdue
+            ? `Hola ${reminder.parentName}, le informamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) esta vencido desde el ${formatDate(reminder.dueDate)}. Por favor realice el pago lo antes posible.`
+            : `Hola ${reminder.parentName}, le recordamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) vence el ${formatDate(reminder.dueDate)}. Gracias por su puntualidad.`;
+
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
     const formatCurrency = (amount: number) =>
         new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
 
@@ -157,6 +202,18 @@ export default function PaymentRemindersPage() {
                     <Button variant="outline" onClick={loadReminders}>
                         <RefreshCw className="h-4 w-4 mr-2" />
                         Actualizar
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={handleAutoSend}
+                        disabled={sendingAuto || !batch || batch.totalReminders === 0}
+                        className="text-green-700 border-green-200 hover:bg-green-50"
+                    >
+                        {sendingAuto ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enviando...</>
+                        ) : (
+                            <><Bell className="h-4 w-4 mr-2" /> Enviar todos por email</>
+                        )}
                     </Button>
                     <Button
                         onClick={handleSendReminders}
@@ -253,6 +310,7 @@ export default function PaymentRemindersPage() {
                                 <TableHead className="text-right">Monto</TableHead>
                                 <TableHead>Vencimiento</TableHead>
                                 <TableHead>Estado</TableHead>
+                                <TableHead className="w-20 text-center">Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -273,10 +331,18 @@ export default function PaymentRemindersPage() {
                                             <TableCell>
                                                 <div>
                                                     <p className="font-medium text-sm">{first.parentName}</p>
-                                                    <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                                                        <Mail className="h-3 w-3" />
-                                                        {first.parentEmail || 'Sin email'}
-                                                    </p>
+                                                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                                        <span className="flex items-center gap-0.5">
+                                                            <Mail className="h-3 w-3" />
+                                                            {first.parentEmail || 'Sin email'}
+                                                        </span>
+                                                        {first.parentPhone && (
+                                                            <span className="flex items-center gap-0.5 text-green-600">
+                                                                <Phone className="h-3 w-3" />
+                                                                {first.parentPhone}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-sm">{first.childName}</TableCell>
@@ -297,6 +363,18 @@ export default function PaymentRemindersPage() {
                                                         Pendiente
                                                     </Badge>
                                                 )}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    onClick={() => sendWhatsApp(first)}
+                                                    title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
+                                                    disabled={!first.parentPhone}
+                                                >
+                                                    <MessageCircle className="h-4 w-4" />
+                                                </Button>
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -345,6 +423,18 @@ export default function PaymentRemindersPage() {
                                                     <Badge variant="secondary" className="text-[10px]">Pendientes</Badge>
                                                 )}
                                             </TableCell>
+                                            <TableCell className="text-center">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    onClick={(e) => { e.stopPropagation(); sendWhatsApp(first); }}
+                                                    title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
+                                                    disabled={!first.parentPhone}
+                                                >
+                                                    <MessageCircle className="h-4 w-4" />
+                                                </Button>
+                                            </TableCell>
                                         </TableRow>
                                         {isExpanded && reminders.map(r => (
                                             <TableRow key={r.id} className="bg-muted/20">
@@ -367,6 +457,17 @@ export default function PaymentRemindersPage() {
                                                     ) : (
                                                         <Badge variant="secondary" className="text-[10px]">Pend.</Badge>
                                                     )}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                        onClick={() => sendWhatsApp(r)}
+                                                        disabled={!r.parentPhone}
+                                                    >
+                                                        <MessageCircle className="h-3.5 w-3.5" />
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}

@@ -345,7 +345,6 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           bank_name: bankName.trim(),
           bank_account_number: accountNumber.trim(),
           bank_account_type: accountType,
-          payment_setup_completed: true,
         }, { onConflict: 'school_id' });
 
       if (error) throw error;

@@ -180,17 +180,10 @@ export default function PaymentsAutomationPage() {
         bank_titular_name: billing.bank_titular_name,
         bank_titular_id: billing.bank_titular_id,
         payment_qr_url: billing.payment_qr_url,
-        allow_installments: billing.allow_installments,
-        max_installments_per_payment: billing.max_installments_per_payment,
-        min_installment_amount: billing.min_installment_amount,
-        installment_require_proof: billing.installment_require_proof,
         billing_cycle_type: billing.billing_cycle_type,
       };
 
-      const { error } = await supabase.from('school_settings').upsert({
-        ...payload,
-        payment_setup_completed: true,
-      }, { onConflict: 'school_id' });
+      const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
       if (error) throw error;
       toast({ title: '✅ Configuración de pagos guardada' });
     } catch (err: any) {

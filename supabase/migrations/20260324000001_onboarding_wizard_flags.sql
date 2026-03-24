@@ -88,9 +88,11 @@ BEGIN
         )
     ),
     'payment_setup_completed', (
-        SELECT COALESCE(
-            (SELECT payment_setup_completed FROM public.school_settings WHERE school_id = v_school_id),
-            false
+        SELECT EXISTS(
+            SELECT 1 FROM public.school_settings
+            WHERE school_id = v_school_id
+            AND bank_name IS NOT NULL
+            AND bank_account_number IS NOT NULL
         )
     ),
 

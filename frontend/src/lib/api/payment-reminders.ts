@@ -6,6 +6,7 @@ export interface PaymentReminder {
     parentId: string;
     parentName: string;
     parentEmail: string;
+    parentPhone: string;
     childName: string;
     childId: string;
     teamName: string;
@@ -82,7 +83,7 @@ class PaymentRemindersAPI {
         // Fetch children
         const { data: children } = await supabase
             .from('children')
-            .select('id, full_name')
+            .select('id, full_name, parent_phone_temp')
             .in('id', childIds);
 
         // Fetch teams
@@ -106,6 +107,7 @@ class PaymentRemindersAPI {
                 parentId: payment.parent_id,
                 parentName: parent?.full_name || 'Sin nombre',
                 parentEmail: (parent as any)?.email || '',
+                parentPhone: (parent as any)?.phone || (child as any)?.parent_phone_temp || '',
                 childName: child?.full_name || 'Sin asignar',
                 childId: payment.child_id || '',
                 teamName: team?.name || 'Equipo',
