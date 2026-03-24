@@ -246,6 +246,7 @@ const App = () => (
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />
+                      <Route path="coach-plans" element={<CoachPlansPage />} />
                       <Route path="training-plans" element={<TrainingPlansPage />} />
                       <Route path="coach-reports" element={<CoachReportsPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
