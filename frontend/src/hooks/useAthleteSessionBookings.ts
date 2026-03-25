@@ -65,7 +65,8 @@ export function useAvailableSessions(childId?: string) {
   return useQuery<{ sessions: BookableSession[] }>({
     queryKey: ['athlete-available-sessions', schoolId, childId],
     queryFn: () => bff('/athlete/available', undefined, childId),
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
     enabled: !!schoolId,
   });
 }

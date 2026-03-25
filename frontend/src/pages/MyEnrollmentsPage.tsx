@@ -46,6 +46,8 @@ import {
 
 // ─── Tipos de instalación ─────────────────────────────────────────────────────
 
+interface ScheduleSlot { day: number; time: string }
+
 interface Facility {
   id: string;
   name: string;
@@ -737,36 +739,74 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
   const allSessions = useMemo(() => {
     const sessions = data?.sessions ?? [];
 
+    let filtered: BookableSession[] = [];
+
     const byEnrollment = sessions.filter(
-      s => s.enrollment_id === enrollment.id &&
-        (s.booking_status === 'open' || s.booking_status === 'already_booked')
+      s => s.enrollment_id === enrollment.id && s.booking_status === 'open'
     );
-    if (byEnrollment.length > 0) return byEnrollment;
-
-    if (enrollment.offering_id) {
+    if (byEnrollment.length > 0) {
+      filtered = byEnrollment;
+    } else if (enrollment.offering_id) {
       const byOffering = sessions.filter(
-        s => s.offering_id === enrollment.offering_id &&
-          (s.booking_status === 'open' || s.booking_status === 'already_booked')
+        s => s.offering_id === enrollment.offering_id && s.booking_status === 'open'
       );
-      if (byOffering.length > 0) return byOffering;
-    }
-
-    if (enrollment.team_id) {
-      return sessions.filter(
-        s => s.team?.id === enrollment.team_id &&
-          (s.booking_status === 'open' || s.booking_status === 'already_booked')
+      if (byOffering.length > 0) filtered = byOffering;
+    } else if (enrollment.team_id) {
+      filtered = sessions.filter(
+        s => s.team?.id === enrollment.team_id && s.booking_status === 'open'
       );
     }
 
-    return [];
+    // ── NUEVO: filtro por horario específico ─────────────────────────────────
+    const meta = enrollment.plan_details?.metadata;
+    if (meta?.schedule_type === 'specific' && Array.isArray(meta.schedule) && meta.schedule.length > 0) {
+      const schedule = meta.schedule as ScheduleSlot[];
+      filtered = filtered.filter(s => {
+        // getDay() usa 0=Dom…6=Sáb, igual que nuestro SchedulePicker
+        const dow = new Date(s.session_date + 'T12:00:00').getDay();
+        const sessionHHMM = s.start_time.slice(0, 5); // 'HH:MM'
+        return schedule.some(slot => slot.day === dow && slot.time === sessionHHMM);
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    return filtered;
   }, [data, enrollment]);
 
-  const availableDates = useMemo(() => new Set(allSessions.map(s => s.session_date)), [allSessions]);
+  const availableDates = useMemo(() => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
+    return new Set(
+      allSessions
+        .filter(s => {
+          if (s.session_date === todayStr) {
+            const [h, m] = s.start_time.split(':').map(Number);
+            return (h * 60 + m) >= nowMinutes - 15;
+          }
+          return true;
+        })
+        .map(s => s.session_date)
+    );
+  }, [allSessions]);
 
   const sessionsForDay = useMemo(() => {
     if (!selectedDate) return [];
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
     return allSessions
-      .filter(s => s.session_date === selectedDate)
+      .filter(s => {
+        if (s.session_date !== selectedDate) return false;
+        // Si es hoy, ocultar sesiones cuya hora de inicio ya pasó
+        // (permitimos 15 min de gracia por si el atleta llega tarde)
+        if (selectedDate === todayStr) {
+          const [h, m] = s.start_time.split(':').map(Number);
+          const sessionMinutes = h * 60 + m;
+          return sessionMinutes >= nowMinutes - 15;
+        }
+        return true;
+      })
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   }, [allSessions, selectedDate]);
 

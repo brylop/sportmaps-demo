@@ -663,6 +663,55 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Static route BEFORE dynamic /athlete/:id/cancel ─────────────────────────
+router.delete('/athlete/cancel-booking', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { booking_id, child_id } = req.query as { booking_id: string; child_id?: string };
+
+    if (!booking_id) {
+      return res.status(400).json({ error: 'booking_id es requerido' });
+    }
+
+    const { data: booking, error: fetchError } = await supabase
+      .from('session_bookings')
+      .select('id, status, user_id, child_id, session_id')
+      .eq('id', booking_id)
+      .single();
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: 'Booking no encontrado' });
+    }
+
+    // ← req.user?.id — consistente con el resto de rutas del BFF
+    const isOwner = booking.user_id === req.user?.id;
+    const isChild = child_id && booking.child_id === child_id;
+
+    if (!isOwner && !isChild) {
+      return res.status(403).json({ error: 'No tienes permiso para cancelar esta reserva' });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ error: 'Esta reserva ya está cancelada' });
+    }
+
+    const { error: updateError } = await supabase
+      .from('session_bookings')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_reason: 'Cancelado por el atleta',
+      })
+      .eq('id', booking_id);
+
+    if (updateError) throw updateError;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error cancelling booking:', err);
+    res.status(500).json({ error: 'Error al cancelar la reserva' });
+  }
+});
+
 router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;

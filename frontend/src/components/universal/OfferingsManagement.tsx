@@ -40,6 +40,15 @@ const PLAN_DURATION_OPTIONS = [
     { label: '12 meses', value: '365' },
 ];
 
+const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const HOUR_OPTIONS = [
+  '06:00','07:00','08:00','09:00','10:00','11:00',
+  '12:00','13:00','14:00','15:00','16:00','17:00',
+  '18:00','19:00','20:00','21:00','22:00',
+];
+
+interface ScheduleSlot { day: number; time: string }
+
 const formatCurrency = (val: string | number) => {
     if (val === undefined || val === null || val === '') return '';
     const num = typeof val === 'string' ? parseFloat(val.replace(/\./g, '').replace(/,/g, '')) : val;
@@ -49,6 +58,15 @@ const formatCurrency = (val: string | number) => {
 
 const parseCurrency = (val: string) => {
     return val.replace(/\./g, '').replace(/,/g, '');
+};
+
+const format12h = (time24: string) => {
+    if (!time24) return '';
+    const [h24, m] = time24.split(':');
+    const h = parseInt(h24, 10);
+    const period = h < 12 ? 'AM' : 'PM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${String(h12).padStart(2, '0')}:${m} ${period}`;
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -128,6 +146,129 @@ function NumberStepper({
             </div>
         </div>
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Schedule Picker Component
+// ═══════════════════════════════════════════════════════════════════
+
+function SchedulePicker({
+  value,
+  onChange,
+}: {
+  value: ScheduleSlot[];
+  onChange: (slots: ScheduleSlot[]) => void;
+}) {
+  const [selectedDay, setSelectedDay] = useState<number>(1);
+  const [selectedTime, setSelectedTime] = useState<string>('08:00');
+
+  const handleAdd = () => {
+    const exists = value.some(s => s.day === selectedDay && s.time === selectedTime);
+    if (exists) return;
+    onChange([...value, { day: selectedDay, time: selectedTime }]);
+  };
+
+  const handleRemove = (day: number, time: string) => {
+    onChange(value.filter(s => !(s.day === day && s.time === time)));
+  };
+
+  const grouped = useMemo(() => {
+    const g: Record<number, string[]> = {};
+    value.forEach(s => {
+      if (!g[s.day]) g[s.day] = [];
+      g[s.day].push(s.time);
+    });
+    return g;
+  }, [value]);
+
+  return (
+    <div className="space-y-3">
+      {/* Selector de día */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium text-muted-foreground">Día</Label>
+        <div className="flex gap-1 flex-wrap">
+          {DAY_LABELS.map((label, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setSelectedDay(i)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                selectedDay === i
+                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                  : 'border-border/50 text-muted-foreground hover:border-primary/40 hover:text-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Selector de hora + botón agregar */}
+      <div className="flex gap-2 items-end">
+        <div className="flex-1 space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">Hora</Label>
+          <Select value={selectedTime} onValueChange={setSelectedTime}>
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {HOUR_OPTIONS.map(h => (
+                <SelectItem key={h} value={h}>{format12h(h)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={handleAdd}
+          className="h-9 gap-1.5 shrink-0 border-primary/30 text-primary hover:bg-primary/5"
+        >
+          <Plus className="h-3.5 w-3.5" /> Agregar
+        </Button>
+      </div>
+
+      {/* Slots configurados */}
+      {value.length > 0 && (
+        <div className="rounded-lg border border-border/50 divide-y divide-border/30 overflow-hidden">
+          {Object.entries(grouped)
+            .sort(([a], [b]) => Number(a) - Number(b))
+            .map(([day, times]) => (
+              <div key={day} className="px-3 py-2 flex items-center gap-3">
+                <span className="text-[11px] font-black text-muted-foreground w-8 shrink-0">
+                  {DAY_LABELS[Number(day)]}
+                </span>
+                <div className="flex flex-wrap gap-1.5 flex-1">
+                  {times.sort().map(time => (
+                    <span
+                      key={time}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold border border-primary/20"
+                    >
+                      {format12h(time)}
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(Number(day), time)}
+                        className="hover:text-destructive transition-colors"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+
+      {value.length === 0 && (
+        <p className="text-[10px] text-muted-foreground text-center py-2 border border-dashed border-border/40 rounded-lg">
+          Agrega al menos un horario
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -304,6 +445,8 @@ export function OfferingsManagement() {
     const [newPlan, setNewPlan] = useState({
         name: '', max_sessions: '', max_secondary_sessions: '0',
         secondary_session_label: '', duration_days: '30', price: '', auto_renew: false,
+        schedule_type: 'general' as 'general' | 'specific',
+        schedule: [] as ScheduleSlot[],
     });
 
     const resetOfferingForm = () => {
@@ -312,7 +455,7 @@ export function OfferingsManagement() {
     };
 
     const resetPlanForm = () => {
-        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false });
+        setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [] });
         setEditingPlanId(null);
     };
 
@@ -347,7 +490,9 @@ export function OfferingsManagement() {
             price: parseFloat(newPlan.price) || 0,
             auto_renew: newPlan.auto_renew,
             metadata: {
-                secondary_session_label: newPlan.secondary_session_label || undefined
+                secondary_session_label: newPlan.secondary_session_label || undefined,
+                schedule_type: newPlan.schedule_type,
+                schedule: newPlan.schedule_type === 'specific' ? newPlan.schedule : [],
             }
         };
 
@@ -388,6 +533,8 @@ export function OfferingsManagement() {
                 duration_days: plan.duration_days?.toString() || '30',
                 price: plan.price?.toString() || '',
                 auto_renew: plan.auto_renew || false,
+                schedule_type: (plan.metadata?.schedule_type as 'general' | 'specific') || 'general',
+                schedule: (plan.metadata?.schedule as ScheduleSlot[]) || [],
             });
             setShowCreatePlan(offeringId);
         }
@@ -704,6 +851,43 @@ export function OfferingsManagement() {
                                 placeholder="0"
                                 step={1}
                             />
+                        </div>
+
+                        {/* ── Horario de Clases ─────────────────────────────────────────────── */}
+                        <div className="space-y-3 rounded-lg border border-border/50 p-4">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <Clock className="h-3.5 w-3.5 text-blue-500" /> Horario de Clases
+                                </Label>
+                                {/* Toggle General | Específico */}
+                                <div className="flex gap-1 p-0.5 bg-muted/60 rounded-lg border border-border/30">
+                                    {(['general', 'specific'] as const).map((type) => (
+                                        <button
+                                            key={type}
+                                            type="button"
+                                            onClick={() => setNewPlan(prev => ({ ...prev, schedule_type: type, schedule: [] }))}
+                                            className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
+                                                newPlan.schedule_type === type
+                                                    ? 'bg-background text-foreground shadow-sm border border-border/40'
+                                                    : 'text-muted-foreground hover:text-foreground'
+                                                }`}
+                                        >
+                                            {type === 'general' ? 'General' : 'Específico'}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {newPlan.schedule_type === 'general' ? (
+                                <p className="text-[11px] text-muted-foreground bg-muted/30 rounded-lg px-3 py-2 border border-border/30">
+                                    Los atletas pueden agendar en cualquier sesión disponible del programa.
+                                </p>
+                            ) : (
+                                <SchedulePicker
+                                    value={newPlan.schedule}
+                                    onChange={(slots) => setNewPlan(prev => ({ ...prev, schedule: slots }))}
+                                />
+                            )}
                         </div>
                     </div>
 

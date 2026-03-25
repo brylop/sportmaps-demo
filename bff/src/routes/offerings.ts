@@ -359,6 +359,18 @@ router.post('/:id/plans',
                 .single();
 
             if (error) throw error;
+
+            if ((parsed.data.metadata as any)?.schedule_type === 'specific' && 
+                Array.isArray((parsed.data.metadata as any)?.schedule) && 
+                (parsed.data.metadata as any).schedule.length > 0) {
+              
+              // Llamar la función genérica — genera sesiones para las próximas 8 semanas
+              await supabase.rpc('fn_generate_sessions_from_offering_schedule', {
+                p_offering_id: offeringId,
+                p_weeks: 8,
+              });
+            }
+
             res.status(201).json({ plan: data });
         } catch (err) {
             (req as any).log?.error({ err }, 'Error creating plan');
@@ -380,7 +392,7 @@ router.patch('/:offeringId/plans/:planId',
             }
 
             const { schoolId } = req;
-            const { planId } = req.params;
+            const { planId, offeringId } = req.params;
 
             const { data, error } = await supabase
                 .from('offering_plans')
@@ -392,6 +404,28 @@ router.patch('/:offeringId/plans/:planId',
 
             if (error) throw error;
             if (!data) return res.status(404).json({ error: 'Plan no encontrado' });
+
+            if ((parsed.data.metadata as any)?.schedule_type === 'specific' && 
+                Array.isArray((parsed.data.metadata as any)?.schedule) && 
+                (parsed.data.metadata as any).schedule.length > 0) {
+              
+              // ── 1. Borrar sesiones futuras sin reservas del horario anterior ──────────
+              // Solo eliminamos las que no tienen bookings confirmados y no están finalizadas
+              // para no afectar clases ya agendadas por atletas
+              await supabase
+                .from('attendance_sessions')
+                .delete()
+                .eq('offering_id', offeringId)
+                .gte('session_date', new Date().toISOString().split('T')[0])
+                .eq('current_bookings', 0)
+                .eq('finalized', false);
+
+              // ── 2. Regenerar con el nuevo schedule ───────────────────────────────────
+              await supabase.rpc('fn_generate_sessions_from_offering_schedule', {
+                p_offering_id: offeringId,
+                p_weeks: 8,
+              });
+            }
 
             res.json({ plan: data });
         } catch (err) {

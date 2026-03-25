@@ -20,6 +20,7 @@ export interface OfferingPlan {
   duration_days: number;
   price: number;
   offering_id: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Offering {
@@ -78,6 +79,7 @@ export interface NormalizedEnrollment extends RawEnrollment {
     duration_days: number;
     price: number;
     secondary_session_label: string;
+    metadata?: Record<string, unknown>;
   } | null;
 }
 
@@ -127,8 +129,8 @@ export function useEnrollments(childId?: string) {
             max_secondary_sessions: e.offering_plan.max_secondary_sessions,
             duration_days: e.offering_plan.duration_days,
             price: e.offering_plan.price,
-            // El BFF no devuelve metadata aún — valor por defecto
-            secondary_session_label: 'GYM',
+            secondary_session_label: (e.offering_plan.metadata?.secondary_session_label as string) || 'GYM',
+            metadata: e.offering_plan.metadata ?? {},
           },
         };
       }

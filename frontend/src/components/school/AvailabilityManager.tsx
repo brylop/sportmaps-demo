@@ -32,6 +32,15 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
   };
 });
 
+const format12h = (time24: string) => {
+  if (!time24) return '';
+  const [h24, m] = time24.split(':');
+  const h = parseInt(h24, 10);
+  const period = h < 12 ? 'AM' : 'PM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${String(h12).padStart(2, '0')}:${m} ${period}`;
+};
+
 export function AvailabilityManager({
   coachId,
   schoolId,
@@ -348,7 +357,7 @@ export function AvailabilityManager({
                             <div className="flex items-center gap-2">
                               <Clock className="h-3.5 w-3.5 text-primary" />
                               <span className="text-xs font-black tracking-tight text-primary">
-                                {range.start} — {range.end}
+                                {format12h(range.start)} — {format12h(range.end)}
                               </span>
                             </div>
                             <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">
@@ -362,12 +371,16 @@ export function AvailabilityManager({
                                   key={slot.id}
                                   className="group relative flex items-center gap-3 px-3 py-1.5 bg-background border border-border/50 rounded-2xl hover:border-primary/40 hover:shadow-md transition-all duration-300"
                                 >
-                                  <div className="flex flex-col">
+                                  <div className="flex flex-col items-center">
                                     <span className="font-black text-[11px] leading-tight text-foreground">
-                                      {slot.start_time.split(':')[0]}
+                                      {(() => {
+                                        const h = parseInt(slot.start_time.split(':')[0], 10);
+                                        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                                        return String(h12).padStart(2, '0');
+                                      })()}
                                     </span>
                                     <span className="text-[8px] font-bold text-muted-foreground uppercase leading-none mt-0.5">
-                                      {parseInt(slot.start_time.split(':')[0]) < 12 ? 'AM' : 'PM'}
+                                      {parseInt(slot.start_time.split(':')[0], 10) < 12 ? 'AM' : 'PM'}
                                     </span>
                                   </div>
                                   
