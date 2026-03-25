@@ -33,16 +33,10 @@ interface StaffFormDialogProps {
   isLoading?: boolean;
 }
 
+import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+
 const specialties = [
-  'Fútbol',
-  'Baloncesto',
-  'Tenis',
-  'Natación',
-  'Voleibol',
-  'Atletismo',
-  'Gimnasia',
-  'Artes Marciales',
-  'Preparación Física',
+  ...sportsData.deportes.map((s) => s.nombre).sort((a, b) => a.localeCompare(b)),
   'Otro',
 ];
 
