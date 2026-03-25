@@ -204,10 +204,31 @@ export default function SchoolStudentsManagementPage() {
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
+
+        // ── NUEVO: inscribir al plan si se seleccionó uno ─────────────────────
+        if (result.success && result.childId && data.offering_plan_id) {
+          try {
+            const { bffClient } = await import('@/lib/api/bffClient');
+            await bffClient.post('/api/v1/enrollments', {
+              child_id:         result.childId,
+              offering_plan_id: data.offering_plan_id,
+              school_id:        schoolId,
+              status:           'active',
+            });
+          } catch (enrollErr) {
+            console.error('Error al inscribir en plan:', enrollErr);
+            toast({
+              title: '⚠️ Atleta creado, pero no se inscribió al plan',
+              description: 'Puedes inscribirlo manualmente desde Mis Planes.',
+            });
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         if (result.success) {
           toast({
             title: '✅ Atleta registrado',
-            description: `${data.full_name} asociado a ${schoolName} con mensualidad de $${data.monthly_fee.toLocaleString('es-CO')} COP`,
+            description: `${data.full_name} asociado a ${schoolName}`,
           });
         }
       }

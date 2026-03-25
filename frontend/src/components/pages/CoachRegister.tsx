@@ -1,3 +1,4 @@
+import sportsData from '@/lib/constants/deportes_globales_categorias.json';
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -164,15 +165,12 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
                 <SelectValue placeholder="Selecciona tu especialidad" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="futbol">Fútbol</SelectItem>
-                <SelectItem value="baloncesto">Baloncesto</SelectItem>
-                <SelectItem value="tenis">Tenis</SelectItem>
-                <SelectItem value="natacion">Natación</SelectItem>
-                <SelectItem value="voleibol">Voleibol</SelectItem>
-                <SelectItem value="atletismo">Atletismo</SelectItem>
-                <SelectItem value="gimnasia">Gimnasia</SelectItem>
-                <SelectItem value="crossfit">CrossFit</SelectItem>
-                <SelectItem value="multideporte">Multideporte</SelectItem>
+                {[...sportsData.deportes].sort((a,b) => a.nombre.localeCompare(b.nombre)).map((sport) => (
+                  <SelectItem key={sport.id} value={sport.id}>
+                    {sport.nombre}
+                  </SelectItem>
+                ))}
+                <SelectItem value="otro">Otro</SelectItem>
               </SelectContent>
             </Select>
             {professionalForm.formState.errors.specialty && (
