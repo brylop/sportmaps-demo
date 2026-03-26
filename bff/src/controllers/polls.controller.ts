@@ -17,6 +17,7 @@ interface CreatePollBody {
     max_capacity?: number;
     coach_id?: string;
     team_id?: string;
+    offering_id?: string;
   }[];
 }
 
@@ -122,6 +123,7 @@ export const pollsController = {
         max_capacity: s.max_capacity || 20,
         coach_id: s.coach_id || null,
         team_id: s.team_id || null,
+        offering_id: s.offering_id || null,
         is_bookable: true,
       }));
 

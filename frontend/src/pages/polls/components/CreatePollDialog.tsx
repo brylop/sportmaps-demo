@@ -1,20 +1,28 @@
 import { useState } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader,
-  DialogTitle, DialogFooter, DialogDescription
+  DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreatePoll } from '@/hooks/usePolls';
 import { CreatePollPayload } from '@/lib/api/polls.api';
 import { format } from 'date-fns';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useOfferings } from '@/hooks/useOfferings';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+}
+
+// We add a temporary field `context_value` to the form, then we map it to team_id or offering_id on submit
+interface FormValues extends Omit<CreatePollPayload, 'sessions'> {
+  sessions: (CreatePollPayload['sessions'][0] & { context_value?: string })[];
 }
 
 const DEFAULT_SESSIONS = [
@@ -25,20 +33,41 @@ const DEFAULT_SESSIONS = [
 
 export function CreatePollDialog({ open, onClose }: Props) {
   const { mutate: createPoll, isPending } = useCreatePoll();
+  const { teams } = useSchoolContext();
+  const { offerings } = useOfferings();
 
-  const { register, control, handleSubmit, reset, formState: { errors } } =
-    useForm<CreatePollPayload>({
-      defaultValues: {
-        title:      `Encuesta ${format(new Date(), 'EEEE d/M')}`,
-        poll_date:  format(new Date(), 'yyyy-MM-dd'),
-        sessions:   DEFAULT_SESSIONS,
-      },
-    });
+  const { register, control, handleSubmit, reset } = useForm<FormValues>({
+    defaultValues: {
+      title:      `Encuesta ${format(new Date(), 'EEEE d/M')}`,
+      poll_date:  format(new Date(), 'yyyy-MM-dd'),
+      sessions:   DEFAULT_SESSIONS,
+    },
+  });
 
   const { fields, append, remove } = useFieldArray({ control, name: 'sessions' });
 
-  const onSubmit = (data: CreatePollPayload) => {
-    createPoll(data, {
+  const onSubmit = (data: FormValues) => {
+    // Map context_value to either team_id or offering_id
+    const payload: CreatePollPayload = {
+      title: data.title,
+      poll_date: data.poll_date,
+      sessions: data.sessions.map((session) => {
+        const mappedSession = { ...session };
+        if (session.context_value) {
+          if (session.context_value.startsWith('team:')) {
+            mappedSession.team_id = session.context_value.split(':')[1];
+            mappedSession.offering_id = undefined;
+          } else if (session.context_value.startsWith('offering:')) {
+            mappedSession.offering_id = session.context_value.split(':')[1];
+            mappedSession.team_id = undefined;
+          }
+        }
+        delete (mappedSession as any).context_value;
+        return mappedSession;
+      }),
+    };
+
+    createPoll(payload, {
       onSuccess: () => {
         reset();
         onClose();
@@ -108,13 +137,55 @@ export function CreatePollDialog({ open, onClose }: Props) {
                     )}
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Nombre</Label>
-                    <Input
-                      {...register(`sessions.${index}.title`, { required: true })}
-                      placeholder="Ej: 6pm CROSS"
-                      className="h-8 text-sm"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Nombre</Label>
+                      <Input
+                        {...register(`sessions.${index}.title`, { required: true })}
+                        placeholder="Ej: 6pm CROSS"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Programa o Equipo (Requerido)</Label>
+                      <Controller
+                        control={control}
+                        name={`sessions.${index}.context_value`}
+                        rules={{ required: 'Debes seleccionar un programa o equipo' }}
+                        render={({ field: selectField, fieldState }) => (
+                          <div>
+                            <Select onValueChange={selectField.onChange} value={selectField.value || ''}>
+                              <SelectTrigger className={`h-8 text-sm ${fieldState.error ? 'border-destructive' : ''}`}>
+                                <SelectValue placeholder="Selecciona..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {offerings && offerings.length > 0 && (
+                                  <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Programas</div>
+                                )}
+                                {offerings?.map(o => (
+                                  <SelectItem key={o.id} value={`offering:${o.id}`}>
+                                    {o.name}
+                                  </SelectItem>
+                                ))}
+                                {teams && teams.length > 0 && (
+                                  <div className="px-2 py-1 text-xs font-semibold text-muted-foreground mt-2 border-t pt-1">Equipos</div>
+                                )}
+                                {teams?.map(t => (
+                                  <SelectItem key={t.id} value={`team:${t.id}`}>
+                                    {t.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {fieldState.error && (
+                              <span className="text-[10px] text-destructive mt-1 block">
+                                Es obligatorio
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">

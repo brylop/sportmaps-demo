@@ -53,6 +53,7 @@ export interface CreatePollPayload {
     max_capacity?: number;
     coach_id?: string;
     team_id?: string;
+    offering_id?: string;
   }[];
 }
 
