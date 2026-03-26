@@ -248,12 +248,13 @@ export const pollsController = {
       const { data: booking, error: bookErr } = await client
         .from('session_bookings')
         .insert({
+          school_id: session.school_id,
           session_id,
           user_id: finalUserId,
           unregistered_athlete_id: finalUnregisteredId, // Opcional, pero bueno tenerlo si existe la columna
           enrollment_id: enrollment_id,
           status: 'confirmed',
-          booking_type: finalUserId ? 'registered' : 'guest'
+          booking_type: 'reservation'
         })
         .select()
         .single();
@@ -391,11 +392,12 @@ export const pollsController = {
       const { data, error } = await supabase
         .from('session_bookings')
         .insert({
+          school_id: schoolId,
           session_id,
           user_id: finalUserId,
           unregistered_athlete_id: finalUnregisteredId,
           status: 'confirmed',
-          booking_type: finalUserId ? 'registered' : 'guest'
+          booking_type: 'reservation'
         })
         .select()
         .single();
