@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader,
-  DialogTitle, DialogFooter,
+  DialogTitle, DialogFooter, DialogDescription
 } from '@/components/ui/dialog';
 import { useCreatePoll } from '@/hooks/usePolls';
 import { CreatePollPayload } from '@/lib/api/polls.api';
@@ -51,6 +51,9 @@ export function CreatePollDialog({ open, onClose }: Props) {
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo poll de asistencia</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configura una nueva encuesta de asistencia para las clases del día.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">

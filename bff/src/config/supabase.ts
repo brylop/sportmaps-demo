@@ -7,8 +7,8 @@ export const supabaseUrl = process.env.SUPABASE_URL || '';
 export const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 export const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required env variables.');
+if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
+    throw new Error('SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_ANON_KEY are required env variables.');
 }
 
 // Create a single supabase client for interacting with your database
