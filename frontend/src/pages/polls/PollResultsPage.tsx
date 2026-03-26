@@ -34,7 +34,7 @@ export default function PollResultsPage() {
   const isAdmin = ['owner', 'admin', 'school_admin'].includes(currentUserRole ?? '');
 
   const handleShare = () => {
-    const url = `${window.location.origin}/poll/${pollId}`;
+    const url = `${window.location.origin}/polls/v/${pollId}`;
     navigator.clipboard.writeText(url);
     toast.success('Link copiado al portapapeles');
   };
@@ -43,7 +43,7 @@ export default function PollResultsPage() {
     name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
 
   if (isLoading) return <ResultsSkeleton />;
-  if (!poll)     return <div className="p-6 text-muted-foreground">Poll no encontrado</div>;
+  if (!poll)     return <div className="p-6 text-muted-foreground">Encuesta no encontrada</div>;
 
   const totalConfirmed = poll.attendance_sessions.reduce(
     (acc, s) => acc + (s.session_bookings?.length ?? 0), 0
@@ -61,7 +61,7 @@ export default function PollResultsPage() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold">{poll.title}</h1>
               <Badge variant={poll.status === 'open' ? 'default' : 'secondary'}>
-                {poll.status === 'open' ? 'Abierto' : 'Cerrado'}
+                {poll.status === 'open' ? 'Abierta' : 'Cerrada'}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">

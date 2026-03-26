@@ -79,7 +79,7 @@ export function CreatePollDialog({ open, onClose }: Props) {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nuevo poll de asistencia</DialogTitle>
+          <DialogTitle>Nueva encuesta de asistencia</DialogTitle>
           <DialogDescription className="sr-only">
             Configura una nueva encuesta de asistencia para las clases del día.
           </DialogDescription>
@@ -225,7 +225,7 @@ export function CreatePollDialog({ open, onClose }: Props) {
               Cancelar
             </Button>
             <Button type="submit" disabled={isPending}>
-              {isPending ? 'Creando...' : 'Crear poll'}
+              {isPending ? 'Creando...' : 'Crear encuesta'}
             </Button>
           </DialogFooter>
         </form>

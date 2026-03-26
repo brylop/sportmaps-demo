@@ -43,13 +43,13 @@ export default function PollsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Encuestas de asistencia</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Crea el poll del día y compártelo por WhatsApp
+            Crea la encuesta del día y compártela por WhatsApp
           </p>
         </div>
         {isAdmin && (
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Nuevo poll
+            Nueva encuesta
           </Button>
         )}
       </div>
@@ -57,7 +57,7 @@ export default function PollsPage() {
       {!polls?.length && (
         <Card>
           <CardContent className="py-12 flex flex-col items-center gap-3">
-            <p className="text-muted-foreground text-sm">No hay polls creados aún</p>
+            <p className="text-muted-foreground text-sm">No hay encuestas creadas aún</p>
             {isAdmin && (
               <Button variant="outline" onClick={() => setShowCreate(true)}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -81,7 +81,7 @@ export default function PollsPage() {
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-medium">{poll.title}</CardTitle>
                     <Badge variant={poll.status === 'open' ? 'default' : 'secondary'}>
-                      {poll.status === 'open' ? 'Abierto' : 'Cerrado'}
+                      {poll.status === 'open' ? 'Abierta' : 'Cerrada'}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -156,9 +156,9 @@ export default function PollsPage() {
       <AlertDialog open={!!pollToDelete} onOpenChange={() => setPollToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Eliminar poll?</AlertDialogTitle>
+            <AlertDialogTitle>¿Eliminar encuesta?</AlertDialogTitle>
             <AlertDialogDescription>
-              Solo puedes eliminar polls sin confirmaciones. Esta acción no se puede deshacer.
+              Solo puedes eliminar encuestas sin confirmaciones. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

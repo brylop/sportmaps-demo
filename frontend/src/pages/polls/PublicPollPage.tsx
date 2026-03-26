@@ -85,7 +85,7 @@ export default function PublicPollPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center space-y-2">
-          <p className="font-medium">Este poll no está disponible</p>
+          <p className="font-medium">Esta encuesta no está disponible</p>
           <p className="text-sm text-muted-foreground">
             Puede que ya haya sido cerrado o el link sea incorrecto.
           </p>
