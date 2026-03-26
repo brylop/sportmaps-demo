@@ -244,18 +244,23 @@ export const pollsController = {
         finalUnregisteredId = guest.id;
       }
 
-      // 3. Crear el booking
+      // 3. Crear el booking — solo incluir campos con valor real
+      const bookingData: Record<string, any> = {
+        school_id: session.school_id,
+        session_id,
+        status: 'confirmed',
+        booking_type: 'reservation',
+      };
+
+      if (finalUserId) bookingData.user_id = finalUserId;
+      if (finalUnregisteredId) bookingData.unregistered_athlete_id = finalUnregisteredId;
+      if (enrollment_id) bookingData.enrollment_id = enrollment_id;
+
+      console.log('[confirmAttendance] Inserting booking:', JSON.stringify(bookingData));
+
       const { data: booking, error: bookErr } = await client
         .from('session_bookings')
-        .insert({
-          school_id: session.school_id,
-          session_id,
-          user_id: finalUserId,
-          unregistered_athlete_id: finalUnregisteredId, // Opcional, pero bueno tenerlo si existe la columna
-          enrollment_id: enrollment_id,
-          status: 'confirmed',
-          booking_type: 'reservation'
-        })
+        .insert(bookingData)
         .select()
         .single();
 
