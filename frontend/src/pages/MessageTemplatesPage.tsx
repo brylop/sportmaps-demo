@@ -84,8 +84,8 @@ export default function MessageTemplatesPage() {
     setLoading(true);
     try {
       // Load templates: school-specific + defaults (school_id IS NULL)
-      const { data: tpl, error: tplErr } = await (supabase
-        .from('payment_message_templates') as any)
+      const { data: tpl, error: tplErr } = await (supabase as any)
+        .from('payment_message_templates')
         .select('*')
         .or(`school_id.eq.${schoolId},school_id.is.null`)
         .order('sort_order', { ascending: true });
@@ -93,8 +93,8 @@ export default function MessageTemplatesPage() {
       if (tplErr) throw tplErr;
 
       // Load template variables
-      const { data: vars, error: varErr } = await (supabase
-        .from('template_variables') as any)
+      const { data: vars, error: varErr } = await (supabase as any)
+        .from('template_variables')
         .select('*');
 
       if (varErr) throw varErr;
@@ -133,11 +133,11 @@ export default function MessageTemplatesPage() {
       if (template.school_id === null) {
         // Create school-specific copy with the new state
         const { id: _, created_at, updated_at, ...rest } = template as any;
-        const { error } = await (supabase.from('payment_message_templates') as any)
+        const { error } = await (supabase as any).from('payment_message_templates')
           .insert({ ...rest, school_id: schoolId, is_active: newActive, is_default: false });
         if (error) throw error;
       } else {
-        const { error } = await (supabase.from('payment_message_templates') as any)
+        const { error } = await (supabase as any).from('payment_message_templates')
           .update({ is_active: newActive })
           .eq('id', template.id);
         if (error) throw error;
@@ -159,11 +159,11 @@ export default function MessageTemplatesPage() {
       if (editing.school_id === null) {
         // Clone default -> school-specific
         const { id: _, created_at, updated_at, ...rest } = editing as any;
-        const { error } = await (supabase.from('payment_message_templates') as any)
+        const { error } = await (supabase as any).from('payment_message_templates')
           .insert({ ...rest, school_id: schoolId, body: editBody, is_default: false });
         if (error) throw error;
       } else {
-        const { error } = await (supabase.from('payment_message_templates') as any)
+        const { error } = await (supabase as any).from('payment_message_templates')
           .update({ body: editBody, updated_at: new Date().toISOString() })
           .eq('id', editing.id);
         if (error) throw error;
@@ -183,7 +183,7 @@ export default function MessageTemplatesPage() {
     if (template.school_id === null) return; // Already default
     setSaving(template.id);
     try {
-      const { error } = await (supabase.from('payment_message_templates') as any)
+      const { error } = await (supabase as any).from('payment_message_templates')
         .delete()
         .eq('id', template.id);
       if (error) throw error;
