@@ -33,12 +33,9 @@ interface StaffFormDialogProps {
   isLoading?: boolean;
 }
 
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 
-const specialties = [
-  ...sportsData.deportes.map((s) => s.nombre).sort((a, b) => a.localeCompare(b)),
-  'Otro',
-];
+const specialties = SPORTS_LIST;
 
 export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: StaffFormDialogProps) {
   const form = useForm<StaffFormData>({

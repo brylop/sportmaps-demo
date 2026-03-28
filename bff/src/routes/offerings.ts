@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { z } from 'zod';
 
@@ -472,6 +472,101 @@ router.delete('/:offeringId/plans/:planId',
             res.status(500).json({ error: 'Error al eliminar plan' });
         }
     }
+);
+
+// ── COACHES PER OFFERING ─────────────────────────────────────────────────────
+
+// GET /api/v1/offerings/:offeringId/coaches
+// Devuelve los coaches asignados al plan + los disponibles de la escuela
+router.get(
+  '/:offeringId/coaches',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { offeringId } = req.params;
+      const { schoolId } = req;
+
+      // Coaches ya asignados al offering
+      const { data: assigned, error: assignedErr } = await supabase
+        .from('offering_coaches')
+        .select('id, coach_id, school_staff!inner(id, full_name)')
+        .eq('offering_id', offeringId);
+      if (assignedErr) throw assignedErr;
+
+      // Todos los coaches activos de la escuela
+      const { data: all, error: allErr } = await supabase
+        .from('school_staff')
+        .select('id, full_name')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('full_name');
+      if (allErr) throw allErr;
+
+      const assignedIds = new Set((assigned || []).map((a: any) => a.coach_id));
+
+      return res.json({
+        assigned: (assigned || []).map((a: any) => ({
+          id:        a.id,           // offering_coaches.id (para el DELETE)
+          coach_id:  a.coach_id,
+          full_name: (a.school_staff as any).full_name,
+        })),
+        available: (all || []).filter((s: any) => !assignedIds.has(s.id)),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// POST /api/v1/offerings/:offeringId/coaches
+router.post(
+  '/:offeringId/coaches',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { offeringId } = req.params;
+      const { schoolId } = req;
+      const { coachId } = req.body as { coachId: string };
+
+      if (!coachId) return res.status(400).json({ error: 'coachId requerido' });
+
+      const { data, error } = await supabase
+        .from('offering_coaches')
+        .insert({ offering_id: offeringId, coach_id: coachId, school_id: schoolId })
+        .select()
+        .single();
+      if (error) throw error;
+
+      return res.status(201).json(data);
+    } catch (err: any) {
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'El entrenador ya está asignado a este plan.' });
+      }
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// DELETE /api/v1/offerings/:offeringId/coaches/:assignmentId
+router.delete(
+  '/:offeringId/coaches/:assignmentId',
+  requireAuth,
+  requireRole('owner', 'super_admin', 'admin', 'school_admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { assignmentId } = req.params;
+      const { error } = await supabase
+        .from('offering_coaches')
+        .delete()
+        .eq('id', assignmentId);
+      if (error) throw error;
+      return res.status(204).send();
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
 );
 
 export default router;

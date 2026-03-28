@@ -152,7 +152,7 @@ export default function PaymentRemindersPage() {
             return;
         }
         // Limpiar telefono: quitar espacios, guiones, etc.
-        const cleanPhone = reminder.parentPhone.replace(/[\s\-\(\)]/g, '');
+        const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
         // Si no empieza con +, asumir Colombia
         const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
 

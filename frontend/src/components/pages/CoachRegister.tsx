@@ -1,4 +1,4 @@
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -165,9 +165,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
                 <SelectValue placeholder="Selecciona tu especialidad" />
               </SelectTrigger>
               <SelectContent>
-                {[...sportsData.deportes].sort((a,b) => a.nombre.localeCompare(b.nombre)).map((sport) => (
-                  <SelectItem key={sport.id} value={sport.id}>
-                    {sport.nombre}
+                {SPORTS_LIST.map((sport) => (
+                  <SelectItem key={sport} value={sport}>
+                    {sport}
                   </SelectItem>
                 ))}
                 <SelectItem value="otro">Otro</SelectItem>

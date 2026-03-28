@@ -106,6 +106,7 @@ export function AvailabilityManager({
             end_time: slot.end_time,
             available_for_group_classes: config.group_classes,
             available_for_personal_classes: config.personal_classes,
+            max_group_capacity: config.group_classes ? groupClassSize : null,
           };
           createAvailability(input);
         });

@@ -24,8 +24,9 @@ import { cn } from '@/lib/utils';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 
+const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
 const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
 
@@ -118,7 +119,7 @@ export default function RegisterPage() {
   };
 
   const [sportOpen, setSportOpen] = useState(false);
-  const allSports = useMemo(() => sportsData.deportes || [], []);
+  const allSports = SPORTS_CATALOG;
   
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');
@@ -237,10 +238,10 @@ export default function RegisterPage() {
         metadata.sport_id = selectedSport.id;
         metadata.sport_name = selectedSport.nombre;
         const defaultCategories = [];
-        if (selectedSport.categorias_competencia) {
-          for (const key in selectedSport.categorias_competencia) {
-            if (Array.isArray(selectedSport.categorias_competencia[key])) {
-              defaultCategories.push(...selectedSport.categorias_competencia[key]);
+        if (selectedSport.categoriasCompetencia) {
+          for (const key in selectedSport.categoriasCompetencia) {
+            if (Array.isArray(selectedSport.categoriasCompetencia[key])) {
+              defaultCategories.push(...selectedSport.categoriasCompetencia[key]);
             }
           }
         }
