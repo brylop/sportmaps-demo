@@ -212,7 +212,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             planIds.length
                 ? supabase
                     .from('offering_plans')
-                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id, offering:offerings(id, name, offering_type, sport)')
+                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id, metadata, offering:offerings(id, name, offering_type, sport)')
                     .in('id', planIds)
                 : Promise.resolve({ data: [], error: null }),
             teamIds.length
