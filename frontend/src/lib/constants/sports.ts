@@ -8,6 +8,10 @@ export const SPORTS_LIST = [
     "Porrismo",
     "Tenis",
     "Voleibol",
+    "Crosstraining",
+    "Crossfit",
+    "Baile",
+    "Danza",
     "Otro"
 ] as const;
 

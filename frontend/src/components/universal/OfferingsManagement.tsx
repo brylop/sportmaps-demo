@@ -19,9 +19,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight } from 'lucide-react';
+import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -286,14 +287,14 @@ function SportSearchCombobox({
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const allSports = useMemo(() => (sportsData as any).deportes || [], []);
+    const allSports = SPORTS_CATALOG;
 
     const results = useMemo(() => {
         if (!query.trim()) return [];
         const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         return allSports.filter((s: any) => {
             const name = s.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const nameEn = (s.nombre_ingles || "").toLowerCase();
+            const nameEn = (s.nombreIngles || "").toLowerCase();
             return (name.includes(q) || nameEn.includes(q)) && !values.includes(s.nombre);
         }).slice(0, 10);
     }, [query, values, allSports]);
@@ -708,6 +709,12 @@ export function OfferingsManagement() {
                                 rows={3}
                             />
                         </div>
+
+                        {editingOfferingId && (
+                            <div className="pt-2 border-t border-border/40">
+                                <OfferingCoachesPanel offeringId={editingOfferingId} />
+                            </div>
+                        )}
                     </div>
 
                     <DialogFooter className="gap-2 sm:gap-0 pt-2">
@@ -747,13 +754,15 @@ export function OfferingsManagement() {
                                 const sportName = parentOffering?.sport;
                                 if (!sportName) return null;
                                 
-                                const sport = (sportsData as any).deportes?.find((s: any) => s.nombre.toLowerCase() === sportName.toLowerCase());
-                                if (!sport || !sport.categorias_competencia) return null;
+                                const sport = SPORTS_CATALOG.find((s: any) => s.nombre.toLowerCase() === sportName.toLowerCase());
+                                if (!sport || !sport.categoriasCompetencia) return null;
                                 
                                 const cats: string[] = [];
-                                Object.values(sport.categorias_competencia).forEach((val: any) => {
-                                    if (Array.isArray(val)) cats.push(...val);
-                                });
+                                if (sport.categoriasCompetencia) {
+                                  Object.values(sport.categoriasCompetencia).forEach((val: any) => {
+                                      if (Array.isArray(val)) cats.push(...val);
+                                  });
+                                }
                                 const uniqueCats = Array.from(new Set(cats)).slice(0, 12);
                                 
                                 if (uniqueCats.length === 0) return null;

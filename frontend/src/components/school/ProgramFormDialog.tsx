@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Trophy, CheckCircle2 } from 'lucide-react';
 import { NumberStepper } from '../ui/number-stepper';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 
 interface ProgramFormData {
   name: string;
@@ -64,19 +65,7 @@ interface ProgramFormDialogProps {
   };
 }
 
-const sports = [
-  'Fútbol',
-  'Baloncesto',
-  'Voleibol',
-  'Tenis',
-  'Natación',
-  'Gimnasia',
-  'Artes Marciales',
-  'Atletismo',
-  'Béisbol',
-  'Cheerleading',
-  'Otro',
-];
+const sports = SPORTS_LIST;
 
 export function ProgramFormDialog({
   open,

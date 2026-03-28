@@ -518,7 +518,11 @@ export default function AttendanceSupervisionPage() {
 
     setBookingAttendance((prev) => {
       const next = { ...prev };
-      newStatus ? (next[booking.id] = newStatus) : delete next[booking.id];
+      if (newStatus) {
+        next[booking.id] = newStatus;
+      } else {
+        delete next[booking.id];
+      }
       return next;
     });
     if (!newStatus) return;

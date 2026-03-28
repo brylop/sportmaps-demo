@@ -12,9 +12,9 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 
-const sportsList = sportsData.deportes.map(s => s.nombre).sort();
+const sportsList = SPORTS_LIST;
 
 interface ProfileSectionProps {
   data: any;
@@ -181,7 +181,7 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
                     <CommandList>
                       <CommandEmpty>No se encontró el deporte.</CommandEmpty>
                       <CommandGroup className="max-h-[200px] overflow-auto">
-                        {sportsList.map((sport) => (
+                        {SPORTS_LIST.map((sport) => (
                           <CommandItem
                             key={sport}
                             value={sport}

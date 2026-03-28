@@ -14,6 +14,7 @@ import {
   ChevronRight, CalendarCheck, Map as MapIcon,
   Building2, Star, Target,
   XCircle, CheckCircle2, ChevronLeft,
+  Sun, Sunset, Moon,
 } from 'lucide-react';
 import {
   format, parseISO, addDays, startOfDay,
@@ -191,6 +192,22 @@ export default function MyEnrollmentsPage() {
   const totalMyClasses = myBookingsData?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
   const totalMyReservations = mySecBookings?.filter((b: any) => b.status?.toLowerCase() !== 'cancelled').length ?? 0;
 
+  // ── Unificación de reservas para Agenda y Sidebar ──
+  const allBookings = useMemo(() => {
+    const primary = (myBookingsData ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled');
+    const secondary = (mySecBookings ?? []).filter((b: any) => b.status?.toLowerCase() !== 'cancelled');
+
+    return [
+      ...primary.map(b => ({ ...b, _type: 'primary' })),
+      ...secondary.map(b => ({ ...b, _type: 'secondary' }))
+    ].sort((a, b) => {
+      const dateA = a._type === 'primary' ? a.attendance_sessions?.session_date : a.reservation_date;
+      const dateB = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
+      if (dateA !== dateB) return (dateA || '').localeCompare(dateB || '');
+      return (a.start_time || '').localeCompare(b.start_time || '');
+    });
+  }, [myBookingsData, mySecBookings]);
+
   if (activeIsLoading || myBookingsLoading || mySecLoading || (currentUserRole === 'parent' && childrenLoading) || !activeEnrollments) {
     return <LoadingSpinner fullScreen text={currentUserRole === 'parent' ? "Cargando inscripciones..." : "Cargando tu portal..."} />;
   }
@@ -313,13 +330,13 @@ export default function MyEnrollmentsPage() {
 
             {activeTab === 'classes' && (
               <div className="animate-in fade-in duration-500">
-                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="primary" childId={selectedChildId} />
+                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="primary" childId={selectedChildId} allBookings={allBookings} />
               </div>
             )}
 
             {activeTab === 'reservations' && (
               <div className="animate-in fade-in duration-500">
-                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="secondary" childId={selectedChildId} />
+                <MyBookingsTab hasSecondary={!!enrollmentWithSec} secLabel={secondaryLabel} filter="secondary" childId={selectedChildId} allBookings={allBookings} />
               </div>
             )}
           </div>
@@ -343,59 +360,59 @@ export default function MyEnrollmentsPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {myBookingsData
-                      ?.filter((b) => {
-                        const s = b.attendance_sessions;
-                        if (!s) return false;
+                    {allBookings
+                      .filter((b) => {
+                        const dateStr = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
                         const today = new Date().toLocaleDateString('en-CA');
-                        return s.session_date >= today;
+                        return dateStr >= today;
                       })
                       .slice(0, 4)
                       .map((b) => {
-                        const s = b.attendance_sessions;
+                        const isPrimary = b._type === 'primary';
+                        const s = isPrimary ? b.attendance_sessions : b;
                         if (!s) return null;
+                        const dateStr = isPrimary ? b.attendance_sessions?.session_date : b.reservation_date;
                         const today = new Date().toLocaleDateString('en-CA');
-                        const isPast = s.session_date < today;
-                        // ✅ FIX: usar b.booking_type para determinar la fuente del nombre
-                        const contextName = b.booking_type === 'team'
-                          ? b.enrollments?.teams?.name
-                          : b.enrollments?.offering_plans?.name ?? 'Clase';
+                        const isPast = dateStr < today;
+                        const contextName = isPrimary
+                          ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
+                          : (b as any).facilities?.name;
 
                         return (
-                          <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-primary/5 border-primary/20'
+                          <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-background border-border/40 hover:border-primary/30 shadow-sm'
                             }`}>
                             <div className="text-center shrink-0 w-10">
                               <p className="text-[9px] font-black uppercase text-muted-foreground capitalize leading-none">
-                                {format(parseISO(s.session_date), 'EEE', { locale: es })}
+                                {format(parseISO(dateStr), 'EEE', { locale: es })}
                               </p>
                               <p className="text-lg font-black leading-tight">
-                                {format(parseISO(s.session_date), 'd')}
+                                {format(parseISO(dateStr), 'd')}
                               </p>
                             </div>
                             <div className="w-px h-8 bg-border/40" />
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold truncate">{contextName}</p>
-                              <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                {isPrimary ? <Trophy className="h-3 w-3 text-purple-500" /> : <Building2 className="h-3 w-3 text-blue-500" />}
+                                <p className="text-[11px] font-black uppercase tracking-tight truncate">{contextName}</p>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {fmtTime(s.start_time)} — {fmtTime(s.end_time)}
+                                {fmtTime(s.start_time)}
                               </p>
-                              {s.school_staff?.full_name && (
-                                <p className="text-[10px] text-muted-foreground mt-0.5 font-medium">
-                                  {s.school_staff.full_name}
-                                </p>
-                              )}
                             </div>
-                            {!isPast && !s.finalized && b.status === 'confirmed' && (
+                            {!isPast && b.status === 'confirmed' && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); setCancelingBookingId(b.id); }}
                                 className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-background shadow-sm border rounded-full hover:text-destructive hover:border-destructive/30"
-                                title="Cancelar clase"
+                                title="Cancelar"
                               >
                                 <XCircle className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {!(!isPast && !s.finalized && b.status === 'confirmed') && (
-                              <CheckCircle2 className="h-4 w-4 text-primary shrink-0 transition-opacity group-hover:opacity-20" />
+                            {isPast || b.status !== 'confirmed' ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30" />
                             )}
                           </div>
                         );
@@ -882,20 +899,66 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
         </div>
 
         {selectedDate ? (
-          <div className="space-y-2">
+          <div className="space-y-6">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize">
               {format(parseISO(selectedDate), "EEEE d 'de' MMMM", { locale: es })}
-              {' · '}{groupedSessions.length} bloque{groupedSessions.length !== 1 ? 's' : ''} de horario
+              {' · '}{allSessions.filter(s => s.session_date === selectedDate).length} clases
             </p>
-            {groupedSessions.map(group => (
-              <CompactSessionSlot
-                key={`${group[0].start_time}-${group[0].end_time}`}
-                sessions={group}
-                noCredits={noCredits}
-                isBooking={isPending}
-                onBook={(s) => setConfirming(s)}
-              />
-            ))}
+            
+            {(() => {
+              const morning = groupedSessions.filter(g => parseInt(g[0].start_time.split(':')[0]) < 12);
+              const afternoon = groupedSessions.filter(g => {
+                const h = parseInt(g[0].start_time.split(':')[0]);
+                return h >= 12 && h < 17;
+              });
+              const evening = groupedSessions.filter(g => parseInt(g[0].start_time.split(':')[0]) >= 17);
+
+              return (
+                <div className="space-y-6 pb-4">
+                  {morning.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 px-1 text-amber-500">
+                        <Sun className="h-4 w-4" />
+                        <h4 className="text-[11px] font-black uppercase tracking-widest">Mañana</h4>
+                      </div>
+                      <div className="space-y-2">
+                        {morning.map(group => (
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {afternoon.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 px-1 text-orange-500">
+                        <Sunset className="h-4 w-4" />
+                        <h4 className="text-[11px] font-black uppercase tracking-widest">Tarde</h4>
+                      </div>
+                      <div className="space-y-2">
+                        {afternoon.map(group => (
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {evening.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 px-1 text-indigo-500">
+                        <Moon className="h-4 w-4" />
+                        <h4 className="text-[11px] font-black uppercase tracking-widest">Noche</h4>
+                      </div>
+                      <div className="space-y-2">
+                        {evening.map(group => (
+                          <CompactSessionSlot key={group[0].id} sessions={group} noCredits={noCredits} isBooking={isPending} onBook={setConfirming} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <p className="text-xs text-center text-muted-foreground py-2">
@@ -942,7 +1005,14 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
                   setSelectedDate(null);
                 },
                 onError: (err: any) => {
-                  toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                  const body = err?.cause ?? err?.response?.data ?? {};
+                  if (body?.reason === 'already_booked') {
+                    toast({ title: 'Ya tienes esta clase agendada', description: 'Cancela la reserva existente antes de volver a agendar.', variant: 'destructive' });
+                  } else if (body?.error === 'session_full') {
+                    toast({ title: 'Clase llena', description: 'Ya no quedan cupos disponibles para esta clase.', variant: 'destructive' });
+                  } else {
+                    toast({ title: 'Error al agendar', description: err.message, variant: 'destructive' });
+                  }
                   setConfirming(null);
                 },
               });
@@ -1203,8 +1273,9 @@ function SecondarySessionsTab({ enrollment, facilities, secLabel, secLeft, maxSe
 
 // ── Tab: Mis Reservas ─────────────────────────────────────────────────────────
 
-function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId }: {
+function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBookings }: {
   hasSecondary: boolean; secLabel: string; filter?: 'all' | 'primary' | 'secondary'; childId?: string;
+  allBookings: any[];
 }) {
   const { data: primary, isLoading: l1 } = useMyBookings(childId);
   const { data: secondary, isLoading: l2 } = useMySecondaryBookings(childId);
@@ -1222,109 +1293,130 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId }: {
     return <EmptyCenter icon={Calendar} title="Sin reservas activas" desc="Agenda clases desde la pestaña de Grupos" />;
   }
 
+  // Usar las reservas ya filtradas y unificadas del padre o filtrar aquí si es necesario
+  const bookingsToShow = allBookings.filter(b => {
+    if (filter === 'primary') return b._type === 'primary';
+    if (filter === 'secondary') return b._type === 'secondary';
+    return true;
+  });
+
+  const groups: Record<string, any[]> = {};
+  bookingsToShow.forEach(b => {
+    const d = b._type === 'primary' ? b.attendance_sessions?.session_date : b.reservation_date;
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(b);
+  });
+
+  const sortedDays = Object.keys(groups).sort();
+
   return (
     <>
-      <div className="space-y-5">
-        {primaryBookings.length > 0 && (
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Clases de mi Plan</p>
-            <div className="space-y-2">
-              {primaryBookings.map((b: any) => {
-                const s = b.attendance_sessions;
-                if (!s) return null;
-                const sessionDate = parseISO(s.session_date);
-                const isPast = isBefore(sessionDate, startOfDay(new Date()));
-                // ✅ FIX: nombre según booking_type, sin acceder a s.teams (no existe en nuevo BFF)
-                const contextName = b.booking_type === 'team'
-                  ? b.enrollments?.teams?.name ?? 'Clase'
-                  : b.enrollments?.offering_plans?.name ?? 'Clase';
-                return (
-                  <Card key={b.id} className="overflow-hidden border-border/40">
-                    <CardContent className="p-0">
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <div className={`w-1 self-stretch rounded-full ${isPast ? 'bg-muted-foreground/30' : 'bg-primary'}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-xs">{contextName}</p>
-                            {s.finalized && <Badge variant="secondary" className="text-[9px] h-4">Finalizada</Badge>}
-                            {b.status === 'attended' && <Badge className="text-[9px] h-4 bg-green-600">Asistió</Badge>}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground mt-0.5 capitalize">
-                            {fmtDateShort(s.session_date)} · {fmtTime(s.start_time)} — {fmtTime(s.end_time)}
-                          </p>
-                        </div>
-                        {!isPast && !s.finalized && b.status === 'confirmed' && (
-                          <Button variant="ghost" size="sm"
-                            onClick={() => setCancelling({ id: b.id, type: 'p', label: fmtDateShort(s.session_date) })}
-                            className="shrink-0 h-7 px-2 hover:text-destructive">
-                            <XCircle className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
-        )}
+      <div className="space-y-8 relative before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-px before:bg-border/40">
+        {sortedDays.map(dateStr => {
+          const day = parseISO(dateStr);
+          const isToday_ = isToday(day);
+          const sessions = groups[dateStr];
 
-        {secondaryBookings.length > 0 && (
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">{secLabel}</p>
-            <div className="space-y-2">
-              {secondaryBookings.map((b: any) => {
-                const resvDate = parseISO(b.reservation_date);
-                const isPast = isBefore(resvDate, startOfDay(new Date()));
-                // ✅ FIX: isToday eliminado — no se usa en ningún lado
-                return (
-                  <Card key={b.id} className="overflow-hidden border-border/40">
-                    <CardContent className="p-0">
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <div className={`w-1 self-stretch rounded-full ${isPast ? 'bg-muted-foreground/30' : 'bg-blue-500'}`} />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-xs">{b.facilities?.name}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5 capitalize">
-                            {fmtDateShort(b.reservation_date)} · {fmtTime(b.start_time)} — {fmtTime(b.end_time)}
-                          </p>
+          return (
+            <div key={dateStr} className="relative pl-10">
+              {/* Indicador de Fecha en el Timeline */}
+              <div className={`absolute left-0 w-10 flex flex-col items-center justify-center py-1.5 rounded-xl border z-10 
+                ${isToday_ ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20' : 'bg-card text-foreground border-border/60'}`}>
+                <span className={`text-[9px] font-black uppercase tracking-tighter leading-none ${isToday_ ? 'opacity-80' : 'text-muted-foreground'}`}>
+                  {format(day, 'EEE', { locale: es })}
+                </span>
+                <span className="text-base font-black leading-tight mt-0.5">{format(day, 'd')}</span>
+              </div>
+
+              <div className="space-y-3 pt-1">
+                {sessions.map(b => {
+                  const isPrimary = b._type === 'primary';
+                  const s = isPrimary ? b.attendance_sessions : b;
+                  if (!s) return null;
+                  
+                  const isPast = isBefore(parseISO(dateStr), startOfDay(new Date()));
+                  const contextName = isPrimary
+                    ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
+                    : (b as any).facilities?.name;
+
+                  return (
+                    <Card key={b.id} className={`group overflow-hidden border-border/40 transition-all hover:border-primary/30 
+                      ${isPast ? 'bg-muted/10 opacity-60' : 'bg-card shadow-sm hover:shadow-md'}`}>
+                      <CardContent className="p-0">
+                        <div className="flex items-center gap-4 px-4 py-3.5">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border 
+                            ${isPrimary ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' : 'bg-blue-500/10 text-blue-600 border-blue-500/20'}`}>
+                            {isPrimary ? <Trophy className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-black text-sm uppercase tracking-tight truncate">{contextName || 'Sesión'}</p>
+                              {s.finalized && <Badge variant="secondary" className="text-[9px] font-bold h-4">Finalizada</Badge>}
+                              {b.status === 'attended' && <Badge className="text-[9px] font-bold h-4 bg-emerald-500">Asistió</Badge>}
+                              {!isPast && !s.finalized && b.status === 'confirmed' && (
+                                <Badge variant="outline" className="text-[9px] font-bold h-4 border-primary/30 text-primary">Próxima</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2.5 mt-1">
+                              <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                                <Clock className="h-3 w-3" /> {fmtTime(s.start_time)} — {fmtTime(s.end_time)}
+                              </p>
+                              <span className="w-1 h-1 rounded-full bg-border" />
+                              <p className="text-[11px] text-muted-foreground font-black uppercase tracking-widest leading-none">
+                                {isPrimary ? 'Clase' : secLabel}
+                              </p>
+                            </div>
+                          </div>
+
+                          {!isPast && !s.finalized && b.status === 'confirmed' && (
+                            <Button variant="ghost" size="sm"
+                              onClick={() => setCancelling({ id: b.id, type: isPrimary ? 'p' : 's', label: fmtDateShort(dateStr) })}
+                              className="shrink-0 h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
-                        {!isPast && b.status !== 'cancelled' && (
-                          <Button variant="ghost" size="sm"
-                            onClick={() => setCancelling({ id: b.id, type: 's', label: fmtDateShort(b.reservation_date) })}
-                            className="shrink-0 h-7 px-2 hover:text-destructive">
-                            <XCircle className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
 
       <AlertDialog open={!!cancelling} onOpenChange={(o) => { if (!o) setCancelling(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent className="rounded-2xl border-0 shadow-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar reserva</AlertDialogTitle>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <XCircle className="h-5 w-5" />
+              Cancelar reserva
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Cancelar la clase del {cancelling?.label}? El crédito será devuelto a tu plan.
+              ¿Estás seguro de cancelar tu reserva del <span className="font-bold text-foreground">{cancelling?.label}</span>? 
+              El cupo se liberará y el crédito será devuelto a tu plan automáticamente.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Volver</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground" disabled={cp || cs}
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="rounded-xl border-border/50">Cerrar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl font-bold" disabled={cp || cs}
               onClick={() => {
                 if (!cancelling) return;
                 const fn = cancelling.type === 'p' ? cancelP : cancelS;
                 (fn as any)(cancelling.id, {
-                  onSuccess: () => { toast({ title: 'Reserva cancelada', description: 'Crédito devuelto a tu plan.' }); setCancelling(null); },
-                  onError: (err: any) => { toast({ title: 'Error', description: err.message, variant: 'destructive' }); setCancelling(null); },
+                  onSuccess: () => { 
+                    toast({ title: '✅ Reserva cancelada', description: 'El cupo ha sido liberado.' }); 
+                    setCancelling(null); 
+                  },
+                  onError: (err: any) => { 
+                    toast({ title: 'Error', description: err.message, variant: 'destructive' }); 
+                    setCancelling(null); 
+                  },
                 });
               }}>
-              {(cp || cs) ? 'Cancelando...' : 'Sí, cancelar'}
+              {(cp || cs) ? 'Cancelando...' : 'Sí, cancelar reserva'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1376,6 +1468,19 @@ function FacilityReserveModal({ facility, enrollment, childId, onClose }: {
 
 // ─── Compact Session Slot ─────────────────────────────────────────────────────
 
+function calcDuration(start: string, end: string): string {
+  if (!start || !end) return '';
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const totalMin = (eh * 60 + em) - (sh * 60 + sm);
+  if (totalMin <= 0) return '';
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
+}
+
 function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
   sessions: BookableSession[]; noCredits: boolean; isBooking: boolean; onBook: (s: BookableSession) => void;
 }) {
@@ -1386,64 +1491,67 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
   const isBooked = selectedSession.already_booked;
   const isDisabled = noCredits || isFull || isBooked || isBooking;
 
-  // ✅ FIX: useEffect en lugar de useMemo para side-effects
   const alreadyBookedSession = sessions.find(s => s.already_booked);
   useEffect(() => {
     if (alreadyBookedSession && selectedSessionId !== alreadyBookedSession.id) {
       setSelectedSessionId(alreadyBookedSession.id);
     }
-  }, [alreadyBookedSession?.id]);
+  }, [alreadyBookedSession?.id, selectedSessionId]);
 
   return (
-    <Card className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20' :
-        isFull ? 'opacity-50' :
+    <Card className={`overflow-hidden border-border/40 transition-all ${isBooked ? 'bg-primary/5 border-primary/20 shadow-none' :
+        isFull ? 'opacity-40 grayscale bg-muted/20' :
           noCredits ? 'opacity-60' :
-            'hover:border-primary/30'
+            'hover:border-primary/40 hover:bg-muted/5'
       }`}>
       <CardContent className="p-0">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <div className={`w-1 self-stretch rounded-full ${isBooked ? 'bg-primary' : isFull ? 'bg-muted-foreground/20' : 'bg-primary/30'}`} />
-          <div className="text-center shrink-0 w-16">
-            <p className="text-sm font-black leading-none">{fmtTime(selectedSession.start_time)}</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5">{fmtTime(selectedSession.end_time)}</p>
+        <div className="flex items-center gap-4 px-4 py-2.5">
+          <div className={`flex flex-col items-center justify-center shrink-0 w-16 h-10 rounded-lg border 
+            ${isBooked ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/30 border-border/30 text-foreground'}`}>
+            <p className="text-sm font-black italic leading-none">{fmtTime(selectedSession.start_time).split(' ')[0]}</p>
+            <p className="text-[8px] font-black uppercase opacity-70">{fmtTime(selectedSession.start_time).split(' ')[1]}</p>
           </div>
+
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col gap-1">
-              {sessions.length > 1 ? (
-                <div className="space-y-1.5">
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">Seleccionar Entrenador:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {sessions.map(s => (
-                      <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all ${selectedSessionId === s.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border/50 hover:border-primary/30'
-                          } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
-                      >
-                        {s.coach?.full_name || 'Entrenador'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {selectedSession.coach?.full_name && <p className="text-xs font-semibold">{selectedSession.coach.full_name}</p>}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                {isBooked && <Badge className="text-[9px] h-4 px-1.5 bg-primary">Agendada</Badge>}
-                {isFull && <Badge variant="secondary" className="text-[9px] h-4 px-1.5">Llena</Badge>}
-                {noCredits && <Badge variant="outline" className="text-[9px] h-4 px-1 border-amber-300 text-amber-600">Sin créditos</Badge>}
+            {sessions.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {sessions.map(s => (
+                  <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
+                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                      } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
+                  >
+                    {s.coach?.full_name?.split(' ')[0] || 'Coach'}
+                  </button>
+                ))}
               </div>
-            </div>
-            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
-              <span className="flex items-center gap-0.5"><Users className="h-3 w-3" />{selectedSession.available_spots}/{selectedSession.max_capacity}</span>
-              <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />1h</span>
-            </div>
+            ) : (
+              <div className="flex flex-col">
+                <p className="text-[11px] font-black uppercase tracking-tight truncate">{selectedSession.coach?.full_name || 'Entrenador'}</p>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                  <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{calcDuration(selectedSession.start_time, selectedSession.end_time)}</span>
+                  {selectedSession.max_capacity && (
+                    <span className={`flex items-center gap-0.5 ${isFull ? 'text-destructive' : ''}`}>
+                      <Users className="h-2.5 w-2.5" />
+                      {selectedSession.max_capacity - (selectedSession.current_bookings ?? 0)} libres
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
           {isBooked ? (
-            <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+            <div className="flex items-center gap-1 text-primary animate-in fade-in zoom-in duration-300">
+               <CheckCircle2 className="h-4 w-4 stroke-[3]" />
+               <span className="text-[9px] font-black uppercase">Listo</span>
+            </div>
           ) : (
-            <Button size="sm" onClick={() => onBook(selectedSession)} disabled={isDisabled} className="shrink-0 h-8 text-xs gap-1">
-              <CalendarCheck className="h-3.5 w-3.5" /> Agendar
+            <Button size="sm" onClick={() => onBook(selectedSession)} disabled={isDisabled} 
+              className={`h-8 px-4 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all
+                ${isFull ? 'bg-muted text-muted-foreground' : 'bg-primary shadow-lg shadow-primary/20 hover:shadow-primary/30'}`}>
+              Agendar
             </Button>
           )}
         </div>

@@ -68,17 +68,17 @@ export default function MessageTemplatesPage() {
   const [editBody, setEditBody] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
 
+  // ── Data fetching ─────────────────────────────────────────
+  useEffect(() => {
+    if (schoolId) loadData();
+  }, [schoolId]);
+
   // ── Auth gate ─────────────────────────────────────────────
   const isAuthorized = profile && (
     ['school', 'admin', 'school_admin', 'super_admin'].includes(profile.role) ||
     ['owner', 'admin', 'school_admin', 'super_admin'].includes(currentUserRole || '')
   );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
-
-  // ── Data fetching ─────────────────────────────────────────
-  useEffect(() => {
-    if (schoolId) loadData();
-  }, [schoolId]);
 
   const loadData = async () => {
     setLoading(true);
