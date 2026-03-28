@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, Pencil } from 'lucide-react';
+import { useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,22 +32,35 @@ interface StaffFormDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: { full_name: string; email: string; phone?: string; specialty?: string }) => void;
   isLoading?: boolean;
+  initialData?: { full_name: string; email: string; phone?: string; specialty?: string } | null;
 }
 
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 
 const specialties = SPORTS_LIST;
 
-export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: StaffFormDialogProps) {
+export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading, initialData }: StaffFormDialogProps) {
   const form = useForm<StaffFormData>({
     resolver: zodResolver(staffSchema),
     defaultValues: {
-      full_name: '',
-      email: '',
-      phone: '',
-      specialty: '',
+      full_name: initialData?.full_name || '',
+      email: initialData?.email || '',
+      phone: initialData?.phone || '',
+      specialty: initialData?.specialty || '',
     },
   });
+
+  // Update form when initialData changes or dialog opens
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        full_name: initialData?.full_name || '',
+        email: initialData?.email || '',
+        phone: initialData?.phone || '',
+        specialty: initialData?.specialty || '',
+      });
+    }
+  }, [open, initialData, form]);
 
   const handleSubmit = (data: StaffFormData) => {
     onSubmit({
@@ -64,11 +78,11 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5" />
-            Agregar Entrenador
+            {initialData ? <Pencil className="h-5 w-5" /> : <UserPlus className="h-5 w-5" />}
+            {initialData ? 'Editar Entrenador' : 'Agregar Entrenador'}
           </DialogTitle>
           <DialogDescription>
-            Registra un nuevo miembro del staff técnico
+            {initialData ? 'Actualiza la información del miembro del staff' : 'Registra un nuevo miembro del staff técnico'}
           </DialogDescription>
         </DialogHeader>
 
@@ -109,7 +123,11 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
 
           <div className="space-y-2">
             <Label htmlFor="specialty">Especialidad *</Label>
-            <Select onValueChange={(value) => form.setValue('specialty', value)}>
+            <Select 
+              onValueChange={(value) => form.setValue('specialty', value)}
+              defaultValue={form.getValues('specialty')}
+              value={form.watch('specialty')}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona especialidad" />
               </SelectTrigger>
@@ -131,7 +149,7 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading }: Sta
               Cancelar
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Guardando...' : 'Agregar Entrenador'}
+              {isLoading ? 'Guardando...' : (initialData ? 'Guardar Cambios' : 'Agregar Entrenador')}
             </Button>
           </DialogFooter>
         </form>
