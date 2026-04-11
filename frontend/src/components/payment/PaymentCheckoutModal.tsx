@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -16,6 +16,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
+import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
+import { useEPaycoCheckout } from '@/hooks/useEPaycoCheckout';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -36,7 +38,10 @@ interface PaymentCheckoutModalProps {
 export function PaymentCheckoutModal({
   open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | null>(null);
+  const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
+  const [epaycoEnabled, setEpaycoEnabled] = useState(false);
+  const [onlineFeePct, setOnlineFeePct] = useState(3);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
@@ -52,11 +57,34 @@ export function PaymentCheckoutModal({
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, epayco_enabled, online_fee_pct')
         .eq('school_id', schoolId).single()
-        .then(({ data }) => setBankDetails(data));
+        .then(({ data }) => {
+          setBankDetails(data);
+          setEpaycoEnabled(!!(data as any)?.epayco_enabled);
+          setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+        });
     }
   }, [open, schoolId]);
+
+  // ── ePayco checkout hook ──────────────────────────────────────────────────
+  const sportmapsFee = Math.round(amount * (onlineFeePct / 100));
+  const grossAmount = amount + sportmapsFee;
+
+  const { openCheckout, loading: epaycoLoading } = useEPaycoCheckout({
+    paymentId: paymentId || '',
+    onSuccess: () => {
+      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con ePayco.' });
+      onSuccess?.();
+      onOpenChange(false);
+    },
+    onError: (err) => {
+      toast({ title: 'Error en el pago', description: err.message, variant: 'destructive' });
+    },
+    onClosed: () => {
+      setShowOnlineConfirm(false);
+    },
+  });
 
   useEffect(() => {
     if (open && user?.id) {
@@ -108,11 +136,23 @@ export function PaymentCheckoutModal({
       setSelectedMethod(null);
       setProofUrl(null);
       setPendingPaymentDate(null);
+      setShowOnlineConfirm(false);
     }
   }, [open]);
 
   const paymentMethods = [
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: true, enabled: true },
+    // ── Pago online (solo si la escuela lo tiene habilitado) ──────────────
+    ...(epaycoEnabled ? [{
+      id: 'online' as const,
+      name: 'Pagar online',
+      description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
+      icon: Globe,
+      popular: true,
+      enabled: true,
+      badge: `+${formatCurrency(sportmapsFee)} fee`,
+    }] : []),
+    // ── Pago manual (siempre disponible) ──────────────────────────────────
+    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !epaycoEnabled, enabled: true },
     { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
     { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
   ];
@@ -246,6 +286,7 @@ export function PaymentCheckoutModal({
   const handleClose = () => { if (!processing) onOpenChange(false); };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       {/*
         RESPONSIVE KEY:
@@ -327,6 +368,7 @@ export function PaymentCheckoutModal({
                         <p className="font-semibold text-sm">{method.name}</p>
                         {method.popular && method.enabled && <Badge variant="secondary" className="text-xs">Recomendado</Badge>}
                         {isDisabled && <Badge variant="outline" className="text-xs text-muted-foreground">Próximamente</Badge>}
+                        {(method as any).badge && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">{(method as any).badge}</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground">{method.description}</p>
                     </div>
@@ -384,7 +426,7 @@ export function PaymentCheckoutModal({
             )}
 
             {/* Botones acción */}
-            {hasCompleteDianData && (
+            {hasCompleteDianData && selectedMethod !== 'online' && (
               <div className="space-y-2 pt-2">
                 <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={processPayment}>
                   {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(amount)}`}
@@ -393,10 +435,31 @@ export function PaymentCheckoutModal({
               </div>
             )}
 
+            {/* Botón online → abre PaymentConfirmModal */}
+            {selectedMethod === 'online' && (
+              <div className="space-y-2 pt-2">
+                <Button
+                  className="w-full bg-green-600 hover:bg-green-700"
+                  size="lg"
+                  disabled={epaycoLoading}
+                  onClick={() => setShowOnlineConfirm(true)}
+                >
+                  {epaycoLoading ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
+                  ) : (
+                    `Pagar online ${formatCurrency(grossAmount)}`
+                  )}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={handleClose}>Cancelar</Button>
+              </div>
+            )}
+
             <p className="text-xs text-center text-muted-foreground">
               {selectedMethod === 'transfer'
                 ? "El comprobante será revisado por la administración antes de validarse."
-                : "🔒 Pago 100% seguro."}
+                : selectedMethod === 'online'
+                  ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(amount)} completos.`
+                  : "🔒 Pago 100% seguro."}
             </p>
           </div>
         )}
@@ -456,5 +519,21 @@ export function PaymentCheckoutModal({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* ── Modal de confirmación de pago online (ePayco) ────────────────────── */}
+    <PaymentConfirmModal
+      open={showOnlineConfirm}
+      onOpenChange={setShowOnlineConfirm}
+      baseAmount={amount}
+      grossAmount={grossAmount}
+      sportmapsFee={sportmapsFee}
+      feePct={onlineFeePct}
+      concept={concept}
+      childName={childName}
+      loading={epaycoLoading}
+      onConfirm={openCheckout}
+      onBack={() => setShowOnlineConfirm(false)}
+    />
+    </>
   );
 }
