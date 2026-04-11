@@ -21,6 +21,8 @@ import billingEventsRouter from './routes/billing-events';
 import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
+import epaycoRouter from './routes/epayco';
+import epaycoWebhookRouter from './routes/epayco-webhook';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -105,6 +107,8 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+app.use('/api/v1/payments', paymentLimiter, epaycoRouter);
+app.use('/api/v1/webhooks/epayco', epaycoWebhookRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

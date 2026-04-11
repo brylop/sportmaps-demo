@@ -39,6 +39,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const ParentCheckoutPage = lazy(() => import("./pages/ParentCheckoutPage"));
 const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
+const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPage"));
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
@@ -197,6 +198,7 @@ const App = () => (
                       <ProtectedRoute><ParentCheckoutPage /></ProtectedRoute>
                     } />
                     <Route path="/payment-result" element={<PaymentResultPage />} />
+                    <Route path="/pagos/confirmacion" element={<PaymentConfirmationPage />} />
                     <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
                     {/* Public Events routes */}
