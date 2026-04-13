@@ -73,6 +73,37 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const [branchesList, setBranchesList] = useState<any[]>([]);
     const [loadingInitialData, setLoadingInitialData] = useState(false);
 
+    // Dynamic levels list based on selected sport
+    const levelOptions = useMemo(() => {
+        const selectedSport = SPORTS_CATALOG.find(s => s.nombre === formData.sport);
+        const levels: { label: string; value: string }[] = [];
+
+        if (selectedSport) {
+            if (selectedSport.id === 121) {
+                // Cheerleading All Stars special case
+                const programs = selectedSport.categoriasCompetencia;
+                Object.entries(programs).forEach(([key, program]: [string, any]) => {
+                    if (program.niveles) {
+                        const programName = key.replace('CHEER_ALL_STAR_', '').replace(/_/g, ' ');
+                        program.niveles.forEach((n: any) => {
+                            const label = `Nivel ${n.nivel} (${programName})`;
+                            levels.push({ label, value: label });
+                        });
+                    }
+                });
+            } else if (selectedSport.categoriasCompetencia.niveles) {
+                // General case with levels in catalog
+                const catalogLevels = selectedSport.categoriasCompetencia.niveles as any[];
+                catalogLevels.forEach(l => {
+                    const label = typeof l === 'string' ? l : `Nivel ${l.nivel || l}`;
+                    levels.push({ label, value: label });
+                });
+            }
+        }
+
+        return levels;
+    }, [formData.sport]);
+
     // Populate form if editing
     useEffect(() => {
         if (open && team) {
@@ -376,7 +407,13 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             <Label htmlFor="sport">Deporte *</Label>
                             <Select
                                 value={formData.sport}
-                                onValueChange={(value) => setFormData({ ...formData, sport: value })}
+                                onValueChange={(value) => {
+                                    setFormData({ 
+                                        ...formData, 
+                                        sport: value,
+                                        level: '' // Reset level when sport changes
+                                    });
+                                }}
                             >
                                 <SelectTrigger>
                                     <SelectValue placeholder="Seleccionar deporte" />
@@ -406,52 +443,19 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                     <SelectValue placeholder="Seleccionar nivel" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(() => {
-                                        const selectedSport = SPORTS_CATALOG.find(s => s.nombre === formData.sport);
-                                        const levels: { label: string; value: string }[] = [];
-
-                                        if (selectedSport) {
-                                            if (selectedSport.id === 121) {
-                                                // Cheerleading All Stars special case
-                                                const programs = selectedSport.categoriasCompetencia;
-                                                Object.entries(programs).forEach(([key, program]: [string, any]) => {
-                                                    if (program.niveles) {
-                                                        const programName = key.replace('CHEER_ALL_STAR_', '').replace('_', ' ');
-                                                        program.niveles.forEach((n: any) => {
-                                                            levels.push({
-                                                                label: `Nivel ${n.nivel} (${programName})`,
-                                                                value: `Nivel ${n.nivel} (${programName})`
-                                                            });
-                                                        });
-                                                    }
-                                                });
-                                            } else if (selectedSport.categoriasCompetencia.niveles) {
-                                                // General case with levels in catalog
-                                                const catalogLevels = selectedSport.categoriasCompetencia.niveles as any[];
-                                                catalogLevels.forEach(l => {
-                                                    const label = typeof l === 'string' ? l : `Nivel ${l.nivel || l}`;
-                                                    levels.push({ label, value: label });
-                                                });
-                                            }
-                                        }
-
-                                        // Fallback default levels if no specific catalog levels found
-                                        if (levels.length === 0) {
-                                            return (
-                                                <>
-                                                    <SelectItem value="beginner">Principiante</SelectItem>
-                                                    <SelectItem value="intermediate">Intermedio</SelectItem>
-                                                    <SelectItem value="advanced">Avanzado</SelectItem>
-                                                </>
-                                            );
-                                        }
-
-                                        return levels.map((lvl) => (
-                                            <SelectItem key={`${lvl.value}-${Math.random()}`} value={lvl.value}>
+                                    {levelOptions.length > 0 ? (
+                                        levelOptions.map((lvl) => (
+                                            <SelectItem key={lvl.value} value={lvl.value}>
                                                 {lvl.label}
                                             </SelectItem>
-                                        ));
-                                    })()}
+                                        ))
+                                    ) : (
+                                        <>
+                                            <SelectItem value="beginner">Principiante</SelectItem>
+                                            <SelectItem value="intermediate">Intermedio</SelectItem>
+                                            <SelectItem value="advanced">Avanzado</SelectItem>
+                                        </>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>
