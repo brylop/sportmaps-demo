@@ -299,6 +299,5 @@ export default function SchoolSettingsPage() {
                 </Card>
                 </div>
             </div>
-        </div>
     );
 }
