@@ -23,6 +23,7 @@ import { emailClient } from '@/lib/email-client';
 import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentModal';
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia } from '@/lib/dateUtils';
+import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
 
 interface BillingSettings {
   school_id: string;
@@ -1233,6 +1234,11 @@ export default function PaymentsAutomationPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* SportMaps Pay */}
+              <div className="md:col-span-2">
+                <SportMapsPaySettings />
+              </div>
 
               {/* Nueva Sección: Abonos */}
                 <InstallmentsConfigCard 
