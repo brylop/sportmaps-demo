@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap } from 'lucide-react';
+import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { formatCurrency, maskSensitive } from '@/lib/utils';
@@ -24,6 +24,9 @@ import { ReviewInstallmentModal } from '@/components/payment/ReviewInstallmentMo
 import { InstallmentsConfigCard } from '@/components/payment/InstallmentsConfigCard';
 import { todayColombia } from '@/lib/dateUtils';
 import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
+import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
+import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
+
 
 interface BillingSettings {
   school_id: string;
@@ -137,12 +140,27 @@ export default function PaymentsAutomationPage() {
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
 
-  // Filtros Historial
+  // Filtros Historial y Equipos
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
-
+  const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
+  
   // Filtros Validación (Pendientes)
   const [pendingSearch, setPendingSearch] = useState('');
+
+  // Estados para Cash Payments
+  const [showCashModal, setShowCashModal] = useState(false);
+  const [paymentToApprove, setPaymentToApprove] = useState<PaymentTransaction | null>(null);
+
+  // Equipos activos para filtros
+  const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    const teamsMap = new Map();
+    payments.forEach(p => p.team?.name && teamsMap.set(p.team.name, { id: p.team_id, name: p.team.name }));
+    teamSubscriptions.forEach(t => t.team_name && teamsMap.set(t.team_name, { id: t.team_id, name: t.team_name }));
+    setActiveTeams(Array.from(teamsMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
+  }, [payments, teamSubscriptions]);
 
   useEffect(() => {
     if (schoolId) {
@@ -461,7 +479,8 @@ export default function PaymentsAutomationPage() {
       p.program?.name?.toLowerCase().includes(historySearch.toLowerCase()) ||
       p.team?.name?.toLowerCase().includes(historySearch.toLowerCase());
     const statusMatch = historyStatusFilter === 'all' || p.status === historyStatusFilter;
-    return searchMatch && statusMatch;
+    const teamMatch = historyTeamFilter === 'all' || p.team?.name === historyTeamFilter || p.team_id === historyTeamFilter;
+    return searchMatch && statusMatch && teamMatch;
   });
 
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
@@ -491,6 +510,16 @@ export default function PaymentsAutomationPage() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button 
+            onClick={() => setShowCashModal(true)}
+            variant="outline"
+            size="sm"
+            className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+          >
+            <Banknote className="h-4 w-4" />
+            <span className="hidden sm:inline">Registrar efectivo</span>
+            <span className="sm:hidden">Efectivo</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchPayments} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4 mr-2" />}
             <span className="hidden sm:inline">Actualizar</span>
@@ -600,8 +629,8 @@ export default function PaymentsAutomationPage() {
                               <Eye className="h-3 w-3" /> Comprobante
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" className="h-8 text-green-600 border-green-200 hover:bg-green-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'approve')}>
-                            {processingId === payment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                          <Button size="sm" variant="outline" className="h-8 text-green-600 border-green-200 hover:bg-green-50" onClick={() => setPaymentToApprove(payment)}>
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
                             Aprobar
                           </Button>
                           <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
@@ -662,8 +691,8 @@ export default function PaymentsAutomationPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">
-                                <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'approve')}>
-                                  {processingId === payment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                                <Button size="sm" variant="outline" className="text-green-600 border-green-200 hover:bg-green-50" onClick={() => setPaymentToApprove(payment)}>
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
                                   Aprobar
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
@@ -864,6 +893,16 @@ export default function PaymentsAutomationPage() {
                   onChange={(e) => setHistorySearch(e.target.value)}
                   className="w-full sm:w-[250px] h-9"
                 />
+                <select
+                  className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={historyTeamFilter}
+                  onChange={(e) => setHistoryTeamFilter(e.target.value)}
+                >
+                  <option value="all">Todos los Equipos</option>
+                  {activeTeams.map(team => (
+                    <option key={team.id} value={team.name}>{team.name}</option>
+                  ))}
+                </select>
                 <select
                   className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={historyStatusFilter}
@@ -1282,6 +1321,22 @@ export default function PaymentsAutomationPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Cash and Approval Modals */}
+      <RegisterCashPaymentModal 
+        open={showCashModal} 
+        onOpenChange={setShowCashModal} 
+        onSuccess={fetchPayments} 
+      />
+      <ApprovePaymentMethodSheet 
+        open={!!paymentToApprove} 
+        onOpenChange={(open) => !open && setPaymentToApprove(null)} 
+        payment={paymentToApprove} 
+        onSuccess={() => {
+          setPaymentToApprove(null);
+          fetchPayments();
+        }} 
+      />
     </div>
   );
 }

@@ -251,7 +251,7 @@ Deno.serve(async (req: Request) => {
           amount: formatCOP(payment.amount),
           dueDate: formatDate(payment.due_date),
           isOverdue,
-          paymentUrl: `https://app.sportmaps.co/my-payments`,
+          paymentUrl: `https://stg.sportmaps.co/my-payments`,
         });
 
         const sent = await sendEmail(email, subject, html);
