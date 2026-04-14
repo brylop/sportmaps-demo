@@ -46,7 +46,8 @@ class PaymentRemindersAPI {
                 payment_date,
                 parent_id,
                 child_id,
-                team_id
+                team_id,
+                unregistered_athlete_id
             `)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'overdue']);
@@ -69,47 +70,58 @@ class PaymentRemindersAPI {
             };
         }
 
-        // Get unique parent/child/program IDs
+        // Get unique parent/child/unregistered/program IDs
         const parentIds = [...new Set(payments.map(p => p.parent_id).filter(Boolean))];
         const childIds = [...new Set(payments.map(p => p.child_id).filter(Boolean))];
+        const unregisteredIds = [...new Set(payments.map(p => p.unregistered_athlete_id).filter(Boolean))];
         const teamIds = [...new Set(payments.map(p => p.team_id).filter(Boolean))];
 
         // Fetch parent profiles
-        const { data: parents } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, phone')
-            .in('id', parentIds);
+        const { data: parents } = parentIds.length > 0
+            ? await supabase.from('profiles').select('id, full_name, email, phone').in('id', parentIds)
+            : { data: [] };
 
         // Fetch children
-        const { data: children } = await supabase
-            .from('children')
-            .select('id, full_name, parent_phone_temp')
-            .in('id', childIds);
+        const { data: children } = childIds.length > 0
+            ? await supabase.from('children').select('id, full_name, parent_phone_temp').in('id', childIds)
+            : { data: [] };
+
+        // Fetch unregistered athletes (adult self-enrolled)
+        const { data: unregisteredAthletes } = unregisteredIds.length > 0
+            ? await supabase.from('unregistered_athletes').select('id, full_name, email, phone').in('id', unregisteredIds)
+            : { data: [] };
 
         // Fetch teams
-        const { data: teamsData } = await supabase
-            .from('teams')
-            .select('id, name')
-            .in('id', teamIds);
+        const { data: teamsData } = teamIds.length > 0
+            ? await supabase.from('teams').select('id, name').in('id', teamIds)
+            : { data: [] };
 
         const parentMap = new Map((parents || []).map(p => [p.id, p]));
         const childMap = new Map((children || []).map(c => [c.id, c]));
+        const unregisteredMap = new Map((unregisteredAthletes || []).map(u => [u.id, u]));
         const teamMap = new Map((teamsData || []).map(p => [p.id, p]));
 
         const reminders: PaymentReminder[] = payments.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
+            const unregistered = unregisteredMap.get(payment.unregistered_athlete_id || '');
             const team = teamMap.get(payment.team_id || '');
             const daysOverdue = Math.max(0, daysDiffFromToday(payment.due_date));
 
+            // For unregistered athletes, the athlete IS the contact person
+            const contactName = parent?.full_name || unregistered?.full_name || 'Sin nombre';
+            const contactEmail = (parent as any)?.email || unregistered?.email || '';
+            const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
+            const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
+
             return {
                 id: payment.id,
-                parentId: payment.parent_id,
-                parentName: parent?.full_name || 'Sin nombre',
-                parentEmail: (parent as any)?.email || '',
-                parentPhone: (parent as any)?.phone || (child as any)?.parent_phone_temp || '',
-                childName: child?.full_name || 'Sin asignar',
-                childId: payment.child_id || '',
+                parentId: payment.parent_id || payment.unregistered_athlete_id || '',
+                parentName: contactName,
+                parentEmail: contactEmail,
+                parentPhone: contactPhone,
+                childName: athleteName,
+                childId: payment.child_id || payment.unregistered_athlete_id || '',
                 teamName: team?.name || 'Equipo',
                 amount: payment.amount,
                 dueDate: payment.due_date,
