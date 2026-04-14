@@ -306,7 +306,7 @@ export default function PaymentRemindersPage() {
                                 </TableHead>
                                 <TableHead>Padre / Acudiente</TableHead>
                                 <TableHead>Estudiante</TableHead>
-                                <TableHead>Programa</TableHead>
+                                <TableHead>Plan / Equipo</TableHead>
                                 <TableHead className="text-right">Monto</TableHead>
                                 <TableHead>Vencimiento</TableHead>
                                 <TableHead>Estado</TableHead>

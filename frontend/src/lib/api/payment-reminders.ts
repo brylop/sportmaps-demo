@@ -47,7 +47,9 @@ class PaymentRemindersAPI {
                 parent_id,
                 child_id,
                 team_id,
-                unregistered_athlete_id
+                unregistered_athlete_id,
+                offering_plan_id,
+                concept
             `)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'overdue']);
@@ -75,6 +77,7 @@ class PaymentRemindersAPI {
         const childIds = [...new Set(payments.map(p => p.child_id).filter(Boolean))];
         const unregisteredIds = [...new Set(payments.map(p => p.unregistered_athlete_id).filter(Boolean))];
         const teamIds = [...new Set(payments.map(p => p.team_id).filter(Boolean))];
+        const planIds = [...new Set(payments.map(p => p.offering_plan_id).filter(Boolean))];
 
         // Fetch parent profiles
         const { data: parents } = parentIds.length > 0
@@ -96,15 +99,32 @@ class PaymentRemindersAPI {
             ? await supabase.from('teams').select('id, name').in('id', teamIds)
             : { data: [] };
 
+        // Fetch offering plans
+        const { data: plansData } = planIds.length > 0
+            ? await supabase.from('offering_plans').select('id, name').in('id', planIds)
+            : { data: [] };
+
         const parentMap = new Map((parents || []).map(p => [p.id, p]));
         const childMap = new Map((children || []).map(c => [c.id, c]));
         const unregisteredMap = new Map((unregisteredAthletes || []).map(u => [u.id, u]));
         const teamMap = new Map((teamsData || []).map(p => [p.id, p]));
+        const planMap = new Map((plansData || []).map(p => [p.id, p]));
 
-        const reminders: PaymentReminder[] = payments.map(payment => {
+        // Deduplicate payments with same athlete + amount + due_date
+        const seen = new Set<string>();
+        const uniquePayments = payments.filter(payment => {
+            const athleteKey = payment.child_id || payment.unregistered_athlete_id || payment.parent_id || '';
+            const key = `${athleteKey}|${payment.amount}|${payment.due_date}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        const reminders: PaymentReminder[] = uniquePayments.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
             const unregistered = unregisteredMap.get(payment.unregistered_athlete_id || '');
+            const plan = planMap.get(payment.offering_plan_id || '');
             const team = teamMap.get(payment.team_id || '');
             const daysOverdue = Math.max(0, daysDiffFromToday(payment.due_date));
 
@@ -114,6 +134,9 @@ class PaymentRemindersAPI {
             const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
             const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
 
+            // Show plan name > team name > concept
+            const programLabel = plan?.name || team?.name || payment.concept || '';
+
             return {
                 id: payment.id,
                 parentId: payment.parent_id || payment.unregistered_athlete_id || '',
@@ -122,7 +145,7 @@ class PaymentRemindersAPI {
                 parentPhone: contactPhone,
                 childName: athleteName,
                 childId: payment.child_id || payment.unregistered_athlete_id || '',
-                teamName: team?.name || 'Equipo',
+                teamName: programLabel,
                 amount: payment.amount,
                 dueDate: payment.due_date,
                 status: daysOverdue > 0 ? 'overdue' : 'pending',
