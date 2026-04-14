@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { normalizeSchoolName } from '../utils/brandingUtils';
 
 const router = Router();
 
@@ -439,7 +440,7 @@ router.post(
 
                 // Obtener nombre de la escuela para el correo
                 const { data: schoolData } = await supabase.from('schools').select('name').eq('id', schoolId).single();
-                const schoolName = schoolData?.name || 'la Academia';
+                const schoolName = normalizeSchoolName(schoolData?.name || 'la Academia');
                 const senderId = req.user?.id || null;
 
                 for (const [email, info] of parentEmailMap.entries()) {

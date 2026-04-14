@@ -21,13 +21,17 @@ export const emailClient = {
             });
 
             if (error) {
-                console.warn('⚠️ Edge Function "send-email" falló en BFF. Simulando envío local para desarrollo.');
-                console.log('📧 [MOCK EMAIL DETAILS]', {
-                    To: params.to,
-                    Subject: params.subject,
-                    BodyPreview: params.html.substring(0, 100) + '...'
-                });
-                return { success: true, simulated: true };
+                console.error('❌ Edge Function "send-email" falló:', error);
+                
+                // Si estamos en desarrollo, podemos simular el envío; de lo contrario, reportamos el error
+                const isDev = process.env.NODE_ENV === 'development' || process.env.SIMULATE_EMAILS === 'true';
+                
+                if (isDev) {
+                    console.warn('⚠️ Simulando envío local para desarrollo.');
+                    return { success: true, simulated: true };
+                }
+
+                return { success: false, error };
             }
 
             console.log(`✅ Correo enviado exitosamente vía Edge Function (${params.to})`);

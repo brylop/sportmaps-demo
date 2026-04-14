@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { calcFirstPayment, BillingCycleType } from '../utils/prorationUtils';
+import { normalizeSchoolName } from '../utils/brandingUtils';
 
 
 const router = Router();
@@ -193,7 +194,7 @@ router.post(
           .eq('school_id', schoolId)
           .maybeSingle(),
       ]);
-      const schoolName     = school?.name || 'la Academia';
+      const schoolName     = normalizeSchoolName(school?.name || 'la Academia');
       const cycleType      = (settings?.billing_cycle_type || 'prorated') as BillingCycleType;
       const cutoffDay      = settings?.payment_cutoff_day || 10;
       const requireProof   = settings?.require_payment_proof ?? true;

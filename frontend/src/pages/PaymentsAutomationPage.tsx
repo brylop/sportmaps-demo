@@ -47,6 +47,8 @@ interface BillingSettings {
   bank_titular_name?: string | null;
   bank_titular_id?: string | null;
   payment_qr_url?: string | null;
+  breb_number?: string | null;
+  transfer_key?: string | null;
   allow_installments: boolean;
   max_installments_per_payment: number;
   min_installment_amount: number;
@@ -199,6 +201,8 @@ export default function PaymentsAutomationPage() {
         bank_titular_name: billing.bank_titular_name,
         bank_titular_id: billing.bank_titular_id,
         payment_qr_url: billing.payment_qr_url,
+        breb_number: billing.breb_number,
+        transfer_key: billing.transfer_key,
         billing_cycle_type: billing.billing_cycle_type,
       };
 
@@ -458,7 +462,7 @@ export default function PaymentsAutomationPage() {
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const rawPendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'awaiting_approval');
+  const rawPendingPayments = payments.filter(p => p.status === 'awaiting_approval');
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
     const term = pendingSearch.toLowerCase();
@@ -1233,6 +1237,26 @@ export default function PaymentsAutomationPage() {
                         placeholder="Celular" 
                         value={showSensitive ? (billing.daviplata_number || '') : maskSensitive(billing.daviplata_number)} 
                         onChange={e => updateBilling('daviplata_number', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="breb_number">Número Bre-B (Opcional)</Label>
+                      <Input 
+                        id="breb_number" 
+                        placeholder="Celular o ID" 
+                        value={showSensitive ? (billing.breb_number || '') : maskSensitive(billing.breb_number)} 
+                        onChange={e => updateBilling('breb_number', e.target.value)} 
+                        onFocus={() => setShowSensitive(true)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="transfer_key">Llave de Transferencia</Label>
+                      <Input 
+                        id="transfer_key" 
+                        placeholder="Ej: Celular, Correo o Alias" 
+                        value={showSensitive ? (billing.transfer_key || '') : maskSensitive(billing.transfer_key)} 
+                        onChange={e => updateBilling('transfer_key', e.target.value)} 
                         onFocus={() => setShowSensitive(true)}
                       />
                     </div>

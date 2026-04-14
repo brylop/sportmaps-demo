@@ -17,9 +17,11 @@ type EmailType =
     | "payment_reminder";
 
 interface EmailPayload {
-    type: EmailType;
+    type?: EmailType;
     to: string;
-    data: Record<string, string>;
+    data?: Record<string, string>;
+    subject?: string;
+    html?: string;
 }
 
 // ─── Shared Layout (matches Supabase Auth templates) ───
@@ -193,11 +195,29 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { type, to, data }: EmailPayload = await req.json();
+        const payload: EmailPayload = await req.json();
+        const { type, to, data, subject: rawSubject, html: rawHtml } = payload;
 
-        if (!type || !to) {
+        if (!to) {
             return new Response(
-                JSON.stringify({ error: "Missing 'type' or 'to' field" }),
+                JSON.stringify({ error: "Missing 'to' field" }),
+                { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
+
+        let subject: string;
+        let html: string;
+
+        if (type) {
+            const template = getSubjectAndHtml(type, data || {});
+            subject = template.subject;
+            html = template.html;
+        } else if (rawSubject && rawHtml) {
+            subject = rawSubject;
+            html = rawHtml;
+        } else {
+            return new Response(
+                JSON.stringify({ error: "Missing 'type' or ('subject' and 'html') fields" }),
                 { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }
@@ -209,8 +229,6 @@ Deno.serve(async (req: Request) => {
                 { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
         }
-
-        const { subject, html } = getSubjectAndHtml(type, data);
 
         const res = await fetch("https://api.resend.com/emails", {
             method: "POST",
