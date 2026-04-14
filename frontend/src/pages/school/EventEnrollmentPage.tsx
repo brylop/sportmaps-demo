@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSchoolContext } from '@/contexts/SchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,18 +9,18 @@ import { useToast } from '@/components/ui/use-toast';
 import { ArrowLeft, Loader2, Users, Receipt, Flag } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
 export default function EventEnrollmentPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { session, profile } = useAuth();
-  const { activeSchool } = useSchoolContext();
   const { toast } = useToast();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [activeSchool, setActiveSchool] = useState<any>(null);
 
   // Data loaded from DB
   const [eventData, setEventData] = useState<any>(null);
@@ -30,10 +29,23 @@ export default function EventEnrollmentPage() {
 
   // Wizard state
   const [selectedTeams, setSelectedTeams] = useState<{ teamId: string; categoryId: string; }[]>([]);
-  const [athletePackages, setAthletePackages] = useState<Record<string, string>>({}); // athleteId -> phaseId (package choice conceptually, but we store the phase id because prices are by phase/kit)
   const [athletePkgChoices, setAthletePkgChoices] = useState<Record<string, string>>({}); // athleteId -> 'pkg_1' | 'pkg_solo'
-  
-  const [coachPkgChoices, setCoachPkgChoices] = useState<Record<string, { phaseId: string, choice: string }>>({});
+  const [coachPkgChoices, setCoachPkgChoices] = useState<Record<string, { phaseId: string, choice: string }>>({}); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  // Resolve the school for the logged-in user
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase
+      .from('school_members')
+      .select('school_id, schools(id, name, logo_url)')
+      .eq('profile_id', profile.id)
+      .eq('status', 'active')
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        if (data?.schools) setActiveSchool(data.schools);
+      });
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!eventId || !activeSchool) return;
