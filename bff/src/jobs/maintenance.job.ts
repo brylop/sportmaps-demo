@@ -40,7 +40,6 @@ export function initMaintenanceJobs() {
             console.error('[CRON] Error inesperado durante el mantenimiento:', err);
         }
     }, {
-        scheduled: true,
         timezone: "America/Bogota"
     });
 
