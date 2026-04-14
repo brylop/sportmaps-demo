@@ -116,10 +116,15 @@ export function useEvents() {
 
   // Get event by slug (public)
   const getEventBySlug = useCallback(async (slug: string): Promise<Event | null> => {
+    setLoading(true);
     try {
       const { data, error } = await supabase
         .from('events')
-        .select('*')
+        .select(`
+          *,
+          categories:event_categories_config(*),
+          phases:event_price_phases(*)
+        `)
         .eq('slug', slug)
         .single();
 
@@ -128,10 +133,12 @@ export function useEvents() {
       // Log view
       if (data) await logTelemetry('event_viewed', data.id);
 
-      return data as Event;
+      return data as any;
     } catch (error: any) {
       console.error('Error fetching event:', error);
       return null;
+    } finally {
+      setLoading(false);
     }
   }, []);
 

@@ -25,8 +25,8 @@ import epaycoRouter from './routes/epayco';
 import epaycoWebhookRouter from './routes/epayco-webhook';
 import systemRouter from './routes/system';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
-
-
+import organizerRouter from './routes/organizers.route';
+import eventsRouter from './routes/events.route';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -124,7 +124,8 @@ app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 app.use('/api/v1/payments', paymentLimiter, epaycoRouter);
 app.use('/api/v1/webhooks/epayco', epaycoWebhookRouter);
 app.use('/api/v1/system', systemRouter);
-
+app.use('/api/v1/organizer', generalLimiter, organizerRouter);
+app.use('/api/v1/events', generalLimiter, eventsRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

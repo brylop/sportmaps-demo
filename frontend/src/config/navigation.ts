@@ -371,7 +371,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Principal',
         items: [
-          { title: 'Dashboard', href: '/organizer/home', icon: Home },
+          { title: 'Dashboard', href: '/organizer/dashboard', icon: Home },
           { title: 'Crear Evento', href: '/organizer/create-event', icon: Plus },
           { title: 'Explorar Eventos', href: '/events', icon: Map }
         ]
@@ -379,7 +379,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión',
         items: [
-          { title: 'Mis Eventos', href: '/organizer/home', icon: Ticket },
+          { title: 'Mis Eventos', href: '/organizer/dashboard', icon: Ticket },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Mensajes', href: '/messages', icon: MessageSquare }
         ]
@@ -387,7 +387,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
-          { title: 'Perfil', href: '/profile', icon: Users },
+          { title: 'Perfil', href: '/organizer/profile', icon: Users },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

@@ -121,10 +121,14 @@ const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 
-// ─── Organizer pages (lazy) ───────────────────────────────────────────────────
+const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
+const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
+const OrganizerProfilePage = lazy(() => import("./pages/organizer/OrganizerProfilePage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
+const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPage"));
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -284,6 +288,11 @@ const App = () => (
                       <Route path="announcements" element={<AnnouncementsPage />} />
 
                       {/* School routes (role-guarded) */}
+                      <Route path="school/enroll/:eventId" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <EventEnrollmentPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="students" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <SchoolStudentsManagementPage />
@@ -445,9 +454,13 @@ const App = () => (
                       } />
 
                       {/* Organizer routes */}
-                      <Route path="organizer/home" element={<OrganizerDashboardPage />} />
-                      <Route path="organizer/create-event" element={<CreateEventPage />} />
-                      <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                      <Route element={<OrganizerGuard />}>
+                        <Route path="organizer/onboarding" element={<OrganizerOnboardingPage />} />
+                        <Route path="organizer/dashboard" element={<OrganizerDashboardPage />} />
+                        <Route path="organizer/profile" element={<OrganizerProfilePage />} />
+                        <Route path="organizer/create-event" element={<CreateEventPage />} />
+                        <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                      </Route>
 
                       {/* Admin routes */}
                       <Route path="admin/users" element={
