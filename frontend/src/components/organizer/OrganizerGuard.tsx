@@ -25,25 +25,21 @@ export function OrganizerGuard() {
         const { data, error } = await supabase
           .from('event_organizers')
           .select('is_verified')
-          .eq('user_id', user.id)
-          .single();
+          .eq('profile_id', user.id)
+          .maybeSingle();
 
         if (!isMounted) return;
 
         if (error) {
-          if (error.code === 'PGRST116') {
-            // Not found
-            setOrganizerStatus('not_found');
-          } else {
-            console.error('Error fetching organizer profile:', error);
-            setOrganizerStatus('error');
-          }
+          console.error('Error fetching organizer profile:', error);
+          setOrganizerStatus('error');
           return;
         }
 
         if (data) {
           setOrganizerStatus(data.is_verified ? 'verified' : 'unverified');
         } else {
+          // No rows found = organizer profile not created yet
           setOrganizerStatus('not_found');
         }
       } catch (err) {

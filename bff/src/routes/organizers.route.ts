@@ -31,7 +31,7 @@ router.post('/profile', requireAuth, requireRole('organizer'), async (req: Authe
 
         const orgData = {
             ...parsed.data,
-            user_id: userId,
+            profile_id: userId,
             is_verified: false, // Default
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -39,7 +39,7 @@ router.post('/profile', requireAuth, requireRole('organizer'), async (req: Authe
 
         const { data, error } = await supabase
             .from('event_organizers')
-            .upsert(orgData, { onConflict: 'user_id' })
+            .upsert(orgData, { onConflict: 'profile_id' })
             .select()
             .single();
 
@@ -74,7 +74,7 @@ router.put('/profile', requireAuth, requireRole('organizer'), async (req: Authen
         const { data, error } = await supabase
             .from('event_organizers')
             .update(orgData)
-            .eq('user_id', userId)
+            .eq('profile_id', userId)
             .select()
             .single();
 
@@ -99,7 +99,7 @@ router.get('/stats', requireAuth, requireRole('organizer'), async (req: Authenti
         const { data: org, error: orgError } = await supabase
             .from('event_organizers')
             .select('id')
-            .eq('user_id', userId)
+            .eq('profile_id', userId)
             .single();
 
         if (orgError || !org) {

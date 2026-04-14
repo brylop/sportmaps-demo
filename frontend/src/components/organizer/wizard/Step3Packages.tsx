@@ -70,6 +70,7 @@ export function Step3Packages({ state, dispatch }: Props) {
           <Select value={newPhase.kit_type} onValueChange={(v) => setNewPhase({...newPhase, kit_type: v})}>
              <SelectTrigger><SelectValue/></SelectTrigger>
              <SelectContent>
+                <SelectItem value="Full">Full</SelectItem>
                 <SelectItem value="Platino">Platino</SelectItem>
                 <SelectItem value="Gold">Gold</SelectItem>
                 <SelectItem value="Silver">Silver</SelectItem>

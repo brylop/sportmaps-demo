@@ -50,6 +50,64 @@ const FullEventSchema = z.object({
     price_phases: z.array(z.any()).optional(),
 });
 
+// GET /api/v1/events - List published events (public)
+router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { sport, city, limit = '20', offset = '0' } = req.query as Record<string, string>;
+
+        let q = supabase
+            .from('events')
+            .select('id, title, sport, description, event_date, city, slug, image_url, banner_url, status, visibility')
+            .eq('status', 'published')
+            .eq('visibility', 'public')
+            .order('event_date', { ascending: true })
+            .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+        if (sport) q = q.eq('sport', sport);
+        if (city) q = q.ilike('city', `%${city}%`);
+
+        const { data, error } = await q;
+        if (error) throw error;
+
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error listando eventos');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/mine - List organizer's own events
+router.get('/mine', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+
+        const { data: orgData } = await supabase
+            .from('event_organizers')
+            .select('id')
+            .eq('profile_id', userId)
+            .single();
+
+        if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
+
+        const { data, error } = await supabase
+            .from('events')
+            .select(`
+                id, title, sport, description, event_date, city, slug,
+                image_url, banner_url, status, visibility, created_at,
+                categories:event_categories_config(count),
+                phases:event_price_phases(count)
+            `)
+            .eq('organizer_id', orgData.id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error listando eventos del organizador');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // POST /api/v1/events - Create new event + categories + phases
 router.post('/', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
     try {
