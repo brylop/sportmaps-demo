@@ -23,6 +23,10 @@ import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
 import epaycoRouter from './routes/epayco';
 import epaycoWebhookRouter from './routes/epayco-webhook';
+import systemRouter from './routes/system';
+import { initMaintenanceJobs } from './jobs/maintenance.job';
+
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,7 +52,17 @@ const paymentLimiter = rateLimit({
 });
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
+app.use((_req: Request, res: Response, next: NextFunction) => {
+    // Prevent profile leaking by disabling all caching for API responses
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+});
+
 app.use(cors({
+
     origin: (origin, callback) => {
         // Permitir requests sin origin (como Postman o curl) o localhost en development
         if (!origin || origin.startsWith('http://localhost:')) {
@@ -109,6 +123,8 @@ app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 app.use('/api/v1/payments', paymentLimiter, epaycoRouter);
 app.use('/api/v1/webhooks/epayco', epaycoWebhookRouter);
+app.use('/api/v1/system', systemRouter);
+
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
@@ -132,4 +148,8 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 app.listen(PORT, () => {
     console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV ?? 'development'}`);
+    
+    // Iniciar trabajos de mantenimiento programados
+    initMaintenanceJobs();
 });
+

@@ -15,6 +15,8 @@ import { Suspense, lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
+import { IdleTimer } from "@/components/auth/IdleTimer";
+
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
 const PageLoader = () => (
@@ -166,7 +168,9 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
+        <IdleTimer />
         <SchoolProvider>
+
           <ThemeProvider>
             <ErrorBoundary>
               <CartProvider>
