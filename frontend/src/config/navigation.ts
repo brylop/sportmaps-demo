@@ -72,6 +72,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Comunidad',
         items: [
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
@@ -103,6 +104,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
@@ -145,7 +147,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -164,6 +165,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
+        ]
+      },
+      {
+        title: '🏆 Competencias',
+        items: [
+          { title: 'Explorar Eventos', href: '/events', icon: Ticket },
+          { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
         ]
       },
       {
@@ -373,7 +381,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/organizer/dashboard', icon: Home },
           { title: 'Crear Evento', href: '/organizer/create-event', icon: Plus },
-          { title: 'Explorar Eventos', href: '/events', icon: Map }
         ]
       },
       {
