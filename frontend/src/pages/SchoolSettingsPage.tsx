@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
-import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings';
+
 interface SchoolProfile {
     id: string;
     name: string;
@@ -297,12 +297,7 @@ export default function SchoolSettingsPage() {
                         </div>
                     </CardContent>
                 </Card>
-
-                {/* SportMaps Pay Settings */}
-                <div className="md:col-span-2">
-                    <SportMapsPaySettings />
                 </div>
             </div>
-        </div>
     );
 }

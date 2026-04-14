@@ -54,7 +54,7 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
 };
 
 export default function AthletePaymentsPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -78,11 +78,15 @@ export default function AthletePaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
   useEffect(() => {
-    if (user) {
+    if (user && profile) {
+      if (profile.role !== 'athlete') {
+         window.location.href = profile.role === 'parent' ? '/my-payments' : '/dashboard';
+         return;
+      }
       fetchPayments();
       setSelectedPayment(null);
     }
-  }, [user, activeTab]);
+  }, [user, profile, activeTab]);
 
   const fetchPayments = async () => {
     try {

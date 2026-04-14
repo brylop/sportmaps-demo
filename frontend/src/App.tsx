@@ -15,6 +15,8 @@ import { Suspense, lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
+import { IdleTimer } from "@/components/auth/IdleTimer";
+
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
 const PageLoader = () => (
@@ -166,7 +168,9 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
+        <IdleTimer />
         <SchoolProvider>
+
           <ThemeProvider>
             <ErrorBoundary>
               <CartProvider>
@@ -232,15 +236,43 @@ const App = () => (
                       <Route path="enrollments" element={<MyEnrollmentsPage />} />
                       <Route path="shop" element={<ShopPage />} />
                       <Route path="wellness" element={<AthleteWellnessPage />} />
-                      <Route path="athlete-payments" element={<AthletePaymentsPage />} />
+                      <Route path="athlete-payments" element={
+                        <ProtectedRoute allowedRoles={['athlete']}>
+                          <AthletePaymentsPage />
+                        </ProtectedRoute>
+                      } />
 
                       {/* Parent routes */}
-                      <Route path="children" element={<MyChildrenPage />} />
-                      <Route path="my-payments" element={<MyPaymentsPage />} />
-                      <Route path="children/:id/progress" element={<ChildProgressPage />} />
-                      <Route path="children/:id/attendance" element={<ChildAttendancePage />} />
-                      <Route path="academic-progress" element={<AcademicProgressPage />} />
-                      <Route path="parent-attendance" element={<AttendancePage />} />
+                      <Route path="children" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <MyChildrenPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="my-payments" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <MyPaymentsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="children/:id/progress" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildProgressPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="children/:id/attendance" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <ChildAttendancePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="academic-progress" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <AcademicProgressPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="parent-attendance" element={
+                        <ProtectedRoute allowedRoles={['parent']}>
+                          <AttendancePage />
+                        </ProtectedRoute>
+                      } />
 
                       {/* Coach routes */}
                       <Route path="coach-attendance" element={<CoachAttendancePage />} />

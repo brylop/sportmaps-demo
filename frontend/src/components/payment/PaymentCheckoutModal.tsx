@@ -3,6 +3,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -45,6 +48,12 @@ export function PaymentCheckoutModal({
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
+  
+  // Custom Payment Fields
+  const [conceptType, setConceptType] = useState<'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro'>('mensualidad');
+  const [customAmount, setCustomAmount] = useState((amount || 0).toString());
+  const [customConcept, setCustomConcept] = useState('');
+
   const [checkingPending, setCheckingPending] = useState(false);
   const [pendingPaymentDate, setPendingPaymentDate] = useState<string | null>(null);
   const { toast } = useToast();
@@ -68,8 +77,13 @@ export function PaymentCheckoutModal({
   }, [open, schoolId]);
 
   // ── ePayco checkout hook ──────────────────────────────────────────────────
-  const sportmapsFee = Math.round(amount * (onlineFeePct / 100));
-  const grossAmount = amount + sportmapsFee;
+  const finalAmount = mode === 'create' && !['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (parseFloat(customAmount) || 0) : amount;
+  const finalConcept = mode === 'create' && conceptType !== 'mensualidad' 
+    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono') 
+    : concept;
+
+  const sportmapsFee = Math.round(finalAmount * (onlineFeePct / 100));
+  const grossAmount = finalAmount + sportmapsFee;
 
   const { openCheckout, loading: epaycoLoading } = useEPaycoCheckout({
     paymentId: paymentId || '',
@@ -206,8 +220,8 @@ export function PaymentCheckoutModal({
             team_id: (teamId && teamId !== '') ? teamId : null,
             school_id: (schoolId && schoolId !== '') ? schoolId : null, 
             branch_id: payloadBranchId, 
-            amount, 
-            concept, 
+            amount: finalAmount, 
+            concept: finalConcept, 
             status: 'awaiting_approval', 
             payment_method: 'transfer', 
             payment_type: 'one_time',
@@ -242,8 +256,8 @@ export function PaymentCheckoutModal({
           team_id: (teamId && teamId !== '') ? teamId : null, 
           school_id: (schoolId && schoolId !== '') ? schoolId : null, 
           branch_id: payloadBranchId, 
-          amount, 
-          concept, 
+          amount: finalAmount, 
+          concept: finalConcept, 
           status: 'paid', 
           payment_method: selectedMethod, 
           payment_type: 'one_time',
@@ -263,15 +277,15 @@ export function PaymentCheckoutModal({
           to: parentEmail,
           data: {
             studentName: childName || (childId ? 'tu hijo' : 'tu cuenta'),
-            amount: formatCurrency(amount),
-            concept,
+            amount: formatCurrency(finalAmount),
+            concept: finalConcept,
             paymentMethod: selectedMethod === 'pse' ? 'PSE' : (selectedMethod === 'card' ? 'Tarjeta' : 'Transferencia'),
           },
         }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
       }
 
       setPaymentStatus('success');
-      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(amount)} fue procesado correctamente` });
+      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(finalAmount)} fue procesado correctamente` });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
     } catch (error: unknown) {
       const err = error as { message?: string };
@@ -334,14 +348,54 @@ export function PaymentCheckoutModal({
         {!checkingPending && pendingPaymentDate === null && paymentStatus === 'idle' && (
           <div className="space-y-5 py-2">
             {/* Resumen */}
-            <div className="bg-primary/5 rounded-lg p-4 space-y-1">
-              <p className="text-xs text-muted-foreground">Concepto</p>
-              <p className="font-semibold text-base leading-tight">{concept}</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
-                <p className="text-sm text-muted-foreground">/mes</p>
-              </div>
-              <p className="text-xs text-muted-foreground">Pago recurrente mensual.</p>
+            <div className="bg-primary/5 rounded-lg p-4 space-y-4">
+              {mode === 'create' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pago</Label>
+                    <Select value={conceptType} onValueChange={(v: any) => setConceptType(v)}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Concepto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mensualidad">Mensualidad ({concept})</SelectItem>
+                        <SelectItem value="inscripcion_fija">Inscripción Anual (Monto Fijo)</SelectItem>
+                        <SelectItem value="inscripcion_variable">Inscripción Anual (Monto Variable)</SelectItem>
+                        <SelectItem value="otro">Otro Concepto / Abono libre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {conceptType === 'otro' && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Pago</Label>
+                      <Input placeholder="Ej. Uniforme, Aporte especial..." value={customConcept} onChange={(e) => setCustomConcept(e.target.value)} className="bg-white" />
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monto ($ COP)</Label>
+                    {['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                        <p className="text-sm text-muted-foreground">/ {conceptType === 'mensualidad' ? 'mes' : 'tarifa plan'}</p>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">$</span>
+                        <Input type="number" min="0" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} className="bg-white pl-7 text-lg font-bold text-primary" placeholder="Ej. 150000" />
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Concepto</p>
+                  <p className="font-semibold text-base leading-tight">{concept}</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                    <p className="text-sm text-muted-foreground">cobro pendiente</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Métodos */}
@@ -429,7 +483,7 @@ export function PaymentCheckoutModal({
             {hasCompleteDianData && selectedMethod !== 'online' && (
               <div className="space-y-2 pt-2">
                 <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={processPayment}>
-                  {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(amount)}`}
+                  {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(finalAmount)}`}
                 </Button>
                 <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
               </div>
@@ -458,7 +512,7 @@ export function PaymentCheckoutModal({
               {selectedMethod === 'transfer'
                 ? "El comprobante será revisado por la administración antes de validarse."
                 : selectedMethod === 'online'
-                  ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(amount)} completos.`
+                  ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(finalAmount)} completos.`
                   : "🔒 Pago 100% seguro."}
             </p>
           </div>
@@ -483,7 +537,7 @@ export function PaymentCheckoutModal({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-green-600">¡Pago exitoso!</h3>
-              <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(amount)} fue procesado correctamente</p>
+              <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(finalAmount)} fue procesado correctamente</p>
             </div>
           </div>
         )}
@@ -524,11 +578,11 @@ export function PaymentCheckoutModal({
     <PaymentConfirmModal
       open={showOnlineConfirm}
       onOpenChange={setShowOnlineConfirm}
-      baseAmount={amount}
+      baseAmount={finalAmount}
       grossAmount={grossAmount}
       sportmapsFee={sportmapsFee}
       feePct={onlineFeePct}
-      concept={concept}
+      concept={finalConcept}
       childName={childName}
       loading={epaycoLoading}
       onConfirm={openCheckout}
