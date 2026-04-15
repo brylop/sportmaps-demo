@@ -9,14 +9,16 @@ import { daysDiffFromToday } from '@/lib/dateUtils';
 function cleanConcept(concept: string | null): string {
     if (!concept) return '';
     let clean = concept;
-    // Remove team prefix (e.g. "Equipo Equipo - ")
-    if (clean.includes(' - ')) {
-        clean = clean.substring(clean.indexOf(' - ') + 3);
+    // Remove team prefix before any dash separator (-, –, —, --)
+    const prefixMatch = clean.match(/^.+?\s[-–—]+\s/);
+    if (prefixMatch) {
+        clean = clean.substring(prefixMatch[0].length);
     }
-    // Remove athlete name suffix (e.g. " -- Santiago Robles")
-    const parts = clean.split(' -- ');
-    if (parts.length > 1) parts.pop();
-    clean = parts.join(' -- ');
+    // Remove athlete name suffix after last " -- " or " – " or " — "
+    const suffixMatch = clean.match(/^(.+)\s[-–—]+\s[^-–—]+$/);
+    if (suffixMatch) {
+        clean = suffixMatch[1];
+    }
     return clean.trim();
 }
 
