@@ -124,6 +124,7 @@ export default function RegisterPage() {
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');
   const inviteRole = searchParams.get('role');
+  const referralCode = searchParams.get('ref');
   const [invitationInfo, setInvitationInfo] = useState<{
     school_name: string;
     role_to_assign: string;
@@ -232,6 +233,7 @@ export default function RegisterPage() {
         role: data.role as any,
         invitation_code: data.code,
         school_name: data.schoolName,
+        referral_code: referralCode || undefined,
       };
 
       if (data.role === 'school' && selectedSport) {

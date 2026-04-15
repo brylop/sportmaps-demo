@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import {
   UserPlus, Search, X as XIcon, Clock, Check,
   Copy, MessageCircle, Send, Link as LinkIcon, Mail,
-  Users, CreditCard, ChevronDown, Ban,
+  Users, CreditCard, ChevronDown, Ban, Gift, Building2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -59,12 +59,12 @@ export default function InvitationsManagementPage() {
   // ── Form state ──────────────────────────────────────────────────────────────
   const [formData, setFormData] = useState({
     parentEmail: '',
-    parentPhone: '',
+    parentPhone: '+57',
     childName: '',
     teamId: '',          // → p_team_id  (equipo/grupo)
     offeringPlanId: '',  // → p_offering_plan_id (plan de sesiones)
     monthlyFee: defaultMonthlyFee,
-    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'guest' | 'school_admin' | 'reporter',
+    role: 'parent' as 'parent' | 'coach' | 'athlete' | 'referral' | 'school_admin' | 'reporter',
   });
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -326,7 +326,8 @@ export default function InvitationsManagementPage() {
     const child = invitation.child_name || formData.childName;
     const team = invitation.team_id || formData.teamId;
 
-    const params = new URLSearchParams({ school: schoolId || '', email: email || '', invite: inviteId, role });
+    const params = new URLSearchParams({ school: schoolId || '', invite: inviteId, role });
+    if (email) params.append('email', email);
     if (child) params.append('child', child);
     if (team) params.append('program', team);
     
@@ -419,16 +420,37 @@ export default function InvitationsManagementPage() {
       queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
       setDialogOpen(false);
       const email = formData.parentEmail;
-      setFormData({ parentEmail: '', parentPhone: '', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent' });
+      const phone = formData.parentPhone.replace(/\D/g, '');
+      const role = formData.role;
+
+      setFormData({ parentEmail: '', parentPhone: '+57', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent' });
       (formData as any).selectedBranchId = activeBranchId || '';
 
       toast({
         title: '✅ Invitación creada',
-        description: `Invitación registrada para ${email}.`,
+        description: `Invitación registrada para ${email || phone}.`,
       });
+
       if (result.registration_link) {
         navigator.clipboard.writeText(result.registration_link);
         toast({ title: '📋 Link copiado automáticamente', description: 'Compártelo por WhatsApp o email.' });
+
+        // Si hay teléfono, abrir WhatsApp automáticamente con el link real
+        if (phone.length >= 7) {
+          const messages: Record<string, string> = {
+            parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate aquí: ${result.registration_link}`,
+            coach: `¡Hola! Te invitamos como entrenador en ${schoolName}: ${result.registration_link}`,
+            athlete: `¡Hola! Te invitamos como atleta en ${schoolName}: ${result.registration_link}`,
+            school_admin: `¡Hola! Te invitamos a administrar una sede en ${schoolName}: ${result.registration_link}`,
+            reporter: `¡Hola! Te invitamos como súper usuario en ${schoolName}: ${result.registration_link}`,
+          };
+          const msg = messages[role] ?? `¡Hola! Únete a ${schoolName}: ${result.registration_link}`;
+
+          // Pequeño delay para que el toast se vea antes de abrir WA
+          setTimeout(() => {
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+          }, 600);
+        }
       }
     },
     onError: (error: unknown) => {
@@ -457,8 +479,62 @@ export default function InvitationsManagementPage() {
     },
   });
 
+  const createReferralMutation = useMutation({
+    mutationFn: async ({ email, message }: { email: string; message?: string }) => {
+      const { data, error } = await (supabase.rpc as any)('create_school_referral', {
+        p_referred_email: email,
+        p_message: message || null,
+      });
+      if (error) throw error;
+      return data as { id: string; code: string; referrer: string; link_path: string };
+    },
+    onSuccess: (result) => {
+      const fullLink = `${window.location.host}${result.link_path}`;
+      navigator.clipboard.writeText(fullLink);
+      setDialogOpen(false);
+      setFormData(prev => ({ ...prev, role: 'parent', parentEmail: '', parentPhone: '' }));
+      toast({ title: '🏫 Referido creado', description: 'Link copiado al portapapeles. Compártelo con la academia.' });
+      queryClient.invalidateQueries({ queryKey: ['school-referrals', schoolId] });
+    },
+    onError: (err: any) => {
+      toast({ title: '❌ Error', description: err.message || 'No se pudo crear el referido.', variant: 'destructive' });
+    },
+  });
+
+  const sendReferralWhatsApp = (code: string, phone?: string) => {
+    const link = `${window.location.origin}/register?role=school&ref=${code}`;
+    const msg = `¡Hola! Te invito a unirte a SportMaps, la plataforma para gestionar tu escuela deportiva. Regístrate aquí: ${link}`;
+    const p = (phone || '').replace(/\D/g, '');
+    window.open(`https://wa.me/${p ? p : ''}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const getReferralStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending': return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pendiente</Badge>;
+      case 'registered': return <Badge className="bg-blue-500"><Check className="w-3 h-3 mr-1" />Registrada</Badge>;
+      case 'active': return <Badge className="bg-teal-500"><Check className="w-3 h-3 mr-1" />Activa</Badge>;
+      case 'rewarded': return <Badge className="bg-green-500"><Gift className="w-3 h-3 mr-1" />Recompensado</Badge>;
+      case 'expired': return <Badge variant="outline" className="text-orange-500 border-orange-300"><Clock className="w-3 h-3 mr-1" />Expirado</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const hasValidContact = () => {
+    const hasEmail = formData.parentEmail.trim() !== '';
+    const hasPhone = formData.parentPhone.replace(/\D/g, '').length >= 7;
+    return hasEmail || hasPhone;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasValidContact()) {
+      toast({
+        title: 'Dato requerido',
+        description: 'Ingresa al menos un email o número de WhatsApp.',
+        variant: 'destructive',
+      });
+      return;
+    }
     sendInvitationMutation.mutate(formData);
   };
 
@@ -705,7 +781,7 @@ export default function InvitationsManagementPage() {
         </CardContent>
       </Card>
 
-      {/* ── Dialog nueva invitación ────────────────────────────────────────── */}
+      {/* ── Dialog nueva invitación (Unificado) ────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md sm:max-w-lg p-0 overflow-hidden">
 
@@ -725,7 +801,9 @@ export default function InvitationsManagementPage() {
                       ? 'Invita un administrador que gestionará su propia sede.'
                       : formData.role === 'reporter'
                         ? 'Invita un súper usuario con acceso de solo lectura a reportes.'
-                        : 'Genera un link de registro personalizado.'}
+                        : formData.role === 'referral'
+                          ? 'Comparte un link de registro para que otra academia se una a SportMaps.'
+                          : 'Genera un link de registro personalizado.'}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -744,7 +822,7 @@ export default function InvitationsManagementPage() {
                   { id: 'athlete', label: '⚽ Atleta' },
                   { id: 'school_admin', label: '🔑 Administrador' },
                   { id: 'reporter', label: '📊 Súper Usuario' },
-                  { id: 'guest', label: '👤 Invitado' },
+                  { id: 'referral', label: '🏫 Referencia' },
                 ].map(role => (
                   <Button key={role.id} type="button"
                     variant={formData.role === role.id ? 'default' : 'outline'}
@@ -752,7 +830,10 @@ export default function InvitationsManagementPage() {
                     onClick={() => setFormData({
                       ...formData,
                       role: role.id as typeof formData.role,
-                      ...(role.id !== 'parent' ? { childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee } : {}),
+                      ...(role.id !== 'parent' ? { childName: '' } : {}),
+                      ...(['school_admin', 'reporter', 'referral'].includes(role.id)
+                        ? { teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee }
+                        : {}),
                     })}>
                     {role.label}
                   </Button>
@@ -760,196 +841,184 @@ export default function InvitationsManagementPage() {
               </div>
             </div>
 
-            {/* Info blocks */}
-            {formData.role === 'school_admin' && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-400">
-                <strong>Nota:</strong> El administrador invitado creará y gestionará su propia sede al registrarse.
-              </div>
-            )}
-            {formData.role === 'reporter' && (
-              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm text-blue-700 dark:text-blue-400">
-                <strong>Súper Usuario:</strong> Acceso de solo lectura a reportes y analíticas.
-              </div>
-            )}
-
-            {/* Email */}
-            <div className="space-y-1.5">
-              <Label htmlFor="parentEmail" className="text-sm font-medium">Email *</Label>
-              <Input
-                id="parentEmail" type="email" placeholder="ejemplo@correo.com"
-                value={formData.parentEmail} required className="h-10"
-                onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
-              />
-              {/* Sugerencias */}
-              {suggestedContacts.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Sugeridos:
-                  </p>
-                  <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
-                    {suggestedContacts.slice(0, 3).map(contact => (
-                      <div key={contact.email}
-                        className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
-                        onClick={() => {
-                          const t = teams.find(p => p.id === contact.teamId);
-                          setFormData(prev => ({
-                            ...prev,
-                            parentEmail: contact.email,
-                            parentPhone: contact.phone || prev.parentPhone,
-                            childName: contact.childName || prev.childName,
-                            teamId: contact.teamId || prev.teamId,
-                            monthlyFee: t?.monthly_fee || prev.monthlyFee,
-                          }));
-                        }}>
-                        <div className="flex flex-col">
-                          <span className="text-xs font-semibold group-hover:text-primary">{contact.name || 'Sin nombre'}</span>
-                          <span className="text-[10px] text-muted-foreground">{contact.email}</span>
-                        </div>
-                        <Badge variant="outline" className="text-[9px] h-5 group-hover:bg-primary group-hover:text-white transition-colors">
-                          Usar
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
+            {/* ── MODO REFERIDO: form simplificado ── */}
+            {formData.role === 'referral' ? (
+              <div className="space-y-4 pt-2">
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 p-3 text-sm text-blue-700 dark:text-blue-400">
+                  Se generará un link único con código de referido. La academia invitada lo usará al registrarse.
                 </div>
-              )}
-            </div>
 
-            {/* Teléfono */}
-            <div className="space-y-1.5">
-              <Label htmlFor="parentPhone" className="text-sm font-medium">WhatsApp / Teléfono</Label>
-              <Input
-                id="parentPhone" placeholder="Ej: 3001234567" className="h-10"
-                value={formData.parentPhone}
-                onChange={e => setFormData({ ...formData, parentPhone: e.target.value })}
-              />
-            </div>
-
-            {/* Nombre del hijo — solo para padre */}
-            {formData.role === 'parent' && (
-              <div className="space-y-1.5">
-                <Label htmlFor="childName" className="text-sm font-medium">Nombre del hijo/a *</Label>
-                <Input
-                  id="childName" placeholder="Ej: María Rodríguez" required className="h-10"
-                  value={formData.childName}
-                  onChange={e => setFormData({ ...formData, childName: e.target.value })}
-                />
-              </div>
-            )}
-
-            {/* ── SECCIÓN ASIGNACIÓN (padre, coach, atleta) ────────────────── */}
-            {['parent', 'coach', 'athlete'].includes(formData.role) && (
-              <div className="space-y-3">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Asignación
-                </Label>
-
-                {/* Equipo / grupo */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-muted-foreground" />
-                    <Label htmlFor="teamId" className="text-sm font-medium">
-                      Equipo / grupo
-                      {formData.role !== 'parent' && <span className="text-muted-foreground font-normal ml-1">(opcional)</span>}
-                    </Label>
-                  </div>
-                  <Select value={formData.teamId || 'none'} onValueChange={handleTeamChange}>
-                    <SelectTrigger className="h-10" id="teamId">
-                      <SelectValue placeholder="Seleccionar equipo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">— Sin equipo —</SelectItem>
-                      {teams.map(p => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                          {p.monthly_fee ? ` — ${formatCurrency(p.monthly_fee)}` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="referralEmail" className="text-sm font-medium">Email del director / dueño *</Label>
+                  <Input
+                    id="referralEmail" type="email" placeholder="director@otraescuela.com"
+                    value={formData.parentEmail} className="h-10"
+                    onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
+                  />
                 </div>
 
-                {/* Plan de sesiones — para roles aplicables */}
-                {['parent', 'athlete', 'coach'].includes(formData.role) && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
-                      <Label htmlFor="offeringPlanId" className="text-sm font-medium">
-                        Plan de sesiones
-                        <span className="text-muted-foreground font-normal ml-1">(opcional)</span>
-                      </Label>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium">Teléfono (opcional)</Label>
+                  <Input
+                    placeholder="3001234567" className="h-10"
+                    value={formData.parentPhone}
+                    onChange={e => setFormData({ ...formData, parentPhone: e.target.value })}
+                  />
+                </div>
+
+                {formData.parentEmail && (
+                  <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2 border border-dashed border-primary/20">
+                    <LinkIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
+                    <div className="overflow-hidden">
+                      <p className="text-xs font-medium">Link que se generará:</p>
+                      <p className="text-[10px] text-muted-foreground break-all leading-tight italic">
+                        {`${window.location.host}/register?role=school&ref=SM••••••`}
+                      </p>
                     </div>
-                    <Select value={formData.offeringPlanId || 'none'} onValueChange={handlePlanChange}>
-                      <SelectTrigger className="h-10" id="offeringPlanId">
-                        <SelectValue placeholder="Seleccionar plan..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">— Sin plan —</SelectItem>
-                        {offeringPlans.map(op => (
-                          <SelectItem key={op.id} value={op.id}>
-                            {op.name} — {op.offering_name}
-                            {op.max_sessions ? ` (${op.max_sessions} ses.)` : ' (ilimitado)'}
-                            {` — ${formatCurrency(op.price)}`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[11px] text-muted-foreground">
-                      Si asignas un plan, se activa automáticamente al aceptar la invitación.
-                    </p>
                   </div>
                 )}
+              </div>
+            ) : (
+              <>
+                {/* ── MODO NORMAL: campos existentes ── */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="parentEmail" className="text-sm font-medium">
+                    Email
+                    <span className="text-muted-foreground font-normal ml-1">(o WhatsApp)</span>
+                  </Label>
+                  <Input
+                    id="parentEmail" type="email" placeholder="ejemplo@correo.com"
+                    value={formData.parentEmail} className="h-10"
+                    onChange={e => setFormData({ ...formData, parentEmail: e.target.value })}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Requerido para enviar el link por email. Puedes usar solo WhatsApp si prefieres.
+                  </p>
+                  {/* Sugerencias */}
+                  {suggestedContacts.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Sugeridos:
+                      </p>
+                      <div className="flex flex-col gap-1 max-h-24 overflow-y-auto">
+                        {suggestedContacts.slice(0, 3).map(contact => (
+                          <div key={contact.email}
+                            className="flex items-center justify-between p-2 rounded-md border border-dashed border-muted hover:border-primary hover:bg-primary/5 cursor-pointer transition-colors group"
+                            onClick={() => {
+                              const t = teams.find(p => p.id === contact.teamId);
+                              setFormData(prev => ({
+                                ...prev,
+                                parentEmail: contact.email,
+                                childName: contact.childName || prev.childName,
+                                teamId: contact.teamId || prev.teamId,
+                                parentPhone: contact.phone || prev.parentPhone,
+                                monthlyFee: t?.monthly_fee || prev.monthlyFee,
+                              }));
+                            }}>
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-medium group-hover:text-primary transition-colors">{contact.email}</span>
+                              {contact.name && <span className="text-[9px] text-muted-foreground">{contact.name}</span>}
+                            </div>
+                            <Check className="w-3 h-3 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-                {/* Mensualidad manual — solo si no hay equipo ni plan seleccionado */}
-                {['parent', 'athlete'].includes(formData.role) && !formData.teamId && !formData.offeringPlanId && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="parentPhone" className="text-sm font-medium">Teléfono / WhatsApp</Label>
+                  <Input
+                    id="parentPhone" type="tel" placeholder="300..."
+                    value={formData.parentPhone} className="h-10"
+                    onChange={e => setFormData({ ...formData, parentPhone: e.target.value })}
+                  />
+                </div>
+
+                {formData.role === 'parent' && (
                   <div className="space-y-1.5">
-                    <Label htmlFor="monthlyFee" className="text-sm font-medium">Cuota mensual</Label>
+                    <Label htmlFor="childName" className="text-sm font-medium">Nombre del hijo/a *</Label>
                     <Input
-                      id="monthlyFee" type="number" className="h-10"
-                      value={formData.monthlyFee || ''}
-                      onChange={e => setFormData({ ...formData, monthlyFee: Number(e.target.value) })}
-                      placeholder="150000"
+                      id="childName" placeholder="Nombre completo"
+                      value={formData.childName} required className="h-10"
+                      onChange={e => setFormData({ ...formData, childName: e.target.value })}
                     />
                   </div>
                 )}
 
-                {/* Resumen de lo que se asignará */}
-                {(formData.teamId || formData.offeringPlanId) && (
-                  <div className="rounded-md border border-dashed p-2.5 space-y-1 bg-muted/30">
-                    <p className="text-[11px] font-medium text-muted-foreground">Al aceptar la invitación se asignará:</p>
-                    {formData.teamId && (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <Users className="w-3 h-3 text-teal-600" />
-                        <span className="text-teal-700 font-medium">
-                          Equipo: {teams.find(p => p.id === formData.teamId)?.name}
-                        </span>
-                      </div>
-                    )}
-                    {formData.offeringPlanId && (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <CreditCard className="w-3 h-3 text-purple-600" />
-                        <span className="text-purple-700 font-medium">
-                          Plan: {offeringPlans.find(op => op.id === formData.offeringPlanId)?.name}
-                          {' — '}{offeringPlans.find(op => op.id === formData.offeringPlanId)?.offering_name}
-                        </span>
-                      </div>
-                    )}
+                {branches.length > 1 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Sede de la invitación</Label>
+                    <Select
+                      value={(formData as any).selectedBranchId || activeBranchId || ''}
+                      onValueChange={(val) => setFormData(prev => ({ ...prev, selectedBranchId: val } as any))}
+                    >
+                      <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar sede" /></SelectTrigger>
+                      <SelectContent>
+                        {branches.map((b: any) => (<SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* Preview link */}
-            {formData.parentEmail && (
-              <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2">
-                <LinkIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-                <div className="overflow-hidden">
-                  <p className="text-xs font-medium">Link de registro:</p>
-                  <p className="text-[10px] text-muted-foreground break-all leading-tight italic">
-                    {generateRegistrationLink({})}
-                  </p>
+                {['parent', 'athlete', 'coach'].includes(formData.role) && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Equipo / Grupo</Label>
+                    <Select value={formData.teamId || 'none'} onValueChange={handleTeamChange}>
+                      <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin equipo (manual)</SelectItem>
+                        {teams.map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {['parent', 'athlete'].includes(formData.role) && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Plan de sesiones</Label>
+                    <Select value={formData.offeringPlanId || 'none'} onValueChange={handlePlanChange}>
+                      <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin plan</SelectItem>
+                        {offeringPlans.map(op => (
+                          <SelectItem key={op.id} value={op.id} className="text-xs">
+                            {op.name} ({formatCurrency(op.price)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {['parent', 'athlete'].includes(formData.role) && (
+                  <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10 transition-all">
+                    <Label className="text-sm font-semibold flex items-center justify-between">
+                      Mensualidad / Cobro inicial
+                      <Badge variant="secondary" className="font-normal text-[10px]">COP</Badge>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        type="number" value={formData.monthlyFee || ''}
+                        className="pl-7 h-10 font-bold text-primary"
+                        onChange={e => setFormData({ ...formData, monthlyFee: Number(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2 border border-dashed">
+                  <LinkIcon className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
+                  <div className="overflow-hidden">
+                    <p className="text-xs font-medium">Vista previa del link:</p>
+                    <p className="text-[10px] text-muted-foreground break-all leading-tight italic">
+                      {generateRegistrationLink({})}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* Acciones */}
@@ -957,16 +1026,35 @@ export default function InvitationsManagementPage() {
               <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={sendInvitationMutation.isPending} className="px-6">
-                <Send className="w-4 h-4 mr-2" />
-                {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
-              </Button>
-              {formData.parentPhone && (
-                <Button type="button" variant="outline"
+
+              {formData.role === 'referral' ? (
+                <Button
+                  type="button"
+                  disabled={!formData.parentEmail || createReferralMutation.isPending}
+                  onClick={() => createReferralMutation.mutate({
+                    email: formData.parentEmail,
+                    message: undefined,
+                  })}
+                  className="px-6 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200"
+                >
+                  <Building2 className="w-4 h-4 mr-2" />
+                  {createReferralMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
+                </Button>
+              ) : (
+                <Button type="submit" disabled={sendInvitationMutation.isPending || !hasValidContact()} className="px-6">
+                  <Send className="w-4 h-4 mr-2" />
+                  {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Copiar Link'}
+                </Button>
+              )}
+
+              {formData.parentPhone.replace(/\D/g, '').length >= 7 && formData.role !== 'referral' && (
+                <Button type="submit"
+                  variant="outline"
+                  disabled={sendInvitationMutation.isPending || !hasValidContact()}
                   className="text-green-700 border-green-300 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-900/30"
-                  onClick={() => sendWhatsApp({})}>
+                >
                   <MessageCircle className="w-4 h-4 mr-2" />
-                  WhatsApp
+                  {sendInvitationMutation.isPending ? 'Creando...' : 'Crear & Enviar WA'}
                 </Button>
               )}
             </div>
