@@ -72,30 +72,71 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     try {
       const reference = `CASH-${Date.now().toString(36).toUpperCase()}`;
 
-      // Insert payment direct
-      const { error: insertError } = await supabase.from('payments').insert({
-        school_id: schoolId,
-        child_id: selectedStudent.child_id || null,
-        user_id: selectedStudent.user_id || null,
-        parent_id: selectedStudent.parent_id || null,
-        amount: numericAmount,
-        concept,
-        status: 'paid',
-        payment_method: 'cash',
-        payment_channel: 'cash',
-        payment_type: 'one_time',
-        payment_date: paymentDate,
-        due_date: paymentDate,
-        approved_by: user.id,
-        approved_at: new Date().toISOString(),
-        reference,
-        amount_paid: numericAmount
-      });
+      // Resolve correct IDs: school_athletes.id = child_id for children, user_id for adults
+      const isChild = selectedStudent.athlete_type === 'child';
+      const childId = isChild ? selectedStudent.id : null;
+      const userId = isChild ? null : selectedStudent.id;
 
-      if (insertError) throw insertError;
+      // Try to find an existing pending/overdue payment for this student
+      let matchQuery = supabase
+        .from('payments')
+        .select('id')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'overdue'])
+        .order('due_date', { ascending: true })
+        .limit(1);
+
+      if (childId) {
+        matchQuery = matchQuery.eq('child_id', childId);
+      } else if (userId) {
+        matchQuery = matchQuery.eq('user_id', userId);
+      }
+
+      const { data: existingPayments } = await matchQuery;
+
+      if (existingPayments && existingPayments.length > 0) {
+        // Update existing pending payment to paid
+        const { error: updateError } = await supabase
+          .from('payments')
+          .update({
+            status: 'paid',
+            payment_method: 'cash',
+            payment_channel: 'cash',
+            payment_date: paymentDate,
+            approved_by: user.id,
+            approved_at: new Date().toISOString(),
+            reference,
+            amount_paid: numericAmount,
+          })
+          .eq('id', existingPayments[0].id);
+
+        if (updateError) throw updateError;
+      } else {
+        // No pending payment found — create a new one
+        const { error: insertError } = await supabase.from('payments').insert({
+          school_id: schoolId,
+          child_id: childId,
+          user_id: userId,
+          parent_id: selectedStudent.parent_id || null,
+          amount: numericAmount,
+          concept,
+          status: 'paid',
+          payment_method: 'cash',
+          payment_channel: 'cash',
+          payment_type: 'one_time',
+          payment_date: paymentDate,
+          due_date: paymentDate,
+          approved_by: user.id,
+          approved_at: new Date().toISOString(),
+          reference,
+          amount_paid: numericAmount
+        });
+
+        if (insertError) throw insertError;
+      }
 
       // Notificar al padre o al atleta (si tienen cuenta)
-      const recipientId = selectedStudent.parent_id || selectedStudent.user_id;
+      const recipientId = selectedStudent.parent_id || userId;
       if (recipientId) {
         await supabase.rpc('notify_user', {
           p_user_id: recipientId,
