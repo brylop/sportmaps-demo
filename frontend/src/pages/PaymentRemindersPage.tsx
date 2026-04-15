@@ -4,7 +4,7 @@ import { paymentRemindersAPI, PaymentReminder, ReminderBatch } from '@/lib/api/p
 import { daysDiffFromToday } from '@/lib/dateUtils';
 import {
     Bell, DollarSign, AlertTriangle, Clock, Send, CheckCircle2, Users,
-    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter, MessageCircle, Phone
+    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter, MessageCircle, Phone, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,10 +32,28 @@ export default function PaymentRemindersPage() {
     const [filterPlan, setFilterPlan] = useState<string>('all');
     const [expandedParent, setExpandedParent] = useState<string | null>(null);
     const [sendingAuto, setSendingAuto] = useState(false);
+    const [templates, setTemplates] = useState<{ id: string; name: string; template_type: string }[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('auto');
 
     useEffect(() => {
-        if (schoolId) loadReminders();
+        if (schoolId) {
+            loadReminders();
+            loadTemplates();
+        }
     }, [schoolId, activeBranchId]);
+
+    async function loadTemplates() {
+        // Load WhatsApp templates available to this school (school-specific + global defaults)
+        const { data } = await supabase
+            .from('payment_message_templates')
+            .select('id, name, template_type, is_default, school_id')
+            .eq('channel', 'whatsapp')
+            .eq('is_active', true)
+            .or(`school_id.eq.${schoolId},school_id.is.null`)
+            .order('template_type')
+            .order('sort_order');
+        setTemplates(data || []);
+    }
 
     async function loadReminders() {
         if (!schoolId) return;
@@ -175,18 +193,24 @@ export default function PaymentRemindersPage() {
 
         setSendingWA(reminder.id);
         try {
-            // Render the template via BFF using the DB template
+            // Determine template type from payment status
             const templateType = reminder.status === 'overdue' ? 'overdue'
                 : daysDiffFromToday(reminder.dueDate) <= 0 ? 'reminder_due'
                 : 'reminder_before';
 
+            // Build render request — use specific template if selected, otherwise auto-detect
+            const renderBody: Record<string, string> = {
+                payment_id: reminder.paymentId,
+                template_type: templateType,
+                channel: 'whatsapp',
+            };
+            if (selectedTemplateId !== 'auto') {
+                renderBody.template_id = selectedTemplateId;
+            }
+
             const { message } = await bffClient.post<{ message: { body: string } }>(
                 '/api/v1/templates/render',
-                {
-                    payment_id: reminder.paymentId,
-                    template_type: templateType,
-                    channel: 'whatsapp',
-                },
+                renderBody,
             );
 
             // Clean phone number
@@ -334,6 +358,27 @@ export default function PaymentRemindersPage() {
                         </SelectContent>
                     </Select>
                 )}
+
+                {/* Template selector */}
+                <div className="flex items-center gap-1.5 ml-auto">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                        <SelectTrigger className="w-[220px]">
+                            <SelectValue placeholder="Plantilla" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="auto">Plantilla automatica</SelectItem>
+                            {templates.map(t => (
+                                <SelectItem key={t.id} value={t.id}>
+                                    {t.name}
+                                    <span className="text-muted-foreground text-[10px] ml-1">
+                                        ({t.template_type.replace('_', ' ')})
+                                    </span>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
                 {selectedIds.size > 0 && (
                     <Badge variant="secondary" className="animate-in fade-in">
