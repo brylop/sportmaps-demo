@@ -187,8 +187,8 @@ export default function InvitationsManagementPage() {
       if (activeBranchId) query = query.eq('branch_id', activeBranchId);
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
-      
-      return (data || []).map((inv: any) => ({
+
+      const mapped = (data || []).map((inv: any) => ({
         id: inv.id,
         invited_email: inv.email,
         child_name: inv.child_name || '',
@@ -202,6 +202,80 @@ export default function InvitationsManagementPage() {
         offering_plan_id: inv.offering_plan_id || null,
         branch_name: inv.school_branches?.name || 'Sede Principal',
       })) as Invitation[];
+
+      // ── Enrich: fill missing team/plan/fee from payments ──────────────
+      const incomplete = mapped.filter(
+        inv => ['parent', 'athlete'].includes(inv.role_to_assign || '') &&
+               (!inv.team_id || !inv.offering_plan_id || inv.monthly_fee == null)
+      );
+      if (incomplete.length > 0) {
+        const emails = [...new Set(incomplete.map(i => i.invited_email))];
+        // Resolve profile IDs from emails
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('email', emails);
+        const emailToProfileId = new Map((profiles || []).map((p: any) => [p.email, p.id]));
+
+        const profileIds = [...emailToProfileId.values()].filter(Boolean);
+        if (profileIds.length > 0) {
+          // Get the most recent payment per parent for this school
+          const { data: payments } = await (supabase.from('payments') as any)
+            .select('parent_id, team_id, offering_plan_id, amount')
+            .eq('school_id', schoolId)
+            .in('parent_id', profileIds)
+            .order('created_at', { ascending: false });
+
+          if (payments && payments.length > 0) {
+            // Build a map: parentId → first (most recent) payment with data
+            const parentPaymentMap = new Map<string, any>();
+            for (const pay of payments) {
+              if (!parentPaymentMap.has(pay.parent_id) && (pay.team_id || pay.offering_plan_id)) {
+                parentPaymentMap.set(pay.parent_id, pay);
+              }
+            }
+
+            const updates: { id: string; team_id?: string; offering_plan_id?: string; monthly_fee?: number }[] = [];
+
+            for (const inv of incomplete) {
+              const profileId = emailToProfileId.get(inv.invited_email);
+              const pay = profileId ? parentPaymentMap.get(profileId) : null;
+              if (!pay) continue;
+
+              const patch: typeof updates[0] = { id: inv.id };
+              let changed = false;
+
+              if (!inv.team_id && pay.team_id) {
+                inv.team_id = pay.team_id;
+                patch.team_id = pay.team_id;
+                changed = true;
+              }
+              if (!inv.offering_plan_id && pay.offering_plan_id) {
+                inv.offering_plan_id = pay.offering_plan_id;
+                patch.offering_plan_id = pay.offering_plan_id;
+                changed = true;
+              }
+              if (inv.monthly_fee == null && pay.amount) {
+                inv.monthly_fee = Number(pay.amount);
+                patch.monthly_fee = Number(pay.amount);
+                changed = true;
+              }
+
+              if (changed) updates.push(patch);
+            }
+
+            // Persist patches to DB so they're filled permanently
+            for (const upd of updates) {
+              const { id, ...fields } = upd;
+              await (supabase.from('invitations') as any)
+                .update(fields)
+                .eq('id', id);
+            }
+          }
+        }
+      }
+
+      return mapped;
     },
     enabled: !!schoolId,
   });
