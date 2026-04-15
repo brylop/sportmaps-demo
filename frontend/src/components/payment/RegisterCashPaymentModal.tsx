@@ -72,13 +72,19 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     try {
       const reference = `CASH-${Date.now().toString(36).toUpperCase()}`;
 
-      // Resolve correct IDs from the school_athletes view:
-      // Adults  → user_id is set (valid profile ID), id === user_id
-      // Children → user_id is null, id = child_id from children table
-      const childId = !selectedStudent.user_id ? selectedStudent.id : null;
-      const userId = selectedStudent.user_id || null;
+      // Resolve correct IDs from the school_athletes view.
+      // Payments are created with exactly ONE of these three fields:
+      //   Flujo A (menores)      → child_id   (user_id null, parent_id null in view)
+      //   Flujo B (adultos)      → user_id    (user_id set in view)
+      //   Flujo C (sin cuenta)   → unregistered_athlete_id (user_id null, parent_id null)
+      const hasUserId  = !!selectedStudent.user_id;
+      const hasParent  = !!selectedStudent.parent_id;
 
-      // Try to find an existing pending/overdue payment for this student
+      const userId           = hasUserId ? selectedStudent.user_id : null;
+      const childId          = (!hasUserId && hasParent) ? selectedStudent.id : null;
+      const unregisteredId   = (!hasUserId && !hasParent) ? selectedStudent.id : null;
+
+      // Find existing pending/overdue payment for this student
       let matchQuery = supabase
         .from('payments')
         .select('id')
@@ -87,11 +93,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         .order('due_date', { ascending: true })
         .limit(1);
 
-      if (childId) {
-        matchQuery = matchQuery.eq('child_id', childId);
-      } else if (userId) {
-        matchQuery = matchQuery.eq('user_id', userId);
-      }
+      if (userId)         matchQuery = matchQuery.eq('user_id', userId);
+      else if (childId)   matchQuery = matchQuery.eq('child_id', childId);
+      else if (unregisteredId) matchQuery = matchQuery.eq('unregistered_athlete_id', unregisteredId);
 
       const { data: existingPayments } = await matchQuery;
 
@@ -118,6 +122,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           school_id: schoolId,
           child_id: childId,
           user_id: userId,
+          unregistered_athlete_id: unregisteredId,
           parent_id: selectedStudent.parent_id || null,
           amount: numericAmount,
           concept,
