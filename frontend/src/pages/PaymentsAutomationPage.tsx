@@ -521,8 +521,8 @@ export default function PaymentsAutomationPage() {
             className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
           >
             <Banknote className="h-4 w-4" />
-            <span className="hidden sm:inline">Registrar efectivo</span>
-            <span className="sm:hidden">Efectivo</span>
+            <span className="hidden sm:inline">Registrar pago</span>
+            <span className="sm:hidden">Pago</span>
           </Button>
           <Button variant="outline" size="sm" onClick={fetchPayments} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4 mr-2" />}

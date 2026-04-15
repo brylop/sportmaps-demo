@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Banknote, Building2 } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
@@ -29,6 +29,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
   // Form state
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [concept, setConcept] = useState('Mensualidad');
   const [amount, setAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -70,45 +71,50 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
     setLoading(true);
     try {
-      const reference = `CASH-${Date.now().toString(36).toUpperCase()}`;
+      const prefix = paymentMethod === 'cash' ? 'CASH' : 'TRF';
+      const reference = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
 
-      // Resolve correct IDs: school_athletes.id = child_id for children, user_id for adults
-      const isChild = selectedStudent.athlete_type === 'child';
-      const childId = isChild ? selectedStudent.id : null;
-      const userId = isChild ? null : selectedStudent.id;
+      // Resolve correct IDs from the school_athletes view.
+      // Payments are created with exactly ONE of these three fields:
+      //   Flujo A (menores)      → child_id   (user_id null, parent_id null in view)
+      //   Flujo B (adultos)      → user_id    (user_id set in view)
+      //   Flujo C (sin cuenta)   → unregistered_athlete_id (user_id null, parent_id null)
+      const hasUserId  = !!selectedStudent.user_id;
+      const hasParent  = !!selectedStudent.parent_id;
 
-      // Try to find an existing pending/overdue payment for this student
+      const userId           = hasUserId ? selectedStudent.user_id : null;
+      const childId          = (!hasUserId && hasParent) ? selectedStudent.id : null;
+      const unregisteredId   = (!hasUserId && !hasParent) ? selectedStudent.id : null;
+
+      // Find ALL pending/overdue payments for this student
       let matchQuery = supabase
         .from('payments')
         .select('id')
         .eq('school_id', schoolId)
-        .in('status', ['pending', 'overdue'])
-        .order('due_date', { ascending: true })
-        .limit(1);
+        .in('status', ['pending', 'overdue']);
 
-      if (childId) {
-        matchQuery = matchQuery.eq('child_id', childId);
-      } else if (userId) {
-        matchQuery = matchQuery.eq('user_id', userId);
-      }
+      if (userId)              matchQuery = matchQuery.eq('user_id', userId);
+      else if (childId)        matchQuery = matchQuery.eq('child_id', childId);
+      else if (unregisteredId) matchQuery = matchQuery.eq('unregistered_athlete_id', unregisteredId);
 
       const { data: existingPayments } = await matchQuery;
 
       if (existingPayments && existingPayments.length > 0) {
-        // Update existing pending payment to paid
+        // Update ALL pending/overdue payments to paid
+        const ids = existingPayments.map(p => p.id);
         const { error: updateError } = await supabase
           .from('payments')
           .update({
             status: 'paid',
-            payment_method: 'cash',
-            payment_channel: 'cash',
+            payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
+            payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_date: paymentDate,
             approved_by: user.id,
             approved_at: new Date().toISOString(),
             reference,
             amount_paid: numericAmount,
           })
-          .eq('id', existingPayments[0].id);
+          .in('id', ids);
 
         if (updateError) throw updateError;
       } else {
@@ -117,12 +123,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           school_id: schoolId,
           child_id: childId,
           user_id: userId,
+          unregistered_athlete_id: unregisteredId,
           parent_id: selectedStudent.parent_id || null,
           amount: numericAmount,
           concept,
           status: 'paid',
-          payment_method: 'cash',
-          payment_channel: 'cash',
+          payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
+          payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
           payment_type: 'one_time',
           payment_date: paymentDate,
           due_date: paymentDate,
@@ -140,7 +147,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       if (recipientId) {
         await supabase.rpc('notify_user', {
           p_user_id: recipientId,
-          p_title: '✅ Pago en efectivo registrado',
+          p_title: paymentMethod === 'cash' ? '✅ Pago en efectivo registrado' : '✅ Transferencia registrada',
           p_message: `${schoolProfile?.name || 'La escuela'} registró tu pago de ${formatCurrency(numericAmount)} por ${concept}.`,
           p_type: 'success',
           p_link: '/my-payments'
@@ -162,7 +169,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         }).catch(() => {}); // Fire and forget
       }
 
-      toast({ title: 'Cobro Registrado', description: 'El pago en efectivo se ha registrado exitosamente.' });
+      const methodLabel = paymentMethod === 'cash' ? 'en efectivo' : 'por transferencia';
+      toast({ title: 'Cobro Registrado', description: `El pago ${methodLabel} se ha registrado exitosamente.` });
       onSuccess();
       onOpenChange(false);
       resetForm();
@@ -176,6 +184,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
   const resetForm = () => {
     setSelectedAthleteId('');
+    setPaymentMethod('cash');
     setConcept('Mensualidad');
     setAmount('');
     setPaymentDate(new Date().toISOString().split('T')[0]);
@@ -188,13 +197,37 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     }}>
       <DialogContent className="sm:max-w-[450px]">
         <DialogHeader>
-          <DialogTitle>Registrar cobro en efectivo</DialogTitle>
+          <DialogTitle>Registrar pago manual</DialogTitle>
           <DialogDescription>
-            Registra un pago recibido presencialmente y se reflejará instantáneamente en el sistema.
+            Registra un pago recibido (efectivo o transferencia) y se reflejará instantáneamente en el sistema.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Método de pago</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={paymentMethod === 'cash' ? 'default' : 'outline'}
+                className={paymentMethod === 'cash' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+                onClick={() => setPaymentMethod('cash')}
+              >
+                <Banknote className="h-4 w-4 mr-2" />
+                Efectivo
+              </Button>
+              <Button
+                type="button"
+                variant={paymentMethod === 'transfer' ? 'default' : 'outline'}
+                className={paymentMethod === 'transfer' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                onClick={() => setPaymentMethod('transfer')}
+              >
+                <Building2 className="h-4 w-4 mr-2" />
+                Transferencia
+              </Button>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="student">Estudiante / Atleta</Label>
             <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId} disabled={loadingAthletes}>
