@@ -16,7 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap, Calendar, CalendarCheck, CalendarX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -66,6 +66,14 @@ export default function SchoolStudentsManagementPage() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [studentPlanInfo, setStudentPlanInfo] = useState<{
+    plan_name: string;
+    offering_name?: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    status?: string;
+  } | null>(null);
+  const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
   const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
 
@@ -111,8 +119,14 @@ export default function SchoolStudentsManagementPage() {
   }, [profile?.role, profile?.email, schoolId]);
 
   useEffect(() => {
-    if (!viewingStudent) { setStudentDocs([]); return; }
+    if (!viewingStudent) {
+      setStudentDocs([]);
+      setStudentPlanInfo(null);
+      return;
+    }
     const studentId = viewingStudent.id;
+
+    // ── Cargar documentos de identidad ────────────────────────────────────
     setLoadingDocs(true);
     supabase.storage
       .from('identity-documents')
@@ -130,6 +144,56 @@ export default function SchoolStudentsManagementPage() {
         setStudentDocs(docs.filter(d => d.url));
       })
       .finally(() => setLoadingDocs(false));
+
+    // ── Cargar info del plan activo del atleta ────────────────────────────
+    setLoadingPlanInfo(true);
+    setStudentPlanInfo(null);
+
+    const athleteType = getAthleteType(viewingStudent);
+
+    let planQuery = (supabase as any)
+      .from('enrollments')
+      .select(`
+        status,
+        start_date,
+        end_date,
+        expires_at,
+        offering_plans!enrollments_offering_plan_id_fkey (
+          name,
+          offerings!offering_plans_offering_id_fkey ( name )
+        )
+      `)
+      .eq('status', 'active')
+      .not('offering_plan_id', 'is', null)
+      .order('start_date', { ascending: false })
+      .limit(1);
+
+    // ✅ Filtrar por el campo correcto según tipo de atleta
+    if (athleteType === 'child') {
+      planQuery = planQuery.eq('child_id', studentId);
+    } else if (athleteType === 'adult') {
+      planQuery = planQuery.eq('user_id', studentId);
+    } else {
+      // unregistered
+      planQuery = planQuery.eq('unregistered_athlete_id', studentId);
+    }
+
+    planQuery
+      .maybeSingle()
+      .then(({ data: planRow }: { data: any }) => {
+        if (planRow?.offering_plans) {
+          setStudentPlanInfo({
+            plan_name:     planRow.offering_plans.name,
+            offering_name: planRow.offering_plans.offerings?.name,
+            start_date:    planRow.start_date,
+            end_date:      planRow.end_date ?? planRow.expires_at,
+            status:        planRow.status,
+          });
+        } else {
+          setStudentPlanInfo(null);
+        }
+      })
+      .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
 
   const { data: students = [], isLoading } = useQuery({
@@ -947,15 +1011,16 @@ export default function SchoolStudentsManagementPage() {
 
       {/* Dialog Ver Perfil */}
       <Dialog open={!!viewingStudent} onOpenChange={(open) => !open && setViewingStudent(null)}>
-        <DialogContent className="w-[95vw] max-w-md">
+        <DialogContent className="w-[95vw] max-w-lg">
           <DialogHeader>
             <DialogTitle>Perfil del Atleta</DialogTitle>
             <DialogDescription>Detalles deportivos y de contacto</DialogDescription>
           </DialogHeader>
           {viewingStudent && (
             <div className="space-y-4">
+              {/* ── Avatar + nombre ── */}
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-xl font-bold text-muted-foreground uppercase shrink-0">
+                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-bold text-primary uppercase shrink-0">
                   {viewingStudent.full_name.substring(0, 2)}
                 </div>
                 <div className="min-w-0">
@@ -964,13 +1029,13 @@ export default function SchoolStudentsManagementPage() {
                     <MedicalAlertBadge medicalInfo={viewingStudent.medical_info} />
                   </div>
                   <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)}</p>
-                  {getPaymentBadge(viewingStudent.enrollment_status === 'active' ? 'paid' : 'pending')}
                 </div>
               </div>
-              <div className="grid gap-2">
+
+              {/* ── Info básica ── */}
+              <div className="grid gap-1">
                 {[
                   { label: 'Escuela', value: schoolName },
-                  { label: 'Equipo', value: (viewingStudent as any).team_name || '-' },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
                   { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
@@ -981,7 +1046,100 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ))}
               </div>
-              {/* Identity Documents */}
+
+              {/* ── Equipo y Plan ── */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Inscripciones</p>
+
+                {/* Equipo */}
+                {(viewingStudent as any).team_name ? (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20">
+                    <div className="h-8 w-8 rounded-full bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center shrink-0">
+                      <Trophy className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{(viewingStudent as any).team_name}</p>
+                      <p className="text-xs text-muted-foreground">Equipo{(viewingStudent as any).branch_name ? ` · ${(viewingStudent as any).branch_name}` : ''}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
+                    <Trophy className="h-4 w-4 shrink-0" />
+                    <p className="text-xs">Sin equipo asignado</p>
+                  </div>
+                )}
+
+                {/* Plan */}
+                {loadingPlanInfo ? (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando plan...
+                  </div>
+                ) : studentPlanInfo ? (
+                  <div className="p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-violet-100 dark:bg-violet-950/50 flex items-center justify-center shrink-0">
+                        <Zap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {studentPlanInfo.offering_name ? `${studentPlanInfo.offering_name} — ` : ''}{studentPlanInfo.plan_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Plan de servicio</p>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] shrink-0 bg-green-100 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800">Activo</Badge>
+                    </div>
+                    {/* Fechas del plan */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <CalendarCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                        <span className="text-muted-foreground">Inicio:</span>
+                        <span className="font-medium text-foreground">
+                          {studentPlanInfo.start_date
+                            ? new Date(studentPlanInfo.start_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <CalendarX className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <span className="text-muted-foreground">Vence:</span>
+                        <span className={`font-medium ${
+                          studentPlanInfo.end_date && new Date(studentPlanInfo.end_date) < new Date()
+                            ? 'text-destructive'
+                            : 'text-foreground'
+                        }`}>
+                          {studentPlanInfo.end_date
+                            ? new Date(studentPlanInfo.end_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : 'Sin vencimiento'}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Alerta de vencimiento */}
+                    {studentPlanInfo.end_date && (() => {
+                      const endDate = new Date(studentPlanInfo.end_date!);
+                      const today = new Date();
+                      const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) return (
+                        <div className="flex items-center gap-1.5 text-xs text-destructive bg-destructive/10 rounded-md p-2">
+                          <CalendarX className="h-3 w-3 shrink-0" /> Plan vencido hace {Math.abs(diffDays)} día{Math.abs(diffDays) !== 1 ? 's' : ''}
+                        </div>
+                      );
+                      if (diffDays <= 15) return (
+                        <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded-md p-2">
+                          <Calendar className="h-3 w-3 shrink-0" /> Vence en {diffDays} día{diffDays !== 1 ? 's' : ''}
+                        </div>
+                      );
+                      return null;
+                    })()}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
+                    <Zap className="h-4 w-4 shrink-0" />
+                    <p className="text-xs">Sin plan activo</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Documentos de Identidad ── */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <FolderOpen className="h-4 w-4 text-primary" />
@@ -1015,6 +1173,7 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 )}
               </div>
+
               <DialogFooter><Button onClick={() => setViewingStudent(null)}>Cerrar</Button></DialogFooter>
             </div>
           )}
