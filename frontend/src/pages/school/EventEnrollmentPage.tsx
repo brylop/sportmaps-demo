@@ -159,8 +159,8 @@ export default function EventEnrollmentPage() {
 
       if (!res.ok) throw new Error('Error guardando inscripción');
 
-      toast({ title: 'Inscripción Guardada', description: 'La delegación ha sido registrada en el evento.' });
-      navigate('/dashboard'); // Go to school dashboard
+      toast({ title: 'Inscripción Guardada', description: 'La delegación ha sido registrada. Puedes ver el detalle en Mis Delegaciones.' });
+      navigate('/school/delegations');
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {

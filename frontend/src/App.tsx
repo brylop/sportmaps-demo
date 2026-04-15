@@ -133,7 +133,14 @@ const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDas
 const OrganizerProfilePage = lazy(() => import("./pages/organizer/OrganizerProfilePage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
+const OrganizerEventsPage = lazy(() => import("./pages/organizer/OrganizerEventsPage"));
+const OrganizerFinancesPage = lazy(() => import("./pages/organizer/OrganizerFinancesPage"));
+const OrganizerCalendarPage = lazy(() => import("./pages/organizer/OrganizerCalendarPage"));
+const OrganizerReportsPage = lazy(() => import("./pages/organizer/OrganizerReportsPage"));
+const OrganizerSettingsPage = lazy(() => import("./pages/organizer/OrganizerSettingsPage"));
 const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPage"));
+const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
+const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
 
 
 const queryClient = new QueryClient({
@@ -304,6 +311,16 @@ const App = () => (
                           <EventEnrollmentPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="school/delegations" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolDelegationsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/delegations/:id" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolDelegationDetailPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="students" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <SchoolStudentsManagementPage />
@@ -471,6 +488,11 @@ const App = () => (
                         <Route path="organizer/profile" element={<OrganizerProfilePage />} />
                         <Route path="organizer/create-event" element={<CreateEventPage />} />
                         <Route path="organizer/event/:id" element={<EventManagementPage />} />
+                        <Route path="organizer/events" element={<OrganizerEventsPage />} />
+                        <Route path="organizer/finances" element={<OrganizerFinancesPage />} />
+                        <Route path="organizer/calendar" element={<OrganizerCalendarPage />} />
+                        <Route path="organizer/reports" element={<OrganizerReportsPage />} />
+                        <Route path="organizer/settings" element={<OrganizerSettingsPage />} />
                       </Route>
 
                       {/* Admin routes */}

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { CheckCircle2, AlertTriangle, Loader2, Save, Upload } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { sanitizeText, sanitizeNIT, sanitizeCity } from '@/lib/inputSanitizers';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -47,8 +48,8 @@ export default function OrganizerProfilePage() {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setOrgData((prev: any) => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (field: string, value: string) => {
+    setOrgData((prev: any) => ({ ...prev, [field]: value }));
   };
 
   const handleSwitchChange = (val: boolean) => {
@@ -159,20 +160,20 @@ export default function OrganizerProfilePage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nombre de la Organización</Label>
-                  <Input name="organization_name" value={orgData.organization_name || ''} onChange={handleChange} />
+                  <Input value={orgData.organization_name || ''} onChange={e => handleChange('organization_name', sanitizeText(e.target.value))} maxLength={200} />
                 </div>
                 <div className="space-y-2">
                   <Label>NIT</Label>
-                  <Input name="nit" value={orgData.nit || ''} onChange={handleChange} />
+                  <Input value={orgData.nit || ''} onChange={e => handleChange('nit', sanitizeNIT(e.target.value))} maxLength={20} />
                 </div>
                 <div className="space-y-2">
                   <Label>Ciudad</Label>
-                  <Input name="city" value={orgData.city || ''} onChange={handleChange} />
+                  <Input value={orgData.city || ''} onChange={e => handleChange('city', sanitizeCity(e.target.value))} maxLength={100} />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Biografía corta</Label>
-                <Textarea name="bio" value={orgData.bio || ''} onChange={handleChange} rows={4} />
+                <Textarea value={orgData.bio || ''} onChange={e => handleChange('bio', sanitizeText(e.target.value))} rows={4} maxLength={500} />
               </div>
             </CardContent>
             <CardFooter className="flex justify-end border-t p-4 bg-slate-50">
@@ -214,7 +215,15 @@ export default function OrganizerProfilePage() {
                 <div className="pt-4 space-y-2">
                   <Label>Subir o Reemplazar Documento</Label>
                   <div className="flex gap-2">
-                    <Input type="file" accept=".pdf,image/*" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
+                    <Input type="file" accept=".pdf,image/*" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && file.size > 5 * 1024 * 1024) {
+                        toast({ title: 'Archivo muy grande', description: 'El archivo no puede superar 5MB', variant: 'destructive' });
+                        e.target.value = '';
+                        return;
+                      }
+                      setDocFile(file || null);
+                    }} />
                     <Button onClick={handleUploadDoc} disabled={!docFile || saving} className="gap-2">
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                       Subir

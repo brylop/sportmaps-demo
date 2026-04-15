@@ -117,7 +117,7 @@ router.post('/', requireAuth, requireRole('organizer'), async (req: Authenticate
         const { data: orgData } = await supabase
             .from('event_organizers')
             .select('id, is_verified')
-            .eq('user_id', userId)
+            .eq('profile_id', userId)
             .single();
 
         if (!orgData) return res.status(403).json({ error: 'Perfil de organizador no encontrado' });
@@ -231,7 +231,7 @@ router.get('/:id/preview', requireAuth, requireRole('organizer'), async (req: Au
         const userId = req.user!.id;
 
         // Verify ownership
-        const { data: orgData } = await supabase.from('event_organizers').select('id').eq('user_id', userId).single();
+        const { data: orgData } = await supabase.from('event_organizers').select('id').eq('profile_id', userId).single();
         if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
 
         const { data: event, error: eventError } = await supabase
@@ -259,7 +259,7 @@ router.post('/:id/publish', requireAuth, requireRole('organizer'), async (req: A
         const { id } = req.params;
         const userId = req.user!.id;
 
-        const { data: orgData } = await supabase.from('event_organizers').select('id, is_verified').eq('user_id', userId).single();
+        const { data: orgData } = await supabase.from('event_organizers').select('id, is_verified').eq('profile_id', userId).single();
         if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
         
         if (!orgData.is_verified) {
@@ -366,6 +366,198 @@ router.post('/:id/enroll', requireAuth, requireRole('school'), async (req: Authe
 
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado guardando enrolamiento');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PUT /api/v1/events/:id - Update event details
+router.put('/:id', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+
+        const { data: orgData } = await supabase.from('event_organizers').select('id').eq('profile_id', userId).single();
+        if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
+
+        const allowedFields = [
+            'title', 'sport', 'description', 'event_date', 'start_time', 'end_time',
+            'address', 'city', 'lat', 'lng', 'capacity', 'image_url', 'banner_url',
+            'visibility', 'registration_type', 'registration_deadline', 'payment_deadline',
+            'crossover_allowed', 'free_package_every', 'coach_discount_usd', 'companion_discount_usd',
+            'payment_methods', 'registrations_open'
+        ];
+
+        const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+        for (const key of allowedFields) {
+            if (req.body[key] !== undefined) updates[key] = req.body[key];
+        }
+
+        const { data, error } = await supabase
+            .from('events')
+            .update(updates)
+            .eq('id', id)
+            .eq('organizer_id', orgData.id)
+            .select()
+            .single();
+
+        if (error || !data) return res.status(404).json({ error: 'Evento no encontrado o sin permisos' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error actualizando evento');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/:id/status - Change event status with validation
+router.patch('/:id/status', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const { status } = req.body;
+
+        const validTransitions: Record<string, string[]> = {
+            draft: ['published', 'cancelled'],
+            published: ['closed', 'cancelled'],
+            closed: ['completed', 'published'],
+            cancelled: ['draft'],
+            completed: []
+        };
+
+        const { data: orgData } = await supabase
+            .from('event_organizers')
+            .select('id, is_verified')
+            .eq('profile_id', userId)
+            .single();
+        if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
+
+        const { data: event } = await supabase
+            .from('events')
+            .select('status')
+            .eq('id', id)
+            .eq('organizer_id', orgData.id)
+            .single();
+        if (!event) return res.status(404).json({ error: 'Evento no encontrado' });
+
+        const allowed = validTransitions[event.status] || [];
+        if (!allowed.includes(status)) {
+            return res.status(400).json({ error: `No se puede cambiar de "${event.status}" a "${status}"` });
+        }
+
+        if (status === 'published' && !orgData.is_verified) {
+            return res.status(400).json({ error: 'Debes estar verificado para publicar eventos' });
+        }
+
+        const updateData: Record<string, any> = { status, updated_at: new Date().toISOString() };
+        if (status === 'published') updateData.registrations_open = true;
+        if (status === 'closed' || status === 'cancelled') updateData.registrations_open = false;
+
+        const { data, error } = await supabase
+            .from('events')
+            .update(updateData)
+            .eq('id', id)
+            .eq('organizer_id', orgData.id)
+            .select()
+            .single();
+
+        if (error) return res.status(500).json({ error: 'Error cambiando estado del evento' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error cambiando status del evento');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/:id/delegations - Get delegations for an event
+router.get('/:id/delegations', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+
+        const { data: orgData } = await supabase.from('event_organizers').select('id').eq('profile_id', userId).single();
+        if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
+
+        const { data: event } = await supabase.from('events').select('id').eq('id', id).eq('organizer_id', orgData.id).single();
+        if (!event) return res.status(404).json({ error: 'Evento no encontrado' });
+
+        const { data: delegations, error } = await supabase
+            .from('event_delegations')
+            .select('id, status, total_amount, paid_amount, created_at, school_id')
+            .eq('event_id', id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Resolve school names and team/athlete counts
+        const enriched = await Promise.all((delegations || []).map(async (del: any) => {
+            // School name
+            let schoolName = 'Desconocida';
+            if (del.school_id) {
+                const { data: school } = await supabase.from('schools').select('name').eq('id', del.school_id).single();
+                if (school) schoolName = school.name;
+            }
+
+            // Team count
+            const { count: teamCount } = await supabase
+                .from('event_teams')
+                .select('*', { count: 'exact', head: true })
+                .eq('delegation_id', del.id);
+
+            // Athlete count
+            const { data: teams } = await supabase.from('event_teams').select('id').eq('delegation_id', del.id);
+            let athleteCount = 0;
+            if (teams && teams.length > 0) {
+                const { count } = await supabase
+                    .from('event_team_members')
+                    .select('*', { count: 'exact', head: true })
+                    .in('event_team_id', teams.map((t: any) => t.id));
+                athleteCount = count || 0;
+            }
+
+            return {
+                id: del.id,
+                school_id: del.school_id,
+                school_name: schoolName,
+                status: del.status,
+                total_amount: del.total_amount,
+                paid_amount: del.paid_amount,
+                team_count: teamCount || 0,
+                athlete_count: athleteCount,
+                created_at: del.created_at
+            };
+        }));
+
+        return res.status(200).json(enriched);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error obteniendo delegaciones');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/:id/delegations/:delegationId - Update delegation status
+router.patch('/:id/delegations/:delegationId', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id, delegationId } = req.params;
+        const userId = req.user!.id;
+        const { status } = req.body;
+
+        const { data: orgData } = await supabase.from('event_organizers').select('id').eq('profile_id', userId).single();
+        if (!orgData) return res.status(403).json({ error: 'Organizador no encontrado' });
+
+        const { data: event } = await supabase.from('events').select('id').eq('id', id).eq('organizer_id', orgData.id).single();
+        if (!event) return res.status(404).json({ error: 'Evento no encontrado' });
+
+        const { data, error } = await supabase
+            .from('event_delegations')
+            .update({ status })
+            .eq('id', delegationId)
+            .eq('event_id', id)
+            .select()
+            .single();
+
+        if (error || !data) return res.status(404).json({ error: 'Delegación no encontrada' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error actualizando delegación');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

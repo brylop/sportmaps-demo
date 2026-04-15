@@ -142,10 +142,17 @@ export default function OrganizerDashboardPage() {
       {/* Events List */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Mis Eventos
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Mis Eventos
+            </CardTitle>
+            {events.length > 0 && (
+              <Button variant="link" size="sm" onClick={() => navigate('/organizer/events')}>
+                Ver todos →
+              </Button>
+            )}
+          </div>
           <CardDescription>
             {events.length === 0 ? 'Aún no tienes eventos creados' : `${events.length} evento(s) creado(s)`}
           </CardDescription>

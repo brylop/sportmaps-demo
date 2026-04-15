@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { sanitizePositiveInt } from '@/lib/inputSanitizers';
 
 interface Props {
   state: EventWizardState;
@@ -14,9 +15,8 @@ interface Props {
 export function Step4Rules({ state, dispatch }: Props) {
   const { rules } = state;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
-    dispatch({ type: 'UPDATE_RULES', payload: { [e.target.name]: val } });
+  const update = (field: string, value: string | number) => {
+    dispatch({ type: 'UPDATE_RULES', payload: { [field]: value } });
   };
 
   const handleSwitchChange = (val: boolean) => {
@@ -37,12 +37,12 @@ export function Step4Rules({ state, dispatch }: Props) {
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label>Cierre de Inscripciones *</Label>
-            <Input name="registration_deadline" type="date" value={rules.registration_deadline} onChange={handleChange} />
+            <Input type="date" value={rules.registration_deadline} onChange={e => update('registration_deadline', e.target.value)} />
             <p className="text-xs text-muted-foreground">Fecha máxima para afiliar equipos y atletas en plataforma.</p>
           </div>
           <div className="space-y-2">
             <Label>Límite de Pagos *</Label>
-            <Input name="payment_deadline" type="date" value={rules.payment_deadline} onChange={handleChange} />
+            <Input type="date" value={rules.payment_deadline} onChange={e => update('payment_deadline', e.target.value)} />
             <p className="text-xs text-muted-foreground">Fecha máxima para cargar comprobantes de pago.</p>
           </div>
         </CardContent>
@@ -65,18 +65,18 @@ export function Step4Rules({ state, dispatch }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label>Fórmula de Gratuidad (Entrenadores)</Label>
-              <Input name="free_package_every" type="number" min={1} value={rules.free_package_every} onChange={handleChange} />
+              <Input value={rules.free_package_every} onChange={e => update('free_package_every', Number(sanitizePositiveInt(e.target.value)) || 1)} inputMode="numeric" maxLength={3} />
               <p className="text-xs text-muted-foreground">Ej. 1 hospedaje/inscripción gratis por cada X atletas.</p>
             </div>
-            
+
             <div className="space-y-2">
               <Label>Precio Entrenador Extra (USD)</Label>
-              <Input name="coach_discount_usd" type="number" min={0} value={rules.coach_discount_usd} onChange={handleChange} />
+              <Input value={rules.coach_discount_usd} onChange={e => update('coach_discount_usd', Number(sanitizePositiveInt(e.target.value)) || 0)} inputMode="numeric" maxLength={6} />
             </div>
 
             <div className="space-y-2">
               <Label>Precio Acompañante Extra (USD)</Label>
-              <Input name="companion_discount_usd" type="number" min={0} value={rules.companion_discount_usd} onChange={handleChange} />
+              <Input value={rules.companion_discount_usd} onChange={e => update('companion_discount_usd', Number(sanitizePositiveInt(e.target.value)) || 0)} inputMode="numeric" maxLength={6} />
             </div>
           </div>
         </CardContent>

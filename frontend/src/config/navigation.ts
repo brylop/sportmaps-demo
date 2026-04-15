@@ -386,16 +386,17 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión',
         items: [
-          { title: 'Mis Eventos', href: '/organizer/dashboard', icon: Ticket },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Mensajes', href: '/messages', icon: MessageSquare }
+          { title: 'Mis Eventos', href: '/organizer/events', icon: Ticket },
+          { title: 'Calendario', href: '/organizer/calendar', icon: Calendar },
+          { title: 'Finanzas', href: '/organizer/finances', icon: DollarSign },
+          { title: 'Reportes', href: '/organizer/reports', icon: BarChart3 },
         ]
       },
       {
         title: 'Cuenta',
         items: [
           { title: 'Perfil', href: '/organizer/profile', icon: Users },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Configuración', href: '/organizer/settings', icon: Settings }
         ]
       }
     ],

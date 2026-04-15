@@ -153,4 +153,51 @@ router.get('/stats', requireAuth, requireRole('organizer'), async (req: Authenti
     }
 });
 
+// GET /api/v1/organizer/finances - Financial summary across all events
+router.get('/finances', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+
+        const { data: org } = await supabase.from('event_organizers').select('id').eq('profile_id', userId).single();
+        if (!org) return res.status(404).json({ error: 'Organizador no encontrado' });
+
+        const { data: events } = await supabase
+            .from('events')
+            .select('id, title, event_date, status, city, sport')
+            .eq('organizer_id', org.id)
+            .order('event_date', { ascending: false });
+
+        const eventsWithFinances = await Promise.all((events || []).map(async (event: any) => {
+            const { data: delegations } = await supabase
+                .from('event_delegations')
+                .select('total_amount, paid_amount, status')
+                .eq('event_id', event.id);
+
+            const totalExpected = (delegations || []).reduce((sum: number, d: any) => sum + Number(d.total_amount || 0), 0);
+            const totalPaid = (delegations || []).reduce((sum: number, d: any) => sum + Number(d.paid_amount || 0), 0);
+            const pendingCount = (delegations || []).filter((d: any) => d.status === 'pending_payment').length;
+
+            return {
+                ...event,
+                total_expected: totalExpected,
+                total_paid: totalPaid,
+                pending_delegations: pendingCount,
+                delegation_count: delegations?.length || 0
+            };
+        }));
+
+        const summary = {
+            total_expected: eventsWithFinances.reduce((s, e) => s + e.total_expected, 0),
+            total_paid: eventsWithFinances.reduce((s, e) => s + e.total_paid, 0),
+            total_pending: eventsWithFinances.reduce((s, e) => s + (e.total_expected - e.total_paid), 0),
+            total_events: events?.length || 0
+        };
+
+        return res.status(200).json({ summary, events: eventsWithFinances });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error obteniendo finanzas del organizador');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 export default router;

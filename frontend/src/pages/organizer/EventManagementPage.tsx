@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEvents, useEventRegistrations } from '@/hooks/useEvents';
+import { bffClient } from '@/lib/api/bffClient';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -40,15 +44,32 @@ import {
   Mail,
   AlertCircle,
   FileText,
+  Building,
+  Rocket,
+  Ban,
+  CheckCircle2,
+  Pencil,
+  Save,
 } from 'lucide-react';
 import type { Event, EventRegistration } from '@/types/events';
 import EventDocumentsTab from '@/components/organizer/EventDocumentsTab';
+import EventDelegationsTab from '@/components/organizer/EventDelegationsTab';
+import { sanitizeText, sanitizeCity, sanitizeAddress, sanitizePositiveInt } from '@/lib/inputSanitizers';
+
+const EVENT_STATUS_CONFIG: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string; color: string }> = {
+  draft: { variant: 'outline', label: 'Borrador', color: 'text-gray-600' },
+  published: { variant: 'default', label: 'Publicado', color: 'text-blue-600' },
+  active: { variant: 'default', label: 'Activo', color: 'text-green-600' },
+  closed: { variant: 'secondary', label: 'Cerrado', color: 'text-yellow-600' },
+  cancelled: { variant: 'destructive', label: 'Cancelado', color: 'text-red-600' },
+  completed: { variant: 'secondary', label: 'Completado', color: 'text-purple-600' },
+};
 
 export default function EventManagementPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { getEventWithStats, updateEvent, closeRegistrations, logTelemetry } = useEvents();
+  const { getEventWithStats, updateEvent, logTelemetry } = useEvents();
   const { getRegistrations, approveRegistration, rejectRegistration } = useEventRegistrations(id);
 
   const [event, setEvent] = useState<Event | null>(null);
@@ -57,6 +78,23 @@ export default function EventManagementPage() {
   const [copied, setCopied] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedRegistration, setSelectedRegistration] = useState<EventRegistration | null>(null);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [targetStatus, setTargetStatus] = useState('');
+  const [statusLoading, setStatusLoading] = useState(false);
+
+  // Edit mode
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState({
+    title: '',
+    description: '',
+    event_date: '',
+    start_time: '',
+    end_time: '',
+    city: '',
+    address: '',
+    capacity: 0,
+  });
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     if (id) loadData();
@@ -70,6 +108,18 @@ export default function EventManagementPage() {
     ]);
     setEvent(eventData);
     setRegistrations(registrationsData);
+    if (eventData) {
+      setEditData({
+        title: eventData.title || '',
+        description: eventData.description || '',
+        event_date: eventData.event_date || '',
+        start_time: eventData.start_time || '',
+        end_time: eventData.end_time || '',
+        city: eventData.city || '',
+        address: eventData.address || '',
+        capacity: eventData.capacity || 0,
+      });
+    }
     setLoading(false);
   };
 
@@ -92,13 +142,49 @@ export default function EventManagementPage() {
     }
   };
 
+  const handleStatusChange = async () => {
+    if (!event || !targetStatus) return;
+    setStatusLoading(true);
+    try {
+      const data = await bffClient.patch<any>(`/api/v1/events/${event.id}/status`, { status: targetStatus });
+      setEvent({ ...event, ...data });
+      toast({ title: 'Estado actualizado', description: `Evento cambiado a "${EVENT_STATUS_CONFIG[targetStatus]?.label || targetStatus}"` });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setStatusLoading(false);
+      setStatusDialogOpen(false);
+      setTargetStatus('');
+    }
+  };
+
+  const openStatusDialog = (status: string) => {
+    setTargetStatus(status);
+    setStatusDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!event) return;
+    setEditSaving(true);
+    try {
+      await bffClient.put(`/api/v1/events/${event.id}`, editData);
+      setEvent({ ...event, ...editData });
+      setEditMode(false);
+      toast({ title: 'Evento actualizado' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const handleApprove = async (registration: EventRegistration) => {
     const success = await approveRegistration(registration.id);
     if (success) {
-      setRegistrations(prev => 
+      setRegistrations(prev =>
         prev.map(r => r.id === registration.id ? { ...r, status: 'approved' } : r)
       );
-      loadData(); // Refresh stats
+      loadData();
     }
   };
 
@@ -106,7 +192,7 @@ export default function EventManagementPage() {
     if (!selectedRegistration) return;
     const success = await rejectRegistration(selectedRegistration.id, 'Rechazado por el organizador');
     if (success) {
-      setRegistrations(prev => 
+      setRegistrations(prev =>
         prev.map(r => r.id === selectedRegistration.id ? { ...r, status: 'rejected' } : r)
       );
       setRejectDialogOpen(false);
@@ -114,25 +200,15 @@ export default function EventManagementPage() {
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('es-CO', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  };
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   const formatPrice = (price: number) => {
     if (price === 0) return 'Gratis';
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0
-    }).format(price);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
   };
 
-  const getStatusBadge = (status: EventRegistration['status']) => {
+  const getRegStatusBadge = (status: EventRegistration['status']) => {
     const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
       pending: { variant: 'outline', label: 'Pendiente' },
       approved: { variant: 'default', label: 'Aprobado' },
@@ -141,6 +217,29 @@ export default function EventManagementPage() {
     };
     const config = variants[status] || variants.pending;
     return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
+  // Determine available status transitions
+  const getAvailableTransitions = (status: string) => {
+    const transitions: Record<string, { status: string; label: string; icon: any; variant: 'default' | 'destructive' | 'outline' }[]> = {
+      draft: [
+        { status: 'published', label: 'Publicar Evento', icon: Rocket, variant: 'default' },
+        { status: 'cancelled', label: 'Cancelar', icon: Ban, variant: 'destructive' },
+      ],
+      published: [
+        { status: 'closed', label: 'Cerrar Inscripciones', icon: X, variant: 'outline' },
+        { status: 'cancelled', label: 'Cancelar Evento', icon: Ban, variant: 'destructive' },
+      ],
+      closed: [
+        { status: 'completed', label: 'Marcar Completado', icon: CheckCircle2, variant: 'default' },
+        { status: 'published', label: 'Reabrir', icon: Rocket, variant: 'outline' },
+      ],
+      cancelled: [
+        { status: 'draft', label: 'Volver a Borrador', icon: Pencil, variant: 'outline' },
+      ],
+      completed: [],
+    };
+    return transitions[status] || [];
   };
 
   if (loading) {
@@ -158,30 +257,58 @@ export default function EventManagementPage() {
       <div className="container mx-auto py-12 px-4 text-center">
         <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
         <h2 className="text-xl font-semibold mb-2">Evento no encontrado</h2>
-        <Button onClick={() => navigate('/organizer/home')}>Volver al dashboard</Button>
+        <Button onClick={() => navigate('/organizer/events')}>Volver a Mis Eventos</Button>
       </div>
     );
   }
 
   const pendingCount = registrations.filter(r => r.status === 'pending').length;
   const approvedCount = registrations.filter(r => r.status === 'approved').length;
+  const statusCfg = EVENT_STATUS_CONFIG[event.status] || EVENT_STATUS_CONFIG.draft;
+  const transitions = getAvailableTransitions(event.status);
 
   return (
     <div className="container mx-auto py-6 px-4 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/organizer/home')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/organizer/events')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">{event.title}</h1>
-          <p className="text-muted-foreground">{event.sport} • {event.city}</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">{event.title}</h1>
+            <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+          </div>
+          <p className="text-muted-foreground">{event.sport} &bull; {event.city}</p>
         </div>
         <Button variant="outline" onClick={() => window.open(`/event/${event.slug}`, '_blank')} className="gap-2">
           <Eye className="h-4 w-4" />
           Ver público
         </Button>
       </div>
+
+      {/* Status Actions Bar */}
+      {transitions.length > 0 && (
+        <Card className="mb-6 border-dashed">
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-muted-foreground">Acciones:</span>
+              {transitions.map((t) => (
+                <Button
+                  key={t.status}
+                  variant={t.variant}
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => openStatusDialog(t.status)}
+                >
+                  <t.icon className="h-4 w-4" />
+                  {t.label}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Event Info Card */}
       <Card className="mb-6">
@@ -193,7 +320,7 @@ export default function EventManagementPage() {
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm">{event.start_time.slice(0, 5)}{event.end_time ? ` - ${event.end_time.slice(0, 5)}` : ''}</span>
+              <span className="text-sm">{event.start_time?.slice(0, 5)}{event.end_time ? ` - ${event.end_time.slice(0, 5)}` : ''}</span>
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -224,13 +351,8 @@ export default function EventManagementPage() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm">Inscripciones:</span>
-                <Switch
-                  checked={event.registrations_open}
-                  onCheckedChange={handleToggleRegistrations}
-                />
-                <span className="text-sm font-medium">
-                  {event.registrations_open ? 'Abiertas' : 'Cerradas'}
-                </span>
+                <Switch checked={event.registrations_open} onCheckedChange={handleToggleRegistrations} />
+                <span className="text-sm font-medium">{event.registrations_open ? 'Abiertas' : 'Cerradas'}</span>
               </div>
               <Button onClick={handleCopyLink} variant="outline" size="sm" className="gap-2">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -241,12 +363,20 @@ export default function EventManagementPage() {
         </CardContent>
       </Card>
 
-      {/* ── Tabs: Inscripciones | Documentos ──────────────────────────── */}
+      {/* Tabs */}
       <Tabs defaultValue="inscripciones">
         <TabsList>
           <TabsTrigger value="inscripciones" className="gap-2">
             <Users className="h-4 w-4" />
             Inscripciones ({registrations.length})
+          </TabsTrigger>
+          <TabsTrigger value="delegaciones" className="gap-2">
+            <Building className="h-4 w-4" />
+            Delegaciones
+          </TabsTrigger>
+          <TabsTrigger value="editar" className="gap-2">
+            <Pencil className="h-4 w-4" />
+            Editar
           </TabsTrigger>
           <TabsTrigger value="documentos" className="gap-2">
             <FileText className="h-4 w-4" />
@@ -262,18 +392,14 @@ export default function EventManagementPage() {
                 <Users className="h-5 w-5" />
                 Inscripciones ({registrations.length})
               </CardTitle>
-              <CardDescription>
-                Gestiona las inscripciones de tu evento
-              </CardDescription>
+              <CardDescription>Gestiona las inscripciones de tu evento</CardDescription>
             </CardHeader>
             <CardContent>
               {registrations.length === 0 ? (
                 <div className="text-center py-12">
                   <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="font-semibold mb-2">Aún no hay inscripciones</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Comparte el enlace de tu evento para recibir inscripciones
-                  </p>
+                  <p className="text-muted-foreground mb-4">Comparte el enlace de tu evento para recibir inscripciones</p>
                   <Button onClick={handleCopyLink} className="gap-2">
                     <Copy className="h-4 w-4" />
                     Copiar enlace del evento
@@ -322,42 +448,26 @@ export default function EventManagementPage() {
                              registration.participant_role === 'parent' ? 'Padre' :
                              registration.participant_role === 'coach' ? 'Entrenador' : 'Otro'}
                           </TableCell>
-                          <TableCell>{getStatusBadge(registration.status)}</TableCell>
+                          <TableCell>{getRegStatusBadge(registration.status)}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {new Date(registration.created_at).toLocaleDateString('es-CO')}
                           </TableCell>
                           <TableCell className="text-right">
                             {registration.status === 'pending' && (
                               <div className="flex justify-end gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="gap-1 text-green-600 hover:text-green-700"
-                                  onClick={() => handleApprove(registration)}
-                                >
+                                <Button size="sm" variant="outline" className="gap-1 text-green-600 hover:text-green-700" onClick={() => handleApprove(registration)}>
                                   <Check className="h-4 w-4" />
                                   Aprobar
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="gap-1 text-red-600 hover:text-red-700"
-                                  onClick={() => {
-                                    setSelectedRegistration(registration);
-                                    setRejectDialogOpen(true);
-                                  }}
-                                >
+                                <Button size="sm" variant="outline" className="gap-1 text-red-600 hover:text-red-700"
+                                  onClick={() => { setSelectedRegistration(registration); setRejectDialogOpen(true); }}>
                                   <X className="h-4 w-4" />
                                   Rechazar
                                 </Button>
                               </div>
                             )}
                             {registration.payment_proof_url && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => window.open(registration.payment_proof_url, '_blank')}
-                              >
+                              <Button size="sm" variant="ghost" onClick={() => window.open(registration.payment_proof_url, '_blank')}>
                                 <ExternalLink className="h-4 w-4" />
                               </Button>
                             )}
@@ -372,13 +482,91 @@ export default function EventManagementPage() {
           </Card>
         </TabsContent>
 
+        {/* Tab: Delegaciones */}
+        <TabsContent value="delegaciones">
+          <EventDelegationsTab eventId={id!} />
+        </TabsContent>
+
+        {/* Tab: Editar */}
+        <TabsContent value="editar">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5" />
+                Editar Evento
+              </CardTitle>
+              <CardDescription>Modifica los datos de tu evento</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Label>Título</Label>
+                  <Input value={editData.title} onChange={e => setEditData(prev => ({ ...prev, title: sanitizeText(e.target.value) }))} maxLength={150} />
+                </div>
+                <div className="md:col-span-2">
+                  <Label>Descripción</Label>
+                  <Textarea value={editData.description} onChange={e => setEditData(prev => ({ ...prev, description: sanitizeText(e.target.value) }))} rows={3} maxLength={2000} />
+                </div>
+                <div>
+                  <Label>Fecha del Evento</Label>
+                  <Input type="date" value={editData.event_date} onChange={e => setEditData(prev => ({ ...prev, event_date: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>Hora Inicio</Label>
+                    <Input type="time" value={editData.start_time} onChange={e => setEditData(prev => ({ ...prev, start_time: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Hora Fin</Label>
+                    <Input type="time" value={editData.end_time} onChange={e => setEditData(prev => ({ ...prev, end_time: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <Label>Ciudad</Label>
+                  <Input value={editData.city} onChange={e => setEditData(prev => ({ ...prev, city: sanitizeCity(e.target.value) }))} maxLength={100} />
+                </div>
+                <div>
+                  <Label>Dirección</Label>
+                  <Input value={editData.address} onChange={e => setEditData(prev => ({ ...prev, address: sanitizeAddress(e.target.value) }))} maxLength={200} />
+                </div>
+                <div>
+                  <Label>Capacidad</Label>
+                  <Input value={editData.capacity || ''} onChange={e => setEditData(prev => ({ ...prev, capacity: Number(sanitizePositiveInt(e.target.value)) || 0 }))} inputMode="numeric" maxLength={6} />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button onClick={handleSaveEdit} disabled={editSaving} className="gap-2">
+                  <Save className="h-4 w-4" />
+                  {editSaving ? 'Guardando...' : 'Guardar Cambios'}
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  if (event) {
+                    setEditData({
+                      title: event.title || '',
+                      description: event.description || '',
+                      event_date: event.event_date || '',
+                      start_time: event.start_time || '',
+                      end_time: event.end_time || '',
+                      city: event.city || '',
+                      address: event.address || '',
+                      capacity: event.capacity || 0,
+                    });
+                  }
+                }}>
+                  Descartar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Tab: Documentos */}
         <TabsContent value="documentos">
           <EventDocumentsTab eventId={id!} />
         </TabsContent>
       </Tabs>
 
-      {/* Reject Dialog */}
+      {/* Reject Registration Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -388,11 +576,35 @@ export default function EventManagementPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleReject}>Rechazar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Status Change Dialog */}
+      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar estado del evento</DialogTitle>
+            <DialogDescription>
+              ¿Cambiar "{event.title}" a <strong>{EVENT_STATUS_CONFIG[targetStatus]?.label || targetStatus}</strong>?
+              {targetStatus === 'published' && ' El evento será visible públicamente y se abrirán inscripciones.'}
+              {targetStatus === 'cancelled' && ' Se cerrarán las inscripciones. Esta acción se puede revertir.'}
+              {targetStatus === 'completed' && ' El evento se marcará como finalizado.'}
+              {targetStatus === 'closed' && ' Se cerrarán las inscripciones.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusDialogOpen(false)} disabled={statusLoading}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleReject}>
-              Rechazar
+            <Button
+              variant={targetStatus === 'cancelled' ? 'destructive' : 'default'}
+              onClick={handleStatusChange}
+              disabled={statusLoading}
+            >
+              {statusLoading ? 'Procesando...' : 'Confirmar'}
             </Button>
           </DialogFooter>
         </DialogContent>

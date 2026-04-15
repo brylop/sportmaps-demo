@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { sanitizeText, sanitizePositiveInt } from '@/lib/inputSanitizers';
 
 interface Props {
   state: EventWizardState;
@@ -62,7 +63,7 @@ export function Step2Categories({ state, dispatch }: Props) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-3 p-4 bg-slate-50 border rounded-xl items-end">
-        <div className="space-y-1"><Label>División</Label><Input value={newCat.division} onChange={e => setNewCat({...newCat, division: e.target.value})} placeholder="Ej. All Star"/></div>
+        <div className="space-y-1"><Label>División</Label><Input value={newCat.division} onChange={e => setNewCat({...newCat, division: sanitizeText(e.target.value)})} placeholder="Ej. All Star" maxLength={50}/></div>
         <div className="space-y-1">
           <Label>Nivel</Label>
           <Select value={newCat.level} onValueChange={(v) => setNewCat({...newCat, level: v})}>
@@ -70,7 +71,7 @@ export function Step2Categories({ state, dispatch }: Props) {
              <SelectContent>{TEMPLATE_LEVELS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <div className="space-y-1"><Label>Categoría</Label><Input value={newCat.category} onChange={e => setNewCat({...newCat, category: e.target.value})} placeholder="Ej. Mini"/></div>
+        <div className="space-y-1"><Label>Categoría</Label><Input value={newCat.category} onChange={e => setNewCat({...newCat, category: sanitizeText(e.target.value)})} placeholder="Ej. Mini" maxLength={50}/></div>
         <div className="space-y-1">
           <Label>Rama</Label>
           <Select value={newCat.rama} onValueChange={(v) => setNewCat({...newCat, rama: v})}>
@@ -79,11 +80,11 @@ export function Step2Categories({ state, dispatch }: Props) {
           </Select>
         </div>
         
-        <div className="space-y-1"><Label>Edad Mín</Label><Input type="number" value={newCat.min_age} onChange={e => setNewCat({...newCat, min_age: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Edad Máx</Label><Input type="number" value={newCat.max_age} onChange={e => setNewCat({...newCat, max_age: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Min Atletas</Label><Input type="number" value={newCat.min_athletes} onChange={e => setNewCat({...newCat, min_athletes: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Max Atletas</Label><Input type="number" value={newCat.max_athletes} onChange={e => setNewCat({...newCat, max_athletes: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Extra ($)</Label><Input type="number" value={newCat.base_price} onChange={e => setNewCat({...newCat, base_price: Number(e.target.value)})}/></div>
+        <div className="space-y-1"><Label>Edad Mín</Label><Input value={newCat.min_age} onChange={e => setNewCat({...newCat, min_age: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={2}/></div>
+        <div className="space-y-1"><Label>Edad Máx</Label><Input value={newCat.max_age} onChange={e => setNewCat({...newCat, max_age: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={2}/></div>
+        <div className="space-y-1"><Label>Min Atletas</Label><Input value={newCat.min_athletes} onChange={e => setNewCat({...newCat, min_athletes: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={3}/></div>
+        <div className="space-y-1"><Label>Max Atletas</Label><Input value={newCat.max_athletes} onChange={e => setNewCat({...newCat, max_athletes: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={3}/></div>
+        <div className="space-y-1"><Label>Extra ($)</Label><Input value={newCat.base_price} onChange={e => setNewCat({...newCat, base_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
         
         <div className="md:col-span-4 lg:col-span-1 pt-2">
           <Button onClick={handleAddCategory} className="w-full gap-2"><PlusCircle className="h-4 w-4"/> Añadir</Button>

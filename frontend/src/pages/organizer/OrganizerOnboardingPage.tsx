@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Building, Upload, CreditCard, CheckCircle2, Loader2 } from 'lucide-react';
+import { sanitizeText, sanitizeNIT, sanitizeDigits, sanitizeCity, sanitizeName } from '@/lib/inputSanitizers';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
@@ -74,12 +75,12 @@ export default function OrganizerOnboardingPage() {
     );
   };
 
-  const handleOrgDataChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setOrgData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleOrgDataChange = (field: string, value: string) => {
+    setOrgData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleBankDataChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setBankData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleBankDataChange = (field: string, value: string) => {
+    setBankData(prev => ({ ...prev, [field]: value }));
   };
 
   const saveProfilePhase1And2 = async () => {
@@ -199,15 +200,15 @@ export default function OrganizerOnboardingPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nombre de la Organización *</Label>
-                  <Input name="organization_name" value={orgData.organization_name} onChange={handleOrgDataChange} placeholder="Ej. Capital Cheer" />
+                  <Input value={orgData.organization_name} onChange={e => handleOrgDataChange('organization_name', sanitizeText(e.target.value))} placeholder="Ej. Capital Cheer" maxLength={200} />
                 </div>
                 <div className="space-y-2">
                   <Label>NIT / Documento Legal *</Label>
-                  <Input name="nit" value={orgData.nit} onChange={handleOrgDataChange} placeholder="Ej. 900.123.456-7" />
+                  <Input value={orgData.nit} onChange={e => handleOrgDataChange('nit', sanitizeNIT(e.target.value))} placeholder="Ej. 900.123.456-7" maxLength={20} />
                 </div>
                 <div className="space-y-2">
                   <Label>Ciudad Principal *</Label>
-                  <Input name="city" value={orgData.city} onChange={handleOrgDataChange} placeholder="Bogotá, Colombia" />
+                  <Input value={orgData.city} onChange={e => handleOrgDataChange('city', sanitizeCity(e.target.value))} placeholder="Bogotá" maxLength={100} />
                 </div>
               </div>
               
@@ -229,7 +230,7 @@ export default function OrganizerOnboardingPage() {
 
               <div className="space-y-2 pt-2">
                 <Label>Biografía / Descripción General (Opcional)</Label>
-                <Textarea name="bio" value={orgData.bio} onChange={handleOrgDataChange} placeholder="Descripción que verán las academias..." />
+                <Textarea value={orgData.bio} onChange={e => handleOrgDataChange('bio', sanitizeText(e.target.value))} placeholder="Descripción que verán las academias..." maxLength={500} />
               </div>
             </div>
           )}
@@ -260,7 +261,7 @@ export default function OrganizerOnboardingPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Banco</Label>
-                      <Input name="bank_name" value={bankData.bank_name} onChange={handleBankDataChange} placeholder="Ej. Bancolombia" />
+                      <Input value={bankData.bank_name} onChange={e => handleBankDataChange('bank_name', sanitizeName(e.target.value))} placeholder="Ej. Bancolombia" maxLength={100} />
                     </div>
                     <div className="space-y-2">
                       <Label>Tipo de Cuenta</Label>
@@ -276,15 +277,15 @@ export default function OrganizerOnboardingPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Número de Cuenta</Label>
-                      <Input name="account_number" value={bankData.account_number} onChange={handleBankDataChange} />
+                      <Input value={bankData.account_number} onChange={e => handleBankDataChange('account_number', sanitizeDigits(e.target.value))} placeholder="0000000000" maxLength={20} inputMode="numeric" />
                     </div>
                     <div className="space-y-2">
                       <Label>Titular / A nombre de</Label>
-                      <Input name="account_holder" value={bankData.account_holder} onChange={handleBankDataChange} />
+                      <Input value={bankData.account_holder} onChange={e => handleBankDataChange('account_holder', sanitizeName(e.target.value))} placeholder="Nombre completo" maxLength={150} />
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label>NIT/Documento del titular</Label>
-                      <Input name="account_document" value={bankData.account_document} onChange={handleBankDataChange} />
+                      <Input value={bankData.account_document} onChange={e => handleBankDataChange('account_document', sanitizeNIT(e.target.value))} placeholder="Ej. 900.123.456-7" maxLength={20} />
                     </div>
                   </div>
                 </div>
@@ -314,7 +315,13 @@ export default function OrganizerOnboardingPage() {
                   accept=".pdf,image/*"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
-                      setDocFile(e.target.files[0]);
+                      const file = e.target.files[0];
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast({ title: 'Archivo muy grande', description: 'El archivo no puede superar 5MB', variant: 'destructive' });
+                        e.target.value = '';
+                        return;
+                      }
+                      setDocFile(file);
                     }
                   }}
                 />

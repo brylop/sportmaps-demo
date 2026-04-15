@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { sanitizeText, sanitizePositiveInt, sanitizePercentage } from '@/lib/inputSanitizers';
 
 interface Props {
   state: EventWizardState;
@@ -63,7 +64,7 @@ export function Step3Packages({ state, dispatch }: Props) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 bg-slate-50 border rounded-xl items-end">
-        <div className="space-y-1"><Label>Nombre Fase</Label><Input value={newPhase.phase_name} onChange={e => setNewPhase({...newPhase, phase_name: e.target.value})} placeholder="Ej. Fase 1"/></div>
+        <div className="space-y-1"><Label>Nombre Fase</Label><Input value={newPhase.phase_name} onChange={e => setNewPhase({...newPhase, phase_name: sanitizeText(e.target.value)})} placeholder="Ej. Fase 1" maxLength={50}/></div>
         <div className="space-y-1"><Label>Válida Hasta</Label><Input type="date" value={newPhase.valid_until} onChange={e => setNewPhase({...newPhase, valid_until: e.target.value})}/></div>
         <div className="space-y-1">
           <Label>Tipo de Kit</Label>
@@ -78,14 +79,14 @@ export function Step3Packages({ state, dispatch }: Props) {
              </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1"><Label>% Reserva</Label><Input type="number" value={newPhase.deposit_percentage} onChange={e => setNewPhase({...newPhase, deposit_percentage: Number(e.target.value)})}/></div>
+        <div className="space-y-1"><Label>% Reserva</Label><Input value={newPhase.deposit_percentage} onChange={e => setNewPhase({...newPhase, deposit_percentage: Number(sanitizePercentage(e.target.value)) || 0})} inputMode="numeric" maxLength={3}/></div>
 
-        <div className="space-y-1"><Label>Pkg 1 (4 Noches)</Label><Input type="number" value={newPhase.pkg_1_price} onChange={e => setNewPhase({...newPhase, pkg_1_price: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Pkg 2 (3 Noches)</Label><Input type="number" value={newPhase.pkg_2_price} onChange={e => setNewPhase({...newPhase, pkg_2_price: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Pkg 3 (2 Noches)</Label><Input type="number" value={newPhase.pkg_3_price} onChange={e => setNewPhase({...newPhase, pkg_3_price: Number(e.target.value)})}/></div>
-        <div className="space-y-1"><Label>Solo Competencia</Label><Input type="number" value={newPhase.pkg_solo_price} onChange={e => setNewPhase({...newPhase, pkg_solo_price: Number(e.target.value)})}/></div>
-        
-        <div className="space-y-1"><Label>Crossover</Label><Input type="number" value={newPhase.crossover_price} onChange={e => setNewPhase({...newPhase, crossover_price: Number(e.target.value)})}/></div>
+        <div className="space-y-1"><Label>Pkg 1 (4 Noches)</Label><Input value={newPhase.pkg_1_price} onChange={e => setNewPhase({...newPhase, pkg_1_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
+        <div className="space-y-1"><Label>Pkg 2 (3 Noches)</Label><Input value={newPhase.pkg_2_price} onChange={e => setNewPhase({...newPhase, pkg_2_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
+        <div className="space-y-1"><Label>Pkg 3 (2 Noches)</Label><Input value={newPhase.pkg_3_price} onChange={e => setNewPhase({...newPhase, pkg_3_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
+        <div className="space-y-1"><Label>Solo Competencia</Label><Input value={newPhase.pkg_solo_price} onChange={e => setNewPhase({...newPhase, pkg_solo_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
+
+        <div className="space-y-1"><Label>Crossover</Label><Input value={newPhase.crossover_price} onChange={e => setNewPhase({...newPhase, crossover_price: Number(sanitizePositiveInt(e.target.value)) || 0})} inputMode="numeric" maxLength={8}/></div>
         
         <div className="md:col-span-2 lg:col-span-3 pt-2 flex justify-end">
           <Button onClick={handleAddPhase} className="gap-2"><PlusCircle className="h-4 w-4"/> Añadir Fase</Button>
