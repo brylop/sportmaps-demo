@@ -72,10 +72,11 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     try {
       const reference = `CASH-${Date.now().toString(36).toUpperCase()}`;
 
-      // Resolve correct IDs: school_athletes.id = child_id for children, user_id for adults
-      const isChild = selectedStudent.athlete_type === 'child';
-      const childId = isChild ? selectedStudent.id : null;
-      const userId = isChild ? null : selectedStudent.id;
+      // Resolve correct IDs from the school_athletes view:
+      // Adults  → user_id is set (valid profile ID), id === user_id
+      // Children → user_id is null, id = child_id from children table
+      const childId = !selectedStudent.user_id ? selectedStudent.id : null;
+      const userId = selectedStudent.user_id || null;
 
       // Try to find an existing pending/overdue payment for this student
       let matchQuery = supabase
