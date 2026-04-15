@@ -84,23 +84,22 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       const childId          = (!hasUserId && hasParent) ? selectedStudent.id : null;
       const unregisteredId   = (!hasUserId && !hasParent) ? selectedStudent.id : null;
 
-      // Find existing pending/overdue payment for this student
+      // Find ALL pending/overdue payments for this student
       let matchQuery = supabase
         .from('payments')
         .select('id')
         .eq('school_id', schoolId)
-        .in('status', ['pending', 'overdue'])
-        .order('due_date', { ascending: true })
-        .limit(1);
+        .in('status', ['pending', 'overdue']);
 
-      if (userId)         matchQuery = matchQuery.eq('user_id', userId);
-      else if (childId)   matchQuery = matchQuery.eq('child_id', childId);
+      if (userId)              matchQuery = matchQuery.eq('user_id', userId);
+      else if (childId)        matchQuery = matchQuery.eq('child_id', childId);
       else if (unregisteredId) matchQuery = matchQuery.eq('unregistered_athlete_id', unregisteredId);
 
       const { data: existingPayments } = await matchQuery;
 
       if (existingPayments && existingPayments.length > 0) {
-        // Update existing pending payment to paid
+        // Update ALL pending/overdue payments to paid
+        const ids = existingPayments.map(p => p.id);
         const { error: updateError } = await supabase
           .from('payments')
           .update({
@@ -113,7 +112,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             reference,
             amount_paid: numericAmount,
           })
-          .eq('id', existingPayments[0].id);
+          .in('id', ids);
 
         if (updateError) throw updateError;
       } else {
