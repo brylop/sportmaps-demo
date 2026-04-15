@@ -21,6 +21,81 @@ export type AuthenticatedRequest = Request;
 // Roles que siempre pasan requireRole sin necesidad de estar listados
 const PRIVILEGED_ROLES = ['owner', 'super_admin', 'admin'] as const;
 
+// ── Permisos (mirror del frontend permissions.ts) ────────────────────────────
+type Permission =
+    | 'dashboard:view'
+    | 'calendar:view' | 'calendar:create' | 'calendar:edit' | 'calendar:delete'
+    | 'teams:view' | 'teams:create' | 'teams:edit' | 'teams:delete'
+    | 'students:view' | 'students:create' | 'students:edit' | 'students:delete'
+    | 'stats:view' | 'stats:edit'
+    | 'reports:view' | 'reports:create'
+    | 'finances:view' | 'finances:manage'
+    | 'messages:view' | 'messages:send'
+    | 'settings:view' | 'settings:edit'
+    | 'events:view' | 'events:create' | 'events:edit' | 'events:delete'
+    | 'admin:users' | 'admin:system' | 'admin:all';
+
+const rolePermissions: Record<string, Permission[]> = {
+    athlete: [
+        'dashboard:view', 'calendar:view', 'teams:view', 'stats:view',
+        'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view'
+    ],
+    parent: [
+        'dashboard:view', 'calendar:view', 'students:view', 'stats:view',
+        'reports:view', 'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view'
+    ],
+    coach: [
+        'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
+        'teams:view', 'teams:create', 'teams:edit', 'students:view', 'students:edit',
+        'stats:view', 'stats:edit', 'reports:view', 'reports:create',
+        'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view'
+    ],
+    school: [
+        'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
+        'teams:view', 'teams:create', 'teams:edit', 'teams:delete',
+        'students:view', 'students:create', 'students:edit', 'students:delete',
+        'stats:view', 'stats:edit', 'reports:view', 'reports:create',
+        'finances:view', 'finances:manage', 'messages:view', 'messages:send',
+        'settings:view', 'settings:edit', 'events:view'
+    ],
+    wellness_professional: [
+        'dashboard:view', 'calendar:view', 'calendar:create', 'students:view', 'students:edit',
+        'reports:view', 'reports:create', 'messages:view', 'messages:send',
+        'settings:view', 'settings:edit'
+    ],
+    store_owner: [
+        'dashboard:view', 'calendar:view', 'stats:view', 'reports:view', 'reports:create',
+        'finances:view', 'finances:manage', 'messages:view', 'messages:send',
+        'settings:view', 'settings:edit'
+    ],
+    organizer: [
+        'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
+        'events:view', 'events:create', 'events:edit', 'events:delete',
+        'stats:view', 'reports:view', 'reports:create', 'finances:view', 'finances:manage',
+        'messages:view', 'messages:send', 'settings:view', 'settings:edit'
+    ],
+    reporter: [
+        'dashboard:view', 'calendar:view', 'teams:view', 'students:view',
+        'stats:view', 'reports:view', 'reports:create', 'messages:view',
+        'settings:view', 'settings:edit'
+    ],
+    admin: [
+        'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
+        'teams:view', 'teams:create', 'teams:edit', 'teams:delete',
+        'students:view', 'students:create', 'students:edit', 'students:delete',
+        'stats:view', 'stats:edit', 'reports:view', 'reports:create',
+        'finances:view', 'finances:manage', 'messages:view', 'messages:send',
+        'settings:view', 'settings:edit', 'events:view', 'events:create', 'events:edit', 'events:delete',
+        'admin:users', 'admin:system', 'admin:all'
+    ],
+};
+
+// Aliases para roles de BD que mapean a la misma matriz de permisos
+rolePermissions['school_admin'] = rolePermissions.school;
+rolePermissions['super_admin'] = rolePermissions.admin;
+rolePermissions['owner'] = rolePermissions.admin;
+rolePermissions['staff'] = rolePermissions.coach;
+
 // ─────────────────────────────────────────────────────────────────────────────
 export const requireBasicAuth = async (
     req: Request,
@@ -32,11 +107,11 @@ export const requireBasicAuth = async (
         if (!authHeader?.startsWith('Bearer ')) {
             return res.status(401).json({ error: 'Token de autorización requerido.' });
         }
-        
+
         const token = authHeader.split(' ')[1];
         // Solo necesitamos pasar el token al request para que los controladores hagan pass-through a BD
         (req as any).userToken = token;
-        
+
         next();
     } catch (err) {
         next(err);
@@ -126,4 +201,129 @@ export const requireRole = (...roles: Request['role'][]) => {
 
         next();
     };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requirePermission — Valida contra la matriz de permisos (mirror del frontend)
+// Uso: requirePermission('students:create', 'students:edit')
+// El usuario debe tener AL MENOS UNO de los permisos listados.
+// ─────────────────────────────────────────────────────────────────────────────
+export const requirePermission = (...permissions: Permission[]) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        const userPerms = rolePermissions[req.role];
+
+        // Rol desconocido → denegar
+        if (!userPerms) {
+            return res.status(403).json({
+                error: 'Rol no reconocido. Acceso denegado.',
+                receivedRole: req.role,
+            });
+        }
+
+        const hasAny = permissions.some(p => userPerms.includes(p));
+        if (!hasAny) {
+            return res.status(403).json({
+                error: `Permiso insuficiente. Se requiere: ${permissions.join(' | ')}.`,
+                receivedRole: req.role,
+            });
+        }
+
+        next();
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireOwnership — Previene IDOR (Insecure Direct Object Reference)
+// Verifica que el recurso solicitado pertenece a la escuela del usuario.
+//
+// Uso: requireOwnership('children', 'id')
+//   → Antes de ejecutar el handler, consulta `children` donde `id = req.params.id`
+//     y verifica que `school_id = req.schoolId`.
+//
+// Para tablas sin school_id directo, usar el parámetro ownerField:
+//   requireOwnership('event_organizers', 'id', 'profile_id')
+//   → Verifica que `profile_id = req.user.id`
+// ─────────────────────────────────────────────────────────────────────────────
+export const requireOwnership = (
+    table: string,
+    paramName: string = 'id',
+    ownerField: 'school_id' | 'profile_id' | 'user_id' | 'parent_id' | 'creator_id' = 'school_id',
+) => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const resourceId = req.params[paramName];
+            if (!resourceId) {
+                return res.status(400).json({ error: `Parámetro "${paramName}" requerido.` });
+            }
+
+            // Determinar el valor esperado según el campo de propiedad
+            let expectedValue: string;
+            if (ownerField === 'school_id') {
+                expectedValue = req.schoolId;
+            } else if (ownerField === 'profile_id' || ownerField === 'user_id' || ownerField === 'creator_id') {
+                expectedValue = req.user.id;
+            } else if (ownerField === 'parent_id') {
+                expectedValue = req.user.id;
+            } else {
+                expectedValue = req.user.id;
+            }
+
+            const { data, error } = await supabase
+                .from(table)
+                .select('id')
+                .eq('id', resourceId)
+                .eq(ownerField, expectedValue)
+                .maybeSingle();
+
+            if (error) {
+                req.log?.error({ err: error, table, resourceId }, 'Error verificando propiedad del recurso');
+                return res.status(500).json({ error: 'Error verificando propiedad del recurso.' });
+            }
+
+            if (!data) {
+                return res.status(404).json({
+                    error: 'Recurso no encontrado o no tienes acceso.',
+                });
+            }
+
+            next();
+        } catch (err) {
+            next(err);
+        }
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// auditLog — Registra acciones sensibles en security_audit_log
+// Uso dentro de un handler:
+//   await auditLog(req, 'payment_create', 'payments', paymentId, null, { amount });
+// ─────────────────────────────────────────────────────────────────────────────
+export const auditLog = async (
+    req: Request,
+    action: string,
+    targetTable: string,
+    targetId: string,
+    oldValue?: Record<string, unknown> | null,
+    newValue?: Record<string, unknown> | null,
+) => {
+    try {
+        await supabase.from('security_audit_log').insert({
+            user_id: req.user?.id || null,
+            action,
+            target_table: targetTable,
+            target_id: targetId,
+            old_value: oldValue || null,
+            new_value: newValue || null,
+            ip_address: req.ip || req.headers['x-forwarded-for'] || null,
+            user_agent: req.headers['user-agent'] || null,
+            metadata: {
+                school_id: req.schoolId || null,
+                role: req.role || null,
+                request_id: req.id || null,
+            },
+        });
+    } catch (err) {
+        // Audit failure must never break the request
+        req.log?.warn({ err, action, targetTable, targetId }, 'Audit log write failed');
+    }
 };

@@ -15,6 +15,7 @@ export type Permission =
   | 'finances:view' | 'finances:manage'
   | 'messages:view' | 'messages:send'
   | 'settings:view' | 'settings:edit'
+  | 'events:view' | 'events:create' | 'events:edit' | 'events:delete'
   | 'admin:users' | 'admin:system' | 'admin:all';
 
 export type Resource =
@@ -27,6 +28,7 @@ export type Resource =
   | 'finances'
   | 'messages'
   | 'settings'
+  | 'events'
   | 'admin';
 
 export type Action = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'all';
@@ -41,6 +43,7 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'calendar:view',
     'teams:view',
     'stats:view',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -53,6 +56,7 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'students:view',
     'stats:view',
     'reports:view',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -74,6 +78,7 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'stats:edit',
     'reports:view',
     'reports:create',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -100,6 +105,7 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'reports:create',
     'finances:view',
     'finances:manage',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -140,9 +146,15 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'calendar:create',
     'calendar:edit',
     'calendar:delete',
+    'events:view',
+    'events:create',
+    'events:edit',
+    'events:delete',
     'stats:view',
     'reports:view',
     'reports:create',
+    'finances:view',
+    'finances:manage',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -186,6 +198,10 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'messages:send',
     'settings:view',
     'settings:edit',
+    'events:view',
+    'events:create',
+    'events:edit',
+    'events:delete',
     'admin:users',
     'admin:system',
     'admin:all'

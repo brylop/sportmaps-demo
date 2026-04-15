@@ -1,283 +1,327 @@
-# SportMaps - Guía de Seguridad
+# SportMaps - Guia de Seguridad
 
-## 🔐 Sistema de Permisos (RBAC)
+## Sistema de Permisos (RBAC)
 
-SportMaps implementa un sistema robusto de **Role-Based Access Control** que garantiza que cada usuario solo pueda acceder a las funcionalidades apropiadas para su rol.
+SportMaps implementa un sistema robusto de **Role-Based Access Control** con tres capas de defensa:
 
-### Roles del Sistema
+1. **Base de Datos (RLS)** - Supabase Row Level Security
+2. **Backend (BFF Middleware)** - Express middleware chain
+3. **Frontend (UI Guards)** - ProtectedRoute + PermissionGate + routePermissions
 
-| Rol | Descripción | Nivel de Acceso |
+### Principio de Menor Privilegio
+
+**Denegacion por Defecto:** Si un permiso no esta explicitamente concedido a un rol, se asume que esta prohibido. Esto aplica en las tres capas.
+
+---
+
+## Roles del Sistema
+
+| Rol | Descripcion | Nivel de Acceso |
 |-----|-------------|-----------------|
-| `athlete` | Deportista | Básico - Solo datos propios |
+| `athlete` | Deportista | Basico - Solo datos propios |
 | `parent` | Padre/Madre | Intermedio - Datos propios + hijos |
-| `coach` | Entrenador | Avanzado - Gestión de equipos |
-| `school` | Escuela | Completo - Gestión institucional |
+| `coach` | Entrenador | Avanzado - Gestion de equipos |
+| `school` | Escuela (owner) | Completo - Gestion institucional |
+| `school_admin` | Admin de sede | Completo - Gestion de una sede |
 | `wellness_professional` | Profesional Bienestar | Especializado - Salud atletas |
-| `store_owner` | Dueño de Tienda | Comercial - Gestión productos |
-| `admin` | Administrador | Total - Acceso completo |
+| `store_owner` | Dueno de Tienda | Comercial - Gestion productos |
+| `organizer` | Organizador de eventos | Eventos - CRUD de competencias |
+| `reporter` | Reportero | Lectura - Reportes y estadisticas |
+| `admin` / `super_admin` | Administrador | Total - Acceso completo |
 
-## 📋 Matriz de Permisos
+### Jerarquia de Roles Privilegiados
 
-### Permisos por Recurso
-
-#### Dashboard
-- **athlete, parent, coach, school, wellness, store, admin**: `view`
-
-#### Calendar
-- **athlete, parent**: `view`
-- **coach, wellness**: `view`, `create`, `edit`
-- **school, admin**: `view`, `create`, `edit`, `delete`
-
-#### Teams
-- **athlete**: `view`
-- **coach**: `view`, `create`, `edit`
-- **school, admin**: `view`, `create`, `edit`, `delete`
-
-#### Students
-- **parent**: `view` (solo hijos)
-- **coach, wellness**: `view`, `edit`
-- **school, admin**: `view`, `create`, `edit`, `delete`
-
-#### Stats
-- **athlete, parent, coach, store**: `view`
-- **school, admin**: `view`, `edit`
-
-#### Reports
-- **parent, coach, wellness, store**: `view`
-- **coach, wellness, school, store, admin**: `create`
-
-#### Finances
-- **school, store**: `view`, `manage`
-- **admin**: `view`, `manage`
-
-#### Messages
-- **todos**: `view`, `send`
-
-#### Admin Panel
-- **admin**: `users`, `system`, `all`
-
-## 🛡️ Cómo Usar el Sistema de Permisos
-
-### En Componentes
-
-```tsx
-import { PermissionGate } from '@/components/PermissionGate';
-
-// Renderizar solo si tiene permiso
-<PermissionGate permission="calendar:create">
-  <Button onClick={createEvent}>Crear Evento</Button>
-</PermissionGate>
-
-// Renderizar solo si tiene rol específico
-<PermissionGate roles={['admin', 'school']}>
-  <AdminPanel />
-</PermissionGate>
-
-// Renderizar solo si tiene feature flag
-<PermissionGate feature="canExportData">
-  <ExportButton />
-</PermissionGate>
+```
+owner / super_admin / admin
+  └── Pasan SIEMPRE requireRole() sin necesidad de estar listados
+  └── PRIVILEGED_CONTEXT_ROLES en ProtectedRoute: bypass de restriccion de ruta
 ```
 
-### Con Hooks
+---
 
-```tsx
-import { usePermissions } from '@/hooks/usePermissions';
+## Capa 1: Base de Datos (RLS)
 
-function MyComponent() {
-  const { can, hasFeature, hasRole } = usePermissions();
+### Funcion Helper Central
 
-  if (!can('calendar:create')) {
-    return <p>No tienes permiso para crear eventos</p>;
-  }
-
-  if (hasFeature('canExportData')) {
-    // Mostrar botón de exportar
-  }
-
-  if (hasRole('admin', 'school')) {
-    // Lógica específica para admin/school
-  }
-}
+```sql
+-- Retorna los school_ids donde el usuario tiene membresía activa
+CREATE FUNCTION public.user_school_ids() RETURNS uuid[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$ SELECT COALESCE(ARRAY_AGG(school_id), ARRAY[]::uuid[])
+     FROM public.school_members
+     WHERE profile_id = auth.uid() AND status = 'active'; $$;
 ```
 
-### En Rutas (App.tsx)
+### Patron RLS por Tipo de Tabla
+
+| Tipo | SELECT | INSERT | UPDATE | DELETE |
+|------|--------|--------|--------|--------|
+| **Escolar** (children, payments, enrollments) | `school_id IN user_school_ids() OR parent_id = auth.uid()` | Staff de escuela (owner/admin/coach) | Staff o padre | Solo admin |
+| **Personal** (carts, notifications) | `user_id = auth.uid()` | `user_id = auth.uid()` | `user_id = auth.uid()` | `user_id = auth.uid()` |
+| **Publica** (schools, events, programs) | `USING (true)` | Creador verificado | Solo creador | Solo creador + estado valido |
+| **Auditoria** (security_audit_log) | Solo admin/super_admin | Authenticated (triggers) | Prohibido | Prohibido |
+
+### Prevencion de Escalada de Privilegios (Phase 2)
+
+```sql
+-- Trigger: Bloquea que un usuario cambie su propio role o role_id
+CREATE TRIGGER trg_prevent_role_escalation
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.prevent_role_self_escalation();
+
+-- Trigger: Impide eliminar al ultimo owner de una escuela
+CREATE TRIGGER trg_prevent_last_owner_removal
+    BEFORE UPDATE ON public.school_members
+    FOR EACH ROW
+    EXECUTE FUNCTION public.prevent_last_owner_removal();
+```
+
+### Auditoria de Seguridad
+
+Tabla `security_audit_log` registra automaticamente:
+- Cambios de rol en `profiles` y `school_members`
+- Adicion/eliminacion de miembros
+- Acciones sensibles via `auditLog()` en el BFF
+
+---
+
+## Capa 2: Backend (BFF Middleware)
+
+### Middleware Chain
+
+```
+Request → requireBasicAuth/requireAuth → requireRole → requirePermission → requireOwnership → Handler
+```
+
+### Middlewares Disponibles
+
+| Middleware | Proposito | Ejemplo |
+|-----------|-----------|---------|
+| `requireBasicAuth` | Solo valida que existe Bearer token | Webhooks, pass-through |
+| `requireAuth` | Valida JWT + busca school_members | Todas las rutas autenticadas |
+| `requireRole(...roles)` | Verifica rol del usuario | `requireRole('owner', 'admin', 'coach')` |
+| `requirePermission(...perms)` | Valida contra matriz de permisos | `requirePermission('students:create')` |
+| `requireOwnership(table, param, field)` | Previene IDOR | `requireOwnership('children', 'id', 'school_id')` |
+| `auditLog(req, action, ...)` | Registra accion en audit log | `await auditLog(req, 'payment_create', ...)` |
+
+### Ejemplo: Proteger un endpoint contra IDOR
+
+```typescript
+// ANTES (vulnerable a IDOR):
+router.get('/:id', requireAuth, requireRole('school'), handler);
+
+// DESPUES (con ownership check):
+router.get('/:id', requireAuth, requireRole('school'),
+    requireOwnership('children', 'id', 'school_id'), handler);
+```
+
+### Matriz de Permisos (Backend)
+
+El BFF mantiene una copia **identica** de la matriz de permisos del frontend en `authMiddleware.ts`. Esto permite validar permisos en el backend sin depender solo de roles:
+
+```typescript
+// Valida que el usuario tiene permiso de crear estudiantes
+router.post('/students', requireAuth, requirePermission('students:create'), handler);
+```
+
+---
+
+## Capa 3: Frontend (UI Guards)
+
+### 1. ProtectedRoute (Ruta completa)
 
 ```tsx
-<Route path="admin/users" element={
-  <ProtectedRoute allowedRoles={['admin']}>
-    <AdminUsersPage />
+<Route path="students" element={
+  <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+    <SchoolStudentsManagementPage />
   </ProtectedRoute>
 } />
 ```
 
-## 🔒 Seguridad en el Backend (Supabase RLS)
+### 2. PermissionGate (Componentes individuales)
 
-### Row Level Security (RLS)
-
-Todas las tablas tienen políticas RLS que garantizan:
-
-1. **Aislamiento de datos por usuario**
-```sql
-CREATE POLICY "Users can view own profile"
-ON spm_users FOR SELECT
-USING (auth.uid() = id);
-```
-
-2. **Acceso público controlado para demos**
-```sql
-CREATE POLICY "Public can view demo users"
-ON spm_users FOR SELECT
-USING (email ~~ '%@sportmaps-demo.com');
-```
-
-3. **Permisos de escritura restrictivos**
-```sql
-CREATE POLICY "Users can update own profile"
-ON spm_users FOR UPDATE
-USING (auth.uid() = id);
-```
-
-### Funciones de Seguridad
-
-```sql
--- Verificar si usuario tiene rol específico
-CREATE OR REPLACE FUNCTION has_role(user_id uuid, required_role text)
-RETURNS boolean
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM spm_users
-    WHERE id = user_id AND role = required_role
-  );
-END;
-$$ LANGUAGE plpgsql;
-```
-
-## 🚨 Auditoría y Logging
-
-### Eventos Auditables
-
-- Login/Logout
-- Cambios de perfil
-- Creación/Edición/Eliminación de datos sensibles
-- Acceso a datos financieros
-- Cambios administrativos
-
-### Implementación (Futuro)
-
-```typescript
-// Log de auditoría
-await auditLog({
-  userId: user.id,
-  action: 'delete_user',
-  resource: 'users',
-  resourceId: targetUserId,
-  metadata: { reason: 'account_closed' }
-});
-```
-
-## 🔐 Mejores Prácticas
-
-### 1. Validación Cliente + Servidor
-
-❌ **Incorrecto**: Solo validar en frontend
 ```tsx
-if (userRole === 'admin') {
-  deleteUser(); // INSEGURO
-}
-```
+<PermissionGate permission="calendar:create">
+  <Button>Crear Evento</Button>
+</PermissionGate>
 
-✅ **Correcto**: Validar en ambos lados
-```tsx
-// Frontend
-if (can('admin:users')) {
-  await deleteUser(); // Backend valida nuevamente
-}
-
-// Backend (Edge Function)
-if (!hasPermission(userId, 'admin:users')) {
-  throw new Error('Unauthorized');
-}
-```
-
-### 2. Nunca Exponer Datos Sensibles
-
-❌ **Incorrecto**:
-```typescript
-const allUsers = await supabase.from('users').select('*');
-```
-
-✅ **Correcto**:
-```typescript
-const users = await supabase
-  .from('users')
-  .select('id, name, email')
-  .eq('id', auth.uid());
-```
-
-### 3. Usar PermissionGate para UI
-
-❌ **Incorrecto**: Lógica condicional esparcida
-```tsx
-{profile.role === 'admin' || profile.role === 'school' ? <Button /> : null}
-```
-
-✅ **Correcto**: Componente centralizado
-```tsx
 <PermissionGate roles={['admin', 'school']}>
-  <Button />
+  <AdminPanel />
 </PermissionGate>
 ```
 
-### 4. Feature Flags para Funcionalidades Beta
+### 3. usePermissions Hook
 
 ```tsx
-<PermissionGate feature="canAccessBetaFeatures">
-  <NewFeatureComponent />
-</PermissionGate>
+const { can, hasFeature, hasRole, isAdmin } = usePermissions();
+
+if (can('finances:manage')) { /* mostrar seccion financiera */ }
+if (hasFeature('canExportData')) { /* mostrar boton exportar */ }
 ```
 
-## 🛡️ Checklist de Seguridad
+### 4. Route Permission Map (`routePermissions.ts`)
 
-Antes de desplegar a producción:
+Single Source of Truth para mapeo ruta → roles + permisos:
 
-- [ ] Todas las tablas tienen RLS habilitado
-- [ ] Políticas RLS implementadas y testeadas
-- [ ] Validación de inputs en cliente y servidor
-- [ ] No hay datos sensibles hardcodeados
-- [ ] Contraseñas nunca logueadas o expuestas
-- [ ] HTTPS en producción
-- [ ] CORS configurado correctamente
-- [ ] Rate limiting en API endpoints críticos
-- [ ] Tokens JWT con expiración adecuada
-- [ ] Sanitización de inputs para prevenir XSS
-- [ ] Preparación de queries para prevenir SQL injection
-- [ ] Auditoría de dependencias (npm audit)
+```typescript
+import { getRoutePermission, isPublicRoute } from '@/config/routePermissions';
 
-## 📞 Reporte de Vulnerabilidades
-
-Si encuentras una vulnerabilidad de seguridad:
-
-1. **NO** abras un issue público
-2. Envía un email a: security@sportmaps.com
-3. Incluye:
-   - Descripción detallada
-   - Pasos para reproducir
-   - Impacto potencial
-   - Sugerencias de solución (opcional)
-
-## 🔄 Actualizaciones de Seguridad
-
-Este documento se actualiza cuando:
-- Se agregan nuevos roles
-- Se modifican permisos
-- Se detectan vulnerabilidades
-- Se implementan nuevas medidas de seguridad
+const config = getRoutePermission('/students');
+// → { allowedRoles: ['school', 'admin', ...], requiredPermission: 'students:view' }
+```
 
 ---
 
-**Última revisión**: 2025-09-30  
-**Próxima auditoría**: 2025-12-30
+## Matriz de Permisos Completa
+
+### Permisos por Recurso
+
+| Recurso | athlete | parent | coach | school | organizer | admin |
+|---------|---------|--------|-------|--------|-----------|-------|
+| dashboard:view | Y | Y | Y | Y | Y | Y |
+| calendar:view | Y | Y | Y | Y | Y | Y |
+| calendar:create | - | - | Y | Y | Y | Y |
+| teams:view | Y | - | Y | Y | - | Y |
+| teams:create | - | - | Y | Y | - | Y |
+| students:view | - | Y | Y | Y | - | Y |
+| students:create | - | - | - | Y | - | Y |
+| stats:view | Y | Y | Y | Y | Y | Y |
+| reports:view | - | Y | Y | Y | Y | Y |
+| finances:view | - | - | - | Y | Y | Y |
+| finances:manage | - | - | - | Y | Y | Y |
+| events:view | Y | Y | Y | Y | Y | Y |
+| events:create | - | - | - | - | Y | Y |
+| events:edit | - | - | - | - | Y | Y |
+| events:delete | - | - | - | - | Y | Y |
+| admin:all | - | - | - | - | - | Y |
+
+### Feature Flags
+
+| Feature | athlete | parent | coach | school | organizer | admin |
+|---------|---------|--------|-------|--------|-----------|-------|
+| canCreateEvents | - | - | Y | Y | Y | Y |
+| canManageTeams | - | - | Y | Y | - | Y |
+| canViewFinances | - | Y | - | Y | Y | Y |
+| canAccessAdmin | - | - | - | - | - | Y |
+| canExportData | - | - | Y | Y | Y | Y |
+
+---
+
+## Multitenancy (Aislamiento por Escuela)
+
+### Flujo de Aislamiento
+
+```
+Frontend → bffClient.setSchoolId(activeSchoolId)
+  → Header: x-school-id
+    → BFF requireAuth: valida school_members + popula req.schoolId
+      → Todas las queries: .eq('school_id', req.schoolId)
+        → RLS: school_id IN user_school_ids()
+```
+
+### Tabla Pivote: school_members
+
+```sql
+school_members (
+    profile_id  → auth.users.id
+    school_id   → schools.id
+    branch_id   → school_branches.id (nullable = acceso global)
+    role        → 'owner' | 'admin' | 'coach' | 'athlete' | 'parent' | 'staff'
+    status      → 'active' | 'inactive' | 'pending'
+)
+```
+
+---
+
+## Validaciones de Seguridad
+
+### Tipo de Validacion
+
+| Capa | Validacion | Ejemplo de Ataque que Previene |
+|------|-----------|-------------------------------|
+| **Auth Check** | Token JWT valido | Sesion expirada que accede datos cacheados |
+| **Role Check** | Rol correcto para la ruta | Vendedor entrando a `/dashboard-contable` |
+| **Permission Check** | Permiso especifico | Coach intentando borrar un equipo (`teams:delete`) |
+| **Ownership Check** | Recurso pertenece a su escuela | Cambiar ID en URL: `/students/100` → `/students/101` |
+| **Escalation Check** | No puede cambiar su propio rol | `UPDATE profiles SET role = 'admin'` |
+| **Last Owner Check** | No eliminar ultimo owner | Dejar escuela sin administrador |
+
+---
+
+## Mejores Practicas
+
+### 1. Validacion Cliente + Servidor
+
+```tsx
+// Frontend: oculta el boton
+<PermissionGate permission="admin:users">
+  <Button onClick={deleteUser}>Eliminar</Button>
+</PermissionGate>
+
+// BFF: valida nuevamente
+router.delete('/users/:id',
+  requireAuth,
+  requireRole('admin'),
+  requirePermission('admin:users'),
+  requireOwnership('profiles', 'id', 'school_id'),
+  handler
+);
+
+// DB: RLS como ultima linea de defensa
+```
+
+### 2. Usar PermissionGate en lugar de condicionales
+
+```tsx
+// MAL:
+{profile.role === 'admin' || profile.role === 'school' ? <Button /> : null}
+
+// BIEN:
+<PermissionGate roles={['admin', 'school']}><Button /></PermissionGate>
+```
+
+### 3. Siempre filtrar por schoolId en el BFF
+
+```typescript
+// MAL (IDOR vulnerable):
+const { data } = await supabase.from('children').select('*').eq('id', req.params.id);
+
+// BIEN:
+const { data } = await supabase.from('children').select('*')
+  .eq('id', req.params.id)
+  .eq('school_id', req.schoolId); // Siempre filtrar
+```
+
+### 4. Auditar acciones sensibles
+
+```typescript
+await auditLog(req, 'payment_create', 'payments', newPayment.id, null, { amount, concept });
+```
+
+---
+
+## Checklist de Seguridad
+
+- [x] Todas las tablas tienen RLS habilitado
+- [x] Politicas RLS implementadas para todas las tablas core
+- [x] Prevencion de escalada de privilegios (trigger en profiles)
+- [x] Proteccion del ultimo owner (trigger en school_members)
+- [x] Tabla de auditoria general (security_audit_log)
+- [x] Triggers de auditoria en tablas sensibles
+- [x] Middleware de ownership (IDOR prevention)
+- [x] Middleware de permisos (mirror del frontend)
+- [x] Route permission map (Single Source of Truth)
+- [x] Rate limiting en API endpoints
+- [x] CORS configurado correctamente
+- [x] Cache-Control headers (no-store)
+- [x] Validacion de inputs con Zod
+- [x] JWT con auto-refresh
+- [ ] Rate limiting por usuario (no solo por IP)
+- [ ] Audit log de login/logout
+- [ ] Alertas de actividad sospechosa
+
+---
+
+**Ultima revision**: 2026-04-15
+**Proxima auditoria**: 2026-07-15
