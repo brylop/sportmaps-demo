@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowLeft,
   Calendar,
@@ -37,9 +38,11 @@ import {
   ExternalLink,
   Phone,
   Mail,
-  AlertCircle
+  AlertCircle,
+  FileText,
 } from 'lucide-react';
 import type { Event, EventRegistration } from '@/types/events';
+import EventDocumentsTab from '@/components/organizer/EventDocumentsTab';
 
 export default function EventManagementPage() {
   const { id } = useParams<{ id: string }>();
@@ -238,121 +241,142 @@ export default function EventManagementPage() {
         </CardContent>
       </Card>
 
-      {/* Registrations Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
+      {/* ── Tabs: Inscripciones | Documentos ──────────────────────────── */}
+      <Tabs defaultValue="inscripciones">
+        <TabsList>
+          <TabsTrigger value="inscripciones" className="gap-2">
+            <Users className="h-4 w-4" />
             Inscripciones ({registrations.length})
-          </CardTitle>
-          <CardDescription>
-            Gestiona las inscripciones de tu evento
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {registrations.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-semibold mb-2">Aún no hay inscripciones</h3>
-              <p className="text-muted-foreground mb-4">
-                Comparte el enlace de tu evento para recibir inscripciones
-              </p>
-              <Button onClick={handleCopyLink} className="gap-2">
-                <Copy className="h-4 w-4" />
-                Copiar enlace del evento
-              </Button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Participante</TableHead>
-                    <TableHead>Contacto</TableHead>
-                    <TableHead>Rol</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {registrations.map((registration) => (
-                    <TableRow key={registration.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{registration.participant_name}</p>
-                          {registration.participant_age && (
-                            <p className="text-xs text-muted-foreground">{registration.participant_age} años</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <a href={`tel:${registration.participant_phone}`} className="flex items-center gap-1 text-sm hover:underline">
-                            <Phone className="h-3 w-3" />
-                            {registration.participant_phone}
-                          </a>
-                          {registration.participant_email && (
-                            <a href={`mailto:${registration.participant_email}`} className="flex items-center gap-1 text-sm hover:underline">
-                              <Mail className="h-3 w-3" />
-                              {registration.participant_email}
-                            </a>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="capitalize">
-                        {registration.participant_role === 'athlete' ? 'Atleta' :
-                         registration.participant_role === 'parent' ? 'Padre' :
-                         registration.participant_role === 'coach' ? 'Entrenador' : 'Otro'}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(registration.status)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(registration.created_at).toLocaleDateString('es-CO')}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {registration.status === 'pending' && (
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1 text-green-600 hover:text-green-700"
-                              onClick={() => handleApprove(registration)}
-                            >
-                              <Check className="h-4 w-4" />
-                              Aprobar
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1 text-red-600 hover:text-red-700"
-                              onClick={() => {
-                                setSelectedRegistration(registration);
-                                setRejectDialogOpen(true);
-                              }}
-                            >
-                              <X className="h-4 w-4" />
-                              Rechazar
-                            </Button>
-                          </div>
-                        )}
-                        {registration.payment_proof_url && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => window.open(registration.payment_proof_url, '_blank')}
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </TabsTrigger>
+          <TabsTrigger value="documentos" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Documentos
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Tab: Inscripciones */}
+        <TabsContent value="inscripciones">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Inscripciones ({registrations.length})
+              </CardTitle>
+              <CardDescription>
+                Gestiona las inscripciones de tu evento
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {registrations.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="font-semibold mb-2">Aún no hay inscripciones</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Comparte el enlace de tu evento para recibir inscripciones
+                  </p>
+                  <Button onClick={handleCopyLink} className="gap-2">
+                    <Copy className="h-4 w-4" />
+                    Copiar enlace del evento
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Participante</TableHead>
+                        <TableHead>Contacto</TableHead>
+                        <TableHead>Rol</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {registrations.map((registration) => (
+                        <TableRow key={registration.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{registration.participant_name}</p>
+                              {registration.participant_age && (
+                                <p className="text-xs text-muted-foreground">{registration.participant_age} años</p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <a href={`tel:${registration.participant_phone}`} className="flex items-center gap-1 text-sm hover:underline">
+                                <Phone className="h-3 w-3" />
+                                {registration.participant_phone}
+                              </a>
+                              {registration.participant_email && (
+                                <a href={`mailto:${registration.participant_email}`} className="flex items-center gap-1 text-sm hover:underline">
+                                  <Mail className="h-3 w-3" />
+                                  {registration.participant_email}
+                                </a>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="capitalize">
+                            {registration.participant_role === 'athlete' ? 'Atleta' :
+                             registration.participant_role === 'parent' ? 'Padre' :
+                             registration.participant_role === 'coach' ? 'Entrenador' : 'Otro'}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(registration.status)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(registration.created_at).toLocaleDateString('es-CO')}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {registration.status === 'pending' && (
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1 text-green-600 hover:text-green-700"
+                                  onClick={() => handleApprove(registration)}
+                                >
+                                  <Check className="h-4 w-4" />
+                                  Aprobar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1 text-red-600 hover:text-red-700"
+                                  onClick={() => {
+                                    setSelectedRegistration(registration);
+                                    setRejectDialogOpen(true);
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                  Rechazar
+                                </Button>
+                              </div>
+                            )}
+                            {registration.payment_proof_url && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => window.open(registration.payment_proof_url, '_blank')}
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab: Documentos */}
+        <TabsContent value="documentos">
+          <EventDocumentsTab eventId={id!} />
+        </TabsContent>
+      </Tabs>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
