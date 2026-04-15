@@ -442,4 +442,128 @@ router.get(
     }
 );
 
+// ── GET /api/v1/reports/school/documents ─────────────────────────────────────
+// Returns students + their identity document paths, filterable by team or plan.
+router.get(
+    '/school/documents',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'auditor', 'reporter', 'school_admin'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            const { schoolId } = req;
+            const branchFilterId = getBranchFilter(req);
+            const teamId = req.query.team_id as string | undefined;
+            const planId = req.query.offering_plan_id as string | undefined;
+
+            // 1. Fetch children with document URL
+            let childrenQuery = supabase
+                .from('children')
+                .select('id, full_name, team_id, branch_id, id_document_url, status')
+                .eq('school_id', schoolId)
+                .order('full_name');
+
+            if (branchFilterId) childrenQuery = childrenQuery.eq('branch_id', branchFilterId);
+            if (teamId) childrenQuery = childrenQuery.eq('team_id', teamId);
+
+            const { data: childrenRaw, error: childrenErr } = await childrenQuery;
+            if (childrenErr) throw childrenErr;
+
+            let childIds = (childrenRaw || []).map((c: any) => c.id);
+
+            // 2. If filtering by plan, narrow down to children enrolled in that plan
+            if (planId && childIds.length > 0) {
+                const { data: enrollments, error: enrollErr } = await supabase
+                    .from('enrollments')
+                    .select('child_id')
+                    .eq('offering_plan_id', planId)
+                    .in('child_id', childIds);
+
+                if (enrollErr) throw enrollErr;
+
+                const enrolledChildIds = new Set((enrollments || []).map((e: any) => e.child_id));
+                childIds = childIds.filter((id: string) => enrolledChildIds.has(id));
+            }
+
+            // 3. Resolve team names
+            const teamIds = [...new Set((childrenRaw || []).map((c: any) => c.team_id).filter(Boolean))];
+            const teamNameMap = new Map<string, string>();
+            if (teamIds.length > 0) {
+                const { data: teamRows } = await supabase
+                    .from('teams')
+                    .select('id, name')
+                    .in('id', teamIds);
+                (teamRows || []).forEach((t: any) => teamNameMap.set(t.id, t.name));
+            }
+
+            // 4. Resolve plan names for each child via enrollments
+            const childPlanMap = new Map<string, string>();
+            if (childIds.length > 0) {
+                const { data: allEnrollments } = await supabase
+                    .from('enrollments')
+                    .select('child_id, offering_plan_id')
+                    .in('child_id', childIds)
+                    .eq('status', 'active');
+
+                const planIds = [...new Set((allEnrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
+                if (planIds.length > 0) {
+                    const { data: planRows } = await supabase
+                        .from('offering_plans')
+                        .select('id, name')
+                        .in('id', planIds);
+                    const planNameMap = new Map<string, string>();
+                    (planRows || []).forEach((p: any) => planNameMap.set(p.id, p.name));
+                    (allEnrollments || []).forEach((e: any) => {
+                        if (e.offering_plan_id && planNameMap.has(e.offering_plan_id)) {
+                            childPlanMap.set(e.child_id, planNameMap.get(e.offering_plan_id)!);
+                        }
+                    });
+                }
+            }
+
+            // 5. For each child with documents, list files from storage
+            const childIdSet = new Set(childIds);
+            const students = await Promise.all(
+                (childrenRaw || [])
+                    .filter((c: any) => childIdSet.has(c.id))
+                    .map(async (child: any) => {
+                        const documents: { name: string; path: string }[] = [];
+
+                        // Try listing files from storage bucket
+                        const folderPath = `children/${child.id}/docs`;
+                        const { data: files } = await supabase.storage
+                            .from('identity-documents')
+                            .list(folderPath, { limit: 20 });
+
+                        if (files && files.length > 0) {
+                            files.forEach((f: any) => {
+                                if (f.name && !f.name.startsWith('.')) {
+                                    documents.push({
+                                        name: f.name,
+                                        path: `${folderPath}/${f.name}`,
+                                    });
+                                }
+                            });
+                        }
+
+                        return {
+                            id: child.id,
+                            full_name: child.full_name || 'Sin nombre',
+                            team_name: teamNameMap.get(child.team_id) || '—',
+                            plan_name: childPlanMap.get(child.id) || '—',
+                            status: child.status || 'active',
+                            has_document: documents.length > 0,
+                            documents,
+                        };
+                    })
+            );
+
+            return res.json({ students });
+
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error en reporte de documentos');
+            return res.status(500).json({ error: 'Error interno obteniendo documentos.' });
+        }
+    }
+);
+
 export default router;

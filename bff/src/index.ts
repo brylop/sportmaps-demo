@@ -28,6 +28,7 @@ import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
 import templatesRouter from './routes/templates';
+import pollsRouter from './routes/polls';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -128,6 +129,7 @@ app.use('/api/v1/system', systemRouter);
 app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
+app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

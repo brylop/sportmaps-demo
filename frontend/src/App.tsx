@@ -50,6 +50,11 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
 const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
 
+// ─── Polls (lazy) ────────────────────────────────────────────────────────────
+const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
+const PublicPollPage = lazy(() => import("./pages/polls/PublicPollPage"));
+const PollResultsPage = lazy(() => import("./pages/polls/PollResultsPage"));
+
 // ─── Dashboard pages (lazy) ───────────────────────────────────────────────────
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
@@ -213,6 +218,7 @@ const App = () => (
                     <Route path="/events" element={<EventsMapPage />} />
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
+                    <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
@@ -286,6 +292,10 @@ const App = () => (
                       <Route path="coach-reports" element={<CoachReportsPage />} />
                       <Route path="evaluations" element={<CoachEvaluationsPage />} />
                       <Route path="announcements" element={<AnnouncementsPage />} />
+
+                      {/* Polls routes */}
+                      <Route path="dashboard/polls" element={<PollsPage />} />
+                      <Route path="dashboard/polls/:pollId/results" element={<PollResultsPage />} />
 
                       {/* School routes (role-guarded) */}
                       <Route path="school/enroll/:eventId" element={

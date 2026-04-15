@@ -370,4 +370,133 @@ router.post('/:id/enroll', requireAuth, requireRole('school'), async (req: Authe
     }
 });
 
+// ── GET /api/v1/events/:id/documents ─────────────────────────────────────────
+// Organizer endpoint: returns identity documents of athletes enrolled in the event,
+// grouped by school (delegation). Used to bulk-download documents before events.
+router.get(
+    '/:id/documents',
+    requireAuth,
+    requireRole('organizer'),
+    async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const eventId = req.params.id;
+            const userId = req.user.id;
+
+            // 1. Verify the organizer owns this event
+            const { data: orgProfile } = await supabase
+                .from('event_organizers')
+                .select('id')
+                .eq('profile_id', userId)
+                .single();
+
+            if (!orgProfile) return res.status(403).json({ error: 'No eres organizador.' });
+
+            const { data: event } = await supabase
+                .from('events')
+                .select('id, title, organizer_id')
+                .eq('id', eventId)
+                .single();
+
+            if (!event || event.organizer_id !== orgProfile.id) {
+                return res.status(403).json({ error: 'No tienes acceso a este evento.' });
+            }
+
+            // 2. Get approved delegations for this event
+            const { data: delegations, error: delErr } = await supabase
+                .from('event_delegations')
+                .select('id, school_id, status')
+                .eq('event_id', eventId)
+                .in('status', ['approved', 'pending_payment']);
+
+            if (delErr) throw delErr;
+
+            if (!delegations || delegations.length === 0) {
+                return res.json({ schools: [] });
+            }
+
+            // 3. Resolve school names
+            const schoolIds = [...new Set(delegations.map((d: any) => d.school_id).filter(Boolean))];
+            const schoolNameMap = new Map<string, string>();
+            if (schoolIds.length > 0) {
+                const { data: schoolRows } = await supabase
+                    .from('schools')
+                    .select('id, name')
+                    .in('id', schoolIds);
+                (schoolRows || []).forEach((s: any) => schoolNameMap.set(s.id, s.name));
+            }
+
+            // 4. For each school, get their children with identity documents
+            const schools = await Promise.all(
+                schoolIds.map(async (schoolId: string) => {
+                    const delegation = delegations.find((d: any) => d.school_id === schoolId);
+
+                    // Get children from this school
+                    const { data: children } = await supabase
+                        .from('children')
+                        .select('id, full_name, team_id, id_document_url, status')
+                        .eq('school_id', schoolId)
+                        .order('full_name');
+
+                    // Resolve team names
+                    const teamIds = [...new Set((children || []).map((c: any) => c.team_id).filter(Boolean))];
+                    const teamNameMap = new Map<string, string>();
+                    if (teamIds.length > 0) {
+                        const { data: teamRows } = await supabase
+                            .from('teams')
+                            .select('id, name')
+                            .in('id', teamIds);
+                        (teamRows || []).forEach((t: any) => teamNameMap.set(t.id, t.name));
+                    }
+
+                    // List documents from storage for each child
+                    const students = await Promise.all(
+                        (children || []).map(async (child: any) => {
+                            const documents: { name: string; path: string }[] = [];
+
+                            const folderPath = `children/${child.id}/docs`;
+                            const { data: files } = await supabase.storage
+                                .from('identity-documents')
+                                .list(folderPath, { limit: 20 });
+
+                            if (files && files.length > 0) {
+                                files.forEach((f: any) => {
+                                    if (f.name && !f.name.startsWith('.')) {
+                                        documents.push({
+                                            name: f.name,
+                                            path: `${folderPath}/${f.name}`,
+                                        });
+                                    }
+                                });
+                            }
+
+                            return {
+                                id: child.id,
+                                full_name: child.full_name || 'Sin nombre',
+                                team_name: teamNameMap.get(child.team_id) || '—',
+                                has_document: documents.length > 0,
+                                documents,
+                            };
+                        })
+                    );
+
+                    return {
+                        school_id: schoolId,
+                        school_name: schoolNameMap.get(schoolId) || 'Escuela',
+                        delegation_status: delegation?.status || 'unknown',
+                        total_students: students.length,
+                        with_documents: students.filter(s => s.has_document).length,
+                        students,
+                    };
+                })
+            );
+
+            return res.json({ schools });
+
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error en documentos del evento');
+            return res.status(500).json({ error: 'Error interno obteniendo documentos.' });
+        }
+    }
+);
+
 export default router;
