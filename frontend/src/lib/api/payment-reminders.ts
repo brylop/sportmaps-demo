@@ -1,6 +1,25 @@
 import { supabase } from '@/integrations/supabase/client';
 import { daysDiffFromToday } from '@/lib/dateUtils';
 
+/**
+ * Cleans raw payment concept strings like:
+ *   "Equipo Equipo - Mensualidad completa, vence dia 10 -- Santiago Robles"
+ * Into: "Mensualidad completa, vence dia 10"
+ */
+function cleanConcept(concept: string | null): string {
+    if (!concept) return '';
+    let clean = concept;
+    // Remove team prefix (e.g. "Equipo Equipo - ")
+    if (clean.includes(' - ')) {
+        clean = clean.substring(clean.indexOf(' - ') + 3);
+    }
+    // Remove athlete name suffix (e.g. " -- Santiago Robles")
+    const parts = clean.split(' -- ');
+    if (parts.length > 1) parts.pop();
+    clean = parts.join(' -- ');
+    return clean.trim();
+}
+
 export interface PaymentReminder {
     id: string;
     parentId: string;
@@ -134,8 +153,8 @@ class PaymentRemindersAPI {
             const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
             const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
 
-            // Show plan name > concept (never generic "Equipo")
-            const programLabel = plan?.name || payment.concept || '';
+            // Show plan name > cleaned concept
+            const programLabel = plan?.name || cleanConcept(payment.concept);
 
             return {
                 id: payment.id,
