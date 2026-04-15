@@ -134,8 +134,8 @@ class PaymentRemindersAPI {
             const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
             const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
 
-            // Show plan name > team name > concept
-            const programLabel = plan?.name || team?.name || payment.concept || '';
+            // Show plan name > concept (never generic "Equipo")
+            const programLabel = plan?.name || payment.concept || '';
 
             return {
                 id: payment.id,

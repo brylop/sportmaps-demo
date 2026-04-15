@@ -20,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { emailClient } from '@/lib/email-client';
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 
 export default function PaymentRemindersPage() {
     const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
@@ -28,6 +29,7 @@ export default function PaymentRemindersPage() {
     const [sending, setSending] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue'>('all');
+    const [filterPlan, setFilterPlan] = useState<string>('all');
     const [expandedParent, setExpandedParent] = useState<string | null>(null);
     const [sendingAuto, setSendingAuto] = useState(false);
 
@@ -54,9 +56,22 @@ export default function PaymentRemindersPage() {
         }
     }
 
-    const filteredReminders = batch?.reminders.filter(r =>
-        filterStatus === 'all' || r.status === filterStatus
-    ) || [];
+    // Unique plan names for dynamic filter
+    const planOptions = [...new Set((batch?.reminders || []).map(r => r.teamName).filter(Boolean))];
+
+    const filteredReminders = batch?.reminders.filter(r => {
+        if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+        if (filterPlan !== 'all' && r.teamName !== filterPlan) return false;
+        return true;
+    }) || [];
+
+    // Stats based on filtered results
+    const filteredStats = {
+        parents: new Set(filteredReminders.map(r => r.parentId)).size,
+        pending: filteredReminders.filter(r => r.status === 'pending').length,
+        overdue: filteredReminders.filter(r => r.status === 'overdue').length,
+        total: filteredReminders.reduce((s, r) => s + r.amount, 0),
+    };
 
     // Group by parent for grouped view
     const groupedByParent = filteredReminders.reduce<Record<string, PaymentReminder[]>>((acc, r) => {
@@ -146,22 +161,52 @@ export default function PaymentRemindersPage() {
         }
     };
 
-    const sendWhatsApp = (reminder: PaymentReminder) => {
+    const [sendingWA, setSendingWA] = useState<string | null>(null);
+
+    const sendWhatsApp = async (reminder: PaymentReminder) => {
         if (!reminder.parentPhone) {
-            toast.warning('Este padre no tiene telefono registrado');
+            toast.warning('Este padre no tiene teléfono registrado');
             return;
         }
-        // Limpiar telefono: quitar espacios, guiones, etc.
-        const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
-        // Si no empieza con +, asumir Colombia
-        const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+        if (!reminder.paymentId) {
+            toast.error('Pago sin ID, no se puede renderizar plantilla');
+            return;
+        }
 
-        const isOverdue = reminder.status === 'overdue';
-        const msg = isOverdue
-            ? `Hola ${reminder.parentName}, le informamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) esta vencido desde el ${formatDate(reminder.dueDate)}. Por favor realice el pago lo antes posible.`
-            : `Hola ${reminder.parentName}, le recordamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) vence el ${formatDate(reminder.dueDate)}. Gracias por su puntualidad.`;
+        setSendingWA(reminder.id);
+        try {
+            // Render the template via BFF using the DB template
+            const templateType = reminder.status === 'overdue' ? 'overdue'
+                : daysDiffFromToday(reminder.dueDate) <= 0 ? 'reminder_due'
+                : 'reminder_before';
 
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+            const { message } = await bffClient.post<{ message: { body: string } }>(
+                '/api/v1/templates/render',
+                {
+                    payment_id: reminder.paymentId,
+                    template_type: templateType,
+                    channel: 'whatsapp',
+                },
+            );
+
+            // Clean phone number
+            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.body)}`, '_blank');
+        } catch (err: any) {
+            // Fallback: use hardcoded message if BFF fails
+            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+            const isOverdue = reminder.status === 'overdue';
+            const msg = isOverdue
+                ? `Hola ${reminder.parentName}, le informamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) esta vencido desde el ${formatDate(reminder.dueDate)}. Por favor realice el pago lo antes posible.`
+                : `Hola ${reminder.parentName}, le recordamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) vence el ${formatDate(reminder.dueDate)}. Gracias por su puntualidad.`;
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+            console.warn('Template render failed, used fallback:', err.message);
+        } finally {
+            setSendingWA(null);
+        }
     };
 
     const formatCurrency = (amount: number) =>
@@ -234,36 +279,36 @@ export default function PaymentRemindersPage() {
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-primary" />
-                            <span className="text-sm text-muted-foreground">Padres</span>
+                            <span className="text-sm text-muted-foreground">Contactos</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1">{Object.keys(groupedByParent).length}</p>
+                        <p className="text-2xl font-bold mt-1">{filteredStats.parents}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4 text-amber-500" />
                             <span className="text-sm text-muted-foreground">Pendientes</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1">{batch.byStatus.pending}</p>
+                        <p className="text-2xl font-bold mt-1">{filteredStats.pending}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <AlertTriangle className="h-4 w-4 text-red-500" />
                             <span className="text-sm text-muted-foreground">Vencidos</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1 text-red-600">{batch.byStatus.overdue}</p>
+                        <p className="text-2xl font-bold mt-1 text-red-600">{filteredStats.overdue}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <DollarSign className="h-4 w-4 text-emerald-500" />
                             <span className="text-sm text-muted-foreground">Total Pendiente</span>
                         </div>
-                        <p className="text-xl font-bold mt-1">{formatCurrency(batch.totalAmount)}</p>
+                        <p className="text-xl font-bold mt-1">{formatCurrency(filteredStats.total)}</p>
                     </Card>
                 </div>
             )}
 
             {/* Filter Bar */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                     <SelectTrigger className="w-[180px]">
@@ -275,6 +320,20 @@ export default function PaymentRemindersPage() {
                         <SelectItem value="overdue">Vencidos ({batch?.byStatus.overdue || 0})</SelectItem>
                     </SelectContent>
                 </Select>
+
+                {planOptions.length > 0 && (
+                    <Select value={filterPlan} onValueChange={setFilterPlan}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="Plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los planes</SelectItem>
+                            {planOptions.map(plan => (
+                                <SelectItem key={plan} value={plan}>{plan}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
 
                 {selectedIds.size > 0 && (
                     <Badge variant="secondary" className="animate-in fade-in">
@@ -306,7 +365,7 @@ export default function PaymentRemindersPage() {
                                 </TableHead>
                                 <TableHead>Padre / Acudiente</TableHead>
                                 <TableHead>Estudiante</TableHead>
-                                <TableHead>Plan / Equipo</TableHead>
+                                <TableHead>Plan</TableHead>
                                 <TableHead className="text-right">Monto</TableHead>
                                 <TableHead>Vencimiento</TableHead>
                                 <TableHead>Estado</TableHead>
@@ -371,9 +430,9 @@ export default function PaymentRemindersPage() {
                                                     className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                                                     onClick={() => sendWhatsApp(first)}
                                                     title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
-                                                    disabled={!first.parentPhone}
+                                                    disabled={!first.parentPhone || sendingWA === first.id}
                                                 >
-                                                    <MessageCircle className="h-4 w-4" />
+                                                    {sendingWA === first.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                                                 </Button>
                                             </TableCell>
                                         </TableRow>
@@ -430,9 +489,9 @@ export default function PaymentRemindersPage() {
                                                     className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                                                     onClick={(e) => { e.stopPropagation(); sendWhatsApp(first); }}
                                                     title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
-                                                    disabled={!first.parentPhone}
+                                                    disabled={!first.parentPhone || sendingWA === first.id}
                                                 >
-                                                    <MessageCircle className="h-4 w-4" />
+                                                    {sendingWA === first.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
                                                 </Button>
                                             </TableCell>
                                         </TableRow>
@@ -464,9 +523,9 @@ export default function PaymentRemindersPage() {
                                                         size="icon"
                                                         className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
                                                         onClick={() => sendWhatsApp(r)}
-                                                        disabled={!r.parentPhone}
+                                                        disabled={!r.parentPhone || sendingWA === r.id}
                                                     >
-                                                        <MessageCircle className="h-3.5 w-3.5" />
+                                                        {sendingWA === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
                                                     </Button>
                                                 </TableCell>
                                             </TableRow>
