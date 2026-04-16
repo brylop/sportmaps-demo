@@ -50,6 +50,8 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
 const EventPublicPage = lazy(() => import("./pages/events/EventPublicPage"));
+const EventIndividualRegisterPage = lazy(() => import("./pages/events/EventIndividualRegisterPage"));
+const MyEventRegistrationsPage = lazy(() => import("./pages/events/MyEventRegistrationsPage"));
 
 // ─── Polls (lazy) ────────────────────────────────────────────────────────────
 const PollsPage = lazy(() => import("./pages/polls/PollsPage"));
@@ -225,6 +227,8 @@ const App = () => (
                     {/* Public Events routes */}
                     <Route path="/events" element={<EventsMapPage />} />
                     <Route path="/event/:slug" element={<EventPublicPage />} />
+                    <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
+                    <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 

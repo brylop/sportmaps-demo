@@ -562,6 +562,114 @@ router.patch('/:id/delegations/:delegationId', requireAuth, requireRole('organiz
     }
 });
 
+// POST /api/v1/events/:id/register - Individual athlete/parent registration
+router.post('/:id/register', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+
+        // Verify event exists, is published, and registrations are open
+        const { data: event, error: evErr } = await supabase
+            .from('events')
+            .select('id, status, registrations_open, registration_deadline, registration_type')
+            .eq('id', id)
+            .single();
+
+        if (evErr || !event) return res.status(404).json({ error: 'Evento no encontrado' });
+        if (event.status !== 'published') return res.status(400).json({ error: 'El evento no está publicado' });
+        if (!event.registrations_open) return res.status(400).json({ error: 'Las inscripciones están cerradas' });
+        if (event.registration_deadline && new Date(event.registration_deadline) < new Date()) {
+            return res.status(400).json({ error: 'El plazo de inscripción ha vencido' });
+        }
+
+        // Check duplicate registration
+        const { data: existing } = await supabase
+            .from('event_registrations')
+            .select('id')
+            .eq('event_id', id)
+            .eq('user_id', userId)
+            .in('status', ['pending', 'approved'])
+            .limit(1);
+
+        if (existing && existing.length > 0) {
+            return res.status(409).json({ error: 'Ya tienes una inscripción activa en este evento' });
+        }
+
+        const {
+            participant_name, participant_email, participant_phone,
+            participant_role, participant_age, category_id,
+            package_choice, child_id, notes, payment_proof_url
+        } = req.body;
+
+        if (!participant_name || !participant_phone) {
+            return res.status(400).json({ error: 'Nombre y teléfono son requeridos' });
+        }
+
+        const { data: registration, error: regErr } = await supabase
+            .from('event_registrations')
+            .insert({
+                event_id: id,
+                user_id: userId,
+                participant_name,
+                participant_email: participant_email || null,
+                participant_phone,
+                participant_role: participant_role || 'athlete',
+                participant_age: participant_age || null,
+                category_id: category_id || null,
+                package_choice: package_choice || null,
+                child_id: child_id || null,
+                notes: notes || null,
+                payment_proof_url: payment_proof_url || null,
+                status: 'pending',
+                payment_status: payment_proof_url ? 'pending' : 'not_required'
+            })
+            .select()
+            .single();
+
+        if (regErr) {
+            req.log?.error({ err: regErr }, 'Error creando registro individual');
+            return res.status(500).json({ error: 'Error al crear la inscripción' });
+        }
+
+        // Log telemetry
+        await supabase.from('event_telemetry').insert({
+            event_id: id,
+            user_id: userId,
+            event_type: 'registration_created',
+            metadata: { participant_role, registration_type: 'individual' }
+        });
+
+        return res.status(201).json(registration);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error en registro individual');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/my-registrations - List user's individual event registrations
+router.get('/my-registrations/list', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+
+        const { data, error } = await supabase
+            .from('event_registrations')
+            .select(`
+                id, event_id, participant_name, participant_role, participant_age,
+                status, payment_status, payment_proof_url, category_id,
+                package_choice, child_id, notes, created_at,
+                events:event_id(id, title, sport, event_date, city, slug, status, image_url, start_time)
+            `)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error listando inscripciones del usuario');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // ── GET /api/v1/events/:id/documents ─────────────────────────────────────────
 // Organizer endpoint: returns identity documents of athletes enrolled in the event,
 // grouped by school (delegation). Used to bulk-download documents before events.

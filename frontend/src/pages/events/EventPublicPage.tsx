@@ -43,20 +43,26 @@ export default function EventPublicPage() {
 
   const handleEnrollClick = () => {
     if (!user) {
-      toast({ title: 'Inicia Sesión', description: 'Debes tener una cuenta de academia para inscribirte.', variant: 'destructive' });
+      toast({ title: 'Inicia Sesión', description: 'Necesitas una cuenta para inscribirte.', variant: 'destructive' });
       navigate('/login');
       return;
     }
-    if (profile?.role !== 'school') {
-      toast({ title: 'Cuenta no válida', description: 'Solo las academias (Schools) pueden inscribir delegaciones.', variant: 'destructive' });
+
+    const role = profile?.role;
+
+    // Schools always go to delegation enrollment
+    if (role === 'school' || role === 'admin' || role === 'school_admin') {
+      navigate(`/school/enroll/${event.id}`);
       return;
     }
-    // Si cumple los requisitos y es tipo delegación:
-    if (event.registration_type === 'delegation') {
-      navigate(`/school/enroll/${event.id}`);
-    } else {
-      toast({ title: 'No disponible', description: 'La inscripción individual estará disponible pronto.' });
+
+    // Athletes, parents, coaches → individual registration
+    if (role === 'athlete' || role === 'parent' || role === 'coach') {
+      navigate(`/event/${event.id}/register`);
+      return;
     }
+
+    toast({ title: 'No disponible', description: 'Tu rol no permite inscripciones a eventos.', variant: 'destructive' });
   };
 
   const formatDate = (dateStr: string) => {
@@ -281,10 +287,12 @@ export default function EventPublicPage() {
                   {isOpen ? (
                     <div className="space-y-3">
                       <Button onClick={handleEnrollClick} size="lg" className="w-full font-bold shadow-md shadow-primary/20 text-md h-12">
-                        Inscribir a mi Academia
+                        {profile?.role === 'school' || profile?.role === 'admin' || profile?.role === 'school_admin'
+                          ? 'Inscribir Delegacion'
+                          : 'Inscribirme al Evento'}
                       </Button>
                       <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
-                        <Info className="h-3 w-3" /> Requiere cuenta de Escuela
+                        <Info className="h-3 w-3" /> Atletas, padres y escuelas pueden inscribirse
                       </p>
                     </div>
                   ) : (
