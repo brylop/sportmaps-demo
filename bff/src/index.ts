@@ -30,7 +30,6 @@ import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
 import templatesRouter from './routes/templates';
 import pollsRouter from './routes/polls';
-<<<<<<< HEAD
 import schoolDelegationsRouter from './routes/school-delegations.route';
 import marketplaceRouter from './routes/marketplace.routes';
 import vendorRouter from './routes/vendor.routes';
@@ -38,13 +37,11 @@ import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
-=======
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
 import trainerWorkspaceRouter from './routes/trainer/workspace';
 import trainerClientsRouter from './routes/trainer/clients';
 import trainerRoutinesRouter from './routes/trainer/routines';
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -148,7 +145,6 @@ app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
-<<<<<<< HEAD
 // ── Marketplace routes ──────────────────────────────────────────────────────
 app.use('/api/v1/marketplace', generalLimiter, marketplaceRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorRouter);
@@ -158,7 +154,7 @@ app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);
-=======
+
 // ── Trainer routes ────────────────────────────────────────────────────────────
 // Ruta pública (sin requireAuth): perfil público de un entrenador
 app.use('/api/v1/trainer', generalLimiter, trainerProfileRouter);
@@ -168,7 +164,6 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerOnboarding
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWorkspaceRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

@@ -9,12 +9,8 @@ declare global {
             schoolId: string;
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
-<<<<<<< HEAD
             | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer'
-            | 'store_owner' | 'wellness_professional';
-=======
-            | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer' | 'personal_trainer';
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
+            | 'store_owner' | 'wellness_professional' | 'personal_trainer';
             log: import('pino').Logger;
             id: string;
         }
@@ -231,7 +227,6 @@ export const requireRole = (...roles: Request['role'][]) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
 // requirePermission — Valida contra la matriz de permisos (mirror del frontend)
 // Uso: requirePermission('students:create', 'students:edit')
 // El usuario debe tener AL MENOS UNO de los permisos listados.
@@ -362,12 +357,6 @@ export const auditLog = async (
 // Usar para rutas de vendor que no dependen de contexto de escuela.
 // ─────────────────────────────────────────────────────────────────────────────
 export const requireMarketplaceAuth = async (
-=======
-// Middleware exclusivo para entrenadores personales.
-// No depende de school_members — resuelve el schoolId directo desde schools.
-// ─────────────────────────────────────────────────────────────────────────────
-export const requireTrainerAuth = async (
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
     req: Request,
     res: Response,
     next: NextFunction,
@@ -385,7 +374,6 @@ export const requireTrainerAuth = async (
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-<<<<<<< HEAD
         // Leer role directamente de profiles (no de school_members)
         const { data: profile, error: profileErr } = await supabase
             .from('profiles')
@@ -403,7 +391,35 @@ export const requireTrainerAuth = async (
         // schoolId y branchId no aplican para vendor routes
         req.schoolId = '';
         req.branchId = null;
-=======
+
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireTrainerAuth — Middleware exclusivo para entrenadores personales.
+// No depende de school_members — resuelve el schoolId directo desde schools.
+// ─────────────────────────────────────────────────────────────────────────────
+export const requireTrainerAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+        if (authError || !user) {
+            return res.status(401).json({ error: 'Token inválido o expirado.' });
+        }
+
         // Resolver el workspace del entrenador personal
         const { data: school, error: schoolErr } = await supabase
             .from('schools')
@@ -420,7 +436,6 @@ export const requireTrainerAuth = async (
         // Si no tiene workspace aún, verificar si al menos tiene rol personal_trainer
         // para permitir que el onboarding/provisioning pueda correr
         if (!school) {
-            // Verificar rol en profiles como fallback durante provisioning
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('role')
@@ -433,9 +448,8 @@ export const requireTrainerAuth = async (
                 });
             }
 
-            // Workspace pendiente de provisioning — dejar pasar solo al onboarding
             req.user     = { id: user.id, email: user.email! };
-            req.schoolId = '';   // vacío, el handler de provisioning lo creará
+            req.schoolId = '';
             req.branchId = null;
             req.role     = 'owner' as Request['role'];
             return next();
@@ -445,14 +459,12 @@ export const requireTrainerAuth = async (
         req.schoolId = school.id;
         req.branchId = null;
         req.role     = 'owner' as Request['role'];
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
 
         next();
     } catch (err) {
         next(err);
     }
 };
-<<<<<<< HEAD
 
 // ─────────────────────────────────────────────────────────────────────────────
 // optionalAuth — Auth opcional para rutas publicas del marketplace
@@ -467,7 +479,6 @@ export const optionalAuth = async (
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader?.startsWith('Bearer ')) {
-            // No token — usuario anonimo, continuar sin auth
             (req as any).user = null;
             return next();
         }
@@ -476,7 +487,6 @@ export const optionalAuth = async (
         const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
         if (authError || !user) {
-            // Token invalido — tratar como anonimo (no 401)
             (req as any).user = null;
             return next();
         }
@@ -485,10 +495,7 @@ export const optionalAuth = async (
 
         next();
     } catch (err) {
-        // En caso de error, continuar como anonimo
         (req as any).user = null;
         next();
     }
 };
-=======
->>>>>>> ce2eccf (feat: implement multi-class filtering and universal session splitting for personal trainers)
