@@ -166,7 +166,7 @@ export default function FinancesPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Finanzas</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Finanzas</h1>
           <p className="text-muted-foreground">Panel de control financiero</p>
         </div>
         <Button variant="outline" onClick={() => setShowHistoryModal(true)}>

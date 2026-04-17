@@ -394,10 +394,13 @@ export default function MyPaymentsPage() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
+    <div className="space-y-6 animate-in fade-in duration-500 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Mis Pagos</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3 truncate">
+            <CreditCard className="h-7 w-7 text-primary" />
+            Mis Pagos
+          </h1>
           <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona tus pagos y suscripciones</p>
         </div>
         <Button onClick={() => setShowChildPicker(true)} size="sm" className="w-full md:w-auto">

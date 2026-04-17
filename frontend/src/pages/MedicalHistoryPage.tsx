@@ -43,10 +43,10 @@ export default function MedicalHistoryPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Historial Médico</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Historial Médico</h1>
           <p className="text-muted-foreground">Registros médicos de tus atletas</p>
         </div>
         <div className="flex gap-2">
@@ -63,51 +63,59 @@ export default function MedicalHistoryPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText className="h-4 w-4 text-primary" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Fichas</p>
+                <p className="text-xs text-muted-foreground">Total Fichas</p>
                 <p className="text-2xl font-bold">{displayRecords.length}</p>
               </div>
-              <FileText className="h-8 w-8 text-primary" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-amber-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">En Tratamiento</p>
-                <p className="text-2xl font-bold text-orange">
+                <p className="text-xs text-muted-foreground">En Tratamiento</p>
+                <p className="text-2xl font-bold">
                   {displayRecords.filter(r => r.status === 'in_treatment').length}
                 </p>
               </div>
-              <User className="h-8 w-8 text-orange" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-green-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Completados</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-xs text-muted-foreground">Completados</p>
+                <p className="text-2xl font-bold">
                   {displayRecords.filter(r => r.status === 'completed').length}
                 </p>
               </div>
-              <Calendar className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-blue-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Este Mes</p>
+                <p className="text-xs text-muted-foreground">Este Mes</p>
                 <p className="text-2xl font-bold">{displayRecords.length}</p>
               </div>
-              <Calendar className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>

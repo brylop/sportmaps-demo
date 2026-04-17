@@ -4,6 +4,7 @@ import { useSchoolDetail } from "@/hooks/useExplorar";
 import { useFavoritos } from "@/hooks/useFavoritos";
 import { SchoolMap } from "@/components/SchoolMap";
 import type { SchoolDetail, Team, Offering, Review } from "@/types/school.types";
+import { Target, CreditCard, Building2, MapPin, Star } from "lucide-react";
 
 // ─── utils ───────────────────────────────────────────────────────────────────
 
@@ -101,29 +102,42 @@ function RatingBars({ dist, total }: { dist: Record<string, number>; total: numb
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
+const TAB_ICONS: Record<string, React.ElementType> = {
+  programas: Target,
+  planes: CreditCard,
+  instalaciones: Building2,
+  sedes: MapPin,
+  opiniones: Star,
+};
+
 const TABS = [
-  { key: "programas",     label: "Programas",    icon: "🎯" },
-  { key: "planes",        label: "Planes",       icon: "💳" },
-  { key: "instalaciones", label: "Instalaciones",icon: "🏟️" },
-  { key: "sedes",         label: "Sedes y Mapa", icon: "📍" },
-  { key: "opiniones",     label: "Opiniones",    icon: "⭐" },
+  { key: "programas",     label: "Programas" },
+  { key: "planes",        label: "Planes" },
+  { key: "instalaciones", label: "Instalaciones" },
+  { key: "sedes",         label: "Sedes y Mapa" },
+  { key: "opiniones",     label: "Opiniones" },
 ];
 
 function TabNav({ active, onChange, accent }: { active: string; onChange: (t: string) => void; accent: string }) {
   return (
     <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
-      {TABS.map(t => (
-        <button key={t.key} onClick={() => onChange(t.key)} style={{
-          padding: "8px 16px", borderRadius: 24, border: "none", fontFamily: "inherit",
-          fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-          background: active === t.key ? accent : "#1e293b",
-          color: active === t.key ? "#fff" : "#94a3b8",
-          transition: "all 0.2s",
-          boxShadow: active === t.key ? `0 4px 14px ${accent}55` : "none",
-        }}>
-          {t.icon} {t.label}
-        </button>
-      ))}
+      {TABS.map(t => {
+        const Icon = TAB_ICONS[t.key];
+        return (
+          <button key={t.key} onClick={() => onChange(t.key)} style={{
+            padding: "8px 16px", borderRadius: 24, border: "none", fontFamily: "inherit",
+            fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: active === t.key ? accent : "#1e293b",
+            color: active === t.key ? "#fff" : "#94a3b8",
+            transition: "all 0.2s",
+            boxShadow: active === t.key ? `0 4px 14px ${accent}55` : "none",
+          }}>
+            {Icon && <Icon style={{ width: 14, height: 14 }} />}
+            {t.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -143,7 +157,7 @@ function ProgramCard({ program, accent }: { program: Team; accent: string }) {
       <div onClick={() => setOpen(o => !o)} style={{ padding: 16, cursor: "pointer", display: "flex", gap: 14, alignItems: "flex-start" }}>
         {program.image_url
           ? <img src={program.image_url} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
-          : <div style={{ width: 56, height: 56, borderRadius: 10, background: `${accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>🎯</div>
+          : <div style={{ width: 56, height: 56, borderRadius: 10, background: `${accent}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Target style={{ width: 24, height: 24, color: accent }} /></div>
         }
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>

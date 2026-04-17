@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Package, PlusCircle, ShoppingCart, TrendingUp, DollarSign, Edit, Trash2 } from 'lucide-react';
+import { ImageUpload } from '@/components/common/ImageUpload';
 import { useToast } from '@/hooks/use-toast';
 
 export default function StorePage() {
@@ -68,10 +69,10 @@ export default function StorePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Gestión de Tienda</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Gestión de Tienda</h1>
           <p className="text-muted-foreground mt-1">
             Administra tu catálogo de productos deportivos
           </p>
@@ -175,36 +176,56 @@ export default function StorePage() {
 
       {/* Create Product Dialog */}
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Nuevo Producto</DialogTitle>
-            <DialogDescription>
-              Agrega un nuevo producto a tu catálogo
-            </DialogDescription>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Package className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <DialogTitle>Nuevo Producto</DialogTitle>
+                <DialogDescription>
+                  Agrega un nuevo producto a tu catalogo
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
 
-          <form onSubmit={handleCreateProduct} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2 col-span-2">
-                <Label htmlFor="name">Nombre del Producto *</Label>
-                <Input 
-                  name="name" 
-                  placeholder="Ej: Balón de Fútbol Nike"
-                  required 
-                />
-              </div>
+          <form onSubmit={handleCreateProduct} className="space-y-5">
+            {/* Image Upload */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                Imagen del producto
+              </Label>
+              <ImageUpload
+                onChange={() => {}}
+                bucket="school-assets"
+                path="products"
+              />
+            </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-sm font-medium">Nombre del Producto *</Label>
+              <Input
+                name="name"
+                placeholder="Ej: Balon de Futbol Nike"
+                className="h-10"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="category">Categoría *</Label>
+                <Label htmlFor="category" className="text-sm font-medium">Categoria *</Label>
                 <Select name="category" required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona categoría" />
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Selecciona categoria" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Fútbol">Fútbol</SelectItem>
+                    <SelectItem value="Futbol">Futbol</SelectItem>
                     <SelectItem value="Tenis">Tenis</SelectItem>
                     <SelectItem value="Running">Running</SelectItem>
-                    <SelectItem value="Natación">Natación</SelectItem>
+                    <SelectItem value="Natacion">Natacion</SelectItem>
                     <SelectItem value="Gimnasio">Gimnasio</SelectItem>
                     <SelectItem value="Accesorios">Accesorios</SelectItem>
                   </SelectContent>
@@ -212,36 +233,39 @@ export default function StorePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="price">Precio (COP) *</Label>
-                <Input 
-                  type="number" 
-                  name="price" 
+                <Label htmlFor="price" className="text-sm font-medium">Precio (COP) *</Label>
+                <Input
+                  type="number"
+                  name="price"
                   placeholder="120000"
-                  required 
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="stock">Stock Inicial *</Label>
-                <Input 
-                  type="number" 
-                  name="stock" 
-                  placeholder="25"
-                  required 
-                />
-              </div>
-
-              <div className="space-y-2 col-span-2">
-                <Label htmlFor="description">Descripción</Label>
-                <Textarea 
-                  name="description" 
-                  placeholder="Descripción del producto, características, materiales..."
-                  rows={4}
+                  className="h-10"
+                  required
                 />
               </div>
             </div>
 
-            <DialogFooter>
+            <div className="space-y-2">
+              <Label htmlFor="stock" className="text-sm font-medium">Stock Inicial *</Label>
+              <Input
+                type="number"
+                name="stock"
+                placeholder="25"
+                className="h-10"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-medium">Descripcion</Label>
+              <Textarea
+                name="description"
+                placeholder="Descripcion del producto, caracteristicas, materiales..."
+                rows={3}
+                className="resize-none"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => setProductDialogOpen(false)}>
                 Cancelar
               </Button>

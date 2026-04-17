@@ -127,47 +127,54 @@ export default function AthletesListPage() {
 
             {/* Stats */}
             <div className="grid gap-4 md:grid-cols-4">
-                <Card>
-                    <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-lg">
-                            <Users className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Total Atletas</p>
-                            <p className="text-2xl font-bold">{athletes.length}</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 bg-green-500/10 rounded-lg">
-                            <Activity className="h-5 w-5 text-green-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Activos</p>
-                            <p className="text-2xl font-bold">{athletes.filter(a => a.status === 'active').length}</p>
+                <Card className="border-border/50">
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Users className="h-4 w-4 text-primary" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Total Atletas</p>
+                                <p className="text-2xl font-bold">{athletes.length}</p>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 bg-yellow-500/10 rounded-lg">
-                            <Heart className="h-5 w-5 text-yellow-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">En Recuperación</p>
-                            <p className="text-2xl font-bold">{athletes.filter(a => a.status === 'recovering').length}</p>
+                <Card className="border-border/50">
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                                <Activity className="h-4 w-4 text-green-500" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Activos</p>
+                                <p className="text-2xl font-bold">{athletes.filter(a => a.status === 'active').length}</p>
+                            </div>
+                    </CardContent>
+                </Card>
+                <Card className="border-border/50">
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                                <Heart className="h-4 w-4 text-yellow-500" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">En Recuperacion</p>
+                                <p className="text-2xl font-bold">{athletes.filter(a => a.status === 'recovering').length}</p>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 bg-red-500/10 rounded-lg">
-                            <TrendingUp className="h-5 w-5 text-red-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Alto Riesgo</p>
-                            <p className="text-2xl font-bold">{athletes.filter(a => a.risk === 'high').length}</p>
+                <Card className="border-border/50">
+                    <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                                <TrendingUp className="h-4 w-4 text-red-500" />
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">Alto Riesgo</p>
+                                <p className="text-2xl font-bold">{athletes.filter(a => a.risk === 'high').length}</p>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>

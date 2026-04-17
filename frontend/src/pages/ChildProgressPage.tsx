@@ -76,13 +76,13 @@ export default function ChildProgressPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/children')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold font-poppins">Progreso de {child?.full_name}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Progreso de {child?.full_name}</h1>
           <p className="text-muted-foreground mt-1">
             {child?.sport} - {child?.team_name}
           </p>
@@ -91,43 +91,43 @@ export default function ChildProgressPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-primary/20">
-                <Trophy className="h-6 w-6 text-primary" />
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/20 flex items-center justify-center">
+                <Trophy className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Promedio General</p>
-                <p className="text-3xl font-bold font-poppins">{averageLevel}%</p>
+                <p className="text-xs text-muted-foreground">Promedio General</p>
+                <p className="text-2xl font-bold">{averageLevel}%</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-accent">
-                <TrendingUp className="h-6 w-6 text-primary" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-blue-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Habilidades Evaluadas</p>
-                <p className="text-3xl font-bold font-poppins">{progress?.length || 0}</p>
+                <p className="text-xs text-muted-foreground">Habilidades Evaluadas</p>
+                <p className="text-2xl font-bold">{progress?.length || 0}</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-accent">
-                <Star className="h-6 w-6 text-yellow-500" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <Star className="h-4 w-4 text-yellow-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Mejor Habilidad</p>
-                <p className="text-lg font-bold font-poppins">
+                <p className="text-xs text-muted-foreground">Mejor Habilidad</p>
+                <p className="text-lg font-bold">
                   {progress?.length ? progress.reduce((a, b) => a.skill_level > b.skill_level ? a : b).skill_name : '-'}
                 </p>
               </div>

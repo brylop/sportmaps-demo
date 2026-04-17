@@ -78,10 +78,10 @@ export default function StaffPage() {
 
   if (staff.length === 0) {
     return (
-      <div className="container mx-auto p-6 space-y-6">
+      <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold">Entrenadores</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Entrenadores</h1>
             <p className="text-muted-foreground">Gestión de personal y asignaciones</p>
           </div>
         </div>
@@ -105,10 +105,10 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Entrenadores</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenadores</h1>
           <p className="text-muted-foreground">
             {staff.length} entrenador{staff.length !== 1 ? 'es' : ''} registrado{staff.length !== 1 ? 's' : ''}
           </p>

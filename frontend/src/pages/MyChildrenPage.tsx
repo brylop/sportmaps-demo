@@ -84,10 +84,10 @@ export default function MyChildrenPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Mis Hijos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Mis Hijos</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona la información de tus hijos y sus actividades deportivas
           </p>

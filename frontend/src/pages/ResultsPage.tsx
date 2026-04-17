@@ -175,10 +175,10 @@ export default function ResultsPage() {
   } : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Resultados</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Resultados</h1>
           <p className="text-muted-foreground mt-1">
             Registra y consulta resultados de partidos
           </p>

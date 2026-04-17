@@ -72,7 +72,7 @@ export default function ResultsOverviewPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Resultados</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Resultados</h1>
         <p className="text-muted-foreground">Feed global de competencias y torneos</p>
       </div>
 

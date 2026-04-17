@@ -443,7 +443,7 @@ export default function CoachReportsPage() {
 
   // ── 5. Render ────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
 
       {/* Encabezado */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

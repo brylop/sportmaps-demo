@@ -145,10 +145,10 @@ export default function AnnouncementsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Anuncios</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Anuncios</h1>
           <p className="text-muted-foreground mt-1">
             Comunícate con padres y jugadores
           </p>
@@ -162,10 +162,17 @@ export default function AnnouncementsPage() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Crear Nuevo Anuncio</DialogTitle>
-              <DialogDescription>
-                Envía un mensaje a tu equipo o a todos tus equipos
-              </DialogDescription>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Bell className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle>Crear Nuevo Anuncio</DialogTitle>
+                  <DialogDescription>
+                    Comparte un mensaje con tu comunidad deportiva.
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
             <div className="space-y-4">
               <div>

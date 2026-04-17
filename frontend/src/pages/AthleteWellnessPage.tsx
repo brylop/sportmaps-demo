@@ -45,54 +45,54 @@ export default function AthleteWellnessPage() {
   ] : []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold font-poppins">Mi Bienestar</h1>
-        <p className="text-muted-foreground mt-1 font-poppins">
+        <h1 className="text-3xl font-bold tracking-tight">Mi Bienestar</h1>
+        <p className="text-muted-foreground mt-1">
           Tu salud deportiva en un solo lugar
         </p>
       </div>
 
       {/* Health Summary */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-primary/20">
-                <HeartPulse className="h-6 w-6 text-primary" />
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/20 flex items-center justify-center">
+                <HeartPulse className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Estado General</p>
-                <p className="text-xl font-bold font-poppins text-primary">Óptimo</p>
+                <p className="text-xs text-muted-foreground">Estado General</p>
+                <p className="text-xl font-bold text-primary">Optimo</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-accent/20">
-                <Activity className="h-6 w-6 text-[hsl(35,97%,55%)]" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <Activity className="h-4 w-4 text-amber-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Evaluaciones</p>
-                <p className="text-2xl font-bold font-poppins">
+                <p className="text-xs text-muted-foreground">Evaluaciones</p>
+                <p className="text-2xl font-bold">
                   {records.filter(r => r.status === 'completed').length}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-secondary">
-                <Calendar className="h-6 w-6 text-primary" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-blue-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Próxima cita</p>
-                <p className="text-lg font-bold font-poppins">
-                  {records.find(r => r.status === 'scheduled')?.date 
+                <p className="text-xs text-muted-foreground">Proxima cita</p>
+                <p className="text-lg font-bold">
+                  {records.find(r => r.status === 'scheduled')?.date
                     ? new Date(records.find(r => r.status === 'scheduled')!.date).toLocaleDateString('es-CO', { month: 'short', day: 'numeric' })
                     : 'Sin citas'}
                 </p>
@@ -106,7 +106,7 @@ export default function AthleteWellnessPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 font-poppins">
+            <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
               Historial de Salud
             </CardTitle>
@@ -126,7 +126,7 @@ export default function AthleteWellnessPage() {
                   <TrendingUp className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold font-poppins">{record.type}</h3>
+                  <h3 className="font-semibold">{record.type}</h3>
                   <p className="text-sm text-muted-foreground">{record.professional}</p>
                   {record.notes && (
                     <p className="text-sm text-muted-foreground mt-1 italic">"{record.notes}"</p>
@@ -151,7 +151,7 @@ export default function AthleteWellnessPage() {
           {records.length === 0 && (
             <div className="text-center py-8">
               <HeartPulse className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground font-poppins">
+              <p className="text-muted-foreground">
                 No hay registros de bienestar
               </p>
             </div>

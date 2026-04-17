@@ -585,9 +585,9 @@ export default function CoachAttendancePage() {
   const isLoading = loadingTeams || loadingOfferings || loadingPlans;
 
   return (
-    <div className="space-y-6 pb-24 sm:pb-6">
+    <div className="space-y-6 pb-24 sm:pb-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold">Asistencias</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
         <p className="text-muted-foreground mt-1">Toma lista rápidamente</p>
       </div>
 

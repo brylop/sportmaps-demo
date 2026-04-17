@@ -154,10 +154,10 @@ export default function StudentsPage() {
   }
 
   return (
-    <div className="container mx-auto p-3 md:p-6 space-y-4 md:space-y-6 max-w-full overflow-x-hidden">
+    <div className="container mx-auto p-3 md:p-6 space-y-4 md:space-y-6 max-w-full overflow-x-hidden animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 md:gap-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Estudiantes</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estudiantes</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             Base de datos completa de alumnos ({students.length})
           </p>

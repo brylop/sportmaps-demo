@@ -113,7 +113,7 @@ export default function TrainerRoutines() {
   const categories = ['Todas', ...Array.from(new Set(routines.map(r => r.category)))];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-primary/10 rounded-2xl border border-primary/20">

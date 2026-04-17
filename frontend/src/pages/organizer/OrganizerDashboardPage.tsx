@@ -90,51 +90,59 @@ export default function OrganizerDashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Eventos Totales
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{stats?.total_events || 0}</p>
+        <Card className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Eventos Totales</p>
+                <p className="text-2xl font-bold">{stats?.total_events || 0}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-green-500" />
-              Eventos Activos
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-green-600">{stats?.active_events || 0}</p>
+        <Card className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-green-500" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Eventos Activos</p>
+                <p className="text-2xl font-bold">{stats?.active_events || 0}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-yellow-500" />
-              Pendientes
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-yellow-600">{stats?.pending_registrations || 0}</p>
+        <Card className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <AlertCircle className="h-4 w-4 text-yellow-500" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Pendientes</p>
+                <p className="text-2xl font-bold">{stats?.pending_registrations || 0}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-blue-500" />
-              Inscritos Aprobados
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-blue-600">{stats?.approved_registrations || 0}</p>
+        <Card className="border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Inscritos Aprobados</p>
+                <p className="text-2xl font-bold">{stats?.approved_registrations || 0}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

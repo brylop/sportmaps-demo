@@ -250,12 +250,12 @@ export default function ReportsPage() {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
 
       {/* Encabezado */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Reportes Gerenciales</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Reportes Gerenciales</h1>
           <p className="text-muted-foreground">
             Inteligencia de negocio y análisis estratégico
           </p>

@@ -20,54 +20,62 @@ export default function StoreInventoryPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold">Inventario</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Inventario</h1>
         <p className="text-muted-foreground">Control y seguimiento de stock</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Package className="h-4 w-4 text-primary" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Productos</p>
+                <p className="text-xs text-muted-foreground">Total Productos</p>
                 <p className="text-2xl font-bold">{stats.totalProducts}</p>
               </div>
-              <Package className="h-8 w-8 text-primary" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Stock Bajo</p>
+                <p className="text-xs text-muted-foreground">Stock Bajo</p>
                 <p className="text-2xl font-bold text-destructive">{stats.lowStock}</p>
               </div>
-              <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-green-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ventas Totales</p>
+                <p className="text-xs text-muted-foreground">Ventas Totales</p>
                 <p className="text-2xl font-bold">{stats.totalSales}</p>
               </div>
-              <TrendingUp className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <BarChart3 className="h-4 w-4 text-blue-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ingresos</p>
+                <p className="text-xs text-muted-foreground">Ingresos</p>
                 <p className="text-2xl font-bold">${(stats.totalRevenue / 1000).toFixed(1)}k</p>
               </div>
-              <BarChart3 className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>

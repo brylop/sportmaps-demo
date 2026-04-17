@@ -77,13 +77,15 @@ export function StaffFormDialog({ open, onOpenChange, onSubmit, isLoading, initi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {initialData ? <Pencil className="h-5 w-5" /> : <UserPlus className="h-5 w-5" />}
-            {initialData ? 'Editar Entrenador' : 'Agregar Entrenador'}
-          </DialogTitle>
-          <DialogDescription>
-            {initialData ? 'Actualiza la información del miembro del staff' : 'Registra un nuevo miembro del staff técnico'}
-          </DialogDescription>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <UserPlus className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <DialogTitle>{initialData ? 'Editar Entrenador' : 'Agregar Entrenador'}</DialogTitle>
+              <DialogDescription>Agrega un nuevo miembro al equipo.</DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">

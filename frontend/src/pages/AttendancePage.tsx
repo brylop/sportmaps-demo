@@ -137,9 +137,9 @@ export default function AttendancePage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold">Asistencias</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
         <p className="text-muted-foreground mt-1">
           Controla la asistencia de tus hijos a sus clases deportivas
         </p>
@@ -186,34 +186,69 @@ export default function AttendancePage() {
               {/* Stats */}
               {stats && (
                 <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
-                  <Card>
-                    <CardContent className="pt-6 text-center">
-                      <p className="text-3xl font-bold">{stats.total}</p>
-                      <p className="text-sm text-muted-foreground">Clases Totales</p>
+                  <Card className="border-border/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                          <Calendar className="h-4 w-4 text-blue-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Clases Totales</p>
+                          <p className="text-2xl font-bold">{stats.total}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-6 text-center">
-                      <p className="text-3xl font-bold text-green-500">{stats.present}</p>
-                      <p className="text-sm text-muted-foreground">Asistencias</p>
+                  <Card className="border-border/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Asistencias</p>
+                          <p className="text-2xl font-bold">{stats.present}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-6 text-center">
-                      <p className="text-3xl font-bold text-yellow-500">{stats.late}</p>
-                      <p className="text-sm text-muted-foreground">Tardanzas</p>
+                  <Card className="border-border/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                          <Clock className="h-4 w-4 text-amber-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Tardanzas</p>
+                          <p className="text-2xl font-bold">{stats.late}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-6 text-center">
-                      <p className="text-3xl font-bold text-blue-500">{stats.excused}</p>
-                      <p className="text-sm text-muted-foreground">Excusadas</p>
+                  <Card className="border-border/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                          <AlertCircle className="h-4 w-4 text-blue-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Excusadas</p>
+                          <p className="text-2xl font-bold">{stats.excused}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="pt-6 text-center">
-                      <p className="text-3xl font-bold text-red-500">{stats.absent}</p>
-                      <p className="text-sm text-muted-foreground">Ausencias</p>
+                  <Card className="border-border/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Ausencias</p>
+                          <p className="text-2xl font-bold">{stats.absent}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
