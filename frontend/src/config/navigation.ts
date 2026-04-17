@@ -20,7 +20,8 @@ import {
   Map,
   Ticket,
   Car,
-  Send
+  Send,
+  GraduationCap
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -72,11 +73,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Explorar',
         items: [
           { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
-          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
+          { title: 'Escuelas', href: '/explore', icon: GraduationCap },
+          { title: 'Eventos', href: '/events', icon: Ticket },
+          { title: 'Tienda', href: '/marketplace', icon: ShoppingBag },
         ]
       },
       {
-        title: 'Comunidad',
+        title: 'Mi Actividad',
         items: [
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
@@ -100,7 +103,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Explorar para mis hijos',
         items: [
           { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
-          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
+          { title: 'Escuelas', href: '/explore', icon: GraduationCap },
+          { title: 'Eventos', href: '/events', icon: Ticket },
+          { title: 'Tienda', href: '/marketplace', icon: ShoppingBag },
         ]
       },
       {
@@ -112,7 +117,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Comunidad',
+        title: 'Mi Actividad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },

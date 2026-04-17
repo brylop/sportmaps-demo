@@ -174,14 +174,14 @@ export default function MarketplacePage() {
 
             {(filters.type === 'services' || filters.type === 'all') && (
               <Select
-                value={filters.service_type || ''}
-                onValueChange={(v) => updateFilters({ service_type: v || undefined })}
+                value={filters.service_type || '__all__'}
+                onValueChange={(v) => updateFilters({ service_type: v === '__all__' ? undefined : v })}
               >
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Tipo de servicio" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos los tipos</SelectItem>
+                  <SelectItem value="__all__">Todos los tipos</SelectItem>
                   {SERVICE_TYPES.map(st => (
                     <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
                   ))}

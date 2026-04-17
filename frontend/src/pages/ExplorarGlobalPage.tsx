@@ -534,14 +534,14 @@ export default function ExplorarGlobalPage() {
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium">Tipo de servicio</label>
                       <Select
-                        value={filters.service_type || ''}
-                        onValueChange={(v) => updateFilters({ service_type: (v || undefined) as ServiceType | undefined })}
+                        value={filters.service_type || '__all__'}
+                        onValueChange={(v) => updateFilters({ service_type: (v === '__all__' ? undefined : v) as ServiceType | undefined })}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Todos los tipos" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Todos</SelectItem>
+                          <SelectItem value="__all__">Todos</SelectItem>
                           {SERVICE_TYPES.map((st) => (
                             <SelectItem key={st.value} value={st.value}>
                               {st.icon} {st.label}
