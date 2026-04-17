@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { SchoolProvider } from "@/hooks/useSchoolContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { RequirePersonalTrainer } from "@/components/trainer/RequirePersonalTrainer";
 import AuthLayout from "@/layouts/AuthLayout";
 import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
 import { CartDrawer } from "@/components/cart/CartDrawer";
@@ -46,6 +47,7 @@ const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPa
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const ExploreTrainers = lazy(() => import("./pages/explore/ExploreTrainers"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -155,6 +157,19 @@ const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPag
 const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
 
+// ─── Trainer pages (lazy) ────────────────────────────────────────────────────
+const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
+const TrainerDashboard = lazy(() => import("./pages/trainer/TrainerDashboard"));
+const TrainerClients = lazy(() => import('./pages/trainer/TrainerClients'));
+const TrainerRoutines = lazy(() => import('./pages/trainer/TrainerRoutines'));
+const TrainerRoutineDetail = lazy(() => import('./pages/trainer/TrainerRoutineDetail'));
+const TrainerAvailability = lazy(() => import("./pages/trainer/TrainerAvailability"));
+const TrainerPlans = lazy(() => import("./pages/trainer/TrainerPlans"));
+const TrainerPayments = lazy(() => import("./pages/trainer/TrainerPayments"));
+const TrainerProfileEditor = lazy(() => import("./pages/trainer/TrainerProfileEditor"));
+const TrainerPublicProfile = lazy(() => import("./pages/trainer/TrainerPublicProfile"));
+const TrainerClientProfile = lazy(() => import("./pages/trainer/TrainerClientProfile"));
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -187,12 +202,15 @@ const EnvironmentBanner = () => {
   );
 };
 
-// ─── Layout autenticado ────────────────────────────────────
+// ─── Layout autenticado ───────────────────────────────
 // Removemos el SchoolProvider de aquí porque ThemeProvider y ProtectedRoute 
 // necesitan el contexto de la escuela (para colores y roles) ANTES de llegar aquí.
 const AuthenticatedLayout = () => (
   <AuthLayout />
 );
+
+// Guard que require que el usuario sea entrenador personal.
+// Definido en @/components/trainer/RequirePersonalTrainer (importado arriba).
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -247,6 +265,10 @@ const App = () => (
                     <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
+
+                    {/* Public trainer profile — no auth required */}
+                    <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
+                    <Route path="/explore/trainers" element={<ExploreTrainers />} />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
@@ -523,6 +545,23 @@ const App = () => (
                         <Route path="organizer/reports" element={<OrganizerReportsPage />} />
                         <Route path="organizer/settings" element={<OrganizerSettingsPage />} />
                       </Route>
+
+                      {/* Trainer onboarding — accesible si estás autenticado aunque aún no seas trainer "completo" */}
+                      <Route path="trainer/onboarding" element={<TrainerOnboarding />} />
+
+                      {/* Trainer workspace — guard RequirePersonalTrainer */}
+                      <Route element={<RequirePersonalTrainer />}>
+                        <Route path="trainer/dashboard" element={<TrainerDashboard />} />
+                        <Route path="trainer/clients" element={<TrainerClients />} />
+                        <Route path="trainer/clients/:clientId" element={<TrainerClientProfile />} />
+                        <Route path="trainer/routines" element={<TrainerRoutines />} />
+                        <Route path="trainer/routines/:routineId" element={<TrainerRoutineDetail />} />
+                        <Route path="trainer/availability" element={<TrainerAvailability />} />
+                        <Route path="trainer/plans" element={<TrainerPlans />} />
+                        <Route path="trainer/payments" element={<TrainerPayments />} />
+                        <Route path="trainer/profile" element={<TrainerProfileEditor />} />
+                      </Route>
+
 
                       {/* Admin routes */}
                       <Route path="admin/users" element={

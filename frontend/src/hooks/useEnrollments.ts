@@ -37,6 +37,13 @@ export interface Team {
   price_monthly: number | null;
 }
 
+export interface SchoolInfo {
+  id: string;
+  name: string;
+  city: string;
+  school_type: 'academy' | 'personal_trainer' | string;
+}
+
 // Shape exacto que devuelve GET /api/v1/enrollments/my-plan
 export interface RawEnrollment {
   id: string;
@@ -56,6 +63,9 @@ export interface RawEnrollment {
   // Precio ya resuelto por el BFF según el tipo
   price_monthly: number | null;
   currency: string;
+  // School
+  school_id: string | null;
+  school: SchoolInfo | null;
   // Computed por el BFF
   computed: EnrollmentComputed;
 }
@@ -69,6 +79,7 @@ export interface NormalizedEnrollment extends RawEnrollment {
     sport: string;
     school_id?: string;
     school: { name: string; city: string };
+    school_type: string;
   };
   // Solo presente en planes, null en equipos
   plan_details: {
@@ -100,9 +111,9 @@ export function useEnrollments(childId?: string) {
   const queryClient = useQueryClient();
 
   const { data, isLoading: loading, error, refetch } = useQuery({
-    queryKey: ['enrollments', schoolId, childId],
+    queryKey: ['enrollments', 'my-plan', childId],
     queryFn: () => fetchMyPlan(childId),
-    enabled: !!schoolId,
+    enabled: true,
     staleTime: 30_000,
   });
 
@@ -120,7 +131,8 @@ export function useEnrollments(childId?: string) {
             id: e.offering?.id ?? e.offering_plan.id,
             name: e.offering?.name ?? e.offering_plan.name,
             sport: e.offering?.sport ?? '',
-            school: { name: '', city: '' },
+            school: e.school || { name: '', city: '' },
+            school_type: e.school?.school_type || 'academy',
           },
           plan_details: {
             id: e.offering_plan.id,
@@ -142,7 +154,8 @@ export function useEnrollments(childId?: string) {
           id: e.team?.id ?? e.team_id ?? '',
           name: e.team?.name ?? 'Equipo',
           sport: e.team?.sport ?? '',
-          school: { name: '', city: '' },
+          school: e.school || { name: '', city: '' },
+          school_type: e.school?.school_type || 'academy',
         },
         plan_details: null,
       };
@@ -161,6 +174,6 @@ export function useEnrollments(childId?: string) {
     loading,
     error,
     refetch,
-    invalidate: () => queryClient.invalidateQueries({ queryKey: ['enrollments', schoolId, childId] }),
+    invalidate: () => queryClient.invalidateQueries({ queryKey: ['enrollments', 'my-plan', childId] }),
   };
 }

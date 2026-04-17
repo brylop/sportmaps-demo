@@ -345,8 +345,8 @@ export default function PaymentsAutomationPage() {
   // isAuthorized: profile.role handles regular users, currentUserRole handles school 'owner' role
   // (profile.role never contains 'owner' - that's a school_members role, not a profile role)
   const isAuthorized = profile && (
-    ['school', 'admin', 'school_admin', 'super_admin'].includes(profile.role) ||
-    ['owner', 'admin', 'school_admin', 'super_admin'].includes(currentUserRole || '')
+    ['school', 'admin', 'school_admin', 'super_admin', 'personal_trainer'].includes(profile.role) ||
+    ['owner', 'admin', 'school_admin', 'super_admin', 'personal_trainer'].includes(currentUserRole || '')
   );
   if (!isAuthorized) return <Navigate to="/dashboard" replace />;
 
@@ -490,14 +490,21 @@ export default function PaymentsAutomationPage() {
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
 
-  const getPreferredMethod = (childId?: string) => {
-    if (!childId) return { label: 'Pendiente', icon: Clock };
-    const latest = payments.find(p => p.child_id === childId && p.status === 'paid');
+  const getPreferredMethod = (athleteId?: string) => {
+    if (!athleteId) return { label: 'Pendiente', icon: Clock };
+    const latest = payments.find(p => 
+      p.status === 'paid' && (
+        p.child_id === athleteId || 
+        p.user_id === athleteId || 
+        p.unregistered_athlete_id === athleteId
+      )
+    );
     if (!latest || !latest.payment_method) return { label: 'Pendiente', icon: Clock };
     switch (latest.payment_method.toLowerCase()) {
       case 'transfer': return { label: 'Transferencia', icon: Smartphone };
       case 'pse': return { label: 'PSE', icon: Building2 };
       case 'card': return { label: 'Tarjeta', icon: CreditCard };
+      case 'cash': return { label: 'Efectivo', icon: Banknote };
       default: return { label: latest.payment_method.toUpperCase(), icon: CreditCard };
     }
   };
@@ -796,7 +803,7 @@ export default function PaymentsAutomationPage() {
                               </TableCell>
                               <TableCell>
                                 {(() => {
-                                  const method = getPreferredMethod(sub.child_id || sub.unregistered_athlete_id || undefined);
+                                  const method = getPreferredMethod(sub.child_id || sub.user_id || sub.unregistered_athlete_id || undefined);
                                   const Icon = method.icon;
                                   return (
                                     <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">
@@ -855,7 +862,7 @@ export default function PaymentsAutomationPage() {
                               </TableCell>
                               <TableCell>
                                 {(() => {
-                                  const method = getPreferredMethod(sub.child_id || sub.unregistered_athlete_id || undefined);
+                                  const method = getPreferredMethod(sub.child_id || sub.user_id || sub.unregistered_athlete_id || undefined);
                                   const Icon = method.icon;
                                   return (
                                     <Badge variant="secondary" className="gap-1.5 py-1 px-3 bg-slate-100 text-slate-700">

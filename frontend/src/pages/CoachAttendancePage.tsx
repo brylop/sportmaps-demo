@@ -269,7 +269,7 @@ export default function CoachAttendancePage() {
       const today = new Date().toISOString().split('T')[0];
       let query = supabase
         .from('attendance_sessions')
-        .select(`id, start_time, end_time, title, offering_plans!attendance_sessions_offering_id_fkey(name)`)
+        .select(`id, start_time, end_time, title, offerings!attendance_sessions_offering_id_fkey(name)`)
         .eq('school_id', schoolId)
         .eq('session_date', today)
         .not('offering_id', 'is', null)
@@ -279,7 +279,7 @@ export default function CoachAttendancePage() {
       if (error) throw error;
       return (data || []).map((s: any) => ({
         id: s.id,
-        name: s.title || (s.offering_plans as any)?.name || 'Clase de Plan',
+        name: s.title || (s.offerings as any)?.name || 'Clase de Plan',
         start_time: s.start_time,
         end_time: s.end_time,
       }));

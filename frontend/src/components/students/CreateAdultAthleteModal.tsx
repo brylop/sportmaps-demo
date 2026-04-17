@@ -32,7 +32,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
-import { calcProration, formatCOP } from '@/lib/prorationUtils';
+import { calcFirstPayment, formatCOP } from '@/lib/prorationUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,11 +54,16 @@ interface PlanOption {
 
 interface Branch { id: string; name: string; }
 
+interface BillingSettings {
+  payment_cutoff_day: number;
+  billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+}
+
 interface FoundProfile {
   id: string;             // profiles.id = user_id
   full_name: string;
   email: string;
-  document_number: string | null;
+  phone: string | null;
 }
 
 interface CreateAdultAthleteModalProps {
@@ -70,11 +75,27 @@ interface CreateAdultAthleteModalProps {
 
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee }: { startDate: string; monthlyFee: number }) {
+function ProrationCard({ startDate, monthlyFee, billing }: { 
+  startDate: string; 
+  monthlyFee: number;
+  billing: BillingSettings;
+}) {
   if (!startDate || !monthlyFee) return null;
-  const date = new Date(startDate + 'T12:00:00');
-  const { proratedFee, remainingDays, daysInMonth, isFullMonth, dueDate } =
-    calcProration(date, monthlyFee);
+
+  const { 
+    amount, 
+    remainingDays, 
+    totalDaysInMonth, 
+    isFullMonth, 
+    dueDate 
+  } = calcFirstPayment(
+    startDate,
+    monthlyFee,
+    billing.billing_cycle_type,
+    billing.payment_cutoff_day
+  );
+
+  const dueDateObj = new Date(dueDate + 'T12:00:00');
 
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-4 space-y-2 text-sm">
@@ -88,15 +109,15 @@ function ProrationCard({ startDate, monthlyFee }: { startDate: string; monthlyFe
         <div className="space-y-1 text-blue-700 dark:text-blue-300">
           <div className="flex justify-between">
             <span>Días restantes del mes:</span>
-            <span className="font-medium">{remainingDays} de {daysInMonth}</span>
+            <span className="font-medium">{remainingDays} de {totalDaysInMonth}</span>
           </div>
           <div className="flex justify-between">
             <span>Primer cobro proporcional:</span>
-            <span className="font-bold text-blue-900 dark:text-blue-100">{formatCOP(proratedFee)}</span>
+            <span className="font-bold text-blue-900 dark:text-blue-100">{formatCOP(amount)}</span>
           </div>
           <div className="flex justify-between text-xs">
             <span>Vence:</span>
-            <span>{dueDate.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            <span>{dueDateObj.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
           </div>
         </div>
       )}
@@ -132,6 +153,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [teams, setTeams]       = useState<Team[]>([]);
   const [plans, setPlans]       = useState<PlanOption[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [billing, setBilling] = useState<BillingSettings>({
+    payment_cutoff_day: 10,
+    billing_cycle_type: 'prorated',
+  });
 
   // Búsqueda
   const [searchQuery, setSearchQuery] = useState('');
@@ -167,7 +192,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       supabase.from('teams').select('id, name, sport, price_monthly').eq('school_id', schoolId).eq('status', 'active').order('name'),
       supabase.from('offering_plans').select('id, name, price, duration_days, offering_id, offerings(id, name)').eq('school_id', schoolId).eq('is_active', true).order('sort_order'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
-    ]).then(([teamsRes, plansRes, branchesRes]) => {
+      supabase.from('school_settings').select('payment_cutoff_day, billing_cycle_type').eq('school_id', schoolId).maybeSingle(),
+    ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
       setTeams((teamsRes.data as Team[]) ?? []);
       const flatPlans: PlanOption[] = ((plansRes.data as any[]) ?? []).map(row => ({
         plan_id:       row.id,
@@ -179,6 +205,9 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       }));
       setPlans(flatPlans);
       setBranches((branchesRes.data as Branch[]) ?? []);
+      if (settingsRes.data) {
+        setBilling(settingsRes.data as BillingSettings);
+      }
     });
   }, [open, schoolId]);
 
@@ -236,18 +265,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
 
     try {
       const isEmail = q.includes('@');
-
-      const { data } = isEmail
-        ? await supabase
-            .from('profiles')
-            .select('id, full_name, email, document_number')
-            .eq('email', q.toLowerCase())
-            .maybeSingle()
-        : await supabase
-            .from('profiles')
-            .select('id, full_name, email, document_number')
-            .eq('document_number', q)
-            .maybeSingle();
+      
+      const data = await bffClient.get(`/api/v1/trainer/search-profile?q=${encodeURIComponent(q)}`, {
+        'x-school-id': schoolId
+      });
 
       if (data) {
         setFoundProfile(data as FoundProfile);
@@ -261,7 +282,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       setSearching(false);
       setSearchDone(true);
     }
-  }, [searchQuery, toast]);
+  }, [searchQuery, schoolId, toast]);
 
   // ── Enviar solo invitación (atleta no existe aún) ──────────────────────────
   const handleSendInvitation = async () => {
@@ -380,7 +401,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           <Section icon={<Search className="h-4 w-4" />} title="Buscar Atleta">
             <div className="flex gap-2">
               <Input
-                placeholder="Email o número de documento..."
+                placeholder="Email o número de teléfono..."
                 value={searchQuery}
                 onChange={e => {
                   setSearchQuery(e.target.value);
@@ -409,9 +430,6 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                 <div className="flex-1">
                   <p className="font-semibold text-green-900 dark:text-green-100">{foundProfile.full_name}</p>
                   <p className="text-sm text-green-700 dark:text-green-300">{foundProfile.email}</p>
-                  {foundProfile.document_number && (
-                    <p className="text-xs text-green-600 dark:text-green-400">Doc: {foundProfile.document_number}</p>
-                  )}
                   <Badge variant="outline" className="mt-1 text-xs">Cuenta activa en plataforma</Badge>
                 </div>
                 <Button
@@ -446,9 +464,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   onClick={() => {
                     setShowUnregisteredForm(true);
                     setSendInvite(true);
-                    // Pre-llenar email y doc si se buscó por esos campos
+                    // Pre-llenar solo email
                     if (searchQuery.includes('@')) setNotFoundEmail(searchQuery.trim().toLowerCase());
-                    else setUDocNumber(searchQuery.trim());
                   }}
                 >
                   <UserPlus className="h-4 w-4 mr-2" />
@@ -608,7 +625,11 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                 </div>
 
                 {/* Card de proration */}
-                <ProrationCard startDate={startDate} monthlyFee={Number(monthlyFee) || 0} />
+                <ProrationCard 
+                  startDate={startDate} 
+                  monthlyFee={Number(monthlyFee) || 0} 
+                  billing={billing} 
+                />
               </div>
             )}
           </Section>
@@ -706,7 +727,11 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   </div>
                 </div>
 
-                <ProrationCard startDate={startDate} monthlyFee={Number(monthlyFee) || 0} />
+                <ProrationCard 
+                  startDate={startDate} 
+                  monthlyFee={Number(monthlyFee) || 0} 
+                  billing={billing} 
+                />
               </Section>
             </>
           )}

@@ -10,7 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Users, Calendar, Clock, MapPin, Zap, Trophy,
+  Users, User, Calendar, Clock, MapPin, Zap, Trophy,
   ChevronRight, CalendarCheck, Map as MapIcon,
   Building2, Star, Target,
   XCircle, CheckCircle2, ChevronLeft,
@@ -378,6 +378,8 @@ export default function MyEnrollmentsPage() {
                           ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
                           : (b as any).facilities?.name;
 
+                        const isPT = (b as any).school_type === 'personal_trainer';
+
                         return (
                           <div key={b.id} className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${isPast ? 'bg-muted/20 border-border/20 opacity-60' : 'bg-background border-border/40 hover:border-primary/30 shadow-sm'
                             }`}>
@@ -392,8 +394,12 @@ export default function MyEnrollmentsPage() {
                             <div className="w-px h-8 bg-border/40" />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 mb-0.5">
-                                {isPrimary ? <Trophy className="h-3 w-3 text-purple-500" /> : <Building2 className="h-3 w-3 text-blue-500" />}
-                                <p className="text-[11px] font-black uppercase tracking-tight truncate">{contextName}</p>
+                                {isPrimary ? (
+                                  isPT ? <User className="h-3 w-3 text-indigo-500" /> : <Trophy className="h-3 w-3 text-purple-500" />
+                                ) : (
+                                  <Building2 className="h-3 w-3 text-blue-500" />
+                                )}
+                                <p className={`text-[11px] font-black uppercase tracking-tight truncate ${isPT ? 'text-indigo-600 dark:text-indigo-400' : ''}`}>{contextName}</p>
                               </div>
                               <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
@@ -535,11 +541,17 @@ export default function MyEnrollmentsPage() {
 // ─── Cards ────────────────────────────────────────────────────────────────────
 
 function TeamCard({ enrollment, onClick }: { enrollment: any; onClick?: () => void }) {
+  const isTrainer = enrollment.program?.school_type === 'personal_trainer';
   const vis = getSportVisual(enrollment.program?.sport);
+
+  const gradientClass = isTrainer
+    ? "from-violet-600 to-indigo-900 hover:shadow-indigo-900/40"
+    : "from-red-600 to-red-800 hover:shadow-red-900/40";
+
   return (
     <Card
       onClick={onClick}
-      className="group relative overflow-hidden border-none bg-gradient-to-br from-red-600 to-red-800 text-white shadow-lg transition-all hover:scale-[1.02] hover:shadow-red-900/40 cursor-pointer"
+      className={`group relative overflow-hidden border-none bg-gradient-to-br ${gradientClass} text-white shadow-lg transition-all hover:scale-[1.02] cursor-pointer`}
     >
       <CardContent className="p-6">
         <Badge className="absolute top-3 right-3 bg-black/20 text-white border-white/20 text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
@@ -550,7 +562,9 @@ function TeamCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
             {vis.icon}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">Equipo</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">
+              {isTrainer ? 'Entrenamiento Personal' : 'Equipo'}
+            </p>
             <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{enrollment.program?.name}</h4>
             <div className="flex items-center gap-3 mt-4">
               <Badge variant="outline" className="border-white/30 text-white bg-white/10 text-[10px] font-bold py-0.5 px-2">
@@ -577,7 +591,11 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
   const offeringName = enrollment.offering?.name ?? enrollment.program?.name ?? 'Mi Plan';
   const tariffName = enrollment.offering_plan?.name ?? plan?.name ?? 'Plan';
 
-  const visual = getPlanVisual(tariffName);
+  const isTrainer = enrollment.program?.school_type === 'personal_trainer';
+  const visual = isTrainer
+    ? { gradient: 'from-zinc-800 via-zinc-900 to-black', accent: 'text-violet-400', tag: 'bg-violet-400/20 text-violet-400 border-violet-400/30', icon: User, glow: 'shadow-indigo-900/20' }
+    : getPlanVisual(tariffName);
+
   const VisualIcon = visual.icon;
 
   const daysLeft = enrollment.expires_at
@@ -598,7 +616,9 @@ function PlanCard({ enrollment, onClick }: { enrollment: any; onClick?: () => vo
             <VisualIcon className={`h-7 w-7 ${visual.accent}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">{offeringName}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1 truncate">
+              {isTrainer ? 'Coach Personal' : offeringName}
+            </p>
             <h4 className="text-xl font-black leading-tight truncate uppercase tracking-tighter">{tariffName}</h4>
             <div className="flex items-center gap-2 mt-3 flex-wrap">
               <div className="flex items-center gap-1 px-2 py-0.5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
@@ -752,6 +772,7 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
   const [confirming, setConfirming] = useState<BookableSession | null>(null);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [classTypeFilter, setClassTypeFilter] = useState<'all' | 'personal' | 'group'>('all');
 
   const allSessions = useMemo(() => {
     const sessions = data?.sessions ?? [];
@@ -824,12 +845,19 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
         }
         return true;
       })
+      .filter(s => {
+        if (classTypeFilter === 'all') return true;
+        if (classTypeFilter === 'personal') return (s as any).available_for_personal_classes === true;
+        if (classTypeFilter === 'group') return (s as any).available_for_group_classes === true && s.max_capacity > 1;
+        return true;
+      })
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
-  }, [allSessions, selectedDate]);
+  }, [allSessions, selectedDate, classTypeFilter]);
 
   const groupedSessions = useMemo(() => {
     const groups: Record<string, BookableSession[]> = {};
     sessionsForDay.forEach(s => {
+      // Unificamos por hora para evitar duplicados visuales en la lista
       const key = `${s.start_time}-${s.end_time}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(s);
@@ -897,6 +925,34 @@ function PrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, ch
             })}
           </div>
         </div>
+
+        {/* ── Filtro Personal / Grupal ─────────────────────────────────── */}
+        {(() => {
+          // Mostrar si hay sesiones de coach (que tienen los flags)
+          const hasCoachSessions = allSessions.some(s => (s as any).available_for_personal_classes || (s as any).available_for_group_classes);
+          if (!hasCoachSessions) return null;
+
+          return (
+            <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-xl border border-border/30 w-fit mx-auto">
+              {[
+                { key: 'all', label: 'Todas' },
+                { key: 'personal', label: '👤 Personal' },
+                { key: 'group', label: '👥 Grupal' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setClassTypeFilter(key as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${classTypeFilter === key
+                      ? 'bg-background text-foreground shadow-sm border border-border/40'
+                      : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {selectedDate ? (
           <div className="space-y-6">
@@ -1334,6 +1390,7 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
                   const s = isPrimary ? b.attendance_sessions : b;
                   if (!s) return null;
                   
+                  const isPT = (b as any).school_type === 'personal_trainer';
                   const isPast = isBefore(parseISO(dateStr), startOfDay(new Date()));
                   const contextName = isPrimary
                     ? ((b as any).booking_type === 'team' ? (b as any).enrollments?.teams?.name : (b as any).enrollments?.offering_plans?.name)
@@ -1345,8 +1402,10 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
                       <CardContent className="p-0">
                         <div className="flex items-center gap-4 px-4 py-3.5">
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border 
-                            ${isPrimary ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' : 'bg-blue-500/10 text-blue-600 border-blue-500/20'}`}>
-                            {isPrimary ? <Trophy className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
+                            ${isPrimary 
+                              ? (isPT ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' : 'bg-purple-500/10 text-purple-600 border-purple-500/20') 
+                              : 'bg-blue-500/10 text-blue-600 border-blue-500/20'}`}>
+                            {isPrimary ? (isPT ? <User className="h-5 w-5" /> : <Trophy className="h-5 w-5" />) : <Building2 className="h-5 w-5" />}
                           </div>
                           
                           <div className="flex-1 min-w-0">
@@ -1515,20 +1574,40 @@ function CompactSessionSlot({ sessions, noCredits, isBooking, onBook }: {
           <div className="flex-1 min-w-0">
             {sessions.length > 1 ? (
               <div className="flex flex-wrap gap-1.5 items-center">
-                {sessions.map(s => (
-                  <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
-                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background text-muted-foreground border-border hover:border-primary/40'
-                      } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
-                  >
-                    {s.coach?.full_name?.split(' ')[0] || 'Coach'}
-                  </button>
-                ))}
+                {sessions.map(s => {
+                  const isP = (s as any).available_for_personal_classes === true;
+                  const isG = (s as any).available_for_group_classes === true;
+                  const label = isP ? '👤 Personal' : isG ? '👥 Grupal' : (s.coach?.full_name?.split(' ')[0] || 'Clase');
+
+                  return (
+                    <button key={s.id} onClick={() => setSelectedSessionId(s.id)} disabled={isBooked && !s.already_booked}
+                      className={`px-2 py-1 rounded-md text-[9px] font-black uppercase border transition-all ${selectedSessionId === s.id
+                        ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                        : 'bg-background text-muted-foreground border-border hover:border-primary/40'
+                        } ${s.already_booked ? 'ring-1 ring-primary ring-offset-1' : ''}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="flex flex-col">
-                <p className="text-[11px] font-black uppercase tracking-tight truncate">{selectedSession.coach?.full_name || 'Entrenador'}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-black uppercase tracking-tight truncate">{selectedSession.coach?.full_name || 'Entrenador'}</p>
+                  {(selectedSession as any).available_for_personal_classes === true &&
+                    !(selectedSession as any).available_for_group_classes && (
+                      <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-indigo-400 text-indigo-500 bg-indigo-500/5">
+                        👤 Personal
+                      </Badge>
+                    )}
+                  {(selectedSession as any).available_for_group_classes === true &&
+                    !(selectedSession as any).available_for_personal_classes && (
+                      <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-green-400 text-green-600 bg-green-500/5">
+                        👥 Grupal · {selectedSession.max_capacity} cupos
+                      </Badge>
+                    )}
+                </div>
                 <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
                   <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{calcDuration(selectedSession.start_time, selectedSession.end_time)}</span>
                   {selectedSession.max_capacity && (

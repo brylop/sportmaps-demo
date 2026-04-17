@@ -13,29 +13,11 @@ export interface PaymentCalc {
   dueDate: string;      // YYYY-MM-DD
   isFullMonth: boolean;
   description: string;  // texto legible del cálculo
+  remainingDays?: number;
+  totalDaysInMonth?: number;
 }
 
-/**
- * Helper legacy para componentes que necesitan detalles de días (modals).
- */
-export function calcProration(date: Date, monthlyFee: number) {
-  const day = date.getDate();
-  const month = date.getMonth();
-  const year = date.getFullYear();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const remainingDays = daysInMonth - day + 1;
-  const isFullMonth = day === 1;
-  const proratedFee = isFullMonth
-    ? monthlyFee
-    : Math.round((remainingDays / daysInMonth) * monthlyFee);
-
-  // Vence por defecto el 10 del mes siguiente
-  const dueMonth = month + 1 > 11 ? 0 : month + 1;
-  const dueYear = month + 1 > 11 ? year + 1 : year;
-  const dueDate = new Date(dueYear, dueMonth, 10);
-
-  return { proratedFee, remainingDays, daysInMonth, isFullMonth, dueDate };
-}
+// Removiendo calcProration duplicado arriba
 
 export function calcFirstPayment(
   startDate: string,
@@ -49,11 +31,12 @@ export function calcFirstPayment(
   const month = date.getMonth();
   const year  = date.getFullYear();
 
-  switch (cycleType) {
+  // Helper para calcular fin de mes
+  const getDaysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
+  switch (cycleType) {
     case 'prorated': {
-      // Proporcional: días desde start_date hasta fin de mes / días del mes
-      const daysInMonth   = new Date(year, month + 1, 0).getDate();
+      const daysInMonth   = getDaysInMonth(year, month);
       const remainingDays = daysInMonth - day + 1;
       const isFullMonth   = day === 1;
       const amount = isFullMonth
@@ -61,14 +44,15 @@ export function calcFirstPayment(
         : Math.round((remainingDays / daysInMonth) * monthlyFee);
 
       // Vence en el cutoff_day del mes siguiente
-      const dueMonth = month + 1 > 11 ? 0 : month + 1;
-      const dueYear  = month + 1 > 11 ? year + 1 : year;
-      const dueDate  = `${dueYear}-${String(dueMonth + 1).padStart(2, '0')}-${String(cutoffDay).padStart(2, '0')}`;
+      const nextMonth = new Date(year, month + 1, cutoffDay);
+      const dueDate = nextMonth.toISOString().split('T')[0];
 
       return {
         amount,
         dueDate,
         isFullMonth,
+        remainingDays,
+        totalDaysInMonth: daysInMonth,
         description: isFullMonth
           ? `Mes completo (inscripción día 1)`
           : `${remainingDays} de ${daysInMonth} días = ${formatCOP(amount)}`,
@@ -76,10 +60,8 @@ export function calcFirstPayment(
     }
 
     case 'fixed_calendar': {
-      // Mes completo siempre, vence en cutoff_day del mes siguiente
-      const dueMonth = month + 1 > 11 ? 0 : month + 1;
-      const dueYear  = month + 1 > 11 ? year + 1 : year;
-      const dueDate  = `${dueYear}-${String(dueMonth + 1).padStart(2, '0')}-${String(cutoffDay).padStart(2, '0')}`;
+      const nextMonth = new Date(year, month + 1, cutoffDay);
+      const dueDate = nextMonth.toISOString().split('T')[0];
 
       return {
         amount: monthlyFee,
@@ -90,8 +72,6 @@ export function calcFirstPayment(
     }
 
     case 'rolling_30': {
-      // Si ya existe un cobro previo → siguiente = último due_date + 30 días
-      // Si es el primer cobro        → start_date + 30 días
       const base = lastDueDate
         ? new Date(lastDueDate + 'T12:00:00')
         : date;
@@ -107,6 +87,26 @@ export function calcFirstPayment(
       };
     }
   }
+}
+
+/**
+ * @deprecated Usa calcFirstPayment con 'prorated' y cutoffDay.
+ */
+export function calcProration(date: Date, monthlyFee: number, cutoffDay: number = 10) {
+  const result = calcFirstPayment(
+    date.toISOString().split('T')[0],
+    monthlyFee,
+    'prorated',
+    cutoffDay
+  );
+
+  return { 
+    proratedFee: result.amount, 
+    remainingDays: result.remainingDays || 0, 
+    daysInMonth: result.totalDaysInMonth || 30, 
+    isFullMonth: result.isFullMonth, 
+    dueDate: new Date(result.dueDate + 'T12:00:00') 
+  };
 }
 
 export function formatCOP(amount: number): string {

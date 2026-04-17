@@ -60,13 +60,34 @@ interface CreateChildModalProps {
   schoolId: string;
 }
 
+interface BillingSettings {
+  payment_cutoff_day: number;
+  billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+}
+
 // ─── Proration Card ───────────────────────────────────────────────────────────
 
-function ProrationCard({ startDate, monthlyFee }: { startDate: string; monthlyFee: number }) {
+function ProrationCard({ startDate, monthlyFee, billing }: { 
+  startDate: string; 
+  monthlyFee: number;
+  billing: BillingSettings;
+}) {
   if (!startDate || !monthlyFee) return null;
-  const date = new Date(startDate + 'T12:00:00');
-  const { proratedFee, remainingDays, daysInMonth, isFullMonth, dueDate } =
-    calcProration(date, monthlyFee);
+  
+  const { 
+    amount, 
+    remainingDays, 
+    totalDaysInMonth, 
+    isFullMonth, 
+    dueDate 
+  } = calcFirstPayment(
+    startDate,
+    monthlyFee,
+    billing.billing_cycle_type,
+    billing.payment_cutoff_day
+  );
+
+  const dueDateObj = new Date(dueDate + 'T12:00:00');
 
   return (
     <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-4 space-y-2 text-sm">
@@ -82,18 +103,18 @@ function ProrationCard({ startDate, monthlyFee }: { startDate: string; monthlyFe
         <div className="space-y-1 text-blue-700 dark:text-blue-300">
           <div className="flex justify-between">
             <span>Días restantes del mes:</span>
-            <span className="font-medium">{remainingDays} de {daysInMonth}</span>
+            <span className="font-medium">{remainingDays} de {totalDaysInMonth}</span>
           </div>
           <div className="flex justify-between">
             <span>Primer cobro proporcional:</span>
             <span className="font-bold text-blue-900 dark:text-blue-100">
-              {formatCOP(proratedFee)}
+              {formatCOP(amount)}
             </span>
           </div>
           <div className="flex justify-between text-xs">
             <span>Vence:</span>
             <span>
-              {dueDate.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
+              {dueDateObj.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
           </div>
         </div>
@@ -135,6 +156,10 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
   const [teams, setTeams]       = useState<Team[]>([]);
   const [plans, setPlans]       = useState<PlanOption[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [billing, setBilling] = useState<BillingSettings>({
+    payment_cutoff_day: 10,
+    billing_cycle_type: 'prorated',
+  });
 
   // ── Sección 1: Datos del menor ────────────────────────────────────────────
   const [docType, setDocType]     = useState('TI');
@@ -190,7 +215,14 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         .select('id, name')
         .eq('school_id', schoolId)
         .order('name'),
-    ]).then(([teamsRes, plansRes, branchesRes]) => {
+
+      // Configuración de pagos
+      supabase
+        .from('school_settings')
+        .select('payment_cutoff_day, billing_cycle_type')
+        .eq('school_id', schoolId)
+        .maybeSingle(),
+    ]).then(([teamsRes, plansRes, branchesRes, settingsRes]) => {
       setTeams((teamsRes.data as Team[]) ?? []);
 
       // Aplanar offering_plans con su offering padre
@@ -205,6 +237,10 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
       setPlans(flatPlans);
 
       setBranches((branchesRes.data as Branch[]) ?? []);
+      
+      if (settingsRes.data) {
+        setBilling(settingsRes.data as BillingSettings);
+      }
     });
   }, [open, schoolId]);
 
@@ -584,7 +620,11 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
             </div>
 
             {/* Card de proration */}
-            <ProrationCard startDate={startDate} monthlyFee={Number(monthlyFee) || 0} />
+            <ProrationCard 
+              startDate={startDate} 
+              monthlyFee={Number(monthlyFee) || 0} 
+              billing={billing} 
+            />
           </Section>
         </div>
 

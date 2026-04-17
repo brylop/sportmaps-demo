@@ -21,7 +21,9 @@ import {
   Ticket,
   Car,
   Send,
-  GraduationCap
+  GraduationCap,
+  Dumbbell,
+  User
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -81,6 +83,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
+          { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
+          { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
@@ -114,6 +118,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Mi Actividad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
+          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
+          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
+          { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Configuración', href: '/settings', icon: Settings }
@@ -270,16 +277,12 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       }
     ],
 
-    // ── ADMIN GENERAL (Multi-sede) ───────────────────────────────────────────
-    // Superset de 'school': muestra TODO + items globales de sedes.
-    // Las páginas ya filtran datos por activeBranchId cuando está seteado.
     admin: [
       {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -315,15 +318,12 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       }
     ],
 
-    // ── SUPER ADMIN ──────────────────────────────────────────────────────────
-    // Idéntico a admin — mismo superset operacional.
     super_admin: [
       {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -365,7 +365,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          // { title: 'Salida Segura', href: '/pickup', icon: Car, badge: 'Live' },
           { title: 'Estudiantes', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
@@ -443,9 +442,34 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
-    ]
+    ],
+
+    personal_trainer: [
+      {
+        title: 'Principal',
+        items: [
+          { title: 'Dashboard', href: '/trainer/dashboard', icon: Home },
+          { title: 'Mis Clientes', href: '/trainer/clients', icon: Users },
+          { title: 'Disponibilidad', href: '/trainer/availability', icon: Calendar },
+        ]
+      },
+      {
+        title: 'Negocio',
+        items: [
+          { title: 'Mis Planes', href: '/trainer/plans', icon: FileText },
+          { title: 'Mis Rutinas', href: '/trainer/routines', icon: Dumbbell },
+          { title: 'Pagos', href: '/trainer/payments', icon: DollarSign },
+        ]
+      },
+      {
+        title: 'Perfil',
+        items: [
+          { title: 'Mi Perfil Público', href: '/trainer/profile', icon: User },
+          { title: 'Configuración', href: '/settings', icon: Settings },
+        ]
+      }
+    ],
   };
 
   return roleSpecificNav[role] || [baseNav];
 }
-

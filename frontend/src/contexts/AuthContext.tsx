@@ -12,7 +12,7 @@ interface UserProfile {
   full_name: string | null;
   email: string;
   phone: string | null;
-  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer' | 'reporter';
+  role: 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'super_admin' | 'organizer' | 'reporter' | 'personal_trainer';
   avatar_url: string | null;
   bio: string | null;
   date_of_birth: string | null;
@@ -32,6 +32,9 @@ interface AuthContextType {
   profile: UserProfile | null;
   session: Session | null;
   loading: boolean;
+  isPersonalTrainer: boolean;
+  trainerSchoolId: string | null;
+  trainerOnboardingStatus: string | null;
   signUp: (email: string, password: string, userData: Partial<UserProfile>) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -45,6 +48,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPersonalTrainer, setIsPersonalTrainer] = useState(false);
+  const [trainerSchoolId, setTrainerSchoolId] = useState<string | null>(null);
+  const [trainerOnboardingStatus, setTrainerOnboardingStatus] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -70,6 +76,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error fetching profile:', error);
       return null;
+    }
+  }, []);
+
+  // Detect personal trainer workspace (runs whenever user changes)
+  const fetchTrainerContext = useCallback(async (userId: string, profileRole?: string) => {
+    // Optimistic: if profile already says personal_trainer, set state immediately
+    // so guards don't block before the DB query resolves.
+    if (profileRole === 'personal_trainer') {
+      setIsPersonalTrainer(true);
+      // trainerSchoolId resolved below from DB
+    }
+
+    try {
+      const { data } = await supabase
+        .from('schools')
+        .select('id, school_type, onboarding_status, onboarding_step')
+        .eq('owner_id', userId)
+        .eq('school_type', 'personal_trainer')
+        .maybeSingle();
+
+      if (data && data.school_type === 'personal_trainer') {
+        setIsPersonalTrainer(true);
+        setTrainerSchoolId(data.id);
+        setTrainerOnboardingStatus(data.onboarding_status);
+      } else if (profileRole === 'personal_trainer') {
+        // School not found yet (provisioning in progress), but role confirms trainer.
+        // Keep isPersonalTrainer=true — trainerSchoolId stays null until provisioned.
+        setIsPersonalTrainer(true);
+        setTrainerOnboardingStatus(null);
+      } else {
+        setIsPersonalTrainer(false);
+        setTrainerSchoolId(null);
+        setTrainerOnboardingStatus(null);
+      }
+    } catch {
+      // On error, fall back to role-based detection
+      if (profileRole === 'personal_trainer') {
+        setIsPersonalTrainer(true);
+      } else {
+        setIsPersonalTrainer(false);
+        setTrainerSchoolId(null);
+        setTrainerOnboardingStatus(null);
+      }
     }
   }, []);
 
@@ -131,6 +180,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               });
               setProfile(created as UserProfile);
             }
+            // Detect trainer workspace — pass role for immediate detection
+            const resolvedRole = (userProfile ?? null)?.role ||
+              session.user.user_metadata?.role;
+            await fetchTrainerContext(session.user.id, resolvedRole);
           }
         } catch (error) {
           console.error('Failed to load/create profile:', error);
@@ -179,6 +232,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   });
                   setProfile(created as UserProfile);
                 }
+                // Detect trainer workspace — pass role for immediate detection
+                const resolvedRole2 = (userProfile ?? null)?.role ||
+                  session.user!.user_metadata?.role;
+                await fetchTrainerContext(session.user!.id, resolvedRole2);
               }
             } catch (error) {
               console.error('Deferred profile load/create failed:', error);
@@ -188,6 +245,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }, 0);
         } else {
           setProfile(null);
+          setIsPersonalTrainer(false);
+          setTrainerSchoolId(null);
+          setTrainerOnboardingStatus(null);
           setLoading(false);
         }
       }
@@ -197,7 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [fetchProfile, createProfile]);
+  }, [fetchProfile, createProfile, fetchTrainerContext]);
 
   const signUp = async (email: string, password: string, userData: Partial<UserProfile> & { invitation_code?: string, school_name?: string }) => {
     try {
@@ -379,11 +439,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile,
     session,
     loading,
+    isPersonalTrainer,
+    trainerSchoolId,
+    trainerOnboardingStatus,
     signUp,
     signIn,
     signOut,
     updateProfile,
-  }), [user, profile, session, loading]);
+  }), [user, profile, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

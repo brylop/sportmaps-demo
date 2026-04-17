@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
@@ -14,7 +14,7 @@ import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
-import { Plus, MapPin } from 'lucide-react';
+import { Plus, MapPin, Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
@@ -30,6 +30,8 @@ export default function DashboardPage() {
   const { activeBranchId, activeBranchName, totalBranches, schoolName } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
@@ -197,6 +199,14 @@ export default function DashboardPage() {
     refreshOnboardingData();
   }, [refreshOnboardingData]);
 
+  // ── Personal Trainer redirect ────────────────────────────────────────────────
+  // If a personal_trainer lands on /dashboard (default post-login redirect),
+  // send them to their own workspace immediately.
+  if (profile?.role === 'personal_trainer') {
+    return <Navigate to="/trainer/dashboard" replace />;
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
       <div className="text-center space-y-3">
@@ -239,14 +249,20 @@ export default function DashboardPage() {
           };
         }
         if (index === 1) {
-          // Programs (Config Index 1) - Label and value
           const count = realStats.classes_count || 0;
-          const label = profile.role === 'coach' ? 'Equipos' : 'Programas';
+          const plansCount = (realStats as any).plans_count ?? 0;
+          if (profile.role === 'coach') {
+            return { ...stat, value: count, description: 'Equipos asignados' };
+          }
+          // owner/school → split card showing Equipos + Planes
           return {
             ...stat,
-            label, // Override label if coach
+            title: 'Equipos',
             value: count,
-            description: profile.role === 'coach' ? 'Equipos asignados' : 'Clases/Programas creados'
+            description: undefined,
+            splitValue: plansCount,
+            splitTitle: 'Planes',
+            splitIcon: Zap,
           };
         }
         if (index === 2) {

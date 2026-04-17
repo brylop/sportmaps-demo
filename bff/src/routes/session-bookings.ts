@@ -243,7 +243,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const { data: enrs, error: eErr } = await q;
     if (eErr || !enrs?.length) return res.json({ sessions: [] });
 
-    const sId = enrs[0].school_id;
+    const allSchoolIds = [...new Set(enrs.map((e: any) => e.school_id))];
 
     // Enrollments de EQUIPO: tienen team_id y NO tienen offering_plan_id
     const teamEnrollments = enrs.filter(e => e.team_id && !e.offering_plan_id);
@@ -278,13 +278,10 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       });
     }
 
-    const defaultOfferingIdForFilter = planEnrollments[0] ? getOfferingId(planEnrollments[0]) : null;
-
-    // Si hay coaches asignados al plan → filtrar; si no → [] (sin filtro = todos)
-    const assignedCoachIds: string[] = defaultOfferingIdForFilter
-      ? (offeringCoachMap[defaultOfferingIdForFilter] ?? [])
-      : [];
-
+    // Recopilar todos los coaches asignados de todos los planes activos
+    const assignedCoachIds = [...new Set(
+      planEnrollments.flatMap(e => offeringCoachMap[getOfferingId(e)] ?? [])
+    )];
     const hasAssignedCoaches = assignedCoachIds.length > 0;
 
     const [tRes, oRes] = await Promise.all([
@@ -292,11 +289,11 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
         ? supabase.from('attendance_sessions')
           .select(`
               id, team_id, session_date, start_time, end_time,
-              max_capacity, current_bookings,
+              max_capacity, current_bookings, coach_availability_id,
               team:teams!attendance_sessions_team_id_fkey(id, name, sport),
               coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
             `)
-          .eq('school_id', sId)
+          .in('school_id', allSchoolIds)
           .in('team_id', tIds)
           .eq('is_bookable', true)
           .eq('finalized', false)
@@ -307,10 +304,10 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           let q = supabase.from('attendance_sessions')
             .select(`
                 id, offering_id, session_date, start_time, end_time,
-                max_capacity, current_bookings,
+                max_capacity, current_bookings, coach_availability_id,
                 coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name, specialty)
               `)
-            .eq('school_id', sId)
+            .in('school_id', allSchoolIds)
             .in('offering_id', oIds)
             .eq('is_bookable', true)
             .eq('finalized', false)
@@ -330,7 +327,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const { data: availData } = await supabase
       .from('coach_availability')
       .select(`id, coach_id, day_of_week, start_time, end_time, available_for_group_classes, available_for_personal_classes, max_group_capacity, coach:school_staff!coach_availability_coach_id_fkey(id, full_name, specialty)`)
-      .eq('school_id', sId);
+      .in('school_id', allSchoolIds);
 
     const coachIds = [...new Set((availData || []).map(a => a.coach_id))];
     const availIds = (availData || []).map(a => a.id);
@@ -341,7 +338,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const { data: existingSessions } = await supabase
       .from('attendance_sessions')
       .select('id, coach_id, session_date, start_time, coach_availability_id, current_bookings, max_capacity')
-      .eq('school_id', sId)
+      .in('school_id', allSchoolIds)
       .gte('session_date', today);
 
     const busySet = new Set(
@@ -363,7 +360,9 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     });
 
     // We bind the generated slots to the first offering plan they have.
-    const defaultPlanEnrollment = planEnrollments[0];
+    const defaultPlanEnrollment = planEnrollments.find(
+      (e: any) => allSchoolIds.includes(e.school_id)
+    ) ?? planEnrollments[0];
     const generatedSessions: any[] = [];
 
     if (defaultPlanEnrollment && availData) {
@@ -390,6 +389,10 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
         for (const avail of slotsForDay) {
           const slotStart = avail.start_time.substring(0, 5); // "HH:MM"
           const slotMaxCapacity = (avail as any).max_group_capacity ?? (avail.available_for_personal_classes ? 1 : 10);
+          
+          // Buscar el enrollment que corresponde a la escuela de este slot de disponibilidad
+          const matchingEnrollment = planEnrollments.find(e => e.school_id === (avail as any).school_id) || defaultPlanEnrollment;
+          const offeringIdForSlot = getOfferingId(matchingEnrollment);
 
           // Bloquear si el coach tiene una sesión manual (sin coach_availability_id) a esa hora
           const busyKey = `${avail.coach_id}_${dateStr}_${slotStart}`;
@@ -400,34 +403,73 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           const existing = sessionCapacityMap[capacityKey];
           const currentBookings = existing?.current ?? 0;
           const maxCapacity = existing?.max ?? slotMaxCapacity;
-          const availableSpots = Math.max(0, maxCapacity - currentBookings);
           const isFull = currentBookings >= maxCapacity;
 
-          generatedSessions.push({
-            id: `avail_${avail.id}_${dateStr}`,
-            session_type: 'offering',
-            session_date: dateStr,
-            start_time: `${slotStart}:00`,
-            end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
-            max_capacity: maxCapacity,
-            current_bookings: currentBookings,
-            available_spots: availableSpots,
-            already_booked: false,
-            team: null,
-            team_id: null,
-            offering_id: defaultOfferingId,
-            coach: avail.coach,
-            sessions_left: null,
-            enrollment_id: defaultPlanEnrollment.id,
-            booking_status: isFull ? 'full' : 'open',
-            is_pseudo: true
-          });
+          // Generar una entrada por cada tipo disponible (Personal / Grupal)
+          if (avail.available_for_personal_classes) {
+            generatedSessions.push({
+              id: `avail_p_${avail.id}_${dateStr}`, // Prefijo p_ para personal
+              session_type: 'offering',
+              session_date: dateStr,
+              start_time: `${slotStart}:00`,
+              end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+              max_capacity: 1,
+              current_bookings: currentBookings,
+              available_spots: Math.max(0, 1 - currentBookings),
+              already_booked: false,
+              team: null,
+              team_id: null,
+              offering_id: offeringIdForSlot,
+              coach: avail.coach,
+              sessions_left: null,
+              enrollment_id: matchingEnrollment.id,
+              booking_status: currentBookings >= 1 ? 'full' : 'open',
+              is_pseudo: true,
+              available_for_personal_classes: true,
+              available_for_group_classes: false,
+            });
+          }
+
+          if (avail.available_for_group_classes) {
+            generatedSessions.push({
+              id: `avail_g_${avail.id}_${dateStr}`, // Prefijo g_ para grupal
+              session_type: 'offering',
+              session_date: dateStr,
+              start_time: `${slotStart}:00`,
+              end_time: avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time,
+              max_capacity: maxCapacity,
+              current_bookings: currentBookings,
+              available_spots: Math.max(0, maxCapacity - currentBookings),
+              already_booked: false,
+              team: null,
+              team_id: null,
+              offering_id: offeringIdForSlot,
+              coach: avail.coach,
+              sessions_left: null,
+              enrollment_id: matchingEnrollment.id,
+              booking_status: isFull ? 'full' : 'open',
+              is_pseudo: true,
+              available_for_personal_classes: false,
+              available_for_group_classes: true,
+            });
+          }
         }
       }
     }
 
-    const teamSessions = (tRes.data || []).map((s: any) => ({ ...s, session_type: 'team' as const }));
-    const offeringSessions = (oRes.data || []).map((s: any) => ({ ...s, session_type: 'offering' as const }));
+    const availMap = Object.fromEntries((availData || []).map(a => [a.id, a]));
+
+    const enrichRealSession = (s: any) => {
+      const avail = s.coach_availability_id ? availMap[s.coach_availability_id] : null;
+      return {
+        ...s,
+        available_for_personal_classes: avail ? avail.available_for_personal_classes : false,
+        available_for_group_classes: avail ? avail.available_for_group_classes : (s.max_capacity > 1),
+      };
+    };
+
+    const teamSessions = (tRes.data || []).map((s: any) => enrichRealSession({ ...s, session_type: 'team' as const }));
+    const offeringSessions = (oRes.data || []).map((s: any) => enrichRealSession({ ...s, session_type: 'offering' as const }));
 
     // Deduplicar: las sesiones REALES tienen prioridad sobre las pseudo-sesiones.
     // Si un coach ya aparece en teamSessions/offeringSessions a la misma hora+fecha,
@@ -438,20 +480,52 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
       realSlotKeys.add(`${coachId}_${s.session_date}_${s.start_time.substring(0, 5)}`);
     });
 
-    // También deduplicar entre pseudo-sesiones por coach+fecha+hora (quedar con la de mayor cupo)
+    // También deduplicar entre pseudo-sesiones por coach+fecha+hora+tipo (quedar con la de mayor cupo para el mismo tipo)
     const dedupedGenerated: any[] = [];
     const seenPseudoKey = new Set<string>();
     generatedSessions.sort((a, b) => (b.max_capacity ?? 0) - (a.max_capacity ?? 0));
     for (const gs of generatedSessions) {
       const coachId = gs.coach?.id ?? '';
-      const key = `${coachId}_${gs.session_date}_${gs.start_time.substring(0, 5)}`;
-      if (!realSlotKeys.has(key) && !seenPseudoKey.has(key)) {
+      const typeStr = gs.id.startsWith('avail_p_') ? 'p' : 'g';
+      const key = `${coachId}_${gs.session_date}_${gs.start_time.substring(0, 5)}_${typeStr}`;
+      
+      const generalSlotKey = `${coachId}_${gs.session_date}_${gs.start_time.substring(0, 5)}`;
+      
+      if (!realSlotKeys.has(generalSlotKey) && !seenPseudoKey.has(key)) {
         seenPseudoKey.add(key);
         dedupedGenerated.push(gs);
       }
     }
 
-    const allSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated];
+    const baseSessions = [...teamSessions, ...offeringSessions, ...dedupedGenerated];
+    const allSessions: any[] = [];
+
+    baseSessions.forEach((s: any) => {
+      // Si la sesión permite ambos y está vacía, la desdoblamos para que el usuario elija modalidad
+      const isDual = s.available_for_personal_classes && s.available_for_group_classes;
+      const isEmpty = (s.current_bookings ?? 0) === 0;
+
+      if (isDual && isEmpty) {
+        // Opción Personal
+        allSessions.push({
+          ...s,
+          id: `${s.id}_p`,
+          max_capacity: 1,
+          available_for_personal_classes: true,
+          available_for_group_classes: false,
+        });
+        // Opción Grupal
+        allSessions.push({
+          ...s,
+          id: `${s.id}_g`,
+          max_capacity: s.max_capacity,
+          available_for_personal_classes: false,
+          available_for_group_classes: true,
+        });
+      } else {
+        allSessions.push(s);
+      }
+    });
 
     // Ordenar por fecha y hora
     allSessions.sort((a, b) => {
@@ -463,7 +537,11 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     if (!allSessions.length) return res.json({ sessions: [] });
 
     // ── Bookings del atleta para marcar already_booked ────────────────────
-    const sIds = allSessions.filter(s => !s.is_pseudo).map(s => s.id);
+    // IMPORTANTE: limpiar IDs de desdoblamiento (_p, _g) para consultar DB
+    const sIds = allSessions
+      .filter(s => !s.is_pseudo)
+      .map(s => s.id.includes('_p') || s.id.includes('_g') ? s.id.slice(0, -2) : s.id);
+
     let bQ = supabase.from('session_bookings')
       .select('session_id')
       .in('session_id', sIds.length ? sIds : ['00000000-0000-0000-0000-000000000000'])
@@ -477,7 +555,8 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     // ── Mapear manteniendo teams y offerings separados ────────────────────
     const sessions = allSessions.map((s: any) => {
       const availableSpots = Math.max(0, s.max_capacity - s.current_bookings);
-      const alreadyBooked = bookedSet.has(s.id);
+      const cleanIdForBooked = s.id.includes('_p') || s.id.includes('_g') ? s.id.slice(0, -2) : s.id;
+      const alreadyBooked = bookedSet.has(cleanIdForBooked);
       const isFull = s.current_bookings >= s.max_capacity;
 
       if (s.session_type === 'team') {
@@ -537,6 +616,8 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
           : isFull ? 'full'
             : noCredits ? 'no_credits'
               : 'open',
+        available_for_personal_classes: (s as any).available_for_personal_classes ?? null,
+        available_for_group_classes: (s as any).available_for_group_classes ?? null,
       };
     });
 
@@ -566,11 +647,13 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
     let s: any = null;
 
     if (session_id.startsWith('avail_')) {
-      // Formato: avail_{availId}_{YYYY-MM-DD}
-      // El availId es un UUID (36 chars), la fecha son los últimos 10 caracteres
-      const prefixLen = 'avail_'.length;
+      // Formato: avail_p_{availId}_{YYYY-MM-DD} o avail_g_{availId}_{YYYY-MM-DD}
+      const isPersonal = session_id.includes('_p_');
+      const isGroup = session_id.includes('_g_');
+      const prefixLen = isPersonal ? 'avail_p_'.length : (isGroup ? 'avail_g_'.length : 'avail_'.length);
+
       const dateStr = session_id.slice(-10);          // últimos 10: "YYYY-MM-DD"
-      const availId = session_id.slice(prefixLen, -11); // entre "avail_" y "_YYYY-MM-DD"
+      const availId = session_id.slice(prefixLen, -11); // entre el prefijo y "_YYYY-MM-DD"
 
       if (!availId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr))
         return res.status(400).json({ error: 'invalid_avail_format' });
@@ -587,8 +670,7 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       const coach_id = avail.coach_id;
       const start_time = avail.start_time.length === 5 ? `${avail.start_time}:00` : avail.start_time;
       const end_time = avail.end_time.length === 5 ? `${avail.end_time}:00` : avail.end_time;
-      const maxCap = (avail as any).max_group_capacity ??
-        (avail.available_for_personal_classes ? 1 : 10);
+      const maxCap = isPersonal ? 1 : (avail.max_group_capacity ?? 10);
 
       // Buscar si ya existe una attendance_session para esta fecha exacta vinculada a este slot
       const { data: existS } = await supabase
@@ -631,12 +713,24 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
         actualSessionId = s.id;
       }
     } else {
+      // Manejar IDs con sufijo _p o _g para sesiones reales (desdoblamiento universal)
+      const isPersonal = session_id.endsWith('_p');
+      const isGroup = session_id.endsWith('_g');
+      const cleanSessionId = (isPersonal || isGroup) ? session_id.slice(0, -2) : session_id;
+      actualSessionId = cleanSessionId;
+
       const { data: fetchS } = await supabase
         .from('attendance_sessions')
         .select('school_id, max_capacity, current_bookings')
-        .eq('id', session_id)
+        .eq('id', cleanSessionId)
         .single();
       s = fetchS;
+
+      // Si es una reserva personal y la sesión real está vacía, forzamos capacidad = 1 en DB
+      if (isPersonal && s && (s.current_bookings ?? 0) === 0 && s.max_capacity !== 1) {
+        await supabase.from('attendance_sessions').update({ max_capacity: 1 }).eq('id', cleanSessionId);
+        s.max_capacity = 1;
+      }
     }
 
     if (!s) return res.status(404).json({ error: 'not_found' });
@@ -736,7 +830,7 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
     const enrollmentIds = [...new Set(bookings.map(b => b.enrollment_id).filter(Boolean))];
     const { data: enrollments } = await supabase
       .from('enrollments')
-      .select('id, team_id, offering_plan_id')
+      .select('id, team_id, offering_plan_id, school_id')
       .in('id', enrollmentIds);
 
     const enrollmentMap = Object.fromEntries((enrollments || []).map(e => [e.id, e]));
@@ -749,17 +843,23 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
       (enrollments || []).map(e => e.offering_plan_id).filter(Boolean)
     )];
 
-    const [teamsRes, plansRes] = await Promise.all([
+    const schoolIds = [...new Set((enrollments || []).map(e => e.school_id).filter(Boolean))];
+
+    const [teamsRes, plansRes, schoolsRes] = await Promise.all([
       teamIds.length
         ? supabase.from('teams').select('id, name').in('id', teamIds)
         : Promise.resolve({ data: [] }),
       planIds.length
         ? supabase.from('offering_plans').select('id, name').in('id', planIds)
         : Promise.resolve({ data: [] }),
+      schoolIds.length
+        ? supabase.from('schools').select('id, name, city, school_type').in('id', schoolIds)
+        : Promise.resolve({ data: [] }),
     ]);
 
     const teamMap = Object.fromEntries((teamsRes.data || []).map(t => [t.id, t]));
     const planMap = Object.fromEntries((plansRes.data || []).map(p => [p.id, p]));
+    const schoolMap = Object.fromEntries((schoolsRes.data || []).map(s => [s.id, s]));
 
     // ── Mapear respuesta con tipos separados ──────────────────────────────
     const result = bookings.map((b: any) => {
@@ -774,6 +874,7 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
         booking_type: isTeamBooking ? 'team' : 'offering',
         enrollment_id: b.enrollment_id,
         attendance_sessions: b.attendance_sessions,
+        school_type: enrollment?.school_id ? (schoolMap[enrollment.school_id]?.school_type || 'academy') : 'academy',
         // Nombre de contexto sin mezclar fuentes
         enrollments: isTeamBooking
           ? { teams: teamMap[enrollment.team_id] ?? null, offering_plans: null }
@@ -889,7 +990,7 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
       id,
       attendance_sessions!inner(
         id, session_date, start_time, end_time,
-        team:teams!attendance_sessions_team_id_fkey(name),
+        team:teams!attendance_sessions_team_id_fkey(name, school_id),
         coach:school_staff!attendance_sessions_coach_id_fkey(full_name)
       )
     `)
@@ -902,7 +1003,24 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
     else q = q.eq('user_id', userId);
 
     const { data } = await q;
-    res.json({ sessions: (data || []).map((d: any) => d.attendance_sessions) });
+    const rawSessions = (data || []).map((d: any) => d.attendance_sessions);
+    
+    if (!rawSessions.length) return res.json({ sessions: [] });
+
+    const schoolIds = [...new Set(rawSessions.map((s: any) => s.team?.school_id).filter(Boolean))];
+    const { data: schools } = await supabase
+      .from('schools')
+      .select('id, school_type')
+      .in('id', schoolIds);
+    
+    const schoolMap = Object.fromEntries((schools || []).map(s => [s.id, s]));
+
+    const enriched = rawSessions.map((s: any) => ({
+      ...s,
+      school_type: s.team?.school_id ? (schoolMap[s.team.school_id]?.school_type || 'academy') : 'academy'
+    }));
+
+    res.json({ sessions: enriched });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -961,7 +1079,7 @@ router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res:
       return res.status(403).json({ error: 'unauthorized' });
 
     let q = supabase.from('facility_reservations')
-      .select('id, status, reservation_date, start_time, end_time, facilities(name, id)')
+      .select('id, status, reservation_date, start_time, end_time, enrollment_id, facilities(name, id)')
       .eq('resv_type', 'secondary_class')
       .neq('status', 'cancelled')
       .order('reservation_date', { ascending: false });
@@ -970,7 +1088,31 @@ router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res:
     else q = q.eq('user_id', userId);
 
     const { data } = await q;
-    res.json(data || []);
+    if (!data?.length) return res.json([]);
+
+    const enrollmentIds = [...new Set(data.map((r: any) => r.enrollment_id).filter(Boolean))];
+    const { data: enrollments } = await supabase
+      .from('enrollments')
+      .select('id, school_id')
+      .in('id', enrollmentIds);
+
+    const enrMap = Object.fromEntries((enrollments || []).map(e => [e.id, e]));
+    const schoolIds = [...new Set((enrollments || []).map(e => e.school_id).filter(Boolean))];
+
+    const { data: schools } = await supabase
+      .from('schools')
+      .select('id, school_type')
+      .in('id', schoolIds);
+
+    const schoolMap = Object.fromEntries((schools || []).map(s => [s.id, s]));
+
+    const enriched = data.map((r: any) => {
+      const enr = enrMap[r.enrollment_id];
+      const schoolType = enr?.school_id ? (schoolMap[enr.school_id]?.school_type || 'academy') : 'academy';
+      return { ...r, school_type: schoolType };
+    });
+
+    res.json(enriched);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

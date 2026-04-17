@@ -16,6 +16,7 @@ export interface DashboardStats {
   monthly_revenue?: number;
   pending_payments?: number;
   coaches_count?: number;
+  plans_count?: number;
 
   // Parent stats
   children?: number;
@@ -72,6 +73,7 @@ export function useDashboardStatsReal() {
         let monthlyRevenue = 0;
         let pendingCount = 0;
         let coachesCount = 0;
+        let plansCount = 0;
 
         if (schoolId) {
           let revenueQuery = supabase
@@ -115,6 +117,20 @@ export function useDashboardStatsReal() {
 
           const { count: coachCountRes } = await (coachQuery as any);
           coachesCount = coachCountRes || 0;
+
+          // Plans count from offering_plans
+          let plansQuery = supabase
+            .from('offering_plans' as any)
+            .select('id', { count: 'exact', head: true })
+            .eq('school_id', schoolId)
+            .eq('is_active', true);
+
+          if (activeBranchId) {
+            plansQuery = (plansQuery as any).eq('branch_id', activeBranchId);
+          }
+
+          const { count: plansCountRes } = await (plansQuery as any);
+          plansCount = plansCountRes || 0;
         }
 
         const isCoach = profile?.role === 'coach';
@@ -196,8 +212,9 @@ export function useDashboardStatsReal() {
           monthly_revenue: monthlyRevenue,
           pending_payments: pendingCount || 0,
           coaches_count: coachesCount,
-          activeTeams: classStats.active, // Map active classes to activeTeams for coaches
-          notifications: 0, // Fallback for now
+          plans_count: plansCount,
+          activeTeams: classStats.active,
+          notifications: 0,
           upcomingEvents: upcomingEventsCount,
           attendanceRate,
         });

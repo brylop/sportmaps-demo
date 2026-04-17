@@ -33,6 +33,7 @@ export interface BookableSession {
   sessions_left: number | null;   // null = ilimitado
   booking_status: 'open' | 'full' | 'already_booked' | 'no_credits';
   already_booked: boolean;
+  school_type?: string;
 }
 
 export interface MyBooking {
@@ -46,6 +47,7 @@ export interface MyBooking {
   end_time?: string;        // Para secundarias
   facilities?: { id: string; name: string }; // Para secundarias
   enrollment_id: string;
+  school_type?: string;
   attendance_sessions?: {
     id: string;
     session_date: string;

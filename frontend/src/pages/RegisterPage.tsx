@@ -28,7 +28,7 @@ import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 
 const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
-const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer', 'personal_trainer'];
 
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -252,6 +252,13 @@ export default function RegisterPage() {
 
       await signUp(data.email, data.password, metadata);
       setIsSubmitted(true);
+
+      if (data.role === 'personal_trainer') {
+        // No redirect yet — user must verify email first.
+        // After verification & login, AuthContext will detect isPersonalTrainer
+        // and the router guard will redirect to /trainer/onboarding.
+        localStorage.setItem('post_register_role', 'personal_trainer');
+      }
 
       if (inviteId) {
         localStorage.setItem('pending_invite_id', inviteId);
@@ -588,7 +595,8 @@ export default function RegisterPage() {
                     { id: 'coach', icon: '📋', label: 'Coach' },
                     { id: 'school', icon: '🏫', label: 'Escuela' },
                     { id: 'wellness_professional', icon: '💚', label: 'Profesional' },
-                    { id: 'store_owner', icon: '🏪', label: 'Tienda' }
+                    { id: 'store_owner', icon: '🏪', label: 'Tienda' },
+                    { id: 'personal_trainer', icon: '🏋️', label: 'Entrenador' },
                   ].map((role) => (
                     <div 
                       key={role.id}

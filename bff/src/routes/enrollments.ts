@@ -191,9 +191,8 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             .from('enrollments')
             .select(`
                 id, status, sessions_used, secondary_sessions_used,
-                expires_at, start_date, team_id, offering_plan_id
+                expires_at, start_date, team_id, offering_plan_id, school_id
             `)
-            .eq('school_id', schoolId)
             .eq('status', 'active');
 
         if (child_id && typeof child_id === 'string') {
@@ -208,7 +207,9 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
         const planIds = [...new Set((enrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
         const teamIds = [...new Set((enrollments || []).map((e: any) => e.team_id).filter(Boolean))];
 
-        const [plansRes, teamsRes] = await Promise.all([
+        const schoolIds = [...new Set((enrollments || []).map((e: any) => e.school_id).filter(Boolean))];
+
+        const [plansRes, teamsRes, schoolsRes] = await Promise.all([
             planIds.length
                 ? supabase
                     .from('offering_plans')
@@ -221,10 +222,17 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                     .select('id, name, sport, price_monthly')
                     .in('id', teamIds)
                 : Promise.resolve({ data: [], error: null }),
+            schoolIds.length
+                ? supabase
+                    .from('schools')
+                    .select('id, name, city, school_type')
+                    .in('id', schoolIds)
+                : Promise.resolve({ data: [], error: null }),
         ]);
 
         const planMap = Object.fromEntries((plansRes.data || []).map((p: any) => [p.id, p]));
         const teamMap = Object.fromEntries((teamsRes.data || []).map((t: any) => [t.id, t]));
+        const schoolMap = Object.fromEntries((schoolsRes.data || []).map((s: any) => [s.id, s]));
 
         const enriched = (enrollments || []).map((enrollment: any) => {
             const offeringPlan = enrollment.offering_plan_id ? planMap[enrollment.offering_plan_id] : null;
@@ -261,6 +269,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                 offering_plan: offeringPlan,
                 offering: offeringPlan?.offering ?? null,
                 team,
+                school: enrollment.school_id ? schoolMap[enrollment.school_id] : null,
                 offering_id: (offeringPlan?.offering as any)?.id ?? null,
                 // Precio unificado: plan tiene price, equipo tiene price_monthly
                 price_monthly: offeringPlan?.price ?? team?.price_monthly ?? null,

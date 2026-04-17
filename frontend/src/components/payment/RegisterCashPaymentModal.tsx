@@ -6,11 +6,16 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Banknote, Building2 } from 'lucide-react';
+import { Loader2, Banknote, Building2, Wallet, Landmark, Calendar as CalendarIcon, User, FileText, CheckCircle2 } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { NumberStepper } from '@/components/ui/number-stepper';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface RegisterCashPaymentModalProps {
   open: boolean;
@@ -20,7 +25,7 @@ interface RegisterCashPaymentModalProps {
 
 export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: RegisterCashPaymentModalProps) {
   const { user } = useAuth();
-  const { schoolId, schoolProfile } = useSchoolContext();
+  const { schoolId, schoolName } = useSchoolContext();
   const { toast } = useToast();
   
   const [loading, setLoading] = useState(false);
@@ -31,8 +36,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [concept, setConcept] = useState('Mensualidad');
-  const [amount, setAmount] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [amount, setAmount] = useState<number | ''>(0);
+  const [paymentDate, setPaymentDate] = useState<Date>(new Date());
 
   useEffect(() => {
     if (open && schoolId) {
@@ -60,8 +65,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   };
 
   const handleSave = async () => {
-    const numericAmount = parseFloat(amount);
-    if (!selectedAthleteId || !concept || isNaN(numericAmount) || numericAmount <= 0) {
+    const numericAmount = typeof amount === 'number' ? amount : 0;
+    if (!selectedAthleteId || !concept || numericAmount <= 0) {
       toast({ title: 'Datos incompletos', description: 'Por favor completa todos los campos requeridos.', variant: 'destructive' });
       return;
     }
@@ -108,7 +113,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             status: 'paid',
             payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
-            payment_date: paymentDate,
+            payment_date: paymentDate.toISOString().split('T')[0],
             approved_by: user.id,
             approved_at: new Date().toISOString(),
             reference,
@@ -131,8 +136,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
           payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
           payment_type: 'one_time',
-          payment_date: paymentDate,
-          due_date: paymentDate,
+          payment_date: paymentDate.toISOString().split('T')[0],
+          due_date: paymentDate.toISOString().split('T')[0],
           approved_by: user.id,
           approved_at: new Date().toISOString(),
           reference,
@@ -148,7 +153,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         await supabase.rpc('notify_user', {
           p_user_id: recipientId,
           p_title: paymentMethod === 'cash' ? '✅ Pago en efectivo registrado' : '✅ Transferencia registrada',
-          p_message: `${schoolProfile?.name || 'La escuela'} registró tu pago de ${formatCurrency(numericAmount)} por ${concept}.`,
+          p_message: `${schoolName || 'La escuela'} registró tu pago de ${formatCurrency(numericAmount)} por ${concept}.`,
           p_type: 'success',
           p_link: '/my-payments'
         });
@@ -161,7 +166,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           to: selectedStudent.parent_email,
           data: { 
             userName: selectedStudent.parent_name || 'Padre de familia',
-            schoolName: schoolProfile?.name || 'La escuela',
+            schoolName: schoolName || 'La escuela',
             amount: formatCurrency(numericAmount), 
             concept, 
             reference
@@ -186,8 +191,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setSelectedAthleteId('');
     setPaymentMethod('cash');
     setConcept('Mensualidad');
-    setAmount('');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setAmount(0);
+    setPaymentDate(new Date());
   };
 
   return (
@@ -195,48 +200,82 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       onOpenChange(val);
       if (!val) resetForm();
     }}>
-      <DialogContent className="sm:max-w-[450px]">
-        <DialogHeader>
-          <DialogTitle>Registrar pago manual</DialogTitle>
-          <DialogDescription>
-            Registra un pago recibido (efectivo o transferencia) y se reflejará instantáneamente en el sistema.
+      <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl">
+        <DialogHeader className="p-8 pb-4 border-b bg-primary/5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-emerald-500/10 rounded-xl">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            </div>
+            <DialogTitle className="text-2xl font-black tracking-tight">Registrar pago manual</DialogTitle>
+          </div>
+          <DialogDescription className="text-muted-foreground font-medium">
+            Registra transacciones de efectivo o transferencias de forma inmediata.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label>Método de pago</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
+        <div className="p-8 space-y-6">
+          <div className="space-y-3">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <Wallet className="h-3.5 w-3.5" /> Método de pago
+            </Label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
                 type="button"
-                variant={paymentMethod === 'cash' ? 'default' : 'outline'}
-                className={paymentMethod === 'cash' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+                className={cn(
+                  "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 group",
+                  paymentMethod === 'cash' 
+                    ? "bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10" 
+                    : "bg-muted/20 border-border/40 hover:border-border/80"
+                )}
                 onClick={() => setPaymentMethod('cash')}
               >
-                <Banknote className="h-4 w-4 mr-2" />
-                Efectivo
-              </Button>
-              <Button
+                <div className={cn(
+                  "p-2 rounded-xl transition-colors",
+                  paymentMethod === 'cash' ? "bg-emerald-500 text-white" : "bg-muted/40 text-muted-foreground group-hover:bg-muted"
+                )}>
+                  <Banknote className="h-5 w-5" />
+                </div>
+                <span className={cn(
+                  "text-xs font-black uppercase tracking-widest",
+                  paymentMethod === 'cash' ? "text-emerald-500" : "text-muted-foreground"
+                )}>Efectivo</span>
+              </button>
+
+              <button
                 type="button"
-                variant={paymentMethod === 'transfer' ? 'default' : 'outline'}
-                className={paymentMethod === 'transfer' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                className={cn(
+                  "flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 group",
+                  paymentMethod === 'transfer' 
+                    ? "bg-blue-500/10 border-blue-500 shadow-lg shadow-blue-500/10" 
+                    : "bg-muted/20 border-border/40 hover:border-border/80"
+                )}
                 onClick={() => setPaymentMethod('transfer')}
               >
-                <Building2 className="h-4 w-4 mr-2" />
-                Transferencia
-              </Button>
+                <div className={cn(
+                  "p-2 rounded-xl transition-colors",
+                  paymentMethod === 'transfer' ? "bg-blue-500 text-white" : "bg-muted/40 text-muted-foreground group-hover:bg-muted"
+                )}>
+                  <Building2 className="h-5 w-5" />
+                </div>
+                <span className={cn(
+                  "text-xs font-black uppercase tracking-widest",
+                  paymentMethod === 'transfer' ? "text-blue-500" : "text-muted-foreground"
+                )}>Transferencia</span>
+              </button>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="student">Estudiante / Atleta</Label>
+          <div className="space-y-3">
+            <Label htmlFor="student" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <User className="h-3.5 w-3.5" /> Estudiante / Atleta
+            </Label>
             <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId} disabled={loadingAthletes}>
-              <SelectTrigger id="student">
-                <SelectValue placeholder={loadingAthletes ? 'Cargando estudiantes...' : 'Selecciona a quién aplica'} />
+              <SelectTrigger id="student" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
+                <SelectValue placeholder={loadingAthletes ? 'Cargando...' : 'Selecciona a quién aplica'} />
               </SelectTrigger>
-              <SelectContent className="max-h-[250px]">
+              <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md">
                 {athletes.map((ath) => (
-                  <SelectItem key={ath.id} value={ath.id}>
+                  <SelectItem key={ath.id} value={ath.id} className="rounded-lg py-2.5">
                     {ath.full_name} {ath.parent_name ? ` (Padre: ${ath.parent_name})` : ''}
                   </SelectItem>
                 ))}
@@ -244,46 +283,76 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="concept">Concepto de pago</Label>
+          <div className="space-y-3">
+            <Label htmlFor="concept" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <FileText className="h-3.5 w-3.5" /> Concepto de pago
+            </Label>
             <Input 
               id="concept" 
-              placeholder="Ej. Mensualidad Mayo, Uniforme..." 
+              placeholder="Ej. Mensualidad Mayo..." 
               value={concept} 
               onChange={(e) => setConcept(e.target.value)} 
+              className="h-12 bg-background/50 border-border/40 rounded-xl font-medium focus-visible:ring-primary/20"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="amount">Monto ($ COP)</Label>
-              <Input 
-                id="amount" 
-                type="number" 
-                placeholder="0" 
-                min="0"
-                value={amount} 
-                onChange={(e) => setAmount(e.target.value)} 
+            <div className="space-y-3">
+              <Label htmlFor="amount" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <Landmark className="h-3.5 w-3.5" /> Monto ($ COP)
+              </Label>
+              <NumberStepper 
+                value={amount}
+                onChange={setAmount}
+                step={10000}
+                min={0}
+                unit="COP"
+                className="h-12"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="date">Fecha del pago</Label>
-              <Input 
-                id="date" 
-                type="date" 
-                value={paymentDate} 
-                onChange={(e) => setPaymentDate(e.target.value)} 
-              />
+            <div className="space-y-3">
+              <Label htmlFor="date" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <CalendarIcon className="h-3.5 w-3.5" /> Fecha del pago
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-full h-12 justify-start text-left font-medium bg-background/50 border-border/40 rounded-xl",
+                      !paymentDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
+                    {paymentDate ? format(paymentDate, "PPP", { locale: es }) : <span>Seleccionar fecha</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-xl overflow-hidden border-border/30 shadow-2xl" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={paymentDate}
+                    onSelect={(date) => date && setPaymentDate(date)}
+                    initialFocus
+                    locale={es}
+                    className="bg-background/95 backdrop-blur-md"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
           <Button 
-            className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold" 
+            className={cn(
+              "w-full h-14 mt-4 font-black uppercase tracking-widest text-sm shadow-xl transition-all gap-3",
+              paymentMethod === 'cash' 
+                ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20" 
+                : "bg-blue-500 hover:bg-blue-600 shadow-blue-500/20"
+            )}
             disabled={loading} 
             onClick={handleSave}
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            {loading ? 'Registrando...' : 'Guardar y confirmar'}
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+            {loading ? 'Registrando...' : 'Confirmar Registro'}
           </Button>
         </div>
       </DialogContent>

@@ -30,6 +30,7 @@ interface Enrollment {
   } | null;
   schools: {
     name: string;
+    school_type?: string;
   } | null;
 }
 
@@ -55,6 +56,7 @@ interface Transaction {
   pct_paid?: number;
   installments_pending?: number;
   school_id?: string;
+  school_type?: string;
   concept?: string;
 }
 
@@ -127,10 +129,18 @@ export default function MyPaymentsPage() {
         .eq('parent_id', user?.id || '')
         .order('created_at', { ascending: false });
 
-      if (!error && payments && payments.length > 0) {
+        const transactionSchoolIds = [...new Set(payments.map((p: any) => p.school_id).filter(Boolean))];
+        const { data: schoolsData } = await supabase
+          .from('schools')
+          .select('id, school_type')
+          .in('id', transactionSchoolIds);
+        
+        const schoolTypeMap = Object.fromEntries((schoolsData || []).map(s => [s.id, s.school_type]));
+
         const txns: Transaction[] = payments.map((p: any) => ({
           id: p.id,
           school_id: p.school_id,
+          school_type: schoolTypeMap[p.school_id] || 'academy',
           amount: p.amount,
           amount_paid: p.amount_paid,
           balance_pending: p.balance_pending,
@@ -145,7 +155,6 @@ export default function MyPaymentsPage() {
           receipt_url: p.receipt_url,
         }));
         setTransactions(txns);
-      }
 
       // ── Query A: hijos del padre ─────────────────────────────────────────
       const { data: childrenData, error: childrenError } = await supabase
@@ -186,7 +195,8 @@ export default function MyPaymentsPage() {
             price_monthly
           ),
           schools (
-            name
+            name,
+            school_type
           )
         `)
         .in('child_id', childIds)
@@ -486,7 +496,12 @@ export default function MyPaymentsPage() {
                               year: 'numeric',
                             })}
                           </TableCell>
-                          <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            <div className="flex items-center gap-1.5">
+                              {txn.school_type === 'personal_trainer' && <Zap className="h-3.5 w-3.5 text-indigo-500 fill-indigo-500/10" />}
+                              {txn.reference}
+                            </div>
+                          </TableCell>
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-1 text-xs md:text-sm">
                               {getPaymentMethodIcon(txn.payment_method)}
@@ -686,45 +701,55 @@ export default function MyPaymentsPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             {enrollments.length > 0 ? (
-              enrollments.map((enroll) => (
-                <button
-                  key={enroll.id}
-                  className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
-                  onClick={() => {
-                    setSelectedPayment({
-                      childId: enroll.child_id,
-                      childName: enroll.children?.full_name || 'Estudiante',
-                      teamId: enroll.team_id || undefined,
-                      teamName: enroll.teams?.name || 'Mensualidad Estudiante',
-                      amount: enroll.teams?.price_monthly || 0,
-                      schoolId: enroll.school_id,
-                    });
-                    setShowChildPicker(false);
-                    setShowCheckout(true);
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                      {(enroll.children?.full_name || 'E').charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold truncate">{enroll.children?.full_name}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {enroll.teams?.name || 'Sin curso asignado'}
-                      </p>
-                      {enroll.schools?.name && (
-                        <p className="text-[10px] text-muted-foreground italic truncate">
-                          Escuela: {enroll.schools.name}
+              enrollments.map((enroll) => {
+                const isPT = enroll.schools?.school_type === 'personal_trainer';
+                return (
+                  <button
+                    key={enroll.id}
+                    className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all text-left shadow-sm
+                      ${isPT 
+                        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-900/90' 
+                        : 'bg-background hover:bg-muted/50 hover:border-primary'}`}
+                    onClick={() => {
+                      setSelectedPayment({
+                        childId: enroll.child_id,
+                        childName: enroll.children?.full_name || 'Estudiante',
+                        teamId: enroll.team_id || undefined,
+                        teamName: enroll.teams?.name || 'Mensualidad Estudiante',
+                        amount: enroll.teams?.price_monthly || 0,
+                        schoolId: enroll.school_id,
+                      });
+                      setShowChildPicker(false);
+                      setShowCheckout(true);
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold shadow-sm
+                        ${isPT 
+                          ? 'bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-indigo-500/20' 
+                          : 'bg-gradient-to-br from-primary to-primary/60'}`}>
+                        {isPT ? <User className="h-5 w-5" /> : (enroll.children?.full_name || 'E').charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`font-semibold truncate ${isPT ? 'text-zinc-100' : ''}`}>{enroll.children?.full_name}</p>
+                        <p className={`text-xs truncate ${isPT ? 'text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1' : 'text-muted-foreground'}`}>
+                          {isPT && <Zap className="h-3 w-3" />}
+                          {isPT ? 'Coach Personal' : (enroll.teams?.name || 'Sin curso asignado')}
                         </p>
-                      )}
+                        {enroll.schools?.name && (
+                          <p className={`text-[10px] italic truncate ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>
+                            {isPT ? `Con ${enroll.schools.name}` : `Escuela: ${enroll.schools.name}`}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right ml-2 shrink-0">
-                    <p className="font-bold text-primary">{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
-                    <p className="text-xs text-muted-foreground">/mes</p>
-                  </div>
-                </button>
-              ))
+                    <div className="text-right ml-2 shrink-0">
+                      <p className={`font-bold ${isPT ? 'text-indigo-400' : 'text-primary'}`}>{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
+                      <p className={`text-xs ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>/mes</p>
+                    </div>
+                  </button>
+                );
+              })
             ) : (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No tienes hijos registrados.</p>
