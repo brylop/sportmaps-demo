@@ -129,6 +129,16 @@ const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 
+// ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
+const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
+const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
+const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
+const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
+const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
+const VendorServicesPage = lazy(() => import("./pages/vendor/VendorServicesPage"));
+const VendorAppointmentsPage = lazy(() => import("./pages/vendor/VendorAppointmentsPage"));
+const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"));
+
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
@@ -231,6 +241,10 @@ const App = () => (
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />
                     <Route path="/s/:slug" element={<PublicSchoolPage />} />
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
+
+                    {/* Public Marketplace routes */}
+                    <Route path="/marketplace" element={<MarketplacePage />} />
+                    <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
@@ -484,6 +498,15 @@ const App = () => (
                           <ReportsPage />
                         </ProtectedRoute>
                       } />
+
+                      {/* Vendor routes */}
+                      <Route element={<VendorGuard />}>
+                        <Route path="vendor/onboarding" element={<VendorOnboardingPage />} />
+                        <Route path="vendor/dashboard" element={<VendorDashboardPage />} />
+                        <Route path="vendor/services" element={<VendorServicesPage />} />
+                        <Route path="vendor/appointments" element={<VendorAppointmentsPage />} />
+                        <Route path="vendor/products" element={<VendorProductsPage />} />
+                      </Route>
 
                       {/* Organizer routes */}
                       <Route element={<OrganizerGuard />}>

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
-export type CartItemType = 'enrollment' | 'product' | 'appointment';
+export type CartItemType = 'enrollment' | 'product' | 'appointment' | 'service';
 
 export interface CartItem {
   id: string;
@@ -25,6 +25,9 @@ export interface CartItem {
     serviceType?: string;
     childId?: string;
     childName?: string;
+    vendorProfileId?: string;
+    variantId?: string;
+    variantName?: string;
   };
 }
 

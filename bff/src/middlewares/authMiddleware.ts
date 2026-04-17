@@ -33,16 +33,26 @@ type Permission =
     | 'messages:view' | 'messages:send'
     | 'settings:view' | 'settings:edit'
     | 'events:view' | 'events:create' | 'events:edit' | 'events:delete'
-    | 'admin:users' | 'admin:system' | 'admin:all';
+    | 'admin:users' | 'admin:system' | 'admin:all'
+    // Marketplace permissions
+    | 'marketplace:browse' | 'marketplace:manage'
+    | 'products:view' | 'products:create' | 'products:edit' | 'products:delete'
+    | 'services:view' | 'services:create' | 'services:edit' | 'services:delete'
+    | 'orders:view' | 'orders:manage'
+    | 'appointments:view' | 'appointments:create' | 'appointments:manage'
+    | 'inventory:view' | 'inventory:manage'
+    | 'health_records:view' | 'health_records:create' | 'health_records:edit';
 
 const rolePermissions: Record<string, Permission[]> = {
     athlete: [
         'dashboard:view', 'calendar:view', 'teams:view', 'stats:view',
-        'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view'
+        'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view',
+        'marketplace:browse', 'orders:view', 'appointments:view'
     ],
     parent: [
         'dashboard:view', 'calendar:view', 'students:view', 'stats:view',
-        'reports:view', 'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view'
+        'reports:view', 'messages:view', 'messages:send', 'settings:view', 'settings:edit', 'events:view',
+        'marketplace:browse', 'orders:view', 'appointments:view', 'appointments:create'
     ],
     coach: [
         'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
@@ -56,17 +66,23 @@ const rolePermissions: Record<string, Permission[]> = {
         'students:view', 'students:create', 'students:edit', 'students:delete',
         'stats:view', 'stats:edit', 'reports:view', 'reports:create',
         'finances:view', 'finances:manage', 'messages:view', 'messages:send',
-        'settings:view', 'settings:edit', 'events:view'
+        'settings:view', 'settings:edit', 'events:view',
+        'marketplace:manage', 'products:view', 'products:create', 'products:edit'
     ],
     wellness_professional: [
         'dashboard:view', 'calendar:view', 'calendar:create', 'students:view', 'students:edit',
         'reports:view', 'reports:create', 'messages:view', 'messages:send',
-        'settings:view', 'settings:edit'
+        'settings:view', 'settings:edit',
+        'marketplace:manage', 'services:view', 'services:create', 'services:edit', 'services:delete',
+        'appointments:view', 'appointments:create', 'appointments:manage',
+        'health_records:view', 'health_records:create', 'health_records:edit'
     ],
     store_owner: [
         'dashboard:view', 'calendar:view', 'stats:view', 'reports:view', 'reports:create',
         'finances:view', 'finances:manage', 'messages:view', 'messages:send',
-        'settings:view', 'settings:edit'
+        'settings:view', 'settings:edit',
+        'marketplace:manage', 'products:view', 'products:create', 'products:edit', 'products:delete',
+        'orders:view', 'orders:manage', 'inventory:view', 'inventory:manage'
     ],
     organizer: [
         'dashboard:view', 'calendar:view', 'calendar:create', 'calendar:edit', 'calendar:delete',
@@ -86,7 +102,13 @@ const rolePermissions: Record<string, Permission[]> = {
         'stats:view', 'stats:edit', 'reports:view', 'reports:create',
         'finances:view', 'finances:manage', 'messages:view', 'messages:send',
         'settings:view', 'settings:edit', 'events:view', 'events:create', 'events:edit', 'events:delete',
-        'admin:users', 'admin:system', 'admin:all'
+        'admin:users', 'admin:system', 'admin:all',
+        'marketplace:browse', 'marketplace:manage',
+        'products:view', 'products:create', 'products:edit', 'products:delete',
+        'services:view', 'services:create', 'services:edit', 'services:delete',
+        'orders:view', 'orders:manage', 'appointments:view', 'appointments:create', 'appointments:manage',
+        'inventory:view', 'inventory:manage',
+        'health_records:view', 'health_records:create', 'health_records:edit'
     ],
 };
 
@@ -325,5 +347,89 @@ export const auditLog = async (
     } catch (err) {
         // Audit failure must never break the request
         req.log?.warn({ err, action, targetTable, targetId }, 'Audit log write failed');
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireMarketplaceAuth — Auth ligero para vendedores independientes
+// Valida Bearer token y lee role de profiles, SIN requerir school_members.
+// Usar para rutas de vendor que no dependen de contexto de escuela.
+// ─────────────────────────────────────────────────────────────────────────────
+export const requireMarketplaceAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+        if (authError || !user) {
+            return res.status(401).json({ error: 'Token inválido o expirado.' });
+        }
+
+        // Leer role directamente de profiles (no de school_members)
+        const { data: profile, error: profileErr } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        if (profileErr) {
+            req.log?.error({ err: profileErr }, 'Error consultando profile para marketplace auth');
+            return res.status(500).json({ error: 'Error interno verificando permisos.' });
+        }
+
+        req.user = { id: user.id, email: user.email! };
+        req.role = (profile?.role as Request['role']) || 'athlete';
+        // schoolId y branchId no aplican para vendor routes
+        req.schoolId = '';
+        req.branchId = null;
+
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// optionalAuth — Auth opcional para rutas publicas del marketplace
+// Si hay token valido, setea req.user. Si no, req.user = null y continua.
+// Permite browsing anonimo con personalizacion para usuarios logueados.
+// ─────────────────────────────────────────────────────────────────────────────
+export const optionalAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            // No token — usuario anonimo, continuar sin auth
+            (req as any).user = null;
+            return next();
+        }
+
+        const token = authHeader.split(' ')[1];
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+        if (authError || !user) {
+            // Token invalido — tratar como anonimo (no 401)
+            (req as any).user = null;
+            return next();
+        }
+
+        req.user = { id: user.id, email: user.email! };
+
+        next();
+    } catch (err) {
+        // En caso de error, continuar como anonimo
+        (req as any).user = null;
+        next();
     }
 };

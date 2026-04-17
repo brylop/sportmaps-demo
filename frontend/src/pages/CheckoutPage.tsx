@@ -34,6 +34,12 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
+
+  // Guest flow: si no esta autenticado, redirigir a login con redirect de vuelta
+  if (!user) {
+    navigate('/login?redirect=/checkout', { replace: true });
+    return null;
+  }
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 

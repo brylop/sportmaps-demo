@@ -44,6 +44,10 @@ export const PUBLIC_ROUTES: Record<string, RoutePermission> = {
     '/events': { public: true, description: 'Mapa de eventos públicos' },
     '/event/:slug': { public: true, description: 'Página pública de evento' },
     '/polls/v/:pollId': { public: true, description: 'Encuesta pública' },
+    // Marketplace público
+    '/marketplace': { public: true, description: 'Marketplace (productos y servicios)' },
+    '/marketplace/:type/:id': { public: true, description: 'Detalle de producto o servicio' },
+    '/vendor/:slug': { public: true, description: 'Perfil público del vendedor' },
 };
 
 // ─── Rutas comunes (cualquier rol autenticado) ───────────────────────────────
@@ -132,6 +136,17 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/customers': { allowedRoles: ['store_owner', 'admin'], description: 'Clientes' },
     '/promotions': { allowedRoles: ['store_owner', 'admin'], description: 'Promociones' },
     '/store-reports': { allowedRoles: ['store_owner', 'admin'], requiredPermission: 'reports:view', description: 'Reportes de tienda' },
+
+    // ── Vendor (guarded by VendorGuard) ──
+    '/vendor/onboarding': { allowedRoles: ['wellness_professional', 'store_owner'], description: 'Onboarding del vendedor' },
+    '/vendor/dashboard': { allowedRoles: ['wellness_professional', 'store_owner'], description: 'Dashboard del vendedor' },
+    '/vendor/services': { allowedRoles: ['wellness_professional'], requiredPermission: 'services:view', description: 'Gestión de servicios' },
+    '/vendor/appointments': { allowedRoles: ['wellness_professional'], requiredPermission: 'appointments:manage', description: 'Gestión de citas' },
+    '/vendor/products': { allowedRoles: ['store_owner'], requiredPermission: 'products:view', description: 'Gestión de productos (vendor)' },
+    '/vendor/finances': { allowedRoles: ['wellness_professional', 'store_owner'], requiredPermission: 'finances:view', description: 'Finanzas del vendedor' },
+    '/vendor/reviews': { allowedRoles: ['wellness_professional', 'store_owner'], description: 'Reseñas del vendedor' },
+    '/vendor/disputes': { allowedRoles: ['wellness_professional', 'store_owner'], description: 'Disputas del vendedor' },
+    '/vendor/shipping': { allowedRoles: ['store_owner'], description: 'Configuración de envíos' },
 
     // ── Organizer (guarded by OrganizerGuard) ──
     '/organizer/onboarding': { allowedRoles: ['organizer'], description: 'Onboarding del organizador' },

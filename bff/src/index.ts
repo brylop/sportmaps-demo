@@ -30,6 +30,11 @@ import eventsRouter from './routes/events.route';
 import templatesRouter from './routes/templates';
 import pollsRouter from './routes/polls';
 import schoolDelegationsRouter from './routes/school-delegations.route';
+import marketplaceRouter from './routes/marketplace.routes';
+import vendorRouter from './routes/vendor.routes';
+import vendorProductsRouter from './routes/vendor-products.routes';
+import vendorServicesRouter from './routes/vendor-services.routes';
+import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -132,6 +137,13 @@ app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
+
+// ── Marketplace routes ──────────────────────────────────────────────────────
+app.use('/api/v1/marketplace', generalLimiter, marketplaceRouter);
+app.use('/api/v1/vendor', generalLimiter, vendorRouter);
+app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
+app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
+app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

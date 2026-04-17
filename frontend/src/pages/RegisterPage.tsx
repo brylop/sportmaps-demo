@@ -586,7 +586,9 @@ export default function RegisterPage() {
                     { id: 'athlete', icon: '⚽', label: 'Atleta' },
                     { id: 'parent', icon: '👨‍👩‍👧', label: 'Padre' },
                     { id: 'coach', icon: '📋', label: 'Coach' },
-                    { id: 'school', icon: '🏫', label: 'Escuela' }
+                    { id: 'school', icon: '🏫', label: 'Escuela' },
+                    { id: 'wellness_professional', icon: '💚', label: 'Profesional' },
+                    { id: 'store_owner', icon: '🏪', label: 'Tienda' }
                   ].map((role) => (
                     <div 
                       key={role.id}
