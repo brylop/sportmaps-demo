@@ -118,6 +118,7 @@ rolePermissions['school_admin'] = rolePermissions.school;
 rolePermissions['super_admin'] = rolePermissions.admin;
 rolePermissions['owner'] = rolePermissions.admin;
 rolePermissions['staff'] = rolePermissions.coach;
+rolePermissions['personal_trainer'] = rolePermissions.coach;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export const requireBasicAuth = async (
@@ -352,6 +353,7 @@ export const auditLog = async (
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // requireMarketplaceAuth — Auth ligero para vendedores independientes
 // Valida Bearer token y lee role de profiles, SIN requerir school_members.
 // Usar para rutas de vendor que no dependen de contexto de escuela.
@@ -398,7 +400,6 @@ export const requireMarketplaceAuth = async (
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // requireTrainerAuth — Middleware exclusivo para entrenadores personales.
 // No depende de school_members — resuelve el schoolId directo desde schools.
 // ─────────────────────────────────────────────────────────────────────────────
