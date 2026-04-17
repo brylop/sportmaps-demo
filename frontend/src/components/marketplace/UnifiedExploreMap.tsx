@@ -78,19 +78,55 @@ export function UnifiedExploreMap({
     schools: true,
   });
 
-  // Fetch map markers
+  // Fetch map markers from existing tables (events have lat/lng)
   const { data: mapData, isLoading } = useQuery({
     queryKey: ['explore-map', category, query, city, sport, serviceType],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('search_explore_map', {
-        p_category: category === 'products' ? 'all' : category,
-        p_query: query || null,
-        p_city: city || null,
-        p_sport: sport || null,
-        p_service_type: serviceType || null,
-      });
-      if (error) throw error;
-      return data as { markers: MapMarker[]; counts: Record<string, number> };
+      const markers: MapMarker[] = [];
+      const counts = { services: 0, events: 0, schools: 0 };
+
+      // Events — have lat/lng columns
+      if (category === 'all' || category === 'events') {
+        let eventsQ = supabase
+          .from('events')
+          .select('id, title, lat, lng, price, event_date, start_time, event_type, sport, city, capacity, slug, registrations_open')
+          .eq('status', 'active')
+          .not('lat', 'is', null)
+          .not('lng', 'is', null);
+
+        if (query) eventsQ = eventsQ.or(`title.ilike.%${query}%,description.ilike.%${query}%`);
+        if (city) eventsQ = eventsQ.ilike('city', `%${city}%`);
+        if (sport) eventsQ = eventsQ.ilike('sport', `%${sport}%`);
+
+        const { data: events } = await eventsQ.limit(200);
+
+        if (events) {
+          for (const e of events) {
+            markers.push({
+              id: e.id,
+              item_type: 'event',
+              name: e.title,
+              lat: e.lat!,
+              lng: e.lng!,
+              price: e.price ?? 0,
+              event_date: e.event_date,
+              event_time: e.start_time,
+              event_type: e.event_type,
+              sport: e.sport,
+              city: e.city,
+              capacity: e.capacity ?? undefined,
+              slug: e.slug,
+              registrations_open: e.registrations_open ?? undefined,
+            });
+          }
+          counts.events = events.length;
+        }
+      }
+
+      // Schools — no lat/lng in the current schema, skip map markers
+      // counts.schools stays 0 until geolocation migration is deployed
+
+      return { markers, counts };
     },
     staleTime: 3 * 60 * 1000,
   });

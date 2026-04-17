@@ -95,40 +95,8 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
   const limit = filters.limit;
   const offset = (filters.page - 1) * limit;
 
-  // Fetch services
-  if (filters.category === 'all' || filters.category === 'services') {
-    const { data: services } = await supabase.rpc('search_marketplace', {
-      p_query: filters.q || null,
-      p_type: 'services',
-      p_city: filters.city || null,
-      p_price_max: filters.price_max || null,
-      p_service_type: filters.service_type || null,
-      p_order_by: filters.order_by === 'distance' ? 'newest' : filters.order_by,
-      p_page: 1,
-      p_limit: filters.category === 'services' ? limit : 8,
-    });
-
-    if (services?.items) {
-      for (const s of services.items) {
-        items.push({
-          id: s.id,
-          item_type: 'service',
-          name: s.name,
-          description: s.description,
-          price: s.price,
-          currency: 'COP',
-          image_url: s.image_url,
-          service_type: s.category,
-          duration_minutes: s.duration_minutes,
-          vendor_name: s.vendor_name,
-          vendor_slug: s.vendor_slug,
-          vendor_city: s.vendor_city,
-          vendor_verified: s.vendor_verified,
-          created_at: s.created_at,
-        });
-      }
-    }
-  }
+  // Services: requires service_listings table (marketplace migration).
+  // Skipped until the migration is deployed to Supabase.
 
   // Fetch events (open for individual registration)
   if (filters.category === 'all' || filters.category === 'events') {
@@ -182,8 +150,7 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
   if (filters.category === 'all' || filters.category === 'schools') {
     let schoolsQuery = supabase
       .from('schools')
-      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at', { count: 'exact' })
-      .eq('active', true);
+      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at', { count: 'exact' });
 
     if (filters.q) {
       schoolsQuery = schoolsQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
@@ -220,21 +187,28 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
     }
   }
 
-  // Fetch products
+  // Fetch products directly from the products table
   if (filters.category === 'all' || filters.category === 'products') {
-    const { data: products } = await supabase.rpc('search_marketplace', {
-      p_query: filters.q || null,
-      p_type: 'products',
-      p_city: filters.city || null,
-      p_price_max: filters.price_max || null,
-      p_category: filters.category === 'products' ? null : null,
-      p_order_by: filters.order_by === 'distance' ? 'newest' : filters.order_by,
-      p_page: 1,
-      p_limit: filters.category === 'products' ? limit : 6,
-    });
+    const prodLimit = filters.category === 'products' ? limit : 6;
+    let productsQuery = supabase
+      .from('products')
+      .select('id, name, description, price, image_url, category, stock, created_at')
+      .eq('active', true);
 
-    if (products?.items) {
-      for (const p of products.items) {
+    if (filters.q) {
+      productsQuery = productsQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
+    }
+    if (filters.price_max) productsQuery = productsQuery.lte('price', filters.price_max);
+
+    productsQuery = productsQuery
+      .order(filters.order_by === 'price_asc' ? 'price' : filters.order_by === 'price_desc' ? 'price' : 'created_at',
+        { ascending: filters.order_by !== 'price_desc' })
+      .range(0, prodLimit - 1);
+
+    const { data: products } = await productsQuery;
+
+    if (products) {
+      for (const p of products) {
         items.push({
           id: p.id,
           item_type: 'product',
@@ -245,11 +219,9 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
           image_url: p.image_url,
           category: p.category,
           stock: p.stock,
-          has_variants: p.has_variants,
-          vendor_name: p.vendor_name,
-          vendor_slug: p.vendor_slug,
-          vendor_city: p.vendor_city,
-          vendor_verified: p.vendor_verified,
+          vendor_name: '',
+          vendor_city: null,
+          vendor_verified: false,
           created_at: p.created_at,
         });
       }
