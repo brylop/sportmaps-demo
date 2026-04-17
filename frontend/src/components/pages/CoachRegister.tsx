@@ -38,7 +38,9 @@ const documentsSchema = z.object({
 });
 
 const codeOfConductSchema = z.object({
-  acceptCode: z.boolean().refine(val => val === true, "Debes aceptar el Código de Conducta")
+  acceptCode: z.boolean().refine(val => val === true, "Debes aceptar el Código de Conducta"),
+  acceptTerms: z.boolean().refine(val => val === true, "Debes aceptar los Términos y Condiciones"),
+  acceptPrivacy: z.boolean().refine(val => val === true, "Debes aceptar la Política de Privacidad")
 });
 
 const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
@@ -75,7 +77,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
   const codeForm = useForm({
     resolver: zodResolver(codeOfConductSchema),
     defaultValues: {
-      acceptCode: false
+      acceptCode: false,
+      acceptTerms: false,
+      acceptPrivacy: false
     }
   });
 
@@ -379,6 +383,46 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           </div>
           {codeForm.formState.errors.acceptCode && (
             <p className="text-destructive text-sm">{codeForm.formState.errors.acceptCode.message}</p>
+          )}
+
+          <div className="flex items-start space-x-2">
+            <Checkbox
+              id="acceptTerms"
+              checked={codeForm.watch("acceptTerms")}
+              onCheckedChange={(checked) => codeForm.setValue("acceptTerms", !!checked)}
+              className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+            />
+            <div className="text-sm">
+              <Label htmlFor="acceptTerms" className="font-normal cursor-pointer">
+                Acepto los{" "}
+                <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                  Términos y Condiciones
+                </a>
+              </Label>
+            </div>
+          </div>
+          {codeForm.formState.errors.acceptTerms && (
+            <p className="text-destructive text-sm">{codeForm.formState.errors.acceptTerms.message}</p>
+          )}
+
+          <div className="flex items-start space-x-2">
+            <Checkbox
+              id="acceptPrivacy"
+              checked={codeForm.watch("acceptPrivacy")}
+              onCheckedChange={(checked) => codeForm.setValue("acceptPrivacy", !!checked)}
+              className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+            />
+            <div className="text-sm">
+              <Label htmlFor="acceptPrivacy" className="font-normal cursor-pointer">
+                Acepto la{" "}
+                <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                  Política de Privacidad
+                </a>
+              </Label>
+            </div>
+          </div>
+          {codeForm.formState.errors.acceptPrivacy && (
+            <p className="text-destructive text-sm">{codeForm.formState.errors.acceptPrivacy.message}</p>
           )}
 
           <div className="flex gap-2">

@@ -88,8 +88,8 @@ export function SportMapsFooter() {
                 </a>
               </li>
               <li className="flex items-center gap-4 mt-4">
-                <FooterLink text="Términos" href="/terms" isLegal />
-                <FooterLink text="Privacidad" href="/privacy" isLegal />
+                <FooterLink text="Términos y Condiciones" href="/terminos-y-condiciones" isLegal />
+                <FooterLink text="Política de Privacidad" href="/politica-de-privacidad" isLegal />
               </li>
             </ul>
           </div>

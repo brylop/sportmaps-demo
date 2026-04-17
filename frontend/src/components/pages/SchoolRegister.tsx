@@ -38,7 +38,9 @@ const organizationTypeSchema = z.object({
 
 const documentsSchema = z.object({
   legalDocument: z.any().optional(),
-  logoFile: z.any().optional()
+  logoFile: z.any().optional(),
+  acceptTerms: z.boolean().refine(val => val === true, "Debes aceptar los Términos y Condiciones"),
+  acceptPrivacy: z.boolean().refine(val => val === true, "Debes aceptar la Política de Privacidad")
 });
 
 const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
@@ -79,7 +81,11 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
   });
 
   const documentsForm = useForm({
-    resolver: zodResolver(documentsSchema)
+    resolver: zodResolver(documentsSchema),
+    defaultValues: {
+      acceptTerms: false,
+      acceptPrivacy: false
+    }
   });
 
   const handleLegalSubmit = (data: any) => {
@@ -396,6 +402,50 @@ const SchoolRegister = ({ onNavigate }: SchoolRegisterProps) => {
             <p className="text-sm text-muted-foreground">
               <strong>Nota:</strong> La aprobación puede tardar hasta 48 horas. Te contactaremos por email una vez revisada tu solicitud.
             </p>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <p className="text-sm font-medium text-foreground">Aceptación legal obligatoria</p>
+
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                id="acceptTerms"
+                checked={documentsForm.watch("acceptTerms")}
+                onCheckedChange={(checked) => documentsForm.setValue("acceptTerms", !!checked)}
+                className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+              />
+              <div className="text-sm">
+                <label htmlFor="acceptTerms" className="font-normal cursor-pointer">
+                  Acepto los{" "}
+                  <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                    Términos y Condiciones
+                  </a>
+                </label>
+              </div>
+            </div>
+            {documentsForm.formState.errors.acceptTerms && (
+              <p className="text-destructive text-sm">{documentsForm.formState.errors.acceptTerms.message}</p>
+            )}
+
+            <div className="flex items-start space-x-2">
+              <Checkbox
+                id="acceptPrivacy"
+                checked={documentsForm.watch("acceptPrivacy")}
+                onCheckedChange={(checked) => documentsForm.setValue("acceptPrivacy", !!checked)}
+                className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+              />
+              <div className="text-sm">
+                <label htmlFor="acceptPrivacy" className="font-normal cursor-pointer">
+                  Acepto la{" "}
+                  <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                    Política de Privacidad
+                  </a>
+                </label>
+              </div>
+            </div>
+            {documentsForm.formState.errors.acceptPrivacy && (
+              <p className="text-destructive text-sm">{documentsForm.formState.errors.acceptPrivacy.message}</p>
+            )}
           </div>
 
           <div className="flex gap-2">

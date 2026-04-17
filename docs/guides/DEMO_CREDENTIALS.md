@@ -1,73 +1,69 @@
 # Credenciales de Usuarios Demo - SportMaps
 
-Este documento contiene las credenciales de los usuarios demo pre-configurados en la plataforma SportMaps.
+> Ultima actualizacion: Abril 2026
+> Creados via: `frontend/scripts/setup-demo-data.mjs`
 
-## 🔐 Acceso Automático
+## Usuarios Demo (Reales)
 
-Los usuarios demo se crean automáticamente la primera vez que se accede a ellos desde la página de login.
-Simplemente haz clic en el botón del rol correspondiente en la sección "Explorar Perfiles Demo".
+Todos los usuarios comparten la misma contrasena: **`SportMapsDemo2025!`**
 
-## 👥 Usuarios Disponibles
+| # | Rol | Email | Nombre | UUID |
+|---|-----|-------|--------|------|
+| 1 | school (owner) | `spoortmaps+school@gmail.com` | Spirit All Stars | `04c1512c-517e-4a1e-b4a8-ba3b4b75470d` |
+| 2 | parent | `spoortmaps@gmail.com` | Maria Garcia Hernandez | `9158d496-7f39-46ad-95f9-83ca3379974e` |
+| 3 | coach | `spoortmaps+coach@gmail.com` | Luis Fernando Rodriguez | `1c26edad-7691-4fc4-8a42-eab2d7d174d5` |
+| 4 | athlete | `spoortmaps+athlete@gmail.com` | Carlos Martinez Lopez | `6aeb3969-a225-462c-a4c4-b7f71c0b2bcd` |
+| 5 | wellness_professional | `spoortmaps+wellness@gmail.com` | Dra. Sofia Rivera | `51f449eb-5223-49b9-96ea-c1e817f334a5` |
+| 6 | store_owner | `spoortmaps+store@gmail.com` | Tienda Equipate Mas | `9447e937-7aec-486e-ad85-e48725d42833` |
+| 7 | admin | `spoortmaps+admin@gmail.com` | Administrador Sistema | `bcb88976-5998-440f-ba9b-803571bfb46f` |
 
-### 1. Padre/Madre
-- **Email:** `padre@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** María González (Demo Padre)
-- **Descripción:** Perfil demo de padre/madre con 2 hijos en escuelas deportivas
+### Usuarios creados manualmente
 
-### 2. Entrenador/Coach
-- **Email:** `entrenador@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** Carlos Rodríguez (Demo Entrenador)
-- **Descripción:** Perfil demo de entrenador con múltiples clases y alumnos
+| Rol | Email | Notas |
+|-----|-------|-------|
+| organizer | `organizador1@gmail.com` | Creado via registro web |
 
-### 3. Escuela/Centro Deportivo
-- **Email:** `escuela@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** Academia Deportiva SportMaps (Demo)
-- **Descripción:** Perfil demo de escuela deportiva con gestión completa
+## Roles sin cuenta demo
 
-### 4. Deportista/Atleta
-- **Email:** `deportista@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** Juan Pérez (Demo Deportista)
-- **Descripción:** Perfil demo de deportista/atleta con historial deportivo
+Los siguientes roles NO tienen cuenta demo pre-creada. Se pueden crear via el flujo de registro en `/register`:
 
-### 5. Profesional de Bienestar
-- **Email:** `bienestar@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** Dra. Ana Martínez (Demo Bienestar)
-- **Descripción:** Perfil demo de profesional de bienestar y salud
+- `personal_trainer` — Entrenador personal
+- `school_admin` — Admin de sede especifica
 
-### 6. Tienda/Vendedor
-- **Email:** `tienda@sportmaps-demo.com`
-- **Contraseña:** `DemoSportMaps2024!`
-- **Nombre:** Deportes Pro (Demo Tienda)
-- **Descripción:** Perfil demo de tienda deportiva con catálogo de productos
+## Como usar
 
-## 🎯 Cómo Usar
+1. Ir a `http://localhost:5173/login`
+2. Ingresar email y contrasena de la tabla anterior
+3. El sistema redirige automaticamente al dashboard del rol correspondiente
 
-1. Ve a la página de login
-2. Busca la sección "Explorar Perfiles Demo"
-3. Haz clic en el botón del rol que quieres explorar
-4. El sistema automáticamente:
-   - Crea el usuario si no existe
-   - Inicia sesión automáticamente
-   - Te redirige al dashboard con el perfil demo
+## Variable de entorno
 
-## 🔒 Seguridad
+La escuela demo se configura via:
+```
+VITE_DEMO_SCHOOL_EMAIL=spoortmaps+school@gmail.com
+```
 
-- Todos los emails demo terminan en `@sportmaps-demo.com`
-- Los usuarios demo están marcados con `isDemo: true` en sus metadatos
-- Tienen políticas RLS específicas para acceso público de lectura
-- **IMPORTANTE:** Estas credenciales son solo para demostración y no deben usarse en producción
+Esta variable permite que usuarios no autenticados vean datos de la escuela demo en modo invitado.
 
-## 🛠️ Desarrollo
+## Recrear usuarios demo
 
-Para agregar un nuevo usuario demo, edita el archivo `src/lib/demo-credentials.ts` y agrega la configuración correspondiente.
+```bash
+cd frontend
+node scripts/setup-demo-data.mjs
+```
 
-## 📝 Notas
+Prerequisitos:
+- Variables de entorno configuradas en `.env.local` (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+- Script usa Admin API de Supabase para crear usuarios con auto-confirmacion
 
-- La contraseña es la misma para todos los usuarios demo por simplicidad
-- Los usuarios se crean con auto-confirmación de email habilitada
-- Cada usuario tiene su propio dashboard y funcionalidades según su rol
+## Relaciones demo pre-configuradas
+
+- **Sofia Garcia** (hija de Maria Garcia) esta inscrita en el equipo **Thunder**
+- **Carlos Martinez** (atleta) esta inscrito en el equipo **Lightning**
+- Ambos equipos pertenecen a la escuela **Spirit All Stars**
+
+## Seguridad
+
+- Estas credenciales son SOLO para desarrollo y demo
+- En produccion, `VITE_DEMO_SCHOOL_EMAIL` debe estar vacio o no configurado
+- Los usuarios demo no tienen permisos especiales — usan el mismo sistema RBAC que usuarios reales

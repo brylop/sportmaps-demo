@@ -325,9 +325,9 @@ const AthleteRegister = ({ onNavigate }: AthleteRegisterProps) => {
               <div className="text-sm">
                 <Label htmlFor="acceptTerms" className="font-normal cursor-pointer">
                   Acepto los{" "}
-                  <button type="button" className="text-primary font-medium hover:underline">
-                    Términos de Servicio
-                  </button>
+                  <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                    Términos y Condiciones
+                  </a>
                 </Label>
               </div>
             </div>
@@ -345,9 +345,9 @@ const AthleteRegister = ({ onNavigate }: AthleteRegisterProps) => {
               <div className="text-sm">
                 <Label htmlFor="acceptPrivacy" className="font-normal cursor-pointer">
                   Acepto la{" "}
-                  <button type="button" className="text-primary font-medium hover:underline">
+                  <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
                     Política de Privacidad
-                  </button>
+                  </a>
                 </Label>
               </div>
             </div>

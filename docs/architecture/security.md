@@ -23,11 +23,13 @@ SportMaps implementa un sistema robusto de **Role-Based Access Control** con tre
 | `coach` | Entrenador | Avanzado - Gestion de equipos |
 | `school` | Escuela (owner) | Completo - Gestion institucional |
 | `school_admin` | Admin de sede | Completo - Gestion de una sede |
+| `staff` | Staff operativo | Operativo - Permisos basicos de la escuela |
+| `personal_trainer` | Entrenador personal | Independiente - Workspace propio |
 | `wellness_professional` | Profesional Bienestar | Especializado - Salud atletas |
 | `store_owner` | Dueno de Tienda | Comercial - Gestion productos |
 | `organizer` | Organizador de eventos | Eventos - CRUD de competencias |
 | `reporter` | Reportero | Lectura - Reportes y estadisticas |
-| `admin` / `super_admin` | Administrador | Total - Acceso completo |
+| `admin` / `super_admin` / `owner` | Administrador | Total - Acceso completo |
 
 ### Jerarquia de Roles Privilegiados
 
@@ -98,12 +100,15 @@ Request → requireBasicAuth/requireAuth → requireRole → requirePermission �
 
 | Middleware | Proposito | Ejemplo |
 |-----------|-----------|---------|
-| `requireBasicAuth` | Solo valida que existe Bearer token | Webhooks, pass-through |
-| `requireAuth` | Valida JWT + busca school_members | Todas las rutas autenticadas |
-| `requireRole(...roles)` | Verifica rol del usuario | `requireRole('owner', 'admin', 'coach')` |
+| `requireBasicAuth` | Solo valida que existe Bearer token, sin contexto de escuela | Favoritos (`/api/favoritos`) |
+| `requireAuth` | Valida JWT + busca school_members + popula schoolId/role | Todas las rutas de escuela |
+| `requireMarketplaceAuth` | Valida JWT + lee rol desde `profiles` (no school_members) | Rutas de vendedor (`/api/v1/vendor`) |
+| `requireTrainerAuth` | Valida JWT + busca workspace `personal_trainer` en schools | Rutas de trainer (`/api/v1/trainer`) |
+| `optionalAuth` | No falla sin token. Si hay token, popula req.user | Marketplace publico (`/api/v1/marketplace`) |
+| `requireRole(...roles)` | Verifica rol del usuario. Privilegiados siempre pasan | `requireRole('owner', 'admin', 'coach')` |
 | `requirePermission(...perms)` | Valida contra matriz de permisos | `requirePermission('students:create')` |
 | `requireOwnership(table, param, field)` | Previene IDOR | `requireOwnership('children', 'id', 'school_id')` |
-| `auditLog(req, action, ...)` | Registra accion en audit log | `await auditLog(req, 'payment_create', ...)` |
+| `auditLog(req, action, ...)` | Registra accion en audit log (non-blocking) | `await auditLog(req, 'payment_create', ...)` |
 
 ### Ejemplo: Proteger un endpoint contra IDOR
 
@@ -323,5 +328,5 @@ await auditLog(req, 'payment_create', 'payments', newPayment.id, null, { amount,
 
 ---
 
-**Ultima revision**: 2026-04-15
+**Ultima revision**: 2026-04-17
 **Proxima auditoria**: 2026-07-15

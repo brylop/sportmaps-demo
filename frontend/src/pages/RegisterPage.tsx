@@ -768,7 +768,7 @@ export default function RegisterPage() {
                 {watch('acceptTerms') && <Check className="w-3.5 h-3.5 text-white" />}
               </div>
               <p className="text-xs text-[#8a9186] leading-relaxed select-none">
-                Acepto los <a href="/terms" className="text-[#4dcc4c] hover:underline font-bold">Términos y Condiciones</a> y la <a href="/privacy" className="text-[#4dcc4c] hover:underline font-bold">Política de Privacidad</a> de SportMaps.
+                Acepto los <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-[#4dcc4c] hover:underline font-bold">Términos y Condiciones</a> y la <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-[#4dcc4c] hover:underline font-bold">Política de Privacidad</a> de SportMaps.
               </p>
             </div>
             {errors.acceptTerms && <p className="text-[10px] text-red-500 font-medium px-1 -mt-4">{errors.acceptTerms.message}</p>}
