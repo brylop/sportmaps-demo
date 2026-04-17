@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, ShoppingCart, Clock, MapPin, Store, Star, CheckCircle } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
+import { ShareButton } from '@/components/marketplace/ShareButton';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -180,10 +181,22 @@ export default function MarketplaceDetailPage() {
               </div>
             )}
 
-            <Button className="w-full" size="lg" onClick={handleAddToCart}>
-              <ShoppingCart className="h-5 w-5 mr-2" />
-              {type === 'product' ? 'Agregar al carrito' : 'Reservar servicio'}
-            </Button>
+            <div className="flex gap-2">
+              <Button className="flex-1" size="lg" onClick={handleAddToCart}>
+                <ShoppingCart className="h-5 w-5 mr-2" />
+                {type === 'product' ? 'Agregar al carrito' : 'Reservar servicio'}
+              </Button>
+              <ShareButton
+                title={data.name}
+                description={data.description}
+                price={data.price}
+                vendorName={vendor?.display_name}
+                image={data.image_url}
+                itemId={id}
+                itemType={type as 'product' | 'service'}
+                size="lg"
+              />
+            </div>
 
             {/* Vendor info */}
             {vendor && (
