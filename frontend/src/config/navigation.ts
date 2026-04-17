@@ -72,10 +72,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Explorar',
         items: [
-          { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
-          { title: 'Escuelas', href: '/explore', icon: GraduationCap },
-          { title: 'Eventos', href: '/events', icon: Ticket },
-          { title: 'Tienda', href: '/marketplace', icon: ShoppingBag },
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
         ]
       },
       {
@@ -100,12 +97,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Explorar para mis hijos',
+        title: 'Explorar',
         items: [
-          { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
-          { title: 'Escuelas', href: '/explore', icon: GraduationCap },
-          { title: 'Eventos', href: '/events', icon: Ticket },
-          { title: 'Tienda', href: '/marketplace', icon: ShoppingBag },
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
         ]
       },
       {
@@ -184,16 +178,15 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: '🏆 Competencias',
+        title: 'Explorar & Competencias',
         items: [
-          { title: 'Explorar Eventos', href: '/events', icon: Ticket },
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
           { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
         ]
       },
       {
-        title: 'Tienda & Marketplace',
+        title: 'Tienda',
         items: [
-          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
           { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
           { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
         ]
@@ -227,7 +220,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
           { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
-          { title: 'Ver Marketplace', href: '/marketplace', icon: ShoppingBag }
+          { title: 'Explorar', href: '/explorar', icon: MapPin }
         ]
       },
       {
@@ -255,7 +248,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
           { title: 'Pedidos', href: '/orders', icon: FileText },
-          { title: 'Ver Marketplace', href: '/marketplace', icon: MapPin }
+          { title: 'Explorar', href: '/explorar', icon: MapPin }
         ]
       },
       {
