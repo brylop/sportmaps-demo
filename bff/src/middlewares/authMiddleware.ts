@@ -9,7 +9,8 @@ declare global {
             schoolId: string;
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
-            | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer';
+            | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer'
+            | 'store_owner' | 'wellness_professional';
             log: import('pino').Logger;
             id: string;
         }

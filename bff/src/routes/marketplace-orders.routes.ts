@@ -225,7 +225,7 @@ router.patch('/vendor/:id/status', async (req: Request, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error actualizando orden.' });
         }
 
-        await auditLog(req, 'order_status_update', 'orders', id, null, { new_status: status });
+        await auditLog(req, 'order_status_update', 'orders', id as string, null, { new_status: status });
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });

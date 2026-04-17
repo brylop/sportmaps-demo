@@ -5,7 +5,7 @@ import { supabase } from '../config/supabase';
 const router = Router();
 
 router.use(requireMarketplaceAuth);
-router.use(requireRole('store_owner', 'school', 'admin' as any));
+router.use(requireRole('store_owner', 'school', 'admin'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/vendor/products — Mis productos con variantes
@@ -149,7 +149,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Producto no encontrado.' });
         }
 
-        await auditLog(req, 'product_archive', 'products', id);
+        await auditLog(req, 'product_archive', 'products', id as string);
         return res.json({ ok: true, message: 'Producto archivado.' });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });

@@ -5,7 +5,7 @@ import { supabase } from '../config/supabase';
 const router = Router();
 
 router.use(requireMarketplaceAuth);
-router.use(requireRole('wellness_professional', 'admin' as any));
+router.use(requireRole('wellness_professional', 'admin'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/vendor/services — Mis servicios con variaciones
@@ -183,7 +183,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Servicio no encontrado.' });
         }
 
-        await auditLog(req, 'service_deactivate', 'service_listings', id);
+        await auditLog(req, 'service_deactivate', 'service_listings', id as string);
         return res.json({ ok: true, message: 'Servicio desactivado.' });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
