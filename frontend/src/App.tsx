@@ -132,6 +132,7 @@ const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
+const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
@@ -243,6 +244,7 @@ const App = () => (
                     <Route path="/polls/v/:pollId" element={<PublicPollPage />} />
 
                     {/* Public Marketplace routes */}
+                    <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
 

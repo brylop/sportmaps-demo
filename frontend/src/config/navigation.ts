@@ -69,14 +69,18 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
+        title: 'Explorar',
+        items: [
+          { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
+          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
+        ]
+      },
+      {
         title: 'Comunidad',
         items: [
-          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
-          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
-          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
@@ -93,6 +97,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
+        title: 'Explorar para mis hijos',
+        items: [
+          { title: 'Explorar Todo', href: '/explorar', icon: MapPin },
+          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
+        ]
+      },
+      {
         title: 'Seguimiento',
         items: [
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
@@ -104,11 +115,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Comunidad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
-          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
-          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

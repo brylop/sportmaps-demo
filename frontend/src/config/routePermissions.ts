@@ -45,6 +45,7 @@ export const PUBLIC_ROUTES: Record<string, RoutePermission> = {
     '/event/:slug': { public: true, description: 'Página pública de evento' },
     '/polls/v/:pollId': { public: true, description: 'Encuesta pública' },
     // Marketplace público
+    '/explorar': { public: true, description: 'Explorar global — servicios, eventos, escuelas, productos' },
     '/marketplace': { public: true, description: 'Marketplace (productos y servicios)' },
     '/marketplace/:type/:id': { public: true, description: 'Detalle de producto o servicio' },
     '/vendor/:slug': { public: true, description: 'Perfil público del vendedor' },
