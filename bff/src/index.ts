@@ -36,8 +36,6 @@ import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
-import marketplaceCheckoutRouter from './routes/marketplace-checkout.routes';
-import epaycoMarketplaceWebhookRouter from './routes/epayco-marketplace-webhook';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -147,8 +145,6 @@ app.use('/api/v1/vendor', generalLimiter, vendorRouter);
 app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
-app.use('/api/v1/marketplace/checkout', paymentLimiter, marketplaceCheckoutRouter);
-app.use('/api/v1/webhooks/epayco/marketplace', epaycoMarketplaceWebhookRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);
