@@ -459,17 +459,17 @@ const App = () => (
 
                       {/* Store routes */}
                       <Route path="products" element={
-                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
                           <StoreProductsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="orders" element={
-                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
                           <StoreOrdersPage />
                         </ProtectedRoute>
                       } />
                       <Route path="inventory" element={
-                        <ProtectedRoute allowedRoles={['store_owner', 'admin']}>
+                        <ProtectedRoute allowedRoles={['store_owner', 'admin', 'school', 'school_admin', 'super_admin']}>
                           <StoreInventoryPage />
                         </ProtectedRoute>
                       } />

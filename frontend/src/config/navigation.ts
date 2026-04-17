@@ -178,6 +178,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
+        title: 'Tienda & Marketplace',
+        items: [
+          { title: 'Marketplace', href: '/marketplace', icon: ShoppingBag },
+          { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
+          { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
+        ]
+      },
+      {
         title: 'Administración',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
@@ -196,9 +204,17 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Principal',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
+          { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Atletas', href: '/athletes', icon: Users },
           { title: 'Agenda', href: '/schedule', icon: Calendar }
+        ]
+      },
+      {
+        title: 'Marketplace',
+        items: [
+          { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
+          { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
+          { title: 'Ver Marketplace', href: '/marketplace', icon: ShoppingBag }
         ]
       },
       {
@@ -223,9 +239,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Principal',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Productos', href: '/products', icon: ShoppingBag },
-          { title: 'Pedidos', href: '/orders', icon: FileText }
+          { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
+          { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
+          { title: 'Pedidos', href: '/orders', icon: FileText },
+          { title: 'Ver Marketplace', href: '/marketplace', icon: MapPin }
         ]
       },
       {

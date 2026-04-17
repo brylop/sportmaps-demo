@@ -128,9 +128,9 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/wellness-reports': { allowedRoles: ['wellness_professional', 'admin', 'super_admin', 'school', 'school_admin'], requiredPermission: 'reports:view', description: 'Reportes de bienestar' },
 
     // ── Store ──
-    '/products': { allowedRoles: ['store_owner', 'admin'], description: 'Productos' },
-    '/orders': { allowedRoles: ['store_owner', 'admin'], description: 'Pedidos' },
-    '/inventory': { allowedRoles: ['store_owner', 'admin'], description: 'Inventario' },
+    '/products': { allowedRoles: ['store_owner', 'admin', 'school', 'school_admin', 'super_admin'], description: 'Productos' },
+    '/orders': { allowedRoles: ['store_owner', 'admin', 'school', 'school_admin', 'super_admin'], description: 'Pedidos' },
+    '/inventory': { allowedRoles: ['store_owner', 'admin', 'school', 'school_admin', 'super_admin'], description: 'Inventario' },
     '/suppliers': { allowedRoles: ['store_owner', 'admin'], description: 'Proveedores' },
     '/categories': { allowedRoles: ['store_owner', 'admin'], description: 'Categorías' },
     '/customers': { allowedRoles: ['store_owner', 'admin'], description: 'Clientes' },
