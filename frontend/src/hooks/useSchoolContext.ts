@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import React from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
@@ -109,6 +109,28 @@ function useSchoolContextManager(): SchoolContext {
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+
+    // Track the current user ID to detect user changes
+    const currentUserIdRef = useRef<string | null>(null);
+
+    // Reset all school state (called on sign-out or user change)
+    const resetState = useCallback(() => {
+        setActiveSchoolId(null);
+        setActiveSchoolName('Escuela');
+        setCurrentUserRole(null);
+        setAvailableSchools([]);
+        setTeams([]);
+        setActiveBranchId(null);
+        setActiveBranchName('Todas las sedes');
+        setOnboardingStatus('completed');
+        setSchoolSettings(null);
+        setSchoolBranding(null);
+        setIsGlobalAdmin(false);
+        setTotalBranchesCount(0);
+        setBranches([]);
+        setError(null);
+        currentUserIdRef.current = null;
+    }, []);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
@@ -230,6 +252,24 @@ function useSchoolContextManager(): SchoolContext {
         resolveUserContext();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // 1b. Listen for auth changes to reset state on sign-out / re-resolve on new sign-in
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT' || !session?.user) {
+                resetState();
+            } else if (event === 'SIGNED_IN' && session?.user) {
+                // Only re-resolve if the user actually changed
+                if (currentUserIdRef.current !== session.user.id) {
+                    currentUserIdRef.current = session.user.id;
+                    // Reset first, then the initial effect will handle re-resolving
+                    // via a full page navigation (signOut redirects to login)
+                }
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [resetState]);
 
 
     const selectSchool = useCallback(async (school: SchoolRole) => {

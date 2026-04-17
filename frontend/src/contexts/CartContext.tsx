@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type CartItemType = 'enrollment' | 'product' | 'appointment' | 'service';
 
@@ -52,6 +53,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  // Clear cart when user logs out
+  useEffect(() => {
+    if (!user) {
+      setItems([]);
+    }
+  }, [user]);
 
   // Load cart from localStorage
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
@@ -45,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
@@ -284,6 +286,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const supabaseKeys = Object.keys(localStorage).filter(k => k.startsWith('sb-'));
       supabaseKeys.forEach(key => localStorage.removeItem(key));
 
+      // Clear all app-specific localStorage to prevent data leaking between sessions
+      localStorage.removeItem('sportmaps_cart');
+      localStorage.removeItem('sportmaps_active_school_id');
+      localStorage.removeItem('sportmaps_pending_enrollment');
+      localStorage.removeItem('sportmaps_favoritos');
+      localStorage.removeItem('sportmaps_welcome_dismissed');
+      localStorage.removeItem('pending_invite_id');
+
+      // Clear React Query cache so the next user doesn't see stale data
+      queryClient.clear();
+
       // Regular Supabase signout
       const { data: { session: currentSession } } = await supabase.auth.getSession();
 
@@ -308,6 +321,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       setProfile(null);
+
+      // Still clear caches on error to prevent data leaking
+      queryClient.clear();
 
       // Only show error if it's not a session missing error
       if (!err.message?.includes('session')) {
