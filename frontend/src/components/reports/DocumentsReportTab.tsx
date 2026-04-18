@@ -28,6 +28,15 @@ interface StudentDoc {
   documents: { name: string; path: string }[];
 }
 
+type DocType = 'identity' | 'eps' | 'other';
+const classifyDoc = (n: string): DocType => {
+  if (n.startsWith('identity-') || n.startsWith('id-')) return 'identity';
+  if (n.startsWith('eps-')) return 'eps';
+  return 'other';
+};
+const hasType = (docs: { name: string }[], type: DocType) =>
+  docs.some(d => classifyDoc(d.name) === type);
+
 interface Team { id: string; name: string }
 interface Plan { id: string; name: string }
 
@@ -326,7 +335,9 @@ export default function DocumentsReportTab() {
                     <TableHead>Equipo</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead>Documento</TableHead>
+                    <TableHead className="text-center">Identidad</TableHead>
+                    <TableHead className="text-center">EPS</TableHead>
+                    <TableHead>Total</TableHead>
                     <TableHead className="w-[100px]" />
                   </TableRow>
                 </TableHeader>
@@ -348,6 +359,20 @@ export default function DocumentsReportTab() {
                         <Badge variant={student.status === 'active' ? 'default' : 'secondary'}>
                           {student.status === 'active' ? 'Activo' : student.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasType(student.documents, 'identity') ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 inline" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-red-500 inline" />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {hasType(student.documents, 'eps') ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 inline" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-red-500 inline" />
+                        )}
                       </TableCell>
                       <TableCell>
                         {student.has_document ? (

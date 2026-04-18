@@ -1161,11 +1161,11 @@ export default function SchoolStudentsManagementPage() {
                 )}
               </div>
 
-              {/* ── Documentos de Identidad ── */}
+              {/* ── Documentos del atleta ── */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <FolderOpen className="h-4 w-4 text-primary" />
-                  Documentos de Identidad
+                  Documentos
                 </div>
                 {loadingDocs ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
@@ -1173,26 +1173,55 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ) : studentDocs.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
-                    No hay documentos subidos para este atleta.
+                    El acudiente aun no ha subido documentos para este atleta.
                   </p>
                 ) : (
-                  <div className="space-y-1">
-                    {studentDocs.map((doc) => (
-                      <a
-                        key={doc.name}
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
-                      >
-                        <span className="flex items-center gap-2 truncate">
-                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="truncate">{doc.name}</span>
-                        </span>
-                        <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
-                      </a>
-                    ))}
-                  </div>
+                  (() => {
+                    const classify = (n: string): 'identity' | 'eps' | 'other' => {
+                      if (n.startsWith('identity-') || n.startsWith('id-')) return 'identity';
+                      if (n.startsWith('eps-')) return 'eps';
+                      return 'other';
+                    };
+                    const groups = {
+                      identity: studentDocs.filter(d => classify(d.name) === 'identity'),
+                      eps:      studentDocs.filter(d => classify(d.name) === 'eps'),
+                      other:    studentDocs.filter(d => classify(d.name) === 'other'),
+                    };
+                    const DocList = ({ label, docs, color }: { label: string; docs: typeof studentDocs; color: string }) => (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-xs font-medium">
+                          <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+                          {label} <span className="text-muted-foreground">({docs.length})</span>
+                        </div>
+                        {docs.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground pl-3 italic">Sin archivo</p>
+                        ) : docs.map(doc => (
+                          <a
+                            key={doc.name}
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="truncate">{doc.name}</span>
+                            </span>
+                            <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
+                          </a>
+                        ))}
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-3">
+                        <DocList label="Documento de identidad" docs={groups.identity} color="bg-blue-500" />
+                        <DocList label="Certificado EPS" docs={groups.eps} color="bg-green-500" />
+                        {groups.other.length > 0 && (
+                          <DocList label="Otros" docs={groups.other} color="bg-muted-foreground/50" />
+                        )}
+                      </div>
+                    );
+                  })()
                 )}
               </div>
 

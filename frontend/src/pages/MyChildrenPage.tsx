@@ -6,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School, Pencil } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
 import { EditChildDialog } from '@/components/children/EditChildDialog';
+import { UploadChildDocumentsDialog } from '@/components/children/UploadChildDocumentsDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -19,6 +20,7 @@ export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingChild, setEditingChild] = useState<any | null>(null);
+  const [uploadingDocsFor, setUploadingDocsFor] = useState<any | null>(null);
 
 
 
@@ -228,6 +230,15 @@ export default function MyChildrenPage() {
                     Ver Asistencias
                   </Button>
                 </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setUploadingDocsFor(child)}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Subir documentos
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -246,6 +257,14 @@ export default function MyChildrenPage() {
           onOpenChange={(open) => !open && setEditingChild(null)}
           onSuccess={refetch}
           child={editingChild}
+        />
+      )}
+
+      {uploadingDocsFor && (
+        <UploadChildDocumentsDialog
+          open={!!uploadingDocsFor}
+          onOpenChange={(open) => !open && setUploadingDocsFor(null)}
+          child={uploadingDocsFor}
         />
       )}
     </div>
