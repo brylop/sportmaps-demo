@@ -43,7 +43,6 @@ DROP TRIGGER IF EXISTS trg_fix_invitation_school_id ON public.invitations;
 CREATE TRIGGER trg_fix_invitation_school_id
 BEFORE INSERT OR UPDATE OF team_id ON public.invitations
 FOR EACH ROW
-WHEN (NEW.team_id IS NOT NULL)
 EXECUTE FUNCTION public.fix_invitation_school_id();
 
 -- ========================================
