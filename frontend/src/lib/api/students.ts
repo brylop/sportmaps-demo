@@ -66,6 +66,9 @@ export interface StudentUpdate {
   status?: 'active' | 'inactive' | 'suspended';
   team_id?: string;
   branch_id?: string;
+  monthly_fee?: number;
+  doc_type?: string;
+  doc_number?: string;
 }
 
 // ── Tipos de respuesta del BFF ────────────────────────────────────────────────
@@ -122,6 +125,8 @@ export interface StudentViewRow {
   medical_info?: string | null;
   display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
+  doc_type?: string | null;
+  doc_number?: string | null;
 }
 
 export interface StudentStats {

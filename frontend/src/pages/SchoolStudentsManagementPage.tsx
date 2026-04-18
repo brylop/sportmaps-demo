@@ -65,6 +65,7 @@ export default function SchoolStudentsManagementPage() {
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [studentDocInfo, setStudentDocInfo] = useState<{ doc_type?: string | null; doc_number?: string | null }>({});
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [studentPlanInfo, setStudentPlanInfo] = useState<{
     plan_name: string;
@@ -121,10 +122,29 @@ export default function SchoolStudentsManagementPage() {
   useEffect(() => {
     if (!viewingStudent) {
       setStudentDocs([]);
+      setStudentDocInfo({});
       setStudentPlanInfo(null);
       return;
     }
     const studentId = viewingStudent.id;
+
+    // ── Cargar doc_type + doc_number desde children ──────────────────────
+    // (La vista school_athletes no siempre los expone, asi que consultamos directo)
+    if (getAthleteType(viewingStudent) === 'child') {
+      (supabase as any)
+        .from('children')
+        .select('doc_type, doc_number')
+        .eq('id', studentId)
+        .maybeSingle()
+        .then(({ data }: { data: any }) => {
+          setStudentDocInfo({
+            doc_type: data?.doc_type || null,
+            doc_number: data?.doc_number || null,
+          });
+        });
+    } else {
+      setStudentDocInfo({});
+    }
 
     // ── Cargar documentos de identidad ────────────────────────────────────
     setLoadingDocs(true);
@@ -343,6 +363,7 @@ export default function SchoolStudentsManagementPage() {
         medical_info:  data.medical_info,
         team_id:       data.team_id || null,
         branch_id:     selectedTeam?.branch_id || activeBranchId || undefined,
+        monthly_fee:   typeof data.monthly_fee === 'number' ? data.monthly_fee : undefined,
       });
       // Upsert enrollment con team y/o plan
       if (schoolId && (data.team_id || data.offering_plan_id)) {
@@ -1036,6 +1057,7 @@ export default function SchoolStudentsManagementPage() {
               <div className="grid gap-1">
                 {[
                   { label: 'Escuela', value: schoolName },
+                  { label: 'Documento', value: studentDocInfo.doc_number ? `${studentDocInfo.doc_type || ''} ${studentDocInfo.doc_number}`.trim() : ((viewingStudent as any).doc_number ? `${(viewingStudent as any).doc_type || ''} ${(viewingStudent as any).doc_number}`.trim() : '-') },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
                   { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
