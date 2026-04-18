@@ -34,7 +34,7 @@ import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
 import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI } from '@/lib/api/students';
-import { Mail, Phone, User } from 'lucide-react';
+import { Mail, Phone, User, Copy } from 'lucide-react';
 
 interface TeamWithRelations {
   id: string;
@@ -793,8 +793,29 @@ export default function TeamsPage() {
                   >
                     Gestionar / Editar
                   </Button>
-                  <Button variant="outline" className="h-8 w-8 p-0" size="sm" title="Detalles">
-                    <Filter className="h-3.5 w-3.5" />
+                  <Button
+                    variant="outline"
+                    className="h-8 px-2 gap-1 text-xs"
+                    size="sm"
+                    title="Copiar link para invitar padres"
+                    onClick={async () => {
+                      const link = `${window.location.origin}/join-team/${team.id}`;
+                      try {
+                        await navigator.clipboard.writeText(link);
+                        toast({
+                          title: '🔗 Link copiado',
+                          description: `Comparte con los padres de ${team.name}: ${link}`,
+                        });
+                      } catch {
+                        toast({
+                          title: 'Link de invitacion',
+                          description: link,
+                        });
+                      }
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Invitar padres</span>
                   </Button>
                 </div>
               </CardContent>

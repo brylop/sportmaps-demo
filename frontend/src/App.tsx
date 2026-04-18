@@ -34,6 +34,7 @@ const PageLoader = () => (
 const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const ExplorePage = lazy(() => import("./pages/ExplorePage"));
@@ -238,6 +239,7 @@ const App = () => (
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
