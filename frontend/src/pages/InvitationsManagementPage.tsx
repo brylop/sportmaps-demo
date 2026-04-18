@@ -98,6 +98,22 @@ export default function InvitationsManagementPage() {
     enabled: !!schoolId,
   });
 
+  // ── Cargar atletas (children) del equipo seleccionado ───────────────────────
+  const { data: teamChildren = [] } = useQuery<Array<{ id: string; full_name: string; doc_number: string | null }>>({
+    queryKey: ['team-children', formData.teamId, schoolId],
+    queryFn: async () => {
+      if (!schoolId || !formData.teamId) return [];
+      const { data, error } = await (supabase.from('children') as any)
+        .select('id, full_name, doc_number')
+        .eq('school_id', schoolId)
+        .eq('team_id', formData.teamId)
+        .order('full_name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId && !!formData.teamId,
+  });
+
   // ── Leer URL params al abrir ─────────────────────────────────────────────────
   useEffect(() => {
     const email = searchParams.get('email');
@@ -939,11 +955,47 @@ export default function InvitationsManagementPage() {
                 {formData.role === 'parent' && (
                   <div className="space-y-1.5">
                     <Label htmlFor="childName" className="text-sm font-medium">Nombre del hijo/a *</Label>
+
+                    {/* Si el equipo tiene atletas registrados, mostrar dropdown para elegir */}
+                    {formData.teamId && teamChildren.length > 0 && (
+                      <Select
+                        value={
+                          teamChildren.find(c => c.full_name === formData.childName)?.id || 'manual'
+                        }
+                        onValueChange={val => {
+                          if (val === 'manual') {
+                            setFormData(prev => ({ ...prev, childName: '' }));
+                          } else {
+                            const picked = teamChildren.find(c => c.id === val);
+                            if (picked) setFormData(prev => ({ ...prev, childName: picked.full_name }));
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue placeholder={`Elegir del equipo (${teamChildren.length} atletas)`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">— Escribir nombre nuevo —</SelectItem>
+                          {teamChildren.map(c => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.full_name}{c.doc_number ? ` · ${c.doc_number}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+
                     <Input
                       id="childName" placeholder="Nombre completo"
                       value={formData.childName} required className="h-10"
                       onChange={e => setFormData({ ...formData, childName: e.target.value })}
                     />
+
+                    {formData.teamId && teamChildren.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Este equipo aún no tiene atletas registrados — escribe el nombre manualmente.
+                      </p>
+                    )}
                   </div>
                 )}
 
