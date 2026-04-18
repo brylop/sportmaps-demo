@@ -129,7 +129,7 @@ export default function JoinTeamPage() {
       }
 
       // 2. Reclamar al hijo
-      const { error: claimError } = await (supabase.rpc as any)('claim_child_for_parent', {
+      const { data: claimData, error: claimError } = await (supabase.rpc as any)('claim_child_for_parent', {
         p_child_id:  validation.child_id,
         p_full_name: fullName,
         p_phone:     phone,
@@ -137,6 +137,21 @@ export default function JoinTeamPage() {
 
       if (claimError) {
         throw new Error(claimError.message);
+      }
+
+      // La RPC devuelve status_code: 'ok' | 'already_linked' | 'not_found' | 'no_auth'
+      const status = Array.isArray(claimData) && claimData.length > 0 ? claimData[0].status_code : null;
+      if (status === 'already_linked') {
+        throw new Error('Este atleta ya esta vinculado a otro acudiente. Contacta a la escuela.');
+      }
+      if (status === 'not_found') {
+        throw new Error('Atleta no encontrado');
+      }
+      if (status === 'no_auth') {
+        throw new Error('Sesion no valida. Vuelve a iniciar sesion.');
+      }
+      if (status !== 'ok') {
+        throw new Error('No se pudo completar la vinculacion');
       }
 
       setSuccess(true);
