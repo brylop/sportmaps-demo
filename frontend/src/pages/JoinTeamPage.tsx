@@ -154,10 +154,22 @@ export default function JoinTeamPage() {
         throw new Error('No se pudo completar la vinculacion');
       }
 
+      // Refrescar la sesion para que el profile.role='parent' se cargue
+      // (el trigger handle_new_user puede haber puesto otro role por default)
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // Si falla el refresh no es critico — lo reintentara al navegar
+      }
+
+      // Limpiar localStorage para forzar que el dashboard use el nuevo role
+      localStorage.removeItem('sportmaps_active_school_id');
+
       setSuccess(true);
       toast({ title: '✅ Registro completado', description: `${validation.full_name} vinculado a tu cuenta` });
 
-      setTimeout(() => navigate('/dashboard'), 1500);
+      // Usar window.location para forzar reload completo (no solo navigate SPA)
+      setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message || 'No se pudo completar el registro', variant: 'destructive' });
     } finally {

@@ -50,7 +50,7 @@ AS $claim$
         UPDATE public.profiles
         SET full_name  = COALESCE(NULLIF(p_full_name, ''), full_name),
             phone      = COALESCE(NULLIF(p_phone, ''), phone),
-            role       = COALESCE(role, 'parent'),
+            role       = 'parent',
             updated_at = now()
         WHERE id = auth.uid()
           AND EXISTS (SELECT 1 FROM updated_child)
