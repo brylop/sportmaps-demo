@@ -118,8 +118,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Mi Actividad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          { title: 'Explorar Escuelas', href: '/explore', icon: MapPin },
-          { title: '🏆 Explorar Competencias', href: '/events', icon: Ticket },
           { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },

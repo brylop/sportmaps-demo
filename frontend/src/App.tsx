@@ -233,7 +233,7 @@ const App = () => (
                   <Routes>
                     {/* Public routes */}
                     <Route path="/" element={<Index />} />
-                    <Route path="/explore" element={<ExplorePage />} />
+                    <Route path="/explore" element={<Navigate to="/explorar?category=schools" replace />} />
                     <Route path="/schools/:id" element={<SchoolDetailPage />} />
                     <Route path="/escuela/:id" element={<SchoolProfilePage />} />
                     <Route path="/login" element={<LoginPage />} />
@@ -258,7 +258,7 @@ const App = () => (
                     <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
                     {/* Public Events routes */}
-                    <Route path="/events" element={<EventsMapPage />} />
+                    <Route path="/events" element={<Navigate to="/explorar?category=events" replace />} />
                     <Route path="/event/:slug" element={<EventPublicPage />} />
                     <Route path="/event/:eventId/register" element={<EventIndividualRegisterPage />} />
                     <Route path="/my-event-registrations" element={<MyEventRegistrationsPage />} />

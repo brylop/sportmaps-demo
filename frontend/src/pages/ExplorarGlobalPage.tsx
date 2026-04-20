@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import {
@@ -352,10 +352,17 @@ export default function ExplorarGlobalPage() {
   const { user, profile } = useAuth();
   const { addItem } = useCart();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState('');
   const [bookingItem, setBookingItem] = useState<ExploreItem | null>(null);
 
-  const { data, isLoading, filters, updateFilters, nextPage, prevPage, clearFilters } = useExplorarGlobal();
+  const initialCategory = (() => {
+    const c = searchParams.get('category');
+    const valid: ExploreCategory[] = ['all', 'services', 'events', 'schools', 'products'];
+    return valid.includes(c as ExploreCategory) ? (c as ExploreCategory) : 'all';
+  })();
+
+  const { data, isLoading, filters, updateFilters, nextPage, prevPage, clearFilters } = useExplorarGlobal({ category: initialCategory });
 
   const isParent = profile?.role === 'parent';
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
