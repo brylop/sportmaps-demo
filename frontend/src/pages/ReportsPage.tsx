@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download, FileText } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -12,6 +12,8 @@ import { formatCurrency } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import DocumentsReportTab from '@/components/reports/DocumentsReportTab';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 interface SummaryData {
@@ -248,36 +250,17 @@ export default function ReportsPage() {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
 
       {/* Encabezado */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Reportes Gerenciales</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Reportes Gerenciales</h1>
           <p className="text-muted-foreground">
             Inteligencia de negocio y análisis estratégico
           </p>
         </div>
         <div className="flex items-center gap-2">
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 h-8"
-            onClick={exportCSV}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Exportar CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 h-8"
-            onClick={() => window.print()}
-          >
-            <Printer className="w-3.5 h-3.5" />
-            Imprimir
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -308,8 +291,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-
-
       {/* Banner crítico: ambas fuentes fallaron */}
       {bffError && dataSource === null && (
         <Alert variant="destructive">
@@ -323,158 +304,180 @@ export default function ReportsPage() {
         </Alert>
       )}
 
-      {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ocupación Global</CardTitle>
-            <Users className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary.occupancyRate}%</div>
-            <p className="text-xs text-muted-foreground">
-              {summary.totalStudents} de {summary.totalCapacity} cupos
-            </p>
-          </CardContent>
-        </Card>
+      {/* ── Tabs: Resumen | Documentos ────────────────────────────────────── */}
+      <Tabs defaultValue="resumen">
+        <TabsList>
+          <TabsTrigger value="resumen" className="gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Resumen
+          </TabsTrigger>
+          <TabsTrigger value="documentos" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Documentos
+          </TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ingresos Mensuales</CardTitle>
-            <DollarSign className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">
-              {formatCurrency(summary.totalRevenue)}
-            </div>
-            <p className="text-xs text-muted-foreground">Confirmados este mes</p>
-          </CardContent>
-        </Card>
+        {/* ── Tab: Resumen ──────────────────────────────────────────────── */}
+        <TabsContent value="resumen" className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Ocupación Global</CardTitle>
+                <Users className="h-4 w-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{summary.occupancyRate}%</div>
+                <p className="text-xs text-muted-foreground">
+                  {summary.totalStudents} de {summary.totalCapacity} cupos
+                </p>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Crecimiento Neto</CardTitle>
-            <TrendingUp className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-500">+{summary.netGrowth}</div>
-            <p className="text-xs text-muted-foreground">Estudiantes este mes</p>
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Ingresos Mensuales</CardTitle>
+                <DollarSign className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-500">
+                  {formatCurrency(summary.totalRevenue)}
+                </div>
+                <p className="text-xs text-muted-foreground">Confirmados este mes</p>
+              </CardContent>
+            </Card>
 
-      {/* ── Gráficas ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Reporte de Ocupación por Programa</CardTitle>
-            <CardDescription>Cupos ocupados vs. disponibles</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {occupancyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={occupancyData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="name"
-                    angle={-15}
-                    textAnchor="end"
-                    height={80}
-                    interval={0}
-                    fontSize={12}
-                  />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="occupied" stackId="a" fill="#22c55e" name="Ocupados" />
-                  <Bar dataKey="vacant" stackId="a" fill="#ef4444" name="Vacantes" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
-                <Users className="w-10 h-10 opacity-30" />
-                <p className="text-sm">No hay programas o estudiantes activos aún.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Crecimiento Neto</CardTitle>
+                <TrendingUp className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-500">+{summary.netGrowth}</div>
+                <p className="text-xs text-muted-foreground">Estudiantes este mes</p>
+              </CardContent>
+            </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Ingresos por Programa</CardTitle>
-            <CardDescription>Distribución de ingresos confirmados</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {revenueData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={revenueData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={(entry) =>
-                      entry.name.length > 15
-                        ? entry.name.substring(0, 12) + '...'
-                        : entry.name
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {revenueData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
-                <DollarSign className="w-10 h-10 opacity-30" />
-                <p className="text-sm">No hay pagos registrados para mostrar distribución.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          {/* Gráficas */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Reporte de Ocupación por Programa</CardTitle>
+                <CardDescription>Cupos ocupados vs. disponibles</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {occupancyData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={occupancyData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="name"
+                        angle={-15}
+                        textAnchor="end"
+                        height={80}
+                        interval={0}
+                        fontSize={12}
+                      />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="occupied" stackId="a" fill="#22c55e" name="Ocupados" />
+                      <Bar dataKey="vacant" stackId="a" fill="#ef4444" name="Vacantes" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <Users className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">No hay programas o estudiantes activos aún.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Reporte de Crecimiento</CardTitle>
-          <CardDescription>Nuevos alumnos vs. retiros (Últimos 6 meses)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {growthData.some((m) => m.nuevos > 0 || m.retiros > 0) ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={growthData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="nuevos"
-                  stroke="#22c55e"
-                  strokeWidth={2}
-                  name="Nuevos"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="retiros"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  name="Retiros"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
-              <TrendingUp className="w-10 h-10 opacity-30" />
-              <p className="text-sm">Registra estudiantes para ver la tendencia de crecimiento.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Ingresos por Programa</CardTitle>
+                <CardDescription>Distribución de ingresos confirmados</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {revenueData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={revenueData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={(entry) =>
+                          entry.name.length > 15
+                            ? entry.name.substring(0, 12) + '...'
+                            : entry.name
+                        }
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {revenueData.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <DollarSign className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">No hay pagos registrados para mostrar distribución.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Reporte de Crecimiento</CardTitle>
+              <CardDescription>Nuevos alumnos vs. retiros (Últimos 6 meses)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {growthData.some((m) => m.nuevos > 0 || m.retiros > 0) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={growthData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="nuevos"
+                      stroke="#22c55e"
+                      strokeWidth={2}
+                      name="Nuevos"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="retiros"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      name="Retiros"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                  <TrendingUp className="w-10 h-10 opacity-30" />
+                  <p className="text-sm">Registra estudiantes para ver la tendencia de crecimiento.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Documentos ───────────────────────────────────────────── */}
+        <TabsContent value="documentos">
+          <DocumentsReportTab />
+        </TabsContent>
+      </Tabs>
 
     </div>
   );

@@ -34,7 +34,7 @@ import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
 import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
 import { useToast } from '@/hooks/use-toast';
 import { studentsAPI } from '@/lib/api/students';
-import { Mail, Phone, User } from 'lucide-react';
+import { Mail, Phone, User, Copy } from 'lucide-react';
 
 interface TeamWithRelations {
   id: string;
@@ -49,9 +49,9 @@ interface TeamWithRelations {
   level?: string;
   school_id: string;
   branch_id?: string;
-  program_id?: string;
+  team_id?: string;
   coach_id?: string;
-  programs?: any; // Using any for deep flexible access to name, coach_id, etc.
+  // Used to have programs here, now data is flat on teams table
   school_branches?: any;
   coach?: {
     full_name: string;
@@ -89,7 +89,7 @@ export default function TeamsPage() {
       const userEmail = authData.user?.email;
 
       // Fetch the staff record for this coach if they are a coach
-      // This is necessary because programs often link to school_staff.id instead of profiles.id
+      // Mapeo directo sobre datos de la tabla teams
       let staffId = null;
       if (currentUserRole === 'coach' && userEmail && schoolId) {
         const { data: staffData } = await supabase
@@ -217,8 +217,7 @@ export default function TeamsPage() {
     // 1. Search Filter
     const matchesSearch =
       team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (team.sport || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (team.programs?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (team.sport || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     if (!matchesSearch) return false;
 
@@ -248,7 +247,7 @@ export default function TeamsPage() {
       {/* Header section like Invitations */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Mis Equipos</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Mis Equipos</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             Gestiona tus grupos deportivos y programas ({teams.length})
           </p>
@@ -603,9 +602,9 @@ export default function TeamsPage() {
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       <div className="flex flex-col gap-1">
-                        <span className="text-sm font-medium">{team.programs?.name || team.name}</span>
+                        <span className="text-sm font-medium">{team.name}</span>
                         <span className="text-[10px] text-muted-foreground capitalize">
-                          Nivel: {team.programs?.level || team.level || '—'}
+                          Nivel: {team.level || '—'}
                         </span>
                       </div>
                     </TableCell>
@@ -701,7 +700,7 @@ export default function TeamsPage() {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10">
-                      {team.programs?.name || 'Independiente'}
+                      {team.name || 'Equipo'}
                     </Badge>
                     <div className="flex gap-1">
                       <Button
@@ -794,8 +793,29 @@ export default function TeamsPage() {
                   >
                     Gestionar / Editar
                   </Button>
-                  <Button variant="outline" className="h-8 w-8 p-0" size="sm" title="Detalles">
-                    <Filter className="h-3.5 w-3.5" />
+                  <Button
+                    variant="outline"
+                    className="h-8 px-2 gap-1 text-xs"
+                    size="sm"
+                    title="Copiar link para invitar padres"
+                    onClick={async () => {
+                      const link = `${window.location.origin}/join-team/${team.id}`;
+                      try {
+                        await navigator.clipboard.writeText(link);
+                        toast({
+                          title: '🔗 Link copiado',
+                          description: `Comparte con los padres de ${team.name}: ${link}`,
+                        });
+                      } catch {
+                        toast({
+                          title: 'Link de invitacion',
+                          description: link,
+                        });
+                      }
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Invitar padres</span>
                   </Button>
                 </div>
               </CardContent>

@@ -38,13 +38,16 @@ router.get(
 
             const teams = allTeams || [];
             let realTotalCapacity = 0;
-            const programCapacityMap = new Map<string, number>();
+            const teamCapacityMap = new Map<string, number>();
             const teamIdToName = new Map<string, string>();
 
-            teams.forEach((t: any) => {
-                const cap = t.max_students || 0;
-                realTotalCapacity += cap;
-                programCapacityMap.set(t.name, (programCapacityMap.get(t.name) || 0) + cap);
+            allTeams?.forEach(t => {
+                const cap = t.max_students || 0; // Changed from max_capacity to max_students to match select
+                if (cap > 0) {
+                    // Agrupar por nombre (ej. "Pre-infantil") ignorando la sede
+                    teamCapacityMap.set(t.name, (teamCapacityMap.get(t.name) || 0) + cap);
+                    realTotalCapacity += cap; // Added this line to correctly calculate total capacity
+                }
                 teamIdToName.set(t.id, t.name);
             });
 
@@ -53,7 +56,9 @@ router.get(
             //    Solución: filtrar por los team_ids ya obtenidos en el paso anterior.
             const teamIds = teams.map((t: any) => t.id);
 
-            const programOccupiedMap = new Map<string, number>();
+            const allEnrollmentsSet = new Set<string>(); // para estudiantes únicos 
+
+            const teamOccupiedMap = new Map<string, number>();
             let totalStudents = 0;
             const growthMap = new Map<string, { nuevos: number; retiros: number; sortKey: number }>();
             const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -83,7 +88,9 @@ router.get(
                     const mKey = MONTHS[d.getMonth()];
 
                     if (e.status === 'active') {
-                        programOccupiedMap.set(teamName, (programOccupiedMap.get(teamName) || 0) + 1);
+                        if (teamName) {
+                            teamOccupiedMap.set(teamName, (teamOccupiedMap.get(teamName) || 0) + 1);
+                        }
                         totalStudents++;
                         if (d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear) {
                             netGrowthThisMonth++;
@@ -95,10 +102,12 @@ router.get(
                 });
             }
 
-            const occupancyData = Array.from(programCapacityMap.entries()).map(([name, capacity]) => ({
+            // 4) Combinar Mapas: Capacidad vs Ocupación
+            const occupancyData = Array.from(teamCapacityMap.entries()).map(([name, capacity]) => ({
                 name,
-                occupied: programOccupiedMap.get(name) || 0,
-                vacant: Math.max(0, capacity - (programOccupiedMap.get(name) || 0)),
+                occupied: teamOccupiedMap.get(name) || 0,
+                vacant: Math.max(0, capacity - (teamOccupiedMap.get(name) || 0)),
+                total_capacity: capacity
             })).slice(0, 10);
 
             const growthDataList = Array.from(growthMap.entries())
@@ -207,7 +216,7 @@ router.get(
             const students = (studentsRaw || []).map((s: any) => ({
                 id: s.id,
                 full_name: s.full_name || 'Sin nombre',
-                program: teamNameMap.get(s.team_id) || '—',
+                team: teamNameMap.get(s.team_id) || '—',
                 sede: branchNameMap.get(s.branch_id) || 'Principal',
                 status: s.status || 'active',
                 fee: 0, // simplified
@@ -245,7 +254,7 @@ router.get(
                 amount: p.amount || 0,
                 status: p.status || 'pending',
                 month: p.payment_month || '—',
-                program: '—',
+                team: '—',
             }));
 
             // 3. Coaches — sin join ambiguo
@@ -274,7 +283,7 @@ router.get(
                 id: m.id,
                 name: profileMap.get(m.profile_id)?.full_name || 'Sin nombre',
                 email: profileMap.get(m.profile_id)?.email || '—',
-                program: '—',
+                team: '—',
                 sede: branchNameMap.get(m.branch_id) || 'Principal',
                 students: 0,
             }));
@@ -302,19 +311,19 @@ router.get(
                 })
             );
 
-            // 5. Programs
-            let programsQuery = supabase
+            // 5. Teams
+            let teamsQuery = supabase
                 .from('teams')
                 .select('id, name, monthly_fee, description')
                 .eq('school_id', schoolId);
 
-            if (branchFilterId) programsQuery = programsQuery.eq('branch_id', branchFilterId);
+            if (branchFilterId) teamsQuery = teamsQuery.eq('branch_id', branchFilterId);
 
-            const { data: programsData, error: programsErr } = await programsQuery;
-            if (programsErr) throw programsErr;
+            const { data: teamsData, error: teamsErr } = await teamsQuery;
+            if (teamsErr) throw teamsErr;
 
-            const programs = await Promise.all(
-                (programsData || []).map(async (p: any) => {
+            const teams = await Promise.all(
+                (teamsData || []).map(async (p: any) => {
                     const { count } = await supabase
                         .from('children')
                         .select('id', { count: 'exact', head: true })
@@ -329,7 +338,7 @@ router.get(
                 })
             );
 
-            return res.json({ students, payments, coaches, sedes, programs });
+            return res.json({ students, payments, coaches, sedes, teams });
 
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error en reporte de dashboard');
@@ -381,7 +390,7 @@ router.get(
             const { data: attendance, error: attendanceErr } = await supabase
                 .from('attendance_records')
                 .select('status, child_id')
-                .eq('program_id', teamId);
+                .eq('team_id', teamId);
 
             if (attendanceErr) throw attendanceErr;
 
@@ -429,6 +438,130 @@ router.get(
         } catch (err: any) {
             req.log?.error({ err: err.message || err }, 'Error en reporte de coach');
             return res.status(500).json({ error: 'Error interno obteniendo reporte del equipo.' });
+        }
+    }
+);
+
+// ── GET /api/v1/reports/school/documents ─────────────────────────────────────
+// Returns students + their identity document paths, filterable by team or plan.
+router.get(
+    '/school/documents',
+    requireAuth,
+    requireRole('owner', 'super_admin', 'admin', 'auditor', 'reporter', 'school_admin'),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        try {
+            const { schoolId } = req;
+            const branchFilterId = getBranchFilter(req);
+            const teamId = req.query.team_id as string | undefined;
+            const planId = req.query.offering_plan_id as string | undefined;
+
+            // 1. Fetch children with document URL
+            let childrenQuery = supabase
+                .from('children')
+                .select('id, full_name, team_id, branch_id, id_document_url, status')
+                .eq('school_id', schoolId)
+                .order('full_name');
+
+            if (branchFilterId) childrenQuery = childrenQuery.eq('branch_id', branchFilterId);
+            if (teamId) childrenQuery = childrenQuery.eq('team_id', teamId);
+
+            const { data: childrenRaw, error: childrenErr } = await childrenQuery;
+            if (childrenErr) throw childrenErr;
+
+            let childIds = (childrenRaw || []).map((c: any) => c.id);
+
+            // 2. If filtering by plan, narrow down to children enrolled in that plan
+            if (planId && childIds.length > 0) {
+                const { data: enrollments, error: enrollErr } = await supabase
+                    .from('enrollments')
+                    .select('child_id')
+                    .eq('offering_plan_id', planId)
+                    .in('child_id', childIds);
+
+                if (enrollErr) throw enrollErr;
+
+                const enrolledChildIds = new Set((enrollments || []).map((e: any) => e.child_id));
+                childIds = childIds.filter((id: string) => enrolledChildIds.has(id));
+            }
+
+            // 3. Resolve team names
+            const teamIds = [...new Set((childrenRaw || []).map((c: any) => c.team_id).filter(Boolean))];
+            const teamNameMap = new Map<string, string>();
+            if (teamIds.length > 0) {
+                const { data: teamRows } = await supabase
+                    .from('teams')
+                    .select('id, name')
+                    .in('id', teamIds);
+                (teamRows || []).forEach((t: any) => teamNameMap.set(t.id, t.name));
+            }
+
+            // 4. Resolve plan names for each child via enrollments
+            const childPlanMap = new Map<string, string>();
+            if (childIds.length > 0) {
+                const { data: allEnrollments } = await supabase
+                    .from('enrollments')
+                    .select('child_id, offering_plan_id')
+                    .in('child_id', childIds)
+                    .eq('status', 'active');
+
+                const planIds = [...new Set((allEnrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
+                if (planIds.length > 0) {
+                    const { data: planRows } = await supabase
+                        .from('offering_plans')
+                        .select('id, name')
+                        .in('id', planIds);
+                    const planNameMap = new Map<string, string>();
+                    (planRows || []).forEach((p: any) => planNameMap.set(p.id, p.name));
+                    (allEnrollments || []).forEach((e: any) => {
+                        if (e.offering_plan_id && planNameMap.has(e.offering_plan_id)) {
+                            childPlanMap.set(e.child_id, planNameMap.get(e.offering_plan_id)!);
+                        }
+                    });
+                }
+            }
+
+            // 5. For each child with documents, list files from storage
+            const childIdSet = new Set(childIds);
+            const students = await Promise.all(
+                (childrenRaw || [])
+                    .filter((c: any) => childIdSet.has(c.id))
+                    .map(async (child: any) => {
+                        const documents: { name: string; path: string }[] = [];
+
+                        // Try listing files from storage bucket
+                        const folderPath = `children/${child.id}/docs`;
+                        const { data: files } = await supabase.storage
+                            .from('identity-documents')
+                            .list(folderPath, { limit: 20 });
+
+                        if (files && files.length > 0) {
+                            files.forEach((f: any) => {
+                                if (f.name && !f.name.startsWith('.')) {
+                                    documents.push({
+                                        name: f.name,
+                                        path: `${folderPath}/${f.name}`,
+                                    });
+                                }
+                            });
+                        }
+
+                        return {
+                            id: child.id,
+                            full_name: child.full_name || 'Sin nombre',
+                            team_name: teamNameMap.get(child.team_id) || '—',
+                            plan_name: childPlanMap.get(child.id) || '—',
+                            status: child.status || 'active',
+                            has_document: documents.length > 0,
+                            documents,
+                        };
+                    })
+            );
+
+            return res.json({ students });
+
+        } catch (err: any) {
+            req.log?.error({ err: err.message || err }, 'Error en reporte de documentos');
+            return res.status(500).json({ error: 'Error interno obteniendo documentos.' });
         }
     }
 );

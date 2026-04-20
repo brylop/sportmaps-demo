@@ -21,7 +21,7 @@ interface AvailabilitySlot {
 }
 
 interface SlotPickerProps {
-  programId: string;
+  teamId?: string;
   schoolId: string;
   bookingType: 'trial' | 'program';
   onSlotSelected: (slot: AvailabilitySlot, selectedDate: string) => void;
@@ -39,7 +39,7 @@ const statusConfig: Record<SlotStatus, { color: string; label: string; selectabl
   past:      { color: 'bg-gray-50 border-gray-100 text-gray-300', label: 'Pasado', selectable: false },
 };
 
-export function SlotPicker({ programId, schoolId, bookingType, onSlotSelected }: SlotPickerProps) {
+export function SlotPicker({ teamId, schoolId, bookingType, onSlotSelected }: SlotPickerProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
@@ -63,7 +63,7 @@ export function SlotPicker({ programId, schoolId, bookingType, onSlotSelected }:
 
   useEffect(() => {
     fetchSlots();
-  }, [programId, selectedDate]);
+  }, [teamId, selectedDate]);
 
   const fetchSlots = async () => {
     try {
@@ -89,8 +89,8 @@ export function SlotPicker({ programId, schoolId, bookingType, onSlotSelected }:
       }
 
       // Filter by program if specific
-      const filtered = programId
-        ? availability.filter(s => !s.program_id || s.program_id === programId)
+      const filtered = teamId
+        ? availability.filter(s => !s.team_id || s.team_id === teamId)
         : availability;
 
       // Get booking counts for the selected date

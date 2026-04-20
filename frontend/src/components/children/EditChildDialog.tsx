@@ -49,6 +49,9 @@ const editChildSchema = z.object({
     doc_number: z.string().min(5, 'El número de documento debe tener al menos 5 caracteres'),
     emergency_contact_name: z.string().min(2, 'El nombre del contacto es requerido'),
     emergency_contact_phone: z.string().min(7, 'El teléfono del contacto es requerido'),
+    tshirt_size: z.string().optional(),
+    blood_type: z.string().optional(),
+    eps_name: z.string().optional(),
     has_allergies: z.boolean().optional(),
     allergy_type: z.string().optional(),
     allergy_severity: z.string().optional(),
@@ -69,6 +72,9 @@ interface ChildData {
     emergency_contact?: string;
     medical_info?: string;
     avatar_url?: string;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
 }
 
 interface EditChildDialogProps {
@@ -114,6 +120,9 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
             doc_number: child.doc_number || '',
             emergency_contact_name: emergencyContact.name,
             emergency_contact_phone: emergencyContact.phone,
+            tshirt_size: child.tshirt_size || '',
+            blood_type: child.blood_type || '',
+            eps_name: child.eps_name || '',
             has_allergies: medicalInfo.has_allergies || false,
             allergy_type: medicalInfo.allergy_type || '',
             allergy_severity: medicalInfo.allergy_severity || '',
@@ -139,6 +148,9 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                 doc_number: child.doc_number || '',
                 emergency_contact_name: emContact.name,
                 emergency_contact_phone: emContact.phone,
+                tshirt_size: child.tshirt_size || '',
+                blood_type: child.blood_type || '',
+                eps_name: child.eps_name || '',
                 has_allergies: medInfo.has_allergies || false,
                 allergy_type: medInfo.allergy_type || '',
                 allergy_severity: medInfo.allergy_severity || '',
@@ -191,6 +203,9 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                 emergency_contact: `${values.emergency_contact_name} - ${values.emergency_contact_phone}`,
                 avatar_url: finalAvatarUrl,
                 medical_info: medicalDetails,
+                tshirt_size: values.tshirt_size || null,
+                blood_type: values.blood_type || null,
+                eps_name: values.eps_name || null,
             });
 
             toast.success('Información del hijo actualizada exitosamente');
@@ -415,6 +430,81 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                         )}
                                     />
                                 </div>
+                            </div>
+
+                            {/* Datos del atleta (talla, RH, EPS) */}
+                            <div className="space-y-4 pt-2 border-t border-muted">
+                                <h3 className="text-sm font-semibold text-primary uppercase tracking-wider">Datos del Atleta</h3>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <FormField
+                                        control={form.control}
+                                        name="tshirt_size"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Talla camiseta</FormLabel>
+                                                <Select onValueChange={field.onChange} value={field.value || ''}>
+                                                    <FormControl>
+                                                        <SelectTrigger><SelectValue placeholder="Elegir" /></SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="XS">XS</SelectItem>
+                                                        <SelectItem value="S">S</SelectItem>
+                                                        <SelectItem value="M">M</SelectItem>
+                                                        <SelectItem value="L">L</SelectItem>
+                                                        <SelectItem value="XL">XL</SelectItem>
+                                                        <SelectItem value="4">4</SelectItem>
+                                                        <SelectItem value="6">6</SelectItem>
+                                                        <SelectItem value="8">8</SelectItem>
+                                                        <SelectItem value="10">10</SelectItem>
+                                                        <SelectItem value="12">12</SelectItem>
+                                                        <SelectItem value="14">14</SelectItem>
+                                                        <SelectItem value="16">16</SelectItem>
+                                                        <SelectItem value="18">18</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="blood_type"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Tipo RH</FormLabel>
+                                                <Select onValueChange={field.onChange} value={field.value || ''}>
+                                                    <FormControl>
+                                                        <SelectTrigger><SelectValue placeholder="Elegir" /></SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="O+">O+</SelectItem>
+                                                        <SelectItem value="O-">O-</SelectItem>
+                                                        <SelectItem value="A+">A+</SelectItem>
+                                                        <SelectItem value="A-">A-</SelectItem>
+                                                        <SelectItem value="B+">B+</SelectItem>
+                                                        <SelectItem value="B-">B-</SelectItem>
+                                                        <SelectItem value="AB+">AB+</SelectItem>
+                                                        <SelectItem value="AB-">AB-</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="eps_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>EPS</FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Ej: Sanitas, Sura, Compensar, Nueva EPS..." {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                             </div>
 
                             {/* Información Médica */}

@@ -37,7 +37,9 @@ export function AppSidebar() {
   const isCollapsed = !isMobile && state === 'collapsed';
 
   // Normalize role for navigation mapping
-  const effectiveRole = currentUserRole || profile.role;
+  const effectiveRole = profile?.role === 'personal_trainer' 
+    ? 'personal_trainer' 
+    : (currentUserRole || profile?.role);
   let navigationRole: UserRole = 'athlete';
 
   if (effectiveRole) {
@@ -66,6 +68,9 @@ export function AppSidebar() {
       case 'athlete':
         navigationRole = 'athlete';
         break;
+      case 'personal_trainer':
+        navigationRole = 'personal_trainer';
+        break;
       default:
         navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
@@ -82,7 +87,7 @@ export function AppSidebar() {
   };
 
   const getRoleBadge = () => {
-    const roleToShow = currentUserRole || profile.role;
+    const roleToShow = effectiveRole;
     if (roleToShow === 'owner') return 'Propietario';
     if (roleToShow === 'reporter') return 'Auditoría';
     if (roleToShow === 'school_admin' || roleToShow === 'admin') {
@@ -91,7 +96,8 @@ export function AppSidebar() {
     const roleLabels: Record<string, string> = {
       athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
       school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
-      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante'
+      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante',
+      personal_trainer: 'Entrenador Personal',
     };
     return roleLabels[roleToShow as string] || roleToShow;
   };

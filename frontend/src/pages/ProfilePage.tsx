@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,13 +23,17 @@ import {
   Edit2,
   Save,
   X,
-  Camera
+  Camera,
+  Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useStorage } from '@/hooks/useStorage';
 
 export default function ProfilePage() {
   const { user, profile, updateProfile } = useAuth();
   const { toast } = useToast();
+  const { uploadFile, uploading: isUploadingAvatar } = useStorage();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -79,6 +83,24 @@ export default function ProfilePage() {
       date_of_birth: profile?.date_of_birth || '',
     });
     setIsEditing(false);
+  };
+  
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile?.id) return;
+
+    try {
+      const publicUrl = await uploadFile(file, 'avatars', `profiles/${profile.id}`);
+      if (publicUrl) {
+        setFormData(prev => ({ ...prev, avatar_url: publicUrl }));
+        toast({
+          title: 'Imagen cargada',
+          description: 'Recuerda guardar los cambios para conservar la nueva foto.',
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+    }
   };
 
   const getRoleName = (role: string) => {
@@ -153,13 +175,24 @@ export default function ProfilePage() {
                 </AvatarFallback>
               </Avatar>
               {isEditing && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="absolute bottom-0 right-0 h-8 w-8 rounded-full p-0"
-                >
-                  <Camera className="h-4 w-4" />
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="absolute bottom-0 right-0 h-8 w-8 rounded-full p-0 shadow-md hover:bg-primary hover:text-white transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingAvatar}
+                  >
+                    {isUploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                  </Button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                  />
+                </>
               )}
             </div>
             <div className="space-y-1">

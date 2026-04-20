@@ -127,11 +127,11 @@ export default function GoalsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-poppins">Mis Objetivos</h1>
-          <p className="text-muted-foreground mt-1 font-poppins">
+          <h1 className="text-3xl font-bold tracking-tight">Mis Objetivos</h1>
+          <p className="text-muted-foreground mt-1">
             Establece y rastrea tus metas deportivas
           </p>
         </div>
@@ -145,10 +145,17 @@ export default function GoalsPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Nuevo Objetivo</DialogTitle>
-              <DialogDescription>
-                Define una meta deportiva para mantener tu motivación.
-              </DialogDescription>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle>Nuevo Objetivo</DialogTitle>
+                  <DialogDescription>
+                    Define una meta deportiva para mantener tu motivación.
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -192,41 +199,41 @@ export default function GoalsPage() {
 
       {/* Stats Summary */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-primary/10">
-                <Target className="h-6 w-6 text-primary" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Target className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Objetivos</p>
-                <p className="text-2xl font-bold font-poppins">{list.length}</p>
+                <p className="text-xs text-muted-foreground">Total Objetivos</p>
+                <p className="text-2xl font-bold">{list.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-[hsl(119,60%,32%)]/10">
-                <CheckCircle2 className="h-6 w-6 text-[hsl(119,60%,32%)]" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Completados</p>
-                <p className="text-2xl font-bold font-poppins">{completedGoals.length}</p>
+                <p className="text-xs text-muted-foreground">Completados</p>
+                <p className="text-2xl font-bold">{completedGoals.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-[hsl(35,97%,55%)]/10">
-                <Clock className="h-6 w-6 text-[hsl(35,97%,55%)]" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-amber-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">En Progreso</p>
-                <p className="text-2xl font-bold font-poppins">{activeGoals.length}</p>
+                <p className="text-xs text-muted-foreground">En Progreso</p>
+                <p className="text-2xl font-bold">{activeGoals.length}</p>
               </div>
             </div>
           </CardContent>
@@ -236,7 +243,7 @@ export default function GoalsPage() {
       {/* Goals List */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 font-poppins">
+          <CardTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
             Mis Metas
           </CardTitle>
@@ -249,7 +256,7 @@ export default function GoalsPage() {
             >
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <h3 className="font-semibold font-poppins">{goal.title}</h3>
+                  <h3 className="font-semibold">{goal.title}</h3>
                   {goal.description && (
                     <p className="text-sm text-muted-foreground mt-1">{goal.description}</p>
                   )}
@@ -326,7 +333,7 @@ export default function GoalsPage() {
           {list.length === 0 && (
             <div className="text-center py-8">
               <Target className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground font-poppins">
+              <p className="text-muted-foreground">
                 Aún no has establecido objetivos
               </p>
               <Button className="mt-4 gap-2" onClick={() => setDialogOpen(true)}>

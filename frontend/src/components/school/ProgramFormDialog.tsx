@@ -28,8 +28,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Trophy, CheckCircle2 } from 'lucide-react';
+import { Loader2, GraduationCap, CheckCircle2 } from 'lucide-react';
 import { NumberStepper } from '../ui/number-stepper';
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 
 interface ProgramFormData {
   name: string;
@@ -64,19 +65,7 @@ interface ProgramFormDialogProps {
   };
 }
 
-const sports = [
-  'Fútbol',
-  'Baloncesto',
-  'Voleibol',
-  'Tenis',
-  'Natación',
-  'Gimnasia',
-  'Artes Marciales',
-  'Atletismo',
-  'Béisbol',
-  'Cheerleading',
-  'Otro',
-];
+const sports = SPORTS_LIST;
 
 export function ProgramFormDialog({
   open,
@@ -242,15 +231,15 @@ export function ProgramFormDialog({
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 font-poppins">
-                <Trophy className="w-5 h-5 text-primary" />
-                {program?.id ? 'Editar Programa' : 'Nuevo Programa'}
-              </DialogTitle>
-              <DialogDescription>
-                {program?.id
-                  ? 'Actualiza la información del programa'
-                  : 'Crea un nuevo programa deportivo para tu escuela'}
-              </DialogDescription>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <GraduationCap className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle>{program?.id ? 'Editar Programa' : 'Nuevo Programa'}</DialogTitle>
+                  <DialogDescription>Configura un nuevo programa deportivo.</DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
 
             <Form {...form}>

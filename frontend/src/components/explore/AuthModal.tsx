@@ -13,10 +13,10 @@ interface AuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   redirectPath?: string;
-  programId?: string;
+  teamId?: string;
 }
 
-export function AuthModal({ open, onOpenChange, redirectPath, programId }: AuthModalProps) {
+export function AuthModal({ open, onOpenChange, redirectPath, teamId }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,8 +51,8 @@ export function AuthModal({ open, onOpenChange, redirectPath, programId }: AuthM
       // Redirigir a la ruta guardada o al dashboard
       if (redirectPath) {
         navigate(redirectPath);
-      } else if (programId) {
-        navigate(`/enrollments?enroll=${programId}`);
+      } else if (teamId) {
+        navigate(`/enrollments?enroll=${teamId}`);
       } else {
         navigate('/dashboard');
       }
@@ -106,8 +106,8 @@ export function AuthModal({ open, onOpenChange, redirectPath, programId }: AuthM
       // Redirigir a la ruta guardada o al dashboard
       if (redirectPath) {
         navigate(redirectPath);
-      } else if (programId) {
-        navigate(`/enrollments?enroll=${programId}`);
+      } else if (teamId) {
+        navigate(`/enrollments?enroll=${teamId}`);
       } else {
         navigate('/dashboard');
       }
@@ -128,7 +128,7 @@ export function AuthModal({ open, onOpenChange, redirectPath, programId }: AuthM
         <DialogHeader>
           <DialogTitle className="text-2xl">Continuar con tu reserva</DialogTitle>
           <DialogDescription>
-            {programId 
+            {teamId 
               ? 'Para continuar con tu inscripción, necesitas crear una cuenta o iniciar sesión'
               : 'Para reservar en esta academia, necesitas crear una cuenta o iniciar sesión'
             }

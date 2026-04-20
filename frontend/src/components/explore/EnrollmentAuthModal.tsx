@@ -14,7 +14,7 @@ import { savePendingEnrollment } from '@/lib/pending-enrollment';
 interface EnrollmentAuthModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  program?: {
+  team?: {
     id: string;
     name: string;
     price: number;
@@ -25,7 +25,7 @@ interface EnrollmentAuthModalProps {
   };
 }
 
-export function EnrollmentAuthModal({ open, onOpenChange, program, school }: EnrollmentAuthModalProps) {
+export function EnrollmentAuthModal({ open, onOpenChange, team, school }: EnrollmentAuthModalProps) {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('register');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -46,13 +46,13 @@ export function EnrollmentAuthModal({ open, onOpenChange, program, school }: Enr
 
   const handleSuccess = () => {
     // Guardar inscripción pendiente en localStorage
-    if (program && school) {
+    if (team && school) {
       savePendingEnrollment({
-        programId: program.id,
-        programName: program.name,
+        teamId: team.id,
+        teamName: team.name,
         schoolId: school.id,
         schoolName: school.name,
-        amount: program.price,
+        amount: team.price,
       });
     }
 
@@ -135,11 +135,11 @@ export function EnrollmentAuthModal({ open, onOpenChange, program, school }: Enr
       <DialogContent className="max-w-md font-poppins">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">
-            {program ? 'Continuar con tu inscripción' : 'Inicia sesión para continuar'}
+            {team ? 'Continuar con tu inscripción' : 'Inicia sesión para continuar'}
           </DialogTitle>
           <DialogDescription>
-            {program 
-              ? `Para inscribirte en "${program.name}", necesitas crear una cuenta o iniciar sesión`
+            {team 
+              ? `Para inscribirte en "${team.name}", necesitas crear una cuenta o iniciar sesión`
               : 'Para reservar en esta academia, necesitas crear una cuenta o iniciar sesión'
             }
           </DialogDescription>

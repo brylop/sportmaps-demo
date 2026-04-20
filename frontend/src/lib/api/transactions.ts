@@ -47,7 +47,7 @@ class TransactionAPI {
                     const res = await checkoutAPI.processEnrollment({
                         student_id: item.metadata.childId || userId,
                         parent_id: userId,
-                        class_id: item.metadata.programId,
+                        class_id: item.metadata.teamId,
                         school_id: item.metadata.schoolId,
                         amount: item.price,
                         payment_method: paymentMethod,

@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
@@ -8,19 +8,19 @@ import { ActivityList } from '@/components/dashboard/ActivityList';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NotificationList } from '@/components/dashboard/NotificationList';
 import { WelcomeMessage } from '@/components/dashboard/WelcomeMessage';
-import { ProfileCompletionBanner } from '@/components/dashboard/ProfileCompletionBanner';
 import { PendingEnrollmentModal } from '@/components/dashboard/PendingEnrollmentModal';
 import { useDashboardConfig } from '@/hooks/useDashboardConfig';
 import { useNotifications, useDashboardStats } from '@/hooks/useDashboardStats';
 import { useDashboardStatsReal } from '@/hooks/useDashboardStatsReal'; // Import the new hook
 import WelcomeSplash from '@/components/WelcomeSplash';
 import { UserRole, OnboardingStep } from '@/types/dashboard';
-import { Plus, MapPin } from 'lucide-react';
+import { Plus, MapPin, Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
 import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
+import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -30,14 +30,17 @@ export default function DashboardPage() {
   const { activeBranchId, activeBranchName, totalBranches, schoolName } = useSchoolContext();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
-  const [showProfileBanner, setShowProfileBanner] = useState(true);
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
   const [invitation, setInvitation] = useState<any | null>(null); // Keep any for polymorphic invitation data for now, but remove explicit any when possible
   const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
+  const [rpcStatus, setRpcStatus] = useState<any>(null);
   const hasAutoOpenedRef = useRef(false);
 
   // Show welcome splash if it's the first time
@@ -142,6 +145,8 @@ export default function DashboardPage() {
       console.log('Onboarding status updated:', status);
 
       if (status) {
+        setOnboardingStatus(status.onboarding_status);
+        setRpcStatus(status);
         // 2. Gestionar invitaciones
         const { data: invitations, error: inviteError } = await supabase
           .from('invitations')
@@ -165,7 +170,7 @@ export default function DashboardPage() {
         setOnboardingSteps(steps);
 
         if (steps.every(s => s.completed)) {
-          setShowProfileBanner(false);
+          // No banner logic needed here anymore
         }
 
         // 4. Integrar lógica del Coach Wizard
@@ -193,6 +198,14 @@ export default function DashboardPage() {
   useEffect(() => {
     refreshOnboardingData();
   }, [refreshOnboardingData]);
+
+  // ── Personal Trainer redirect ────────────────────────────────────────────────
+  // If a personal_trainer lands on /dashboard (default post-login redirect),
+  // send them to their own workspace immediately.
+  if (profile?.role === 'personal_trainer') {
+    return <Navigate to="/trainer/dashboard" replace />;
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   if (!profile) return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -236,14 +249,20 @@ export default function DashboardPage() {
           };
         }
         if (index === 1) {
-          // Programs (Config Index 1) - Label and value
           const count = realStats.classes_count || 0;
-          const label = profile.role === 'coach' ? 'Equipos' : 'Programas';
+          const plansCount = (realStats as any).plans_count ?? 0;
+          if (profile.role === 'coach') {
+            return { ...stat, value: count, description: 'Equipos asignados' };
+          }
+          // owner/school → split card showing Equipos + Planes
           return {
             ...stat,
-            label, // Override label if coach
+            title: 'Equipos',
             value: count,
-            description: profile.role === 'coach' ? 'Equipos asignados' : 'Clases/Programas creados'
+            description: undefined,
+            splitValue: plansCount,
+            splitTitle: 'Planes',
+            splitIcon: Zap,
           };
         }
         if (index === 2) {
@@ -357,11 +376,6 @@ export default function DashboardPage() {
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />
 
-      {/* Profile Completion Banner */}
-      {showProfileBanner && (
-        <ProfileCompletionBanner onDismiss={() => setShowProfileBanner(false)} />
-      )}
-
       {/* Invitations and Onboarding Checklist */}
       {invitation && !['school', 'school_admin', 'admin', 'super_admin', 'owner'].includes(profile.role as string) && (
         <InvitationBanner
@@ -373,7 +387,25 @@ export default function DashboardPage() {
         />
       )}
 
-      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && (
+      {/* Wizard guiado para escuelas */}
+      {rpcStatus && ['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string)
+        && onboardingStatus !== 'completed'
+        && rpcStatus.has_school && (
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+          <SchoolOnboardingWizard
+            status={rpcStatus}
+            onComplete={() => {
+              setOnboardingStatus('completed');
+              refreshOnboardingData();
+            }}
+            onRefresh={refreshOnboardingData}
+          />
+        </div>
+      )}
+
+      {/* Checklist genérico para otros roles (parent, coach, athlete) */}
+      {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed'
+        && !['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string) && (
         <div className="animate-in fade-in slide-in-from-top-4 duration-500">
           <DashboardChecklist
             steps={onboardingSteps}

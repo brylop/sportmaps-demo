@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import React from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
 
 /**
- * Represents a sports program offered by a school.
+ * Represents a sports team or group offered by a school.
  */
-export interface SchoolProgram {
+export interface SchoolTeam {
     id: string;
     name: string;
     monthly_fee: number;
@@ -37,8 +37,8 @@ export interface SchoolContext {
     schoolName: string;
     /** The role of the current user in the active school. */
     currentUserRole: SchoolRole['role'] | null;
-    /** List of programs available in the active school/branch. */
-    programs: SchoolProgram[];
+    /** List of teams/groups available in the active school/branch. */
+    teams: SchoolTeam[];
     /** List of all schools the user is a member of. */
     availableSchools: SchoolRole[];
     /** The ID of the currently active branch (null for all branches). */
@@ -97,7 +97,7 @@ function useSchoolContextManager(): SchoolContext {
     const [currentUserRole, setCurrentUserRole] = useState<SchoolRole['role'] | null>(null);
 
     const [availableSchools, setAvailableSchools] = useState<SchoolRole[]>([]);
-    const [programs, setPrograms] = useState<SchoolProgram[]>([]);
+    const [teams, setTeams] = useState<SchoolTeam[]>([]);
     const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
     const [activeBranchName, setActiveBranchName] = useState('Todas las sedes');
     const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'in_progress' | 'completed'>('completed');
@@ -109,6 +109,28 @@ function useSchoolContextManager(): SchoolContext {
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+
+    // Track the current user ID to detect user changes
+    const currentUserIdRef = useRef<string | null>(null);
+
+    // Reset all school state (called on sign-out or user change)
+    const resetState = useCallback(() => {
+        setActiveSchoolId(null);
+        setActiveSchoolName('Escuela');
+        setCurrentUserRole(null);
+        setAvailableSchools([]);
+        setTeams([]);
+        setActiveBranchId(null);
+        setActiveBranchName('Todas las sedes');
+        setOnboardingStatus('completed');
+        setSchoolSettings(null);
+        setSchoolBranding(null);
+        setIsGlobalAdmin(false);
+        setTotalBranchesCount(0);
+        setBranches([]);
+        setError(null);
+        currentUserIdRef.current = null;
+    }, []);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
@@ -135,8 +157,8 @@ function useSchoolContextManager(): SchoolContext {
             } else {
                 console.log('No demo school found for guest.');
             }
-            // Start fetch programs immediately for fallback
-            if (activeSchoolId) fetchPrograms(activeSchoolId);
+            // Start fetch teams immediately for fallback
+            if (activeSchoolId) fetchTeams(activeSchoolId);
         };
 
         const resolveUserContext = async () => {
@@ -231,6 +253,24 @@ function useSchoolContextManager(): SchoolContext {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // 1b. Listen for auth changes to reset state on sign-out / re-resolve on new sign-in
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT' || !session?.user) {
+                resetState();
+            } else if (event === 'SIGNED_IN' && session?.user) {
+                // Only re-resolve if the user actually changed
+                if (currentUserIdRef.current !== session.user.id) {
+                    currentUserIdRef.current = session.user.id;
+                    // Reset first, then the initial effect will handle re-resolving
+                    // via a full page navigation (signOut redirects to login)
+                }
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [resetState]);
+
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
         setActiveSchoolId(school.schoolId);
@@ -285,7 +325,7 @@ function useSchoolContextManager(): SchoolContext {
         if (anyInSchool) selectSchool(anyInSchool);
     };
 
-    const fetchPrograms = useCallback(async (id: string, branchId: string | null = null) => {
+    const fetchTeams = useCallback(async (id: string, branchId: string | null = null) => {
         if (!id || id === "") return;
         setLoading(true);
         try {
@@ -298,11 +338,11 @@ function useSchoolContextManager(): SchoolContext {
                 query = query.eq('branch_id', branchId);
             }
 
-            const { data: programsData } = await query;
+            const { data: teamsData } = await query;
 
-            if (programsData) {
-                setPrograms(
-                    programsData.map((p: any) => ({
+            if (teamsData) {
+                setTeams(
+                    teamsData.map((p: any) => ({
                         id: p.id,
                         name: p.name,
                         monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
@@ -311,7 +351,7 @@ function useSchoolContextManager(): SchoolContext {
                     }))
                 );
             } else {
-                setPrograms([]);
+                setTeams([]);
             }
         } catch (e) {
             console.error(e);
@@ -415,12 +455,12 @@ function useSchoolContextManager(): SchoolContext {
         }
     };
 
-    // 2a. Effect: Fetch Branch-specific data (Programs)
+    // 2a. Effect: Fetch Branch-specific data (Teams)
     useEffect(() => {
         if (activeSchoolId && activeSchoolId !== "") {
-            fetchPrograms(activeSchoolId, activeBranchId);
+            fetchTeams(activeSchoolId, activeBranchId);
         }
-    }, [activeSchoolId, activeBranchId, fetchPrograms]);
+    }, [activeSchoolId, activeBranchId, fetchTeams]);
 
     // 2b. Effect: Fetch School-wide data (Settings, Branding)
     // Only happens when the school changes, NOT the branch.
@@ -440,7 +480,7 @@ function useSchoolContextManager(): SchoolContext {
         schoolId: activeSchoolId,
         schoolName: activeSchoolName,
         currentUserRole,
-        programs,
+        teams,
         availableSchools,
         activeBranchId,
         activeBranchName,
@@ -496,26 +536,26 @@ export async function createStudentWithPendingPayment(params: {
     schoolId: string;
     schoolName?: string;
     branchId?: string;
-    programId?: string;
-    programName?: string;
+    teamId?: string;
+    teamName?: string;
     monthlyFee?: number; // Optional now, will fetch if missing
     medicalInfo?: string;
     notes?: string;
 }) {
-    const { schoolId, programId } = params;
+    const { schoolId, teamId } = params;
     let { monthlyFee } = params;
 
-    // 0. Fetch program price if not provided (from teams table)
-    if (!monthlyFee && programId) {
-        const { data: program } = await supabase
+    // 0. Fetch team price if not provided (from teams table)
+    if (!monthlyFee && teamId) {
+        const { data: team } = await supabase
             .from('teams')
             .select('price_monthly, name')
-            .eq('id', programId)
+            .eq('id', teamId)
             .maybeSingle();
 
-        if (program) {
-            monthlyFee = program.price_monthly || 150000;
-            if (!params.programName) params.programName = program.name;
+        if (team) {
+            monthlyFee = team.price_monthly || 150000;
+            if (!params.teamName) params.teamName = team.name;
         }
     }
 
@@ -532,8 +572,7 @@ export async function createStudentWithPendingPayment(params: {
             medical_info: params.medicalInfo || null,
             school_id: params.schoolId,
             branch_id: params.branchId || null,
-            program_id: params.programId || null,
-            team_id: params.programId || null,
+            team_id: params.teamId || null,
         })
         .select()
         .single();
@@ -558,7 +597,7 @@ export async function createStudentWithPendingPayment(params: {
             school_id: schoolId,
             branch_id: params.branchId || null,
             amount: monthlyFee,
-            concept: `Mensualidad ${params.programName || 'Programa'} - ${params.fullName}`,
+            concept: `Mensualidad ${params.teamName || 'Equipo'} - ${params.fullName}`,
             due_date: dueDate.toISOString().split('T')[0],
             status: 'pending',
             payment_type: 'monthly',
@@ -578,7 +617,7 @@ export async function createStudentWithPendingPayment(params: {
             const { data: inviteId, error: inviteError } = await supabase.rpc('invite_parent_to_school', {
                 p_parent_email: params.parentEmail.toLowerCase().trim(),
                 p_child_name: params.fullName,
-                p_program_id: params.programId || null,
+                p_team_id: params.teamId || null,
                 p_monthly_fee: params.monthlyFee
             });
 

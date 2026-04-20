@@ -41,10 +41,10 @@ export default function WellnessSchedulePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Agenda de Citas</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Agenda de Citas</h1>
           <p className="text-muted-foreground">Gestiona tus citas y consultas</p>
           {isUsingMockData && (
             <Badge variant="secondary" className="mt-2">Mostrando datos de demostración</Badge>
@@ -57,55 +57,55 @@ export default function WellnessSchedulePage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Citas Hoy</p>
-                <p className="text-2xl font-bold">
-                  {isUsingMockData ? 3 : stats.todayAppointments}
-                </p>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-primary" />
               </div>
-              <Calendar className="h-8 w-8 text-primary" />
+              <div>
+                <p className="text-xs text-muted-foreground">Citas Hoy</p>
+                <p className="text-2xl font-bold">{isUsingMockData ? 3 : stats.todayAppointments}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Confirmadas</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {isUsingMockData ? 3 : stats.confirmedAppointments}
-                </p>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <CheckCircle className="h-4 w-4 text-green-500" />
               </div>
-              <CheckCircle className="h-8 w-8 text-green-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Confirmadas</p>
+                <p className="text-2xl font-bold">{isUsingMockData ? 3 : stats.confirmedAppointments}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pendientes</p>
-                <p className="text-2xl font-bold text-yellow-600">
-                  {isUsingMockData ? 2 : stats.pendingAppointments}
-                </p>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <AlertCircle className="h-4 w-4 text-yellow-500" />
               </div>
-              <AlertCircle className="h-8 w-8 text-yellow-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Pendientes</p>
+                <p className="text-2xl font-bold">{isUsingMockData ? 2 : stats.pendingAppointments}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pacientes Activos</p>
-                <p className="text-2xl font-bold">
-                  {isUsingMockData ? 5 : stats.totalPatients}
-                </p>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-blue-500" />
               </div>
-              <User className="h-8 w-8 text-blue-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Pacientes Activos</p>
+                <p className="text-2xl font-bold">{isUsingMockData ? 5 : stats.totalPatients}</p>
+              </div>
             </div>
           </CardContent>
         </Card>

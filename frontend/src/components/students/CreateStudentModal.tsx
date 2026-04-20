@@ -24,7 +24,7 @@ interface CreateStudentModalProps {
 }
 
 export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: CreateStudentModalProps) {
-    const { schoolName, programs, activeBranchId, defaultMonthlyFee } = useSchoolContext();
+    const { schoolName, teams, activeBranchId, defaultMonthlyFee } = useSchoolContext();
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
 
@@ -34,7 +34,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
         parentName: '',
         parentEmail: '',
         parentPhone: '',
-        programId: '',
+        teamId: '',
         monthlyFee: defaultMonthlyFee,
     });
 
@@ -51,7 +51,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
 
         setLoading(true);
         try {
-            const selectedProgram = programs.find(p => p.id === formData.programId);
+            const selectedProgram = teams.find(p => p.id === formData.teamId);
 
             await createStudentWithPendingPayment({
                 fullName: formData.fullName,
@@ -62,8 +62,8 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                 schoolId,
                 schoolName: schoolName || 'Tu Escuela',
                 branchId: selectedProgram?.branch_id || activeBranchId || undefined,
-                programId: formData.programId || undefined,
-                programName: selectedProgram?.name || 'Programa General',
+                teamId: formData.teamId || undefined,
+                teamName: selectedProgram?.name || 'Programa General',
                 monthlyFee: formData.monthlyFee,
             });
 
@@ -92,17 +92,17 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
             parentName: '',
             parentEmail: '',
             parentPhone: '',
-            programId: '',
+            teamId: '',
             monthlyFee: defaultMonthlyFee,
         });
         onClose();
     };
 
     const handleProgramChange = (val: string) => {
-        const prog = programs.find(p => p.id === val);
+        const prog = teams.find(p => p.id === val);
         setFormData(prev => ({
             ...prev,
-            programId: val,
+            teamId: val,
             monthlyFee: prog?.monthly_fee || defaultMonthlyFee
         }));
     };
@@ -144,12 +144,12 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="progId">Programa / Clase</Label>
-                            <Select value={formData.programId} onValueChange={handleProgramChange}>
+                            <Select value={formData.teamId} onValueChange={handleProgramChange}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Seleccionar" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {programs.map(p => (
+                                    {teams.map(p => (
                                         <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                                     ))}
                                 </SelectContent>

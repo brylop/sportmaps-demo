@@ -9,7 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { useToast } from '@/hooks/use-toast';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import {
   BarChart3, Download, TrendingUp, Users, Trophy,
   Calendar, AlertCircle, CheckCircle, Shirt, Swords,
@@ -165,7 +167,11 @@ function ResultRow({ r, index }: { r: MatchResult; index: number }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function CoachReportsPage() {
   const { user } = useAuth();
+  const { schoolId } = useSchoolContext();
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+
+  // 0. Staff profile vía hook (vínculo directo Supabase)
+  const { staffId } = useCoachStaffId();
 
   // ── 1. Equipos del coach ──────────────────────────────────────────────────
   const {
@@ -173,25 +179,15 @@ export default function CoachReportsPage() {
     isLoading: teamsLoading,
     isError: teamsError,
   } = useQuery<TeamOption[]>({
-    queryKey: ['coach-teams', user?.id],
+    queryKey: ['coach-teams', user?.id, schoolId, staffId],
     queryFn: async () => {
-      if (!user?.id) return [];
-
-      // Buscar staffId vinculado al email (por si el coach está en school_staff)
-      let staffId: string | null = null;
-      if (user.email) {
-        const { data: staffData } = await supabase
-          .from('school_staff')
-          .select('id')
-          .eq('email', user.email)
-          .maybeSingle();
-        if (staffData) staffId = staffData.id;
-      }
+      if (!user?.id || !schoolId) return [];
 
       // Obtener equipos con tabla de relación team_coaches incluida
       const { data: teamsData, error } = await (supabase
         .from('teams')
-        .select('id, name, coach_id, age_group, team_coaches(coach_id)') as any);
+        .select('id, name, coach_id, age_group, team_coaches(coach_id)')
+        .eq('school_id', schoolId) as any);
 
       if (error) throw error;
 
@@ -447,7 +443,7 @@ export default function CoachReportsPage() {
 
   // ── 5. Render ────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
 
       {/* Encabezado */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

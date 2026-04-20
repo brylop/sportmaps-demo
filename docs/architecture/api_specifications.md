@@ -1,281 +1,80 @@
-# 🔌 API Specifications - SportMaps Backend
+# API Specifications - SportMaps BFF
 
-**Base URL:** `https://api.sportmaps.com/v1`
-**Environment Variables Required:**
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `EPAYCO_PUBLIC_KEY`
-- `EPAYCO_PRIVATE_KEY`
-- `EPAYCO_P_CUST_ID_CLIENTE`
-- `EPAYCO_P_KEY`
+**Base URL (local):** `http://localhost:3000`
+**Base URL (produccion):** Configurada via `FRONTEND_URL` en variables de entorno
 
-**Autenticación:** Bearer token de Supabase en header `Authorization`
+**Autenticacion:** Bearer token de Supabase en header `Authorization: Bearer <token>`
+**Content-Type:** `application/json`
 
----
-
-## 📑 Tabla de Contenidos
-
-1. [Autenticación](#autenticación)
-2. [Escuelas (Schools)](#escuelas-schools)
-3. [Estudiantes (Students)](#estudiantes-students)
-4. [Programas (Programs)](#programas-programs)
-5. [Clases (Classes)](#clases-classes)
-6. [Inscripciones (Enrollments)](#inscripciones-enrollments)
-7. [Pagos (Payments)](#pagos-payments)
-8. [Asistencia (Attendance)](#asistencia-attendance)
-9. [Comunicaciones (Communications)](#comunicaciones-communications)
-10. [Marketplace](#marketplace)
-11. [Dashboard & Analytics](#dashboard--analytics)
+**Variables de entorno requeridas:**
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`
+- `EPAYCO_PUBLIC_KEY` / `EPAYCO_PRIVATE_KEY` / `EPAYCO_P_CUST_ID_CLIENTE` / `EPAYCO_P_KEY`
+- `FRONTEND_URL`
 
 ---
 
-## 🔐 Autenticación
+## Tabla de Contenidos
 
-### POST `/auth/register`
-Registrar nuevo usuario (escuela o padre).
-
-**Request Body:**
-```json
-{
-  "email": "admin@escuela.com",
-  "password": "SecurePassword123!",
-  "full_name": "Juan Pérez",
-  "role": "school_admin",
-  "school_name": "Academia Elite FC",
-  "phone": "+57 300 1234567"
-}
-```
-
-**Response (201):**
-```json
-{
-  "user": {
-    "id": "uuid",
-    "email": "admin@escuela.com",
-    "role": "school_admin"
-  },
-  "session": {
-    "access_token": "jwt_token",
-    "refresh_token": "refresh_token"
-  },
-  "message": "Verification email sent"
-}
-```
-
-**Errores:**
-- `400`: Email ya existe
-- `422`: Validación fallida
+1. [Health Check](#1-health-check)
+2. [Estudiantes (Students)](#2-estudiantes)
+3. [Inscripciones (Enrollments)](#3-inscripciones)
+4. [Asistencia (Attendance)](#4-asistencia)
+5. [Ofertas y Planes (Offerings)](#5-ofertas-y-planes)
+6. [Session Bookings](#6-session-bookings)
+7. [Contexto de Escuela](#7-contexto-de-escuela)
+8. [Configuracion Deportiva](#8-configuracion-deportiva)
+9. [Eventos de Facturacion](#9-eventos-de-facturacion)
+10. [Reportes](#10-reportes)
+11. [Pagos (ePayco)](#11-pagos-epayco)
+12. [Webhooks](#12-webhooks)
+13. [Explorar (Publico)](#13-explorar)
+14. [Favoritos](#14-favoritos)
+15. [Staff de Escuela](#15-staff-de-escuela)
+16. [Eventos Deportivos](#16-eventos-deportivos)
+17. [Organizadores](#17-organizadores)
+18. [Delegaciones de Escuela](#18-delegaciones-de-escuela)
+19. [Templates (Plantillas)](#19-templates)
+20. [Encuestas (Polls)](#20-encuestas)
+21. [Marketplace](#21-marketplace)
+22. [Vendor (Vendedores)](#22-vendor)
+23. [Ordenes del Marketplace](#23-ordenes-del-marketplace)
+24. [Entrenador Personal (Trainer)](#24-entrenador-personal)
+25. [Sistema](#25-sistema)
+26. [OG Preview / Social Sharing](#26-og-preview)
+27. [Middleware y Seguridad](#27-middleware-y-seguridad)
+28. [Rate Limiting](#28-rate-limiting)
+29. [Manejo de Errores](#29-manejo-de-errores)
 
 ---
 
-### POST `/auth/login`
-Iniciar sesión.
+## 1. Health Check
 
-**Request Body:**
-```json
-{
-  "email": "admin@escuela.com",
-  "password": "SecurePassword123!"
-}
-```
+**Ruta:** `/health`
+**Archivo:** `bff/src/index.ts`
+
+### GET `/health`
+Health check del servidor. Sin autenticacion.
 
 **Response (200):**
 ```json
 {
-  "user": {
-    "id": "uuid",
-    "email": "admin@escuela.com",
-    "role": "school_admin",
-    "full_name": "Juan Pérez",
-    "school_id": "uuid"
-  },
-  "session": {
-    "access_token": "jwt_token",
-    "refresh_token": "refresh_token"
-  }
+  "status": "ok",
+  "timestamp": "2026-04-16T10:00:00Z",
+  "version": "1.0.0"
 }
 ```
 
 ---
 
-### POST `/auth/reset-password`
-Solicitar reseteo de contraseña.
+## 2. Estudiantes
 
-**Request Body:**
-```json
-{
-  "email": "admin@escuela.com"
-}
-```
+**Base:** `/api/v1/students`
+**Archivos:** `bff/src/routes/students.ts`, `bff/src/routes/students-create-one.route.ts`
 
-**Response (200):**
-```json
-{
-  "message": "Password reset email sent"
-}
-```
+### GET `/api/v1/students`
+Listar estudiantes de la escuela.
 
----
-
-### POST `/auth/demo-login`
-Iniciar sesión en modo demo.
-
-**Request Body:**
-```json
-{
-  "demo_type": "school"
-}
-```
-
-**Response (200):**
-```json
-{
-  "user": {
-    "id": "demo_uuid",
-    "email": "demo@sportmaps.com",
-    "role": "school_admin",
-    "is_demo": true
-  },
-  "session": {
-    "access_token": "demo_jwt_token"
-  }
-}
-```
-
----
-
-## 🏫 Escuelas (Schools)
-
-### POST `/schools`
-Crear perfil de escuela (solo school_admin).
-
-**Request Body:**
-```json
-{
-  "name": "Academia Elite FC",
-  "slug": "academia-elite-fc",
-  "description": "Escuela de fútbol para niños...",
-  "email": "contacto@academiaelite.com",
-  "phone": "+57 300 1234567",
-  "address": "Calle 123 #45-67",
-  "city": "Bogotá",
-  "state": "Cundinamarca",
-  "sports_offered": ["football", "basketball"],
-  "operating_hours": {
-    "monday": {"open": "08:00", "close": "20:00"},
-    "tuesday": {"open": "08:00", "close": "20:00"}
-  },
-  "bank_name": "Banco Colombia",
-  "bank_account_number": "1234567890",
-  "nit": "900123456-7"
-}
-```
-
-**Response (201):**
-```json
-{
-  "id": "uuid",
-  "name": "Academia Elite FC",
-  "slug": "academia-elite-fc",
-  "profile_completion_percentage": 60,
-  "created_at": "2025-01-15T10:00:00Z"
-}
-```
-
----
-
-### GET `/schools/:id`
-Obtener detalles de una escuela.
-
-**Query Params:**
-- `include`: `programs,coaches,reviews` (opcional)
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "name": "Academia Elite FC",
-  "slug": "academia-elite-fc",
-  "description": "...",
-  "logo_url": "https://...",
-  "email": "contacto@...",
-  "phone": "+57 300...",
-  "address": "Calle 123...",
-  "city": "Bogotá",
-  "sports_offered": ["football"],
-  "average_rating": 4.5,
-  "total_reviews": 23,
-  "total_students": 87,
-  "programs": [...],
-  "coaches": [...],
-  "recent_reviews": [...]
-}
-```
-
----
-
-### PUT `/schools/:id`
-Actualizar perfil de escuela.
-
-**Request Body:** (Campos opcionales)
-```json
-{
-  "description": "Nueva descripción",
-  "logo_url": "https://...",
-  "phone": "+57 300 7654321",
-  "is_public": true
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "updated_fields": ["description", "phone"],
-  "profile_completion_percentage": 85
-}
-```
-
----
-
-### PUT `/schools/:id/location`
-Actualizar ubicación geográfica de escuela.
-
-**Request Body:**
-```json
-{
-  "latitude": 4.7110,
-  "longitude": -74.0721
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "location": {
-    "lat": 4.7110,
-    "lng": -74.0721
-  }
-}
-```
-
----
-
-## 👥 Estudiantes (Students)
-
-### GET `/schools/:school_id/students`
-Listar estudiantes de una escuela.
-
-**Query Params:**
-- `page`: Número de página (default: 1)
-- `per_page`: Resultados por página (default: 20, max: 100)
-- `search`: Búsqueda por nombre o email de padre
-- `status`: Filtrar por estado (`active`, `inactive`, `graduated`)
-- `program_id`: Filtrar por programa inscrito
-- `sort_by`: Campo para ordenar (`name`, `enrollment_date`, `age`)
-- `sort_order`: `asc` o `desc`
+**Auth:** `requireAuth` + `requireRole(owner, admin, super_admin, school_admin, school, coach, staff)`
 
 **Response (200):**
 ```json
@@ -283,244 +82,198 @@ Listar estudiantes de una escuela.
   "students": [
     {
       "id": "uuid",
-      "first_name": "Santiago",
-      "last_name": "García",
-      "age": 10,
-      "photo_url": "https://...",
-      "parent_name": "María García",
-      "parent_email": "maria@...",
-      "status": "active",
-      "enrollment_date": "2024-02-15",
-      "active_programs": [
-        {
-          "id": "uuid",
-          "name": "Fútbol Juvenil",
-          "payment_status": "paid"
-        }
-      ]
+      "full_name": "Santiago Garcia",
+      "avatar_url": "https://...",
+      "athlete_type": "child|user|unregistered",
+      "team_name": "Thunder",
+      "enrollment_status": "active",
+      "parent_name": "Maria Garcia",
+      "parent_email": "maria@email.com"
     }
-  ],
-  "pagination": {
-    "page": 1,
-    "per_page": 20,
-    "total": 87,
-    "total_pages": 5
-  }
+  ]
 }
 ```
 
 ---
 
-### POST `/schools/:school_id/students`
-Crear nuevo estudiante.
+### POST `/api/v1/students/bulk`
+Carga masiva de estudiantes via datos JSON (no CSV). Auto-crea branches, teams, enrollments, pagos e invitaciones.
+
+**Auth:** `requireAuth` + `requireRole(owner, admin, super_admin, school_admin, school, coach, staff)`
 
 **Request Body:**
 ```json
 {
+  "students": [
+    {
+      "first_name": "Santiago",
+      "last_name": "Garcia",
+      "doc_number": "1234567890",
+      "doc_type": "TI",
+      "date_of_birth": "2014-05-20",
+      "parent_name": "Maria Garcia",
+      "parent_email": "maria@email.com",
+      "parent_phone": "+573001234567",
+      "team_name": "Thunder",
+      "branch_name": "Sede Norte",
+      "monthly_fee": 220000
+    }
+  ],
+  "options": {
+    "upsert": true,
+    "defaultBranchId": "uuid (opcional)"
+  }
+}
+```
+
+**Response (200/207):**
+```json
+{
+  "success": true,
+  "message": "Importacion completada",
+  "summary": {
+    "total": 50,
+    "inserted": 45,
+    "updated": 3,
+    "skipped": 2,
+    "branches_created": 1,
+    "teams_created": 2,
+    "enrollments_created": 45,
+    "invitations_created": 30
+  },
+  "skipped": [
+    { "row": 12, "reason": "Email duplicado" }
+  ]
+}
+```
+
+---
+
+### POST `/api/v1/students/create-one`
+Crear un solo atleta. Soporta 4 tipos: menor (child), adulto existente, adulto por invitacion, adulto no registrado.
+
+**Auth:** `requireAuth` + `requireRole(owner, admin, super_admin, school_admin, school, coach, staff)`
+
+**Request Body (tipo child):**
+```json
+{
+  "type": "child",
   "first_name": "Santiago",
-  "last_name": "García",
+  "last_name": "Garcia",
+  "doc_number": "1234567890",
+  "doc_type": "TI",
   "date_of_birth": "2014-05-20",
-  "gender": "male",
-  "parent_name": "María García",
-  "parent_email": "maria.garcia@email.com",
-  "parent_phone": "+57 301 2345678",
-  "emergency_contact_name": "Pedro García",
-  "emergency_contact_phone": "+57 302 3456789",
-  "emergency_contact_relationship": "Padre",
-  "medical_notes": "Alergia al maní",
-  "photo_url": "https://..."
+  "medical_info": "Alergia al mani",
+  "parent_name": "Maria Garcia",
+  "parent_email": "maria@email.com",
+  "parent_phone": "+573001234567",
+  "team_id": "uuid (opcional)",
+  "offering_plan_id": "uuid (opcional)",
+  "offering_id": "uuid (opcional)",
+  "monthly_fee": 220000,
+  "start_date": "2026-02-01"
+}
+```
+
+**Request Body (tipo adult_existing):**
+```json
+{
+  "type": "adult_existing",
+  "user_id": "uuid",
+  "team_id": "uuid (opcional)",
+  "offering_plan_id": "uuid (opcional)",
+  "monthly_fee": 220000,
+  "start_date": "2026-02-01"
+}
+```
+
+**Request Body (tipo adult_invite):**
+```json
+{
+  "type": "adult_invite",
+  "email": "atleta@email.com"
+}
+```
+
+**Request Body (tipo unregistered_adult):**
+```json
+{
+  "type": "unregistered_adult",
+  "full_name": "Carlos Lopez",
+  "email": "carlos@email.com",
+  "phone": "+573001234567"
 }
 ```
 
 **Response (201):**
 ```json
 {
-  "id": "uuid",
-  "first_name": "Santiago",
-  "last_name": "García",
-  "age": 10,
-  "status": "active",
-  "created_at": "2025-01-15T10:00:00Z"
+  "success": true,
+  "child_id": "uuid (si type=child)",
+  "user_id": "uuid (si type=adult_existing)",
+  "unregistered_athlete_id": "uuid (si type=unregistered_adult)",
+  "enrollments_created": 1,
+  "payment_created": true,
+  "invitation_sent": true,
+  "message": "Atleta creado exitosamente"
 }
 ```
 
-**Errores:**
-- `400`: Email de padre duplicado en la escuela
-- `422`: Validación fallida
+---
+
+## 3. Inscripciones
+
+**Base:** `/api/v1/enrollments`
+**Archivo:** `bff/src/routes/enrollments.ts`
+
+### POST `/api/v1/enrollments`
+Crear inscripcion (a equipo o plan de oferta).
+
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin, coach, staff)`
+
+**Request Body:**
+```json
+{
+  "user_id": "uuid (opcional)",
+  "child_id": "uuid (opcional)",
+  "unregistered_athlete_id": "uuid (opcional)",
+  "team_id": "uuid (opcional)",
+  "offering_plan_id": "uuid (opcional)",
+  "status": "active|cancelled|pending",
+  "start_date": "2026-02-01",
+  "end_date": "2026-12-31"
+}
+```
+
+**Response (201):**
+```json
+{
+  "message": "Inscripcion creada",
+  "data": { "id": "uuid", "status": "active", "..." : "..." }
+}
+```
 
 ---
 
-### GET `/students/:id`
-Obtener detalles completos de un estudiante.
+### GET `/api/v1/enrollments`
+Listar inscripciones con filtros.
 
-**Query Params:**
-- `include`: `enrollments,payments,attendance` (opcional)
+**Auth:** `requireAuth`
+
+**Query Params:** `team_id`, `offering_plan_id`, `status`
 
 **Response (200):**
 ```json
 {
-  "id": "uuid",
-  "first_name": "Santiago",
-  "last_name": "García",
-  "date_of_birth": "2014-05-20",
-  "age": 10,
-  "gender": "male",
-  "photo_url": "https://...",
-  "parent_name": "María García",
-  "parent_email": "maria@...",
-  "parent_phone": "+57 301...",
-  "status": "active",
   "enrollments": [
     {
       "id": "uuid",
-      "program_name": "Fútbol Juvenil",
-      "enrollment_status": "confirmed",
-      "payment_status": "paid",
-      "monthly_amount": 220000,
-      "start_date": "2024-02-15"
-    }
-  ],
-  "attendance_summary": {
-    "total_classes": 48,
-    "present": 45,
-    "absent": 3,
-    "attendance_rate": 93.75
-  },
-  "payment_summary": {
-    "total_paid": 2640000,
-    "pending": 0,
-    "next_payment_date": "2025-02-01"
-  }
-}
-```
-
----
-
-### PUT `/students/:id`
-Actualizar información de estudiante.
-
-**Request Body:** (Campos opcionales)
-```json
-{
-  "parent_phone": "+57 301 9876543",
-  "medical_notes": "Alergia al maní y al látex",
-  "photo_url": "https://..."
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "updated_at": "2025-01-15T11:00:00Z"
-}
-```
-
----
-
-### PATCH `/students/:id/status`
-Cambiar estado de estudiante.
-
-**Request Body:**
-```json
-{
-  "status": "inactive",
-  "reason": "Familia se mudó de ciudad"
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "status": "inactive",
-  "status_changed_at": "2025-01-15T11:00:00Z"
-}
-```
-
----
-
-### DELETE `/students/:id`
-Eliminar estudiante (soft delete).
-
-**Response (204):**
-Sin contenido.
-
----
-
-### POST `/schools/:school_id/students/bulk-import`
-Importación masiva de estudiantes vía CSV.
-
-**Request:**
-```
-Content-Type: multipart/form-data
-```
-
-**Form Data:**
-- `file`: archivo CSV
-
-**Response (202):**
-```json
-{
-  "job_id": "uuid",
-  "status": "processing",
-  "message": "Import started. You will be notified when complete."
-}
-```
-
----
-
-### GET `/schools/:school_id/students/import-jobs/:job_id`
-Verificar estado de importación.
-
-**Response (200):**
-```json
-{
-  "job_id": "uuid",
-  "status": "completed",
-  "total_rows": 50,
-  "successful": 48,
-  "failed": 2,
-  "errors": [
-    {
-      "row": 12,
-      "error": "Email duplicado: juan@email.com"
-    },
-    {
-      "row": 35,
-      "error": "Fecha de nacimiento inválida"
-    }
-  ],
-  "completed_at": "2025-01-15T11:05:00Z"
-}
-```
-
----
-
-## 🎓 Programas (Programs)
-
-### GET `/schools/:school_id/programs`
-Listar programas de una escuela.
-
-**Query Params:**
-- `is_active`: `true` o `false`
-- `sport_type`: Filtrar por deporte
-
-**Response (200):**
-```json
-{
-  "programs": [
-    {
-      "id": "uuid",
-      "name": "Fútbol Juvenil (8-12 años)",
-      "sport_type": "football",
-      "skill_level": "intermediate",
-      "min_age": 8,
-      "max_age": 12,
-      "monthly_fee": 220000,
-      "current_enrollment": 34,
-      "max_capacity": 40,
-      "is_active": true
+      "user_id": "uuid",
+      "child_id": "uuid",
+      "team_id": "uuid",
+      "offering_plan_id": "uuid",
+      "status": "active",
+      "start_date": "2026-02-01"
     }
   ]
 }
@@ -528,90 +281,29 @@ Listar programas de una escuela.
 
 ---
 
-### POST `/schools/:school_id/programs`
-Crear nuevo programa.
+### GET `/api/v1/enrollments/my-plan`
+Obtener inscripciones activas del usuario autenticado con datos enriquecidos de plan/equipo.
 
-**Request Body:**
-```json
-{
-  "name": "Fútbol Juvenil (8-12 años)",
-  "sport_type": "football",
-  "skill_level": "intermediate",
-  "min_age": 8,
-  "max_age": 12,
-  "description": "Programa enfocado en desarrollo técnico...",
-  "monthly_fee": 220000,
-  "enrollment_fee": 50000,
-  "max_capacity": 40
-}
-```
+**Auth:** `requireAuth`
 
-**Response (201):**
-```json
-{
-  "id": "uuid",
-  "name": "Fútbol Juvenil (8-12 años)",
-  "created_at": "2025-01-15T10:00:00Z"
-}
-```
-
----
-
-### PUT `/programs/:id`
-Actualizar programa.
-
-**Request Body:** (Campos opcionales)
-```json
-{
-  "monthly_fee": 240000,
-  "max_capacity": 45,
-  "is_active": true
-}
-```
+**Query Params:** `child_id` (opcional, para hijos)
 
 **Response (200):**
 ```json
 {
-  "id": "uuid",
-  "updated_at": "2025-01-15T11:00:00Z"
-}
-```
-
----
-
-### DELETE `/programs/:id`
-Eliminar programa (solo si no tiene inscripciones activas).
-
-**Response (204):**
-Sin contenido.
-
-**Errores:**
-- `409`: Programa tiene inscripciones activas
-
----
-
-## 📅 Clases (Classes)
-
-### GET `/programs/:program_id/classes`
-Listar horarios de clase de un programa.
-
-**Response (200):**
-```json
-{
-  "classes": [
+  "enrollments": [
     {
       "id": "uuid",
-      "name": "Fútbol Juvenil - Grupo A",
-      "day_of_week": "monday",
-      "start_time": "16:00",
-      "end_time": "17:30",
-      "location": "Cancha 1",
-      "coach": {
-        "id": "uuid",
-        "name": "Carlos Rodríguez"
-      },
-      "current_enrollment": 18,
-      "max_capacity": 20
+      "offering_plan": { "name": "Plan Mensual", "max_sessions": 12, "price": 220000 },
+      "offering": { "name": "Futbol Juvenil", "offering_type": "membership" },
+      "team": { "name": "Thunder" },
+      "school": { "name": "Academia Elite FC" },
+      "computed": {
+        "plan_status": "active",
+        "percent_used": 42,
+        "days_left": 18,
+        "sessions_remaining": 7
+      }
     }
   ]
 }
@@ -619,537 +311,72 @@ Listar horarios de clase de un programa.
 
 ---
 
-### POST `/programs/:program_id/classes`
-Crear nuevo horario de clase.
+### POST `/api/v1/enrollments/assign-plan`
+Asignar plan de oferta a una inscripcion existente.
 
-**Request Body:**
-```json
-{
-  "name": "Fútbol Juvenil - Grupo A",
-  "day_of_week": "monday",
-  "start_time": "16:00",
-  "end_time": "17:30",
-  "location": "Cancha 1",
-  "coach_id": "uuid",
-  "max_capacity": 20
-}
-```
-
-**Response (201):**
-```json
-{
-  "id": "uuid",
-  "created_at": "2025-01-15T10:00:00Z"
-}
-```
-
-**Errores:**
-- `409`: Conflicto de horario con entrenador
-
----
-
-### PUT `/classes/:id`
-Actualizar horario de clase.
-
-**Request Body:** (Campos opcionales)
-```json
-{
-  "coach_id": "uuid",
-  "start_time": "17:00",
-  "location": "Cancha 2"
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "updated_at": "2025-01-15T11:00:00Z"
-}
-```
-
----
-
-### DELETE `/classes/:id`
-Eliminar clase.
-
-**Response (204):**
-Sin contenido.
-
----
-
-## 📝 Inscripciones (Enrollments)
-
-### POST `/students/:student_id/enrollments`
-Inscribir estudiante en un programa.
-
-**Request Body:**
-```json
-{
-  "program_id": "uuid",
-  "class_ids": ["uuid1", "uuid2"],
-  "start_date": "2025-02-01",
-  "payment_type": "automatic",
-  "payment_method": "credit_card"
-}
-```
-
-**Response (201):**
-```json
-{
-  "enrollment_id": "uuid",
-  "student_id": "uuid",
-  "program_id": "uuid",
-  "enrollment_status": "pending",
-  "payment_status": "pending",
-  "monthly_amount": 220000,
-  "next_step": "payment",
-  "payment_url": "https://checkout.epayco.co/..."
-}
-```
-
----
-
-### GET `/enrollments/:id`
-Obtener detalles de inscripción.
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "student": {
-    "id": "uuid",
-    "name": "Santiago García"
-  },
-  "program": {
-    "id": "uuid",
-    "name": "Fútbol Juvenil"
-  },
-  "classes": [
-    {
-      "id": "uuid",
-      "day": "monday",
-      "time": "16:00-17:30"
-    }
-  ],
-  "enrollment_status": "confirmed",
-  "payment_status": "paid",
-  "payment_type": "automatic",
-  "monthly_amount": 220000,
-  "next_payment_date": "2025-02-01",
-  "start_date": "2025-01-15"
-}
-```
-
----
-
-### PATCH `/enrollments/:id/cancel`
-Cancelar inscripción.
-
-**Request Body:**
-```json
-{
-  "reason": "Cambio de horario familiar",
-  "effective_date": "2025-02-01"
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "enrollment_status": "cancelled",
-  "cancelled_at": "2025-01-15T11:00:00Z"
-}
-```
-
----
-
-## 💳 Pagos (Payments)
-
-### POST `/payments/epayco/create`
-Crear checkout de pago con ePayco.
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
 
 **Request Body:**
 ```json
 {
   "enrollment_id": "uuid",
-  "amount": 220000,
-  "description": "Inscripción Fútbol Juvenil - Santiago García",
-  "parent_email": "maria@email.com",
-  "parent_name": "María García",
-  "tokenize_card": true
-}
-```
-
-**Response (200):**
-```json
-{
-  "checkout_url": "https://checkout.epayco.co/...",
-  "transaction_id": "uuid",
-  "reference": "SPORT-2025-001234"
+  "offering_plan_id": "uuid"
 }
 ```
 
 ---
 
-### POST `/payments/epayco/webhook`
-Webhook para recibir confirmación de ePayco.
+### PATCH `/api/v1/enrollments/:id`
+Actualizar inscripcion.
 
-**Request Body:** (Enviado por ePayco)
-```json
-{
-  "x_ref_payco": "123456",
-  "x_transaction_id": "78910",
-  "x_amount": "220000",
-  "x_currency_code": "COP",
-  "x_transaction_state": "Aceptada",
-  "x_signature": "hash..."
-}
-```
-
-**Response (200):**
-```json
-{
-  "status": "processed"
-}
-```
-
-**Proceso interno:**
-1. Verificar firma
-2. Actualizar transaction a `paid`
-3. Actualizar enrollment_status a `confirmed`
-4. Generar recibo PDF
-5. Enviar email con recibo
-6. Crear notificación
-
----
-
-### POST `/payments/manual/register`
-Registrar pago manual (transferencia).
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
 
 **Request Body:**
 ```json
 {
-  "enrollment_id": "uuid",
-  "amount": 220000,
-  "payment_method": "nequi",
-  "proof_of_payment_url": "https://cloudinary.com/...",
-  "notes": "Transferencia realizada el 15/01/2025"
-}
-```
-
-**Response (201):**
-```json
-{
-  "manual_payment_id": "uuid",
-  "transaction_id": "uuid",
-  "status": "pending_approval",
-  "message": "Payment submitted for review. You will be notified within 24 hours."
+  "status": "active|cancelled|pending",
+  "end_date": "2026-12-31",
+  "offering_plan_id": "uuid"
 }
 ```
 
 ---
 
-### GET `/schools/:school_id/payments/pending`
-Listar pagos manuales pendientes de aprobación.
+### DELETE `/api/v1/enrollments/:id`
+Cancelar inscripcion (cambia status a `cancelled`).
 
-**Response (200):**
-```json
-{
-  "pending_payments": [
-    {
-      "id": "uuid",
-      "student_name": "Santiago García",
-      "parent_name": "María García",
-      "parent_email": "maria@...",
-      "amount": 220000,
-      "payment_method": "nequi",
-      "proof_of_payment_url": "https://...",
-      "submitted_at": "2025-01-15T09:00:00Z",
-      "notes": "Transferencia realizada..."
-    }
-  ]
-}
-```
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
 
 ---
 
-### POST `/payments/manual/:payment_id/approve`
-Aprobar pago manual.
+## 4. Asistencia
 
-**Request Body:**
-```json
-{
-  "review_notes": "Comprobante verificado. Pago confirmado."
-}
-```
+**Base:** `/api/v1/attendance`
+**Archivo:** `bff/src/routes/attendance.ts`
 
-**Response (200):**
-```json
-{
-  "payment_id": "uuid",
-  "status": "approved",
-  "enrollment_status": "confirmed",
-  "message": "Payment approved. Parent and student notified."
-}
-```
+### GET `/api/v1/attendance/session/:teamId`
+Obtener sesion del dia y registros de asistencia para un equipo.
 
-**Proceso interno:**
-1. Actualizar manual_payment a `paid`
-2. Actualizar transaction a `paid`
-3. Actualizar enrollment a `confirmed`
-4. Generar recibo oficial PDF
-5. Enviar email a padre
-6. Crear notificación
-
----
-
-### POST `/payments/manual/:payment_id/reject`
-Rechazar pago manual.
-
-**Request Body:**
-```json
-{
-  "rejection_reason": "El número de cuenta no coincide con nuestros registros."
-}
-```
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
 
 **Response (200):**
 ```json
 {
-  "payment_id": "uuid",
-  "status": "rejected",
-  "message": "Payment rejected. Parent notified."
-}
-```
-
-**Proceso interno:**
-1. Actualizar manual_payment a `rejected`
-2. Actualizar enrollment a `payment_rejected`
-3. Liberar cupo en programa
-4. Enviar email a padre con razón
-5. Crear notificación
-
----
-
-### GET `/payments/transactions/:transaction_id/receipt`
-Descargar recibo de pago en PDF.
-
-**Response (200):**
-```
-Content-Type: application/pdf
-Content-Disposition: attachment; filename="recibo-2025-001234.pdf"
-
-[PDF Binary]
-```
-
----
-
-### POST `/payments/recurring/process`
-Procesar facturación mensual recurrente (Cron job).
-
-**Request Headers:**
-```
-X-Cron-Secret: secret_token
-```
-
-**Response (200):**
-```json
-{
-  "job_id": "uuid",
-  "total_enrollments": 250,
-  "processed": 240,
-  "successful": 235,
-  "failed": 5,
-  "failed_enrollments": [
-    {
-      "enrollment_id": "uuid",
-      "student_name": "Juan López",
-      "error": "Tarjeta expirada"
-    }
-  ],
-  "total_collected": 52800000
-}
-```
-
----
-
-### GET `/students/:student_id/payment-history`
-Obtener historial de pagos de un estudiante.
-
-**Query Params:**
-- `start_date`: Fecha inicio (YYYY-MM-DD)
-- `end_date`: Fecha fin
-- `status`: Filtrar por estado
-
-**Response (200):**
-```json
-{
-  "payments": [
-    {
-      "id": "uuid",
-      "date": "2025-01-01",
-      "amount": 220000,
-      "payment_method": "credit_card",
-      "status": "paid",
-      "description": "Mensualidad Enero 2025",
-      "receipt_url": "/api/payments/transactions/uuid/receipt"
-    }
-  ],
-  "summary": {
-    "total_paid": 2640000,
-    "total_pending": 0,
-    "average_payment": 220000
-  }
-}
-```
-
----
-
-## ✅ Asistencia (Attendance)
-
-### GET `/classes/:class_id/attendance`
-Obtener lista de asistencia para una clase en una fecha específica.
-
-**Query Params:**
-- `date`: Fecha (YYYY-MM-DD, default: hoy)
-
-**Response (200):**
-```json
-{
-  "class": {
+  "session": {
     "id": "uuid",
-    "name": "Fútbol Juvenil - Grupo A",
-    "date": "2025-01-15",
-    "day_of_week": "monday",
-    "time": "16:00-17:30"
-  },
-  "students": [
-    {
-      "student_id": "uuid",
-      "name": "Santiago García",
-      "photo_url": "https://...",
-      "attendance_status": "present",
-      "check_in_time": "15:55",
-      "notes": null
-    },
-    {
-      "student_id": "uuid2",
-      "name": "Ana Martínez",
-      "photo_url": "https://...",
-      "attendance_status": "absent",
-      "notes": "Enfermo"
-    }
-  ],
-  "summary": {
-    "total": 18,
-    "present": 16,
-    "absent": 2,
-    "late": 0
-  }
-}
-```
-
----
-
-### POST `/classes/:class_id/attendance`
-Marcar asistencia para múltiples estudiantes.
-
-**Request Body:**
-```json
-{
-  "date": "2025-01-15",
-  "attendance_records": [
-    {
-      "student_id": "uuid1",
-      "status": "present",
-      "check_in_time": "15:55"
-    },
-    {
-      "student_id": "uuid2",
-      "status": "absent",
-      "notes": "Enfermo"
-    },
-    {
-      "student_id": "uuid3",
-      "status": "late",
-      "check_in_time": "16:15"
-    }
-  ]
-}
-```
-
-**Response (201):**
-```json
-{
-  "class_id": "uuid",
-  "date": "2025-01-15",
-  "records_created": 18,
-  "marked_by": {
-    "id": "uuid",
-    "name": "Carlos Rodríguez"
-  },
-  "marked_at": "2025-01-15T16:00:00Z"
-}
-```
-
----
-
-### PATCH `/attendance/:record_id`
-Actualizar registro de asistencia individual.
-
-**Request Body:**
-```json
-{
-  "status": "excused",
-  "notes": "Justificado por cita médica"
-}
-```
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "status": "excused",
-  "updated_at": "2025-01-15T17:00:00Z"
-}
-```
-
----
-
-### GET `/students/:student_id/attendance-history`
-Obtener historial de asistencia de un estudiante.
-
-**Query Params:**
-- `start_date`: Fecha inicio
-- `end_date`: Fecha fin
-- `program_id`: Filtrar por programa
-
-**Response (200):**
-```json
-{
-  "student": {
-    "id": "uuid",
-    "name": "Santiago García"
-  },
-  "period": {
-    "start": "2024-08-01",
-    "end": "2025-01-15"
-  },
-  "summary": {
-    "total_classes": 68,
-    "present": 64,
-    "absent": 3,
-    "late": 1,
-    "attendance_rate": 94.12
+    "team_id": "uuid",
+    "session_date": "2026-04-16",
+    "finalized": false,
+    "finalized_at": null,
+    "created_by": "uuid",
+    "created_at": "2026-04-16T08:00:00Z"
   },
   "records": [
     {
-      "date": "2025-01-15",
-      "class_name": "Fútbol Juvenil",
-      "status": "present",
-      "check_in_time": "15:55"
+      "child_id": "uuid",
+      "user_id": null,
+      "unregistered_athlete_id": null,
+      "status": "present"
     }
   ]
 }
@@ -1157,520 +384,406 @@ Obtener historial de asistencia de un estudiante.
 
 ---
 
-### POST `/classes/:class_id/generate-qr`
-Generar código QR para check-in de clase.
+### GET `/api/v1/attendance/roster/:contextType/:contextId`
+Obtener roster con atletas, uso de plan y pagos. `contextType` puede ser `team` u `offering`.
 
-**Request Body:**
-```json
-{
-  "date": "2025-01-15",
-  "expiration_minutes": 120
-}
-```
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
 
 **Response (200):**
 ```json
 {
-  "qr_code_url": "https://...",
-  "qr_code_data": "SPORTMAPS-CLASS-uuid-20250115-hash",
-  "expires_at": "2025-01-15T18:00:00Z",
-  "session_id": "uuid"
-}
-```
-
----
-
-### POST `/attendance/qr-checkin`
-Registrar asistencia vía escaneo de QR.
-
-**Request Body:**
-```json
-{
-  "qr_code_data": "SPORTMAPS-CLASS-uuid-20250115-hash",
-  "student_id": "uuid"
-}
-```
-
-**Response (200):**
-```json
-{
-  "attendance_record_id": "uuid",
-  "status": "present",
-  "check_in_time": "15:55",
-  "message": "Asistencia registrada exitosamente"
-}
-```
-
-**Errores:**
-- `410`: QR code expirado
-- `409`: Ya registró asistencia para esta clase
-- `404`: Sesión QR no válida
-
----
-
-## 💬 Comunicaciones (Communications)
-
-### POST `/notifications`
-Crear notificación para un usuario.
-
-**Request Body:**
-```json
-{
-  "user_id": "uuid",
-  "type": "payment_confirmation",
-  "title": "Pago confirmado",
-  "body": "Tu pago de $220,000 fue procesado exitosamente",
-  "data": {
-    "transaction_id": "uuid",
-    "amount": 220000
-  },
-  "deep_link": "/payments/uuid",
-  "send_push": true
-}
-```
-
-**Response (201):**
-```json
-{
-  "notification_id": "uuid",
-  "sent_at": "2025-01-15T16:00:00Z",
-  "delivery_status": "sent"
-}
-```
-
----
-
-### GET `/users/:user_id/notifications`
-Listar notificaciones de un usuario.
-
-**Query Params:**
-- `unread_only`: `true` o `false`
-- `page`: Número de página
-- `per_page`: Resultados por página
-
-**Response (200):**
-```json
-{
-  "notifications": [
+  "athletes": [
     {
       "id": "uuid",
-      "type": "payment_confirmation",
-      "title": "Pago confirmado",
-      "body": "Tu pago fue procesado...",
-      "is_read": false,
-      "created_at": "2025-01-15T16:00:00Z",
-      "deep_link": "/payments/uuid"
-    }
-  ],
-  "unread_count": 3,
-  "pagination": {
-    "page": 1,
-    "total": 25
-  }
-}
-```
-
----
-
-### PATCH `/notifications/:id/mark-read`
-Marcar notificación como leída.
-
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "is_read": true,
-  "read_at": "2025-01-15T16:05:00Z"
-}
-```
-
----
-
-### POST `/schools/:school_id/announcements`
-Crear anuncio para la escuela.
-
-**Request Body:**
-```json
-{
-  "title": "Vacaciones de Semana Santa",
-  "body": "Les informamos que la escuela estará cerrada del 10 al 14 de abril.",
-  "image_url": "https://...",
-  "audience": "all_parents",
-  "is_pinned": true,
-  "publish_at": "2025-03-01T08:00:00Z",
-  "expires_at": "2025-04-15T00:00:00Z"
-}
-```
-
-**Response (201):**
-```json
-{
-  "announcement_id": "uuid",
-  "created_at": "2025-01-15T16:00:00Z",
-  "recipients_count": 87
-}
-```
-
----
-
-### GET `/schools/:school_id/announcements`
-Listar anuncios de la escuela.
-
-**Query Params:**
-- `active_only`: `true` (solo no expirados)
-
-**Response (200):**
-```json
-{
-  "announcements": [
-    {
-      "id": "uuid",
-      "title": "Vacaciones de Semana Santa",
-      "body": "...",
-      "is_pinned": true,
-      "published_at": "2025-03-01T08:00:00Z",
-      "expires_at": "2025-04-15T00:00:00Z"
-    }
-  ]
-}
-```
-
----
-
-### POST `/messages`
-Enviar mensaje directo.
-
-**Request Body:**
-```json
-{
-  "recipient_id": "uuid",
-  "school_id": "uuid",
-  "subject": "Consulta sobre horarios",
-  "body": "Hola, quisiera saber si es posible cambiar...",
-  "attachments": ["https://..."]
-}
-```
-
-**Response (201):**
-```json
-{
-  "message_id": "uuid",
-  "conversation_id": "uuid",
-  "sent_at": "2025-01-15T16:00:00Z"
-}
-```
-
----
-
-### GET `/conversations/:conversation_id`
-Obtener hilo de conversación.
-
-**Response (200):**
-```json
-{
-  "conversation_id": "uuid",
-  "participants": [
-    {
-      "id": "uuid",
-      "name": "María García",
-      "role": "parent"
-    },
-    {
-      "id": "uuid",
-      "name": "Carlos Rodríguez",
-      "role": "coach"
-    }
-  ],
-  "messages": [
-    {
-      "id": "uuid",
-      "sender_id": "uuid",
-      "body": "Hola, quisiera...",
-      "is_read": true,
-      "sent_at": "2025-01-15T16:00:00Z"
-    }
-  ]
-}
-```
-
----
-
-## 🔍 Marketplace
-
-### GET `/marketplace/schools`
-Buscar escuelas en el marketplace.
-
-**Query Params:**
-- `search`: Búsqueda por nombre o ubicación
-- `city`: Filtrar por ciudad
-- `sport_type`: Filtrar por deporte (array)
-- `min_age`: Edad mínima del hijo
-- `max_age`: Edad máxima
-- `min_price`: Precio mínimo
-- `max_price`: Precio máximo
-- `min_rating`: Rating mínimo
-- `lat`: Latitud (para búsqueda por distancia)
-- `lng`: Longitud
-- `radius_km`: Radio en kilómetros
-- `sort_by`: `distance`, `rating`, `price`, `recent`
-- `page`: Número de página
-
-**Response (200):**
-```json
-{
-  "schools": [
-    {
-      "id": "uuid",
-      "name": "Academia Elite FC",
-      "slug": "academia-elite-fc",
-      "logo_url": "https://...",
-      "city": "Bogotá",
-      "sports_offered": ["football"],
-      "price_range": {
-        "min": 180000,
-        "max": 280000
+      "full_name": "Santiago Garcia",
+      "avatar_url": "https://...",
+      "athlete_type": "child",
+      "enrollment_id": "uuid",
+      "plan": {
+        "plan_name": "Plan Mensual",
+        "sessions_used": 5,
+        "max_sessions": 12,
+        "sessions_remaining": 7,
+        "expires_at": "2026-05-01"
       },
-      "average_rating": 4.5,
-      "total_reviews": 23,
-      "distance_km": 2.5,
-      "location": {
-        "lat": 4.7110,
-        "lng": -74.0721
+      "payment": {
+        "status": "paid",
+        "amount": 220000
       }
     }
   ],
-  "filters_applied": {
-    "city": "Bogotá",
-    "sport_type": ["football"],
-    "radius_km": 5
-  },
-  "pagination": {
-    "page": 1,
-    "total": 45
+  "bookings": [],
+  "context_type": "team",
+  "context_id": "uuid"
+}
+```
+
+---
+
+### POST `/api/v1/attendance/session`
+Guardar registros de asistencia (presente/ausente/tarde/justificado).
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
+
+**Request Body:**
+```json
+{
+  "teamId": "uuid (opcional)",
+  "sessionId": "uuid (opcional, crea nueva si no existe)",
+  "records": [
+    { "childId": "uuid", "status": "present" },
+    { "userId": "uuid", "status": "absent" },
+    { "unregisteredAthleteId": "uuid", "status": "late" }
+  ]
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "sessionId": "uuid"
+}
+```
+
+---
+
+### POST `/api/v1/attendance/walk-in`
+Marcar asistencia con deduccion automatica de creditos del plan.
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
+
+**Request Body:**
+```json
+{
+  "enrollmentId": "uuid",
+  "teamId": "uuid (opcional)",
+  "sessionId": "uuid (opcional)",
+  "offeringId": "uuid (opcional)",
+  "status": "present|absent|late|excused",
+  "childId": "uuid (o userId o unregisteredAthleteId)",
+  "is_secondary": false
+}
+```
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "sessionId": "uuid",
+  "plan_summary": {
+    "plan_name": "Plan Mensual",
+    "sessions_used": 6,
+    "max_sessions": 12,
+    "sessions_remaining": 6,
+    "secondary_sessions_used": 0,
+    "max_secondary_sessions": 4,
+    "expires_at": "2026-05-01"
   }
 }
 ```
 
 ---
 
-### GET `/marketplace/schools/:slug`
-Obtener perfil público de escuela por slug.
+### PATCH `/api/v1/attendance/session/:sessionId/finalize`
+Finalizar sesion (irreversible). Procesa session bookings asociados.
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Sesion finalizada",
+  "summary": {
+    "bookings_processed": 3,
+    "details": []
+  }
+}
+```
+
+---
+
+### GET `/api/v1/attendance/rate/:teamId`
+Obtener porcentaje de asistencia del equipo.
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin, coach)`
+
+**Response (200):**
+```json
+{
+  "rate": 94.5
+}
+```
+
+---
+
+### POST `/api/v1/attendance/link-unregistered`
+Vincular atleta no registrado a un perfil existente (migracion).
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, school_admin)`
+
+**Request Body:**
+```json
+{
+  "unregisteredAthleteId": "uuid",
+  "targetUserId": "uuid (opcional)",
+  "targetChildId": "uuid (opcional)"
+}
+```
+
+---
+
+## 5. Ofertas y Planes
+
+**Base:** `/api/v1/offerings`
+**Archivo:** `bff/src/routes/offerings.ts`
+
+### GET `/api/v1/offerings`
+Listar ofertas con planes. Incluye conteo de inscritos.
+
+**Auth:** `requireAuth`
+
+**Query Params:** `type`, `active_only`
+
+**Response (200):**
+```json
+{
+  "offerings": [
+    {
+      "id": "uuid",
+      "name": "Futbol Juvenil",
+      "offering_type": "membership|session_pack|court_booking|tournament|single_session",
+      "sport": "futbol",
+      "is_active": true,
+      "enrolled_count": 34,
+      "plans": [
+        {
+          "id": "uuid",
+          "name": "Plan Mensual",
+          "max_sessions": 12,
+          "duration_days": 30,
+          "price": 220000,
+          "currency": "COP",
+          "auto_renew": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### POST `/api/v1/offerings`
+Crear oferta.
+
+**Auth:** `requireAuth` + `requireRole(...)`
+
+**Request Body:**
+```json
+{
+  "name": "Futbol Juvenil",
+  "description": "Programa para jovenes de 8-12 anos",
+  "offering_type": "membership",
+  "sport": "futbol",
+  "branch_id": "uuid (opcional)",
+  "metadata": {},
+  "sort_order": 1
+}
+```
+
+---
+
+### GET `/api/v1/offerings/:id`
+Obtener oferta con planes.
+
+### PATCH `/api/v1/offerings/:id`
+Actualizar oferta.
+
+### DELETE `/api/v1/offerings/:id`
+Eliminar oferta.
+
+### POST `/api/v1/offerings/plans`
+Crear plan bajo una oferta.
+
+**Request Body:**
+```json
+{
+  "offering_id": "uuid",
+  "name": "Plan Mensual",
+  "description": "12 sesiones al mes",
+  "max_sessions": 12,
+  "max_secondary_sessions": 4,
+  "duration_days": 30,
+  "price": 220000,
+  "currency": "COP",
+  "slot_duration_minutes": 60,
+  "auto_renew": true,
+  "metadata": {},
+  "sort_order": 1
+}
+```
+
+### PATCH `/api/v1/offerings/plans/:planId`
+Actualizar plan.
+
+### DELETE `/api/v1/offerings/plans/:planId`
+Eliminar plan.
+
+---
+
+## 6. Session Bookings
+
+**Base:** `/api/v1/sessions` y `/api/v1/session-bookings`
+**Archivo:** `bff/src/routes/session-bookings.ts`
+
+### GET `/api/v1/sessions/:id/availability`
+Obtener disponibilidad y capacidad de una sesion.
+
+**Auth:** `requireAuth`
 
 **Response (200):**
 ```json
 {
   "id": "uuid",
-  "name": "Academia Elite FC",
-  "slug": "academia-elite-fc",
-  "description": "...",
-  "logo_url": "https://...",
-  "cover_image_url": "https://...",
-  "photos": ["https://...", "https://..."],
-  "contact": {
-    "email": "contacto@...",
-    "phone": "+57 300...",
-    "address": "Calle 123...",
-    "city": "Bogotá"
-  },
-  "location": {
-    "lat": 4.7110,
-    "lng": -74.0721
-  },
-  "sports_offered": ["football"],
-  "programs": [
-    {
-      "name": "Fútbol Infantil",
-      "age_range": "4-7 años",
-      "monthly_fee": 180000,
-      "available_spots": 5
-    }
-  ],
-  "facilities": ["Cancha de césped", "Vestuarios"],
-  "coaches": [
-    {
-      "name": "Carlos Rodríguez",
-      "experience_years": 10,
-      "specialties": ["Porteros"]
-    }
-  ],
-  "rating": {
-    "average": 4.5,
-    "total_reviews": 23,
-    "breakdown": {
-      "5_stars": 15,
-      "4_stars": 6,
-      "3_stars": 2,
-      "2_stars": 0,
-      "1_star": 0
-    }
-  },
-  "recent_reviews": [...]
+  "max_capacity": 20,
+  "current_bookings": 15,
+  "available_spots": 5,
+  "is_full": false
 }
 ```
 
 ---
 
-### POST `/marketplace/schools/:school_id/reviews`
-Crear reseña de una escuela (solo padres con hijos inscritos).
+### POST `/api/v1/sessions/:id/book`
+Reservar atleta en una sesion.
+
+**Auth:** `requireAuth`
 
 **Request Body:**
 ```json
 {
-  "overall_rating": 5,
-  "coaches_rating": 5,
-  "facilities_rating": 4,
-  "communication_rating": 5,
-  "title": "Excelente escuela",
-  "body": "Mi hijo ha mejorado muchísimo desde que entramos a la academia..."
+  "enrollment_id": "uuid",
+  "user_id": "uuid (opcional)",
+  "child_id": "uuid (opcional)",
+  "is_secondary": false,
+  "booking_type": "reservation|drop_in|walk_in"
 }
 ```
-
-**Response (201):**
-```json
-{
-  "review_id": "uuid",
-  "created_at": "2025-01-15T16:00:00Z",
-  "is_verified": true
-}
-```
-
-**Errores:**
-- `403`: Usuario no es padre o no tiene hijos inscritos en esta escuela
-- `409`: Ya existe reseña de este padre para esta escuela
 
 ---
 
-### POST `/marketplace/leads`
-Capturar lead de prospecto interesado.
+### GET `/api/v1/sessions/:id/bookings`
+Listar reservas de una sesion (enriquecido con datos de atleta/plan).
+
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin, coach)`
+
+---
+
+## 7. Contexto de Escuela
+
+**Base:** `/api/v1/school/context`
+**Archivo:** `bff/src/routes/school-context.ts`
+
+### GET `/api/v1/school/context`
+Obtener modulos activos y features de la escuela.
+
+**Auth:** `requireAuth`
+
+**Response (200):**
+```json
+{
+  "active_modules": ["attendance", "payments", "offerings", "reports"],
+  "features": {
+    "selfBooking": true,
+    "capacityCheck": true,
+    "offeringPlans": true,
+    "creditDeduction": true,
+    "courtBooking": false,
+    "tournamentMode": false,
+    "billingEvents": true,
+    "sportConfigs": true
+  },
+  "is_universal_mode": false,
+  "sports": [
+    { "sport": "futbol", "categorization_axis": "age", "settings": {} }
+  ],
+  "primary_sport": "futbol"
+}
+```
+
+---
+
+### PATCH `/api/v1/school/context/modules`
+Actualizar modulos activos.
+
+**Auth:** `requireAuth` (solo owner/admin/super_admin)
 
 **Request Body:**
 ```json
 {
-  "school_id": "uuid",
-  "parent_name": "Laura Ramírez",
-  "email": "laura@email.com",
-  "phone": "+57 301 5555555",
-  "child_age": 6,
-  "message": "Quisiera más información sobre el programa de fútbol infantil",
-  "source": "marketplace",
-  "utm_source": "google",
-  "utm_campaign": "fútbol_bogotá"
-}
-```
-
-**Response (201):**
-```json
-{
-  "lead_id": "uuid",
-  "message": "Thank you! The school will contact you within 24 hours."
+  "active_modules": ["attendance", "payments", "offerings"]
 }
 ```
 
 ---
 
-## 📊 Dashboard & Analytics
+## 8. Configuracion Deportiva
 
-### GET `/schools/:school_id/dashboard`
-Obtener métricas del dashboard de escuela.
+**Base:** `/api/v1/sport-configs`
+**Archivo:** `bff/src/routes/sport-configs.ts`
 
-**Query Params:**
-- `period`: `today`, `week`, `month`, `year` (default: `month`)
+### GET `/api/v1/sport-configs`
+Listar configuraciones deportivas activas.
 
-**Response (200):**
+### GET `/api/v1/sport-configs/:sport`
+Obtener configuracion de un deporte especifico.
+
+### POST `/api/v1/sport-configs`
+Crear o actualizar configuracion deportiva (upsert por school_id + sport).
+
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
+
+**Request Body:**
 ```json
 {
-  "school": {
-    "id": "uuid",
-    "name": "Academia Elite FC"
-  },
-  "stats": {
-    "active_students": 87,
-    "active_programs": 4,
-    "active_enrollments": 102,
-    "monthly_revenue": 17800000,
-    "pending_revenue": 440000,
-    "attendance_rate": 94.5,
-    "collection_rate": 98.5
-  },
-  "revenue_trend": [
-    {
-      "month": "2024-08",
-      "revenue": 15200000
-    },
-    {
-      "month": "2024-09",
-      "revenue": 16400000
-    }
-  ],
-  "recent_activity": [
-    {
-      "type": "new_enrollment",
-      "message": "Santiago García inscrito en Fútbol Juvenil",
-      "timestamp": "2025-01-15T15:30:00Z"
-    },
-    {
-      "type": "payment_received",
-      "message": "Pago recibido: $220,000 - María García",
-      "timestamp": "2025-01-15T14:00:00Z"
-    }
-  ],
-  "upcoming_classes": [
-    {
-      "class_name": "Fútbol Juvenil - Grupo A",
-      "time": "16:00",
-      "students_count": 18,
-      "coach": "Carlos Rodríguez"
-    }
-  ]
+  "sport": "futbol",
+  "categorization_axis": "age|weight|belt|level|division|none",
+  "rules": [{ "..." : "..." }],
+  "settings": {}
 }
 ```
 
 ---
 
-### GET `/parents/:parent_id/dashboard`
-Obtener dashboard para padres.
+## 9. Eventos de Facturacion
+
+**Base:** `/api/v1/billing-events`
+**Archivo:** `bff/src/routes/billing-events.ts`
+
+### GET `/api/v1/billing-events`
+Listar eventos de facturacion.
+
+**Auth:** `requireAuth`
+
+**Query Params:** `enrollment_id`, `status`, `limit`
 
 **Response (200):**
 ```json
 {
-  "parent": {
-    "id": "uuid",
-    "name": "María García"
-  },
-  "children": [
+  "billing_events": [
     {
       "id": "uuid",
-      "name": "Santiago García",
-      "age": 10,
-      "photo_url": "https://...",
-      "enrollments": [
-        {
-          "program_name": "Fútbol Juvenil",
-          "next_class": {
-            "day": "monday",
-            "time": "16:00",
-            "location": "Cancha 1"
-          },
-          "attendance_rate": 94.5,
-          "payment_status": "paid",
-          "next_payment_date": "2025-02-01",
-          "next_payment_amount": 220000
-        }
-      ]
-    }
-  ],
-  "recent_notifications": [
-    {
-      "title": "Pago confirmado",
-      "body": "...",
-      "created_at": "2025-01-15T16:00:00Z"
-    }
-  ],
-  "upcoming_payments": [
-    {
-      "student_name": "Santiago García",
-      "amount": 220000,
-      "due_date": "2025-02-01"
+      "enrollment_id": "uuid",
+      "event_type": "charge|partial|refund|late_fee|adjustment",
+      "amount_due": 220000,
+      "amount_paid": 220000,
+      "status": "paid|pending|overdue|cancelled",
+      "due_date": "2026-02-01",
+      "paid_date": "2026-01-30",
+      "gateway": "wompi",
+      "gateway_reference": "ref123"
     }
   ]
 }
@@ -1678,225 +791,846 @@ Obtener dashboard para padres.
 
 ---
 
-### GET `/schools/:school_id/reports/financial`
-Generar reporte financiero.
+### POST `/api/v1/billing-events`
+Crear evento de facturacion.
 
-**Query Params:**
-- `start_date`: Fecha inicio (YYYY-MM-DD)
-- `end_date`: Fecha fin
-- `program_id`: Filtrar por programa (opcional)
-- `format`: `json` o `pdf`
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
 
-**Response (200 - JSON):**
+**Request Body:**
 ```json
 {
-  "period": {
-    "start": "2024-01-01",
-    "end": "2024-12-31"
-  },
-  "summary": {
-    "total_revenue": 180000000,
-    "total_transactions": 1024,
-    "average_transaction": 175781,
-    "collection_rate": 97.8
-  },
-  "by_program": [
-    {
-      "program_id": "uuid",
-      "program_name": "Fútbol Juvenil",
-      "revenue": 90000000,
-      "students": 34,
-      "average_per_student": 2647058
-    }
-  ],
-  "by_payment_method": {
-    "credit_card": 120000000,
-    "nequi": 40000000,
-    "bank_transfer": 20000000
-  },
-  "outstanding_balance": 4000000,
-  "overdue_payments": [
-    {
-      "student_name": "...",
-      "amount": 220000,
-      "days_overdue": 15
-    }
-  ]
+  "enrollment_id": "uuid",
+  "offering_plan_id": "uuid (opcional)",
+  "event_type": "charge|partial|refund|late_fee|adjustment",
+  "amount_due": 220000,
+  "amount_paid": 0,
+  "late_fee_amount": 0,
+  "currency": "COP",
+  "due_date": "2026-02-01",
+  "parent_event_id": "uuid (opcional)",
+  "installment_number": 1,
+  "payment_id": "uuid (opcional)",
+  "gateway": "wompi|epayco|manual",
+  "gateway_reference": "ref123",
+  "notes": "Mensualidad febrero"
 }
-```
-
-**Response (200 - PDF):**
-```
-Content-Type: application/pdf
-Content-Disposition: attachment; filename="reporte-financiero-2024.pdf"
-
-[PDF Binary]
 ```
 
 ---
 
-### GET `/schools/:school_id/reports/enrollment-analytics`
-Analítica de inscripciones y retención.
+### PATCH `/api/v1/billing-events/:id`
+Actualizar evento de facturacion.
 
-**Query Params:**
-- `period`: `month`, `quarter`, `year`
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin)`
+
+**Request Body:**
+```json
+{
+  "amount_paid": 220000,
+  "late_fee_amount": 0,
+  "status": "paid",
+  "paid_date": "2026-01-30",
+  "payment_id": "uuid",
+  "gateway": "wompi",
+  "gateway_reference": "ref123",
+  "notes": "Pago confirmado"
+}
+```
+
+---
+
+## 10. Reportes
+
+**Base:** `/api/v1/reports`
+**Archivo:** `bff/src/routes/reports.ts`
+
+### GET `/api/v1/reports/school/summary`
+Obtener resumen de la escuela: ocupacion, crecimiento, ingresos por concepto.
+
+**Auth:** `requireAuth` + `requireRole(owner, super_admin, admin, auditor, reporter, school_admin)`
+
+**Query Params:** `branch_id` (opcional)
 
 **Response (200):**
 ```json
 {
-  "enrollment_trend": [
-    {
-      "month": "2024-01",
-      "new_enrollments": 12,
-      "cancellations": 2,
-      "net_growth": 10
-    }
-  ],
-  "retention": {
-    "rate": 92.5,
-    "avg_duration_months": 9.5
-  },
-  "churn_analysis": {
-    "total_churned": 8,
-    "churn_rate": 7.5,
-    "reasons": [
-      {"reason": "Mudanza", "count": 3},
-      {"reason": "Problemas económicos", "count": 2},
-      {"reason": "Cambio de horario", "count": 2},
-      {"reason": "Otro", "count": 1}
+  "summary": {
+    "occupancyRate": 85.5,
+    "totalStudents": 87,
+    "totalCapacity": 102,
+    "netGrowthThisMonth": 5,
+    "occupancyData": [
+      { "name": "Sede Norte", "occupied": 45, "vacant": 5, "total_capacity": 50 }
+    ],
+    "growthData": [
+      { "month": "2026-01", "nuevos": 12, "retiros": 2 }
+    ],
+    "revenueData": [
+      { "name": "Mensualidades", "value": 15000000 },
+      { "name": "Inscripciones", "value": 2000000 }
     ]
-  },
-  "at_risk_students": [
-    {
-      "student_id": "uuid",
-      "name": "Juan López",
-      "risk_factors": ["low_attendance", "late_payments"],
-      "risk_score": 75
-    }
-  ]
-}
-```
-
----
-
-## 🛡️ Manejo de Errores
-
-Todos los endpoints retornan errores en el siguiente formato:
-
-```json
-{
-  "error": {
-    "code": "RESOURCE_NOT_FOUND",
-    "message": "Student with ID 'abc123' not found",
-    "status": 404,
-    "timestamp": "2025-01-15T16:00:00Z",
-    "path": "/api/students/abc123"
   }
 }
 ```
 
-### Códigos de Error Comunes:
-
-| Status | Code | Descripción |
-|:---:|:---|:---|
-| 400 | VALIDATION_ERROR | Error de validación en los datos enviados |
-| 401 | UNAUTHORIZED | Token de autenticación inválido o ausente |
-| 403 | FORBIDDEN | Usuario no tiene permisos para esta acción |
-| 404 | RESOURCE_NOT_FOUND | Recurso solicitado no existe |
-| 409 | CONFLICT | Conflicto (ej. duplicado, capacidad llena) |
-| 422 | UNPROCESSABLE_ENTITY | Datos válidos pero lógicamente incorrectos |
-| 429 | TOO_MANY_REQUESTS | Rate limit excedido |
-| 500 | INTERNAL_SERVER_ERROR | Error interno del servidor |
-| 503 | SERVICE_UNAVAILABLE | Servicio temporalmente no disponible |
-
 ---
 
-## 🔒 Rate Limiting
+## 11. Pagos (ePayco)
 
-- **Rate Limits:**
-  - Endpoints públicos: 100 requests/minuto
-  - Endpoints autenticados: 300 requests/minuto
-  - Webhooks: Sin límite
+**Base:** `/api/v1/payments`
+**Archivo:** `bff/src/routes/epayco.ts`
 
-- **Headers de respuesta:**
-```
-X-RateLimit-Limit: 300
-X-RateLimit-Remaining: 285
-X-RateLimit-Reset: 1642253400
-```
+**Rate Limit:** 20 requests por minuto
 
----
+### POST `/api/v1/payments/create-session`
+Crear sesion de pago ePayco.
 
-## 📡 Webhooks
-
-### Configurar Webhook de Escuela
-
-```
-POST /schools/:school_id/webhooks
-```
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin, parent, athlete)`
 
 **Request Body:**
 ```json
 {
-  "url": "https://mi-sistema.com/webhook",
-  "events": ["enrollment.created", "payment.received"],
-  "secret": "webhook_secret_key"
+  "paymentId": "uuid",
+  "enrollmentId": "uuid (opcional)"
 }
 ```
 
-### Eventos Disponibles:
+**Response (201):**
+```json
+{
+  "sessionId": "temp_session_id"
+}
+```
 
-- `enrollment.created`
-- `enrollment.confirmed`
-- `enrollment.cancelled`
-- `payment.received`
-- `payment.failed`
-- `attendance.marked`
-- `student.created`
+---
 
-### Formato de Payload:
+## 12. Webhooks
+
+### POST `/api/v1/webhooks/epayco`
+Webhook de confirmacion ePayco. Sin autenticacion (validacion por firma).
+
+**Archivo:** `bff/src/routes/epayco-webhook.ts`
+
+### POST `/api/v1/webhooks/wompi`
+Webhook de confirmacion Wompi. Sin autenticacion (validacion por firma).
+
+**Archivo:** `bff/src/routes/wompi.ts`
+
+---
+
+## 13. Explorar
+
+**Base:** `/api/explorar`
+**Archivo:** `bff/src/routes/explorar.routes.ts`
+**Auth:** Publico (sin autenticacion)
+
+### GET `/api/explorar`
+Busqueda publica con filtros.
+
+**Query Params:**
+| Param | Tipo | Descripcion |
+|-------|------|-------------|
+| `query` | string | Busqueda por texto |
+| `city` | string | Filtrar por ciudad |
+| `sport` | string | Filtrar por deporte |
+| `price_max` | number | Precio maximo |
+| `rating_min` | number | Rating minimo |
+| `age` | number | Edad del atleta |
+| `verified` | boolean | Solo verificados |
+| `open_now` | boolean | Abiertas ahora |
+| `lat` | number | Latitud |
+| `lng` | number | Longitud |
+| `distance_km` | number | Radio en km |
+| `order_by` | string | Ordenamiento |
+| `page` | number | Pagina |
+| `limit` | number | Resultados por pagina |
+
+---
+
+### GET `/api/explorar/cerca`
+Escuelas/ofertas cercanas por geolocalizacion.
+
+**Query Params:** `lat`, `lng`, `radius_km`
+
+---
+
+### GET `/api/explorar/:id`
+Detalle de una escuela u oferta.
+
+---
+
+### GET `/api/explorar/meta/categorias`
+Listar categorias/deportes disponibles.
+
+---
+
+## 14. Favoritos
+
+**Base:** `/api/favoritos`
+**Archivo:** `bff/src/routes/favoritos.routes.ts`
+**Auth:** `requireBasicAuth` (token sin contexto de escuela)
+
+### GET `/api/favoritos`
+Listar IDs de escuelas favoritas del usuario.
+
+**Response (200):**
+```json
+{
+  "school_ids": ["uuid1", "uuid2"]
+}
+```
+
+---
+
+### POST `/api/favoritos/toggle`
+Alternar estado de favorito.
+
+**Request Body:**
+```json
+{
+  "school_id": "uuid"
+}
+```
+
+**Response (200):**
+```json
+{
+  "favorited": true
+}
+```
+
+---
+
+### POST `/api/favoritos/migrate`
+Migrar favoritos anonimos al usuario autenticado despues de login.
+
+**Request Body:**
+```json
+{
+  "school_ids": ["uuid1", "uuid2"]
+}
+```
+
+---
+
+## 15. Staff de Escuela
+
+**Base:** `/api/v1/school-staff`
+**Archivo:** `bff/src/routes/school-staff.ts`
+**Auth:** `requireAuth`
+
+### GET `/api/v1/school-staff`
+Listar todo el staff de la escuela.
+
+### GET `/api/v1/school-staff/:id`
+Obtener un miembro del staff.
+
+### POST `/api/v1/school-staff`
+Crear miembro del staff. Sincroniza `coach_auth_id` automaticamente.
+
+**Request Body:**
+```json
+{
+  "full_name": "Carlos Rodriguez",
+  "email": "carlos@escuela.com",
+  "phone": "+573001234567",
+  "specialty": "Futbol",
+  "certifications": "Licencia UEFA B",
+  "branch_id": "uuid",
+  "status": "active"
+}
+```
+
+### PATCH `/api/v1/school-staff/:id`
+Actualizar miembro del staff.
+
+### DELETE `/api/v1/school-staff/:id`
+Eliminar miembro del staff.
+
+---
+
+## 16. Eventos Deportivos
+
+**Base:** `/api/v1/events`
+**Archivo:** `bff/src/routes/events.route.ts`
+
+### GET `/api/v1/events`
+Listar eventos publicos publicados. Sin autenticacion.
+
+**Query Params:** `sport`, `city`, `limit`, `offset`
+
+**Response (200):**
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Torneo Interescolar 2026",
+    "sport": "futbol",
+    "description": "...",
+    "event_date": "2026-06-15",
+    "city": "Bogota",
+    "slug": "torneo-interescolar-2026",
+    "image_url": "https://...",
+    "banner_url": "https://...",
+    "status": "published",
+    "visibility": "public"
+  }
+]
+```
+
+---
+
+### GET `/api/v1/events/mine`
+Listar eventos del organizador autenticado.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### POST `/api/v1/events`
+Crear evento.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### GET `/api/v1/events/:id/preview`
+Vista previa del evento (solo el organizador dueno).
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### POST `/api/v1/events/:id/publish`
+Publicar evento. Solo organizadores verificados.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### PUT `/api/v1/events/:id`
+Actualizar evento.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### PATCH `/api/v1/events/:id/status`
+Cambiar estado del evento.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### GET `/api/v1/events/:id/delegations`
+Listar delegaciones inscritas en el evento.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### PATCH `/api/v1/events/:id/delegations/:delegationId`
+Actualizar estado de una delegacion (aprobar/rechazar).
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+### GET `/api/v1/events/:id/documents`
+Obtener documentos de identidad de atletas inscritos en el evento.
+
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+---
+
+## 17. Organizadores
+
+**Base:** `/api/v1/organizer`
+**Archivo:** `bff/src/routes/organizers.route.ts`
+**Auth:** `requireAuth` + `requireRole(organizer)`
+
+### POST `/api/v1/organizer/profile`
+Crear perfil de organizador.
+
+**Request Body:**
+```json
+{
+  "organization_name": "Liga Deportiva Nacional",
+  "nit": "900123456-7",
+  "city": "Bogota",
+  "sports": ["futbol", "baloncesto"],
+  "bio": "Organizamos los mejores torneos...",
+  "logo_url": "https://...",
+  "payment_methods": { "bank": true, "online": true },
+  "bank_data": { "bank": "Bancolombia", "account": "1234567890", "type": "ahorros" },
+  "verification_doc_url": "https://...",
+  "qr_smart_enabled": true
+}
+```
+
+---
+
+### PUT `/api/v1/organizer/profile`
+Actualizar perfil de organizador.
+
+---
+
+### GET `/api/v1/organizer/stats`
+Obtener estadisticas del dashboard del organizador.
+
+---
+
+### GET `/api/v1/organizer/finances`
+Obtener finanzas del organizador (ingresos, comisiones).
+
+---
+
+## 18. Delegaciones de Escuela
+
+**Base:** `/api/v1/school/delegations`
+**Archivo:** `bff/src/routes/school-delegations.route.ts`
+**Auth:** `requireAuth` + `requireRole(school)`
+
+### GET `/api/v1/school/delegations`
+Listar delegaciones de la escuela a eventos.
+
+**Response (200):**
+```json
+[
+  {
+    "id": "uuid",
+    "event_id": "uuid",
+    "status": "pending|approved|rejected",
+    "total_amount": 500000,
+    "paid_amount": 250000,
+    "created_at": "2026-04-01T10:00:00Z",
+    "team_count": 2,
+    "athlete_count": 24,
+    "event": {
+      "title": "Torneo Interescolar 2026",
+      "event_date": "2026-06-15"
+    }
+  }
+]
+```
+
+---
+
+### GET `/api/v1/school/delegations/:id`
+Obtener detalle de delegacion con equipos y atletas.
+
+---
+
+## 19. Templates
+
+**Base:** `/api/v1/templates`
+**Archivo:** `bff/src/routes/templates.ts`
+**Auth:** `requireAuth` + `requireRole(owner, admin, school_admin, school)`
+
+### POST `/api/v1/templates/render`
+Renderizar plantilla de pago (WhatsApp/email).
+
+**Request Body:**
+```json
+{
+  "payment_id": "uuid",
+  "template_type": "payment_reminder",
+  "channel": "whatsapp|email",
+  "template_id": "uuid (opcional)"
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Hola Maria, te recordamos que tienes un pago pendiente de $220,000..."
+}
+```
+
+---
+
+### POST `/api/v1/templates/render-batch`
+Renderizar plantillas para multiples pagos.
+
+**Request Body:**
+```json
+{
+  "payment_ids": ["uuid1", "uuid2", "uuid3"],
+  "template_type": "payment_reminder",
+  "channel": "whatsapp|email"
+}
+```
+
+**Response (200):**
+```json
+{
+  "results": [
+    { "paymentId": "uuid1", "success": true, "message": "Hola Maria..." },
+    { "paymentId": "uuid2", "success": true, "message": "Hola Pedro..." },
+    { "paymentId": "uuid3", "success": false, "error": "Pago no encontrado" }
+  ]
+}
+```
+
+---
+
+## 20. Encuestas
+
+**Base:** `/api/v1/polls`
+**Archivo:** `bff/src/routes/polls.ts`
+
+### GET `/api/v1/polls`
+Listar encuestas.
+
+**Auth:** `requireAuth` + `requireRole(coach, staff, school_admin)`
+
+---
+
+### POST `/api/v1/polls`
+Crear encuesta de confirmacion de asistencia.
+
+**Auth:** `requireAuth` + `requireRole(coach, staff, school_admin)`
+
+---
+
+### GET `/api/v1/polls/:pollId/results`
+Obtener resultados de encuesta.
+
+### PATCH `/api/v1/polls/:pollId/close`
+Cerrar encuesta.
+
+### DELETE `/api/v1/polls/:pollId`
+Eliminar encuesta.
+
+---
+
+### POST `/api/v1/polls/:pollId/sessions/:sessionId/confirmations`
+Agregar confirmacion manual.
+
+### PATCH `/api/v1/polls/:pollId/sessions/:sessionId/confirmations/:bookingId`
+Actualizar confirmacion.
+
+### DELETE `/api/v1/polls/:pollId/sessions/:sessionId/confirmations/:bookingId`
+Eliminar confirmacion.
+
+---
+
+### GET `/api/v1/polls/:pollId/public`
+Obtener encuesta para votacion publica. Sin autenticacion.
+
+### POST `/api/v1/polls/:pollId/confirm`
+Confirmar asistencia en encuesta. Sin autenticacion.
+
+---
+
+## 21. Marketplace
+
+**Base:** `/api/v1/marketplace`
+**Archivo:** `bff/src/routes/marketplace.routes.ts`
+**Auth:** `optionalAuth` (permite navegacion anonima, personaliza para usuarios logueados)
+
+### GET `/api/v1/marketplace`
+Busqueda unificada de productos y servicios.
+
+**Query Params:**
+| Param | Tipo | Descripcion |
+|-------|------|-------------|
+| `q` | string | Busqueda por texto |
+| `type` | string | `all`, `product`, `service` |
+| `category` | string | Categoria |
+| `city` | string | Ciudad |
+| `price_max` | number | Precio maximo |
+| `service_type` | string | Tipo de servicio |
+| `page` | number | Pagina |
+| `limit` | number | Resultados por pagina |
+| `order_by` | string | Ordenamiento |
+
+---
+
+### GET `/api/v1/marketplace/products/:id`
+Detalle de producto con variantes y vendedor.
+
+---
+
+### GET `/api/v1/marketplace/services/:id`
+Detalle de servicio con variaciones y vendedor.
+
+---
+
+## 22. Vendor
+
+**Base:** `/api/v1/vendor`
+**Archivo:** `bff/src/routes/vendor.routes.ts`
+**Auth:** `requireMarketplaceAuth` (vendedores autenticados, sin contexto de escuela)
+
+### GET `/api/v1/vendor/profile`
+Obtener perfil del vendedor.
+
+### POST `/api/v1/vendor/profile`
+Crear perfil de vendedor (onboarding).
+
+**Request Body:**
+```json
+{
+  "display_name": "Tienda Equipate Mas",
+  "description": "Articulos deportivos de calidad",
+  "city": "Bogota",
+  "address": "Calle 72 #10-34",
+  "phone": "+573001234567",
+  "email": "ventas@equipate.com",
+  "nit": "900123456-7",
+  "website_url": "https://equipate.com",
+  "vendor_type": "store|individual"
+}
+```
+
+### PUT `/api/v1/vendor/profile`
+Actualizar perfil de vendedor.
+
+---
+
+### GET `/api/v1/vendor/products`
+Listar productos del vendedor.
+
+### POST `/api/v1/vendor/products`
+Crear producto.
+
+### PATCH `/api/v1/vendor/products/:id`
+Actualizar producto.
+
+### DELETE `/api/v1/vendor/products/:id`
+Eliminar producto.
+
+---
+
+### GET `/api/v1/vendor/services`
+Listar servicios del vendedor.
+
+### POST `/api/v1/vendor/services`
+Crear servicio.
+
+### PATCH `/api/v1/vendor/services/:id`
+Actualizar servicio.
+
+### DELETE `/api/v1/vendor/services/:id`
+Eliminar servicio.
+
+---
+
+## 23. Ordenes del Marketplace
+
+**Base:** `/api/v1/marketplace/orders`
+**Archivo:** `bff/src/routes/marketplace-orders.routes.ts`
+**Auth:** `requireAuth`
+**Rate Limit:** 20 requests por minuto
+
+### GET `/api/v1/marketplace/orders`
+Listar ordenes del usuario.
+
+**Query Params:** `status`
+
+### POST `/api/v1/marketplace/orders`
+Crear orden desde el carrito.
+
+**Request Body:**
+```json
+{
+  "items": [
+    { "product_id": "uuid", "quantity": 2, "variant_id": "uuid (opcional)" },
+    { "service_id": "uuid", "variation_id": "uuid (opcional)" }
+  ]
+}
+```
+
+### GET `/api/v1/marketplace/orders/:id`
+Detalle de orden.
+
+### PATCH `/api/v1/marketplace/orders/:id`
+Actualizar estado de orden.
+
+---
+
+## 24. Entrenador Personal
+
+**Base:** `/api/v1/trainer`
+**Archivos:** `bff/src/routes/trainer/profile.ts`, `bff/src/routes/trainer/onboarding.ts`, `bff/src/routes/trainer/workspace.ts`, `bff/src/routes/trainer/clients.ts`, `bff/src/routes/trainer/routines.ts`
+**Auth:** `requireTrainerAuth` (middleware especial para entrenadores personales)
+
+### GET `/api/v1/trainer/profile`
+Obtener perfil del entrenador autenticado.
+
+### PUT `/api/v1/trainer/profile`
+Actualizar perfil.
+
+**Request Body:**
+```json
+{
+  "display_name": "Carlos Rodriguez",
+  "tagline": "Entrenador personal certificado",
+  "bio": "10 anos de experiencia...",
+  "avatar_url": "https://...",
+  "cover_image_url": "https://...",
+  "primary_sport": "futbol",
+  "secondary_sports": ["atletismo", "natacion"],
+  "specialties": ["fuerza", "resistencia"],
+  "experience_years": 10,
+  "certifications": ["NSCA-CPT", "ACE"],
+  "gallery_urls": ["https://..."],
+  "rate_per_session": 80000,
+  "rate_currency": "COP",
+  "rate_notes": "Sesion de 60 minutos",
+  "city": "Bogota",
+  "address": "Parque Simon Bolivar",
+  "lat": 4.658,
+  "lng": -74.093,
+  "modality": "presencial|virtual|ambos",
+  "instagram_url": "https://instagram.com/carlostrainer",
+  "whatsapp_number": "+573001234567"
+}
+```
+
+### POST `/api/v1/trainer/profile/publish`
+Publicar perfil del entrenador (hacerlo visible publicamente).
+
+---
+
+Rutas adicionales del trainer:
+- **Onboarding:** flujo de configuracion inicial
+- **Workspace:** gestion del espacio de trabajo
+- **Clients:** gestion de clientes
+- **Routines:** gestion de rutinas y clases
+
+---
+
+## 25. Sistema
+
+**Base:** `/api/v1/system`
+**Archivo:** `bff/src/routes/system.ts`
+
+### POST `/api/v1/system/cleanup`
+Trigger manual para limpieza de sesiones y refresh de salud.
+
+**Auth:** `requireAuth` + `requireRole(admin, super_admin)`
+
+**Response (200):**
+```json
+{
+  "ok": true,
+  "summary": {
+    "sessions_finalized": 3,
+    "school_count": 12
+  },
+  "message": "Cleanup completado"
+}
+```
+
+---
+
+## 26. OG Preview
+
+**Base:** `/share`
+**Archivo:** `bff/src/routes/og-preview.routes.ts`
+**Auth:** Publico
+
+### GET `/share?type=school&id=:schoolId`
+Generar meta tags OG para compartir escuela en redes sociales.
+
+### GET `/share?type=event&id=:eventId`
+Generar meta tags OG para compartir evento en redes sociales.
+
+**Response:** HTML con meta tags Open Graph.
+
+---
+
+## 27. Middleware y Seguridad
+
+**Archivo:** `bff/src/middlewares/authMiddleware.ts`
+
+### Funciones de middleware
+
+| Middleware | Descripcion |
+|-----------|-------------|
+| `requireAuth` | Valida Bearer token via Supabase. Obtiene usuario de `school_members`. Sets: `req.user`, `req.schoolId`, `req.branchId`, `req.role` |
+| `requireBasicAuth` | Validacion ligera de token sin contexto de escuela. Usado por favoritos |
+| `requireRole(...roles)` | Verifica que el rol del usuario este en la lista permitida. Roles privilegiados (owner, super_admin, admin) siempre pasan |
+| `requirePermission(...perms)` | Valida contra la matriz de permisos. El usuario debe tener AL MENOS uno de los permisos listados |
+| `requireOwnership(table, param, field)` | Previene ataques IDOR. Verifica que el recurso pertenezca a la escuela o usuario |
+| `requireMarketplaceAuth` | Para vendedores del marketplace. Lee rol desde `profiles` (no `school_members`) |
+| `requireTrainerAuth` | Para entrenadores personales. Busca workspace en `schools` con `school_type = 'personal_trainer'` |
+| `optionalAuth` | Auth opcional. No retorna 401 si no hay token. Permite navegacion anonima con personalizacion para logueados |
+| `auditLog(...)` | Log de acciones relevantes a `security_audit_log`. Non-blocking |
+
+### Roles del sistema
+
+| Rol | Permisos clave |
+|-----|---------------|
+| `athlete` | dashboard, calendar:view, teams:view, stats:view, marketplace:browse |
+| `parent` | + students:view, reports:view, appointments:create |
+| `coach` | + calendar:create/edit/delete, teams:create/edit, students:edit, reports:create |
+| `school` | + teams:delete, students:create/delete, finances:view/manage, products:create/edit |
+| `school_admin` | Similar a school |
+| `admin` / `super_admin` / `owner` | Acceso completo a todo |
+| `organizer` | events:create/edit/delete, finances:view/manage |
+| `wellness_professional` | services:create/edit/delete, appointments:view/create/manage, health_records |
+| `store_owner` | products:create/edit/delete, inventory:view/manage, orders:view/manage |
+| `staff` | Permisos operativos basicos |
+| `reporter` | reports:view (solo lectura) |
+
+---
+
+## 28. Rate Limiting
+
+| Tipo | Limite | Aplica a |
+|------|--------|----------|
+| **General** | 200 requests / 15 minutos | Todas las rutas |
+| **Pagos** | 20 requests / 1 minuto | `/api/v1/payments/*`, `/api/v1/marketplace/orders/*` |
+
+---
+
+## 29. Manejo de Errores
+
+Formato estandar de error:
 
 ```json
 {
-  "event": "payment.received",
-  "timestamp": "2025-01-15T16:00:00Z",
-  "data": {
-    "transaction_id": "uuid",
-    "amount": 220000,
-    "student_id": "uuid"
-  },
-  "signature": "hmac_sha256_signature"
+  "error": "Descripcion del error"
 }
 ```
 
+### Codigos HTTP
+
+| Status | Descripcion |
+|--------|-------------|
+| `200` | OK |
+| `201` | Creado exitosamente |
+| `400` | Error de validacion o datos invalidos |
+| `401` | Token invalido, expirado o ausente |
+| `403` | Sin permisos para esta accion / Rol no autorizado |
+| `404` | Recurso no encontrado |
+| `409` | Conflicto (duplicado, capacidad llena) |
+| `422` | Datos validos pero logicamente incorrectos |
+| `429` | Rate limit excedido |
+| `500` | Error interno del servidor |
+
+### Headers de seguridad
+
+Todas las respuestas API incluyen:
+```
+Cache-Control: no-store
+Pragma: no-cache
+Expires: 0
+```
+
+### CORS
+
+Origenes permitidos:
+- `localhost` (desarrollo)
+- `FRONTEND_URL` (produccion)
+- Subdominios de `sportmaps.co`
+- Preview branches de `vercel.app`
+
 ---
 
-## 🧪 Ambiente de Testing
-
-**Base URL Sandbox:** `https://api-sandbox.sportmaps.com/v1`
-
-- Usa tarjetas de prueba de ePayco
-- Datos demo disponibles
-- No se envían emails reales (logged)
-- No se procesan pagos reales
-
----
-
-## 📚 SDKs Disponibles
-
-- **JavaScript/TypeScript:** `@sportmaps/sdk-js`
-- **Python:** `sportmaps-sdk`
-- **React Hooks:** `@sportmaps/react`
-
----
-
-## 🆘 Soporte
-
-- **Documentación:** https://docs.sportmaps.com
-- **Email:** developers@sportmaps.com
-- **Status Page:** https://status.sportmaps.com
-
----
-
-**Versión:** 1.0.0
-**Última Actualización:** Enero 2025
+**Version:** 2.0.0
+**Ultima actualizacion:** Abril 2026
+**Fuente:** Codigo real del BFF en `bff/src/routes/`

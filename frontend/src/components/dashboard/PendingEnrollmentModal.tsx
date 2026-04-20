@@ -50,7 +50,7 @@ export function PendingEnrollmentModal() {
         .from('enrollments')
         .insert({
           user_id: user.id,
-          program_id: pendingEnrollment.programId,
+          team_id: pendingEnrollment.teamId,
           school_id: pendingEnrollment.schoolId,
           ...(profile?.role === 'athlete' ? {} : { child_id: selectedChildId }),
           start_date: new Date().toISOString().split('T')[0],
@@ -104,8 +104,8 @@ export function PendingEnrollmentModal() {
       <ChildSelectorModal
         open={showChildSelector}
         onOpenChange={handleCloseChildSelector}
-        programId={pendingEnrollment.programId}
-        programName={pendingEnrollment.programName}
+        teamId={pendingEnrollment.teamId}
+        teamName={pendingEnrollment.teamName}
         schoolId={pendingEnrollment.schoolId}
         schoolName={pendingEnrollment.schoolName}
         onChildSelected={handleChildSelected}
@@ -117,14 +117,14 @@ export function PendingEnrollmentModal() {
         onOpenChange={handleClosePayment}
         item={{
           type: 'enrollment',
-          id: pendingEnrollment.programId,
+          id: pendingEnrollment.teamId,
           name: selectedChildName
-            ? `${pendingEnrollment.programName} — ${selectedChildName}`
-            : pendingEnrollment.programName,
+            ? `${pendingEnrollment.teamName} — ${selectedChildName}`
+            : pendingEnrollment.teamName,
           description: pendingEnrollment.schoolName,
           amount: pendingEnrollment.amount,
           schoolId: pendingEnrollment.schoolId,
-          programId: pendingEnrollment.programId,
+          teamId: pendingEnrollment.teamId,
         }}
         onSuccess={handlePaymentSuccess}
       />

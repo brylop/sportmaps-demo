@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { paymentRemindersAPI, PaymentReminder, ReminderBatch } from '@/lib/api/payment-reminders';
+import { daysDiffFromToday } from '@/lib/dateUtils';
 import {
     Bell, DollarSign, AlertTriangle, Clock, Send, CheckCircle2, Users,
-    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter
+    ChevronDown, ChevronUp, Mail, Loader2, RefreshCw, Filter, MessageCircle, Phone, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,19 +19,41 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { emailClient } from '@/lib/email-client';
+import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 
 export default function PaymentRemindersPage() {
-    const { schoolId, activeBranchId, activeBranchName } = useSchoolContext();
+    const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
     const [batch, setBatch] = useState<ReminderBatch | null>(null);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue'>('all');
+    const [filterPlan, setFilterPlan] = useState<string>('all');
     const [expandedParent, setExpandedParent] = useState<string | null>(null);
+    const [sendingAuto, setSendingAuto] = useState(false);
+    const [templates, setTemplates] = useState<{ id: string; name: string; template_type: string }[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('auto');
 
     useEffect(() => {
-        if (schoolId) loadReminders();
+        if (schoolId) {
+            loadReminders();
+            loadTemplates();
+        }
     }, [schoolId, activeBranchId]);
+
+    async function loadTemplates() {
+        // Load WhatsApp templates available to this school (school-specific + global defaults)
+        const { data } = await supabase
+            .from('payment_message_templates')
+            .select('id, name, template_type, is_default, school_id')
+            .eq('channel', 'whatsapp')
+            .eq('is_active', true)
+            .or(`school_id.eq.${schoolId},school_id.is.null`)
+            .order('template_type')
+            .order('sort_order');
+        setTemplates(data || []);
+    }
 
     async function loadReminders() {
         if (!schoolId) return;
@@ -51,9 +74,22 @@ export default function PaymentRemindersPage() {
         }
     }
 
-    const filteredReminders = batch?.reminders.filter(r =>
-        filterStatus === 'all' || r.status === filterStatus
-    ) || [];
+    // Unique plan names for dynamic filter
+    const planOptions = [...new Set((batch?.reminders || []).map(r => r.teamName).filter(Boolean))];
+
+    const filteredReminders = batch?.reminders.filter(r => {
+        if (filterStatus !== 'all' && r.status !== filterStatus) return false;
+        if (filterPlan !== 'all' && r.teamName !== filterPlan) return false;
+        return true;
+    }) || [];
+
+    // Stats based on filtered results
+    const filteredStats = {
+        parents: new Set(filteredReminders.map(r => r.parentId)).size,
+        pending: filteredReminders.filter(r => r.status === 'pending').length,
+        overdue: filteredReminders.filter(r => r.status === 'overdue').length,
+        total: filteredReminders.reduce((s, r) => s + r.amount, 0),
+    };
 
     // Group by parent for grouped view
     const groupedByParent = filteredReminders.reduce<Record<string, PaymentReminder[]>>((acc, r) => {
@@ -98,7 +134,7 @@ export default function PaymentRemindersPage() {
                         data: {
                             userName: reminder.parentName,
                             schoolName: batch?.schoolId || '',
-                            concept: reminder.programName,
+                            concept: reminder.teamName,
                             amount: formatCurrency(reminder.amount),
                             dueDate: formatDate(reminder.dueDate),
                         },
@@ -115,6 +151,85 @@ export default function PaymentRemindersPage() {
             toast.error(error.message || 'Error al enviar recordatorios');
         } finally {
             setSending(false);
+        }
+    };
+
+    const handleAutoSend = async () => {
+        if (!schoolId) return;
+        setSendingAuto(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('payment-reminders-cron', {
+                body: { school_id: schoolId },
+            });
+            if (error) throw error;
+            const result = data as { sent?: number; failed?: number };
+            if (result.sent && result.sent > 0) {
+                toast.success(`${result.sent} recordatorio${result.sent > 1 ? 's' : ''} enviado${result.sent > 1 ? 's' : ''} por email`);
+            } else {
+                toast.info('No hay recordatorios pendientes para enviar hoy');
+            }
+            if (result.failed && result.failed > 0) {
+                toast.warning(`${result.failed} no pudieron enviarse`);
+            }
+            loadReminders();
+        } catch (err: any) {
+            toast.error(err.message || 'Error al ejecutar envio automatico');
+        } finally {
+            setSendingAuto(false);
+        }
+    };
+
+    const [sendingWA, setSendingWA] = useState<string | null>(null);
+
+    const sendWhatsApp = async (reminder: PaymentReminder) => {
+        if (!reminder.parentPhone) {
+            toast.warning('Este padre no tiene teléfono registrado');
+            return;
+        }
+        if (!reminder.paymentId) {
+            toast.error('Pago sin ID, no se puede renderizar plantilla');
+            return;
+        }
+
+        setSendingWA(reminder.id);
+        try {
+            // Determine template type from payment status
+            const templateType = reminder.status === 'overdue' ? 'overdue'
+                : daysDiffFromToday(reminder.dueDate) <= 0 ? 'reminder_due'
+                : 'reminder_before';
+
+            // Build render request — use specific template if selected, otherwise auto-detect
+            const renderBody: Record<string, string> = {
+                payment_id: reminder.paymentId,
+                template_type: templateType,
+                channel: 'whatsapp',
+            };
+            if (selectedTemplateId !== 'auto') {
+                renderBody.template_id = selectedTemplateId;
+            }
+
+            const { message } = await bffClient.post<{ message: { body: string } }>(
+                '/api/v1/templates/render',
+                renderBody,
+            );
+
+            // Clean phone number
+            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.body)}`, '_blank');
+        } catch (err: any) {
+            // Fallback: use hardcoded message if BFF fails
+            const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
+            const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
+            const isOverdue = reminder.status === 'overdue';
+            const msg = isOverdue
+                ? `Hola ${reminder.parentName}, le informamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) esta vencido desde el ${formatDate(reminder.dueDate)}. Por favor realice el pago lo antes posible.`
+                : `Hola ${reminder.parentName}, le recordamos que el pago de *${reminder.childName}* en *${schoolName || 'la academia'}* (${formatCurrency(reminder.amount)}) vence el ${formatDate(reminder.dueDate)}. Gracias por su puntualidad.`;
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+            console.warn('Template render failed, used fallback:', err.message);
+        } finally {
+            setSendingWA(null);
         }
     };
 
@@ -158,6 +273,18 @@ export default function PaymentRemindersPage() {
                         Actualizar
                     </Button>
                     <Button
+                        variant="outline"
+                        onClick={handleAutoSend}
+                        disabled={sendingAuto || !batch || batch.totalReminders === 0}
+                        className="text-green-700 border-green-200 hover:bg-green-50"
+                    >
+                        {sendingAuto ? (
+                            <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Enviando...</>
+                        ) : (
+                            <><Bell className="h-4 w-4 mr-2" /> Enviar todos por email</>
+                        )}
+                    </Button>
+                    <Button
                         onClick={handleSendReminders}
                         disabled={selectedIds.size === 0 || sending}
                     >
@@ -176,36 +303,36 @@ export default function PaymentRemindersPage() {
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-primary" />
-                            <span className="text-sm text-muted-foreground">Padres</span>
+                            <span className="text-sm text-muted-foreground">Contactos</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1">{Object.keys(groupedByParent).length}</p>
+                        <p className="text-2xl font-bold mt-1">{filteredStats.parents}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4 text-amber-500" />
                             <span className="text-sm text-muted-foreground">Pendientes</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1">{batch.byStatus.pending}</p>
+                        <p className="text-2xl font-bold mt-1">{filteredStats.pending}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <AlertTriangle className="h-4 w-4 text-red-500" />
                             <span className="text-sm text-muted-foreground">Vencidos</span>
                         </div>
-                        <p className="text-2xl font-bold mt-1 text-red-600">{batch.byStatus.overdue}</p>
+                        <p className="text-2xl font-bold mt-1 text-red-600">{filteredStats.overdue}</p>
                     </Card>
                     <Card className="p-4">
                         <div className="flex items-center gap-2">
                             <DollarSign className="h-4 w-4 text-emerald-500" />
                             <span className="text-sm text-muted-foreground">Total Pendiente</span>
                         </div>
-                        <p className="text-xl font-bold mt-1">{formatCurrency(batch.totalAmount)}</p>
+                        <p className="text-xl font-bold mt-1">{formatCurrency(filteredStats.total)}</p>
                     </Card>
                 </div>
             )}
 
             {/* Filter Bar */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                     <SelectTrigger className="w-[180px]">
@@ -217,6 +344,41 @@ export default function PaymentRemindersPage() {
                         <SelectItem value="overdue">Vencidos ({batch?.byStatus.overdue || 0})</SelectItem>
                     </SelectContent>
                 </Select>
+
+                {planOptions.length > 0 && (
+                    <Select value={filterPlan} onValueChange={setFilterPlan}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="Plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los planes</SelectItem>
+                            {planOptions.map(plan => (
+                                <SelectItem key={plan} value={plan}>{plan}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
+
+                {/* Template selector */}
+                <div className="flex items-center gap-1.5 ml-auto">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                        <SelectTrigger className="w-[220px]">
+                            <SelectValue placeholder="Plantilla" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="auto">Plantilla automatica</SelectItem>
+                            {templates.map(t => (
+                                <SelectItem key={t.id} value={t.id}>
+                                    {t.name}
+                                    <span className="text-muted-foreground text-[10px] ml-1">
+                                        ({t.template_type.replace('_', ' ')})
+                                    </span>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
                 {selectedIds.size > 0 && (
                     <Badge variant="secondary" className="animate-in fade-in">
@@ -248,10 +410,11 @@ export default function PaymentRemindersPage() {
                                 </TableHead>
                                 <TableHead>Padre / Acudiente</TableHead>
                                 <TableHead>Estudiante</TableHead>
-                                <TableHead>Programa</TableHead>
+                                <TableHead>Plan</TableHead>
                                 <TableHead className="text-right">Monto</TableHead>
                                 <TableHead>Vencimiento</TableHead>
                                 <TableHead>Estado</TableHead>
+                                <TableHead className="w-20 text-center">Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -272,14 +435,22 @@ export default function PaymentRemindersPage() {
                                             <TableCell>
                                                 <div>
                                                     <p className="font-medium text-sm">{first.parentName}</p>
-                                                    <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                                                        <Mail className="h-3 w-3" />
-                                                        {first.parentEmail || 'Sin email'}
-                                                    </p>
+                                                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                                        <span className="flex items-center gap-0.5">
+                                                            <Mail className="h-3 w-3" />
+                                                            {first.parentEmail || 'Sin email'}
+                                                        </span>
+                                                        {first.parentPhone && (
+                                                            <span className="flex items-center gap-0.5 text-green-600">
+                                                                <Phone className="h-3 w-3" />
+                                                                {first.parentPhone}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-sm">{first.childName}</TableCell>
-                                            <TableCell className="text-sm">{first.programName}</TableCell>
+                                            <TableCell className="text-sm">{first.teamName}</TableCell>
                                             <TableCell className="text-right font-semibold text-sm">
                                                 {formatCurrency(first.amount)}
                                             </TableCell>
@@ -288,7 +459,7 @@ export default function PaymentRemindersPage() {
                                                 {first.status === 'overdue' ? (
                                                     <Badge variant="destructive" className="text-[10px]">
                                                         <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                                        {first.daysOverdue}d vencido
+                                                        {Math.max(0, daysDiffFromToday(first.dueDate))}d vencido
                                                     </Badge>
                                                 ) : (
                                                     <Badge variant="secondary" className="text-[10px]">
@@ -296,6 +467,18 @@ export default function PaymentRemindersPage() {
                                                         Pendiente
                                                     </Badge>
                                                 )}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    onClick={() => sendWhatsApp(first)}
+                                                    title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
+                                                    disabled={!first.parentPhone || sendingWA === first.id}
+                                                >
+                                                    {sendingWA === first.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                                                </Button>
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -344,6 +527,18 @@ export default function PaymentRemindersPage() {
                                                     <Badge variant="secondary" className="text-[10px]">Pendientes</Badge>
                                                 )}
                                             </TableCell>
+                                            <TableCell className="text-center">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                    onClick={(e) => { e.stopPropagation(); sendWhatsApp(first); }}
+                                                    title={first.parentPhone ? `WhatsApp: ${first.parentPhone}` : 'Sin telefono'}
+                                                    disabled={!first.parentPhone || sendingWA === first.id}
+                                                >
+                                                    {sendingWA === first.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                                                </Button>
+                                            </TableCell>
                                         </TableRow>
                                         {isExpanded && reminders.map(r => (
                                             <TableRow key={r.id} className="bg-muted/20">
@@ -355,17 +550,28 @@ export default function PaymentRemindersPage() {
                                                 </TableCell>
                                                 <TableCell />
                                                 <TableCell className="text-sm">{r.childName}</TableCell>
-                                                <TableCell className="text-sm">{r.programName}</TableCell>
+                                                <TableCell className="text-sm">{r.teamName}</TableCell>
                                                 <TableCell className="text-right text-sm">{formatCurrency(r.amount)}</TableCell>
                                                 <TableCell className="text-sm">{formatDate(r.dueDate)}</TableCell>
                                                 <TableCell>
                                                     {r.status === 'overdue' ? (
                                                         <Badge variant="destructive" className="text-[10px]">
-                                                            {r.daysOverdue}d
+                                                            {Math.max(0, daysDiffFromToday(r.dueDate))}d
                                                         </Badge>
                                                     ) : (
                                                         <Badge variant="secondary" className="text-[10px]">Pend.</Badge>
                                                     )}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                                        onClick={() => sendWhatsApp(r)}
+                                                        disabled={!r.parentPhone || sendingWA === r.id}
+                                                    >
+                                                        {sendingWA === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}

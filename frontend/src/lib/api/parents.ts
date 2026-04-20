@@ -18,6 +18,9 @@ export interface Child {
     emergency_contact?: string;
     avatar_url?: string;
     id_document_url?: string;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
     created_at?: string;
 }
 
@@ -35,6 +38,9 @@ export interface CreateChildDTO {
     emergency_contact?: string;
     avatar_url?: string;
     id_document_url?: string;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
 }
 
 export interface UpdateChildDTO {
@@ -46,6 +52,9 @@ export interface UpdateChildDTO {
     emergency_contact?: string;
     avatar_url?: string;
     medical_info?: string;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
 }
 
 class ParentsAPI {

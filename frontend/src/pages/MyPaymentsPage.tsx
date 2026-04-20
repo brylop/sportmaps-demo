@@ -9,7 +9,8 @@ import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus, Ale
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
-import { formatCurrency, getStoragePath } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, Loader2, Info, Percent } from 'lucide-react';
@@ -18,7 +19,6 @@ import { Progress } from '@/components/ui/progress';
 interface Enrollment {
   id: string;
   child_id: string;
-  program_id: string | null;
   team_id: string | null;
   school_id: string;
   children: {
@@ -30,6 +30,7 @@ interface Enrollment {
   } | null;
   schools: {
     name: string;
+    school_type?: string;
   } | null;
 }
 
@@ -55,12 +56,13 @@ interface Transaction {
   pct_paid?: number;
   installments_pending?: number;
   school_id?: string;
+  school_type?: string;
   concept?: string;
 }
 
 interface Subscription {
   id: string;
-  program_id: string;
+  team_id: string;
   amount: number;
   payment_method: string;
   status: string;
@@ -80,9 +82,8 @@ export default function MyPaymentsPage() {
   const [selectedPayment, setSelectedPayment] = useState<{
     childId: string;
     childName: string;
-    programId?: string;
     teamId?: string;
-    programName: string;
+    teamName: string;
     amount: number;
     schoolId: string;
     paymentId?: string;
@@ -109,8 +110,8 @@ export default function MyPaymentsPage() {
 
   useEffect(() => {
     if (user && profile) {
-      if (profile.role === 'athlete') {
-        window.location.href = '/athlete-payments';
+      if (profile.role !== 'parent') {
+        window.location.href = profile.role === 'athlete' ? '/athlete-payments' : '/dashboard';
         return;
       }
       fetchPaymentData();
@@ -128,10 +129,18 @@ export default function MyPaymentsPage() {
         .eq('parent_id', user?.id || '')
         .order('created_at', { ascending: false });
 
-      if (!error && payments && payments.length > 0) {
+        const transactionSchoolIds = [...new Set(payments.map((p: any) => p.school_id).filter(Boolean))];
+        const { data: schoolsData } = await supabase
+          .from('schools')
+          .select('id, school_type')
+          .in('id', transactionSchoolIds);
+        
+        const schoolTypeMap = Object.fromEntries((schoolsData || []).map(s => [s.id, s.school_type]));
+
         const txns: Transaction[] = payments.map((p: any) => ({
           id: p.id,
           school_id: p.school_id,
+          school_type: schoolTypeMap[p.school_id] || 'academy',
           amount: p.amount,
           amount_paid: p.amount_paid,
           balance_pending: p.balance_pending,
@@ -146,7 +155,6 @@ export default function MyPaymentsPage() {
           receipt_url: p.receipt_url,
         }));
         setTransactions(txns);
-      }
 
       // ── Query A: hijos del padre ─────────────────────────────────────────
       const { data: childrenData, error: childrenError } = await supabase
@@ -179,7 +187,7 @@ export default function MyPaymentsPage() {
           id,
           child_id,
           team_id,
-          program_id,
+          team_id: null,
           school_id,
           status,
           team:teams!enrollments_team_id_fkey (
@@ -187,7 +195,8 @@ export default function MyPaymentsPage() {
             price_monthly
           ),
           schools (
-            name
+            name,
+            school_type
           )
         `)
         .in('child_id', childIds)
@@ -212,7 +221,6 @@ export default function MyPaymentsPage() {
               flattened.push({
                 id: enroll.id,
                 child_id: child.id,
-                program_id: enroll.program_id,
                 team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
@@ -229,7 +237,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: child.team_id,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -245,7 +252,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `child-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: child.team_id || null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -261,7 +267,6 @@ export default function MyPaymentsPage() {
             flattened.push({
               id: `empty-${child.id}`,
               child_id: child.id,
-              program_id: null,
               team_id: null,
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
@@ -306,7 +311,7 @@ export default function MyPaymentsPage() {
     if (!receiptUrl) return;
 
     try {
-      const cleanPath = getStoragePath(receiptUrl);
+      const cleanPath = normalizeReceiptUrl(receiptUrl);
       const { data, error } = await supabase.storage
         .from('payment-receipts')
         .createSignedUrl(cleanPath, 300);
@@ -389,10 +394,13 @@ export default function MyPaymentsPage() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-6 w-full max-w-full overflow-x-hidden">
+    <div className="space-y-6 animate-in fade-in duration-500 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold truncate">💳 Mis Pagos</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3 truncate">
+            <CreditCard className="h-7 w-7 text-primary" />
+            Mis Pagos
+          </h1>
           <p className="text-sm md:text-base text-muted-foreground truncate">Gestiona tus pagos y suscripciones</p>
         </div>
         <Button onClick={() => setShowChildPicker(true)} size="sm" className="w-full md:w-auto">
@@ -416,7 +424,7 @@ export default function MyPaymentsPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <CreditCard className="h-4 w-4 text-primary" />
-                    <p className="font-semibold">Programa {sub.program_id}</p>
+                    <p className="font-semibold">Equipo {sub.team_id}</p>
                     <Badge variant="default">Activo</Badge>
                   </div>
                   <p className="text-2xl font-bold text-primary">{formatCurrency(sub.amount)}/mes</p>
@@ -491,7 +499,12 @@ export default function MyPaymentsPage() {
                               year: 'numeric',
                             })}
                           </TableCell>
-                          <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            <div className="flex items-center gap-1.5">
+                              {txn.school_type === 'personal_trainer' && <Zap className="h-3.5 w-3.5 text-indigo-500 fill-indigo-500/10" />}
+                              {txn.reference}
+                            </div>
+                          </TableCell>
                           <TableCell className="whitespace-nowrap">
                             <span className="flex items-center gap-1 text-xs md:text-sm">
                               {getPaymentMethodIcon(txn.payment_method)}
@@ -638,7 +651,7 @@ export default function MyPaymentsPage() {
                                       id: txn.id,
                                       schoolId: txn.school_id || '',
                                       balancePending: txn.balance_pending!,
-                                      concept: txn.concept
+                                      concept: txn.concept || ''
                                     });
                                     setShowInstallment(true);
                                   }}
@@ -653,7 +666,7 @@ export default function MyPaymentsPage() {
                                   setSelectedPayment({
                                     childId: '', 
                                     childName: '',
-                                    programName: txn.concept,
+                                    teamName: txn.concept || '',
                                     amount: txn.balance_pending || txn.amount,
                                     schoolId: txn.school_id || '',
                                     paymentId: txn.id,
@@ -691,46 +704,55 @@ export default function MyPaymentsPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             {enrollments.length > 0 ? (
-              enrollments.map((enroll) => (
-                <button
-                  key={enroll.id}
-                  className="w-full flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 hover:border-primary transition-all text-left"
-                  onClick={() => {
-                    setSelectedPayment({
-                      childId: enroll.child_id,
-                      childName: enroll.children?.full_name || 'Estudiante',
-                      programId: enroll.program_id || undefined,
-                      teamId: enroll.team_id || undefined,
-                      programName: enroll.teams?.name || 'Mensualidad Estudiante',
-                      amount: enroll.teams?.price_monthly || 0,
-                      schoolId: enroll.school_id,
-                    });
-                    setShowChildPicker(false);
-                    setShowCheckout(true);
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-white font-semibold">
-                      {(enroll.children?.full_name || 'E').charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold truncate">{enroll.children?.full_name}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {enroll.teams?.name || 'Sin curso asignado'}
-                      </p>
-                      {enroll.schools?.name && (
-                        <p className="text-[10px] text-muted-foreground italic truncate">
-                          Escuela: {enroll.schools.name}
+              enrollments.map((enroll) => {
+                const isPT = enroll.schools?.school_type === 'personal_trainer';
+                return (
+                  <button
+                    key={enroll.id}
+                    className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all text-left shadow-sm
+                      ${isPT 
+                        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-900/90' 
+                        : 'bg-background hover:bg-muted/50 hover:border-primary'}`}
+                    onClick={() => {
+                      setSelectedPayment({
+                        childId: enroll.child_id,
+                        childName: enroll.children?.full_name || 'Estudiante',
+                        teamId: enroll.team_id || undefined,
+                        teamName: enroll.teams?.name || 'Mensualidad Estudiante',
+                        amount: enroll.teams?.price_monthly || 0,
+                        schoolId: enroll.school_id,
+                      });
+                      setShowChildPicker(false);
+                      setShowCheckout(true);
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold shadow-sm
+                        ${isPT 
+                          ? 'bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-indigo-500/20' 
+                          : 'bg-gradient-to-br from-primary to-primary/60'}`}>
+                        {isPT ? <User className="h-5 w-5" /> : (enroll.children?.full_name || 'E').charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`font-semibold truncate ${isPT ? 'text-zinc-100' : ''}`}>{enroll.children?.full_name}</p>
+                        <p className={`text-xs truncate ${isPT ? 'text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1' : 'text-muted-foreground'}`}>
+                          {isPT && <Zap className="h-3 w-3" />}
+                          {isPT ? 'Coach Personal' : (enroll.teams?.name || 'Sin curso asignado')}
                         </p>
-                      )}
+                        {enroll.schools?.name && (
+                          <p className={`text-[10px] italic truncate ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>
+                            {isPT ? `Con ${enroll.schools.name}` : `Escuela: ${enroll.schools.name}`}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right ml-2 shrink-0">
-                    <p className="font-bold text-primary">{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
-                    <p className="text-xs text-muted-foreground">/mes</p>
-                  </div>
-                </button>
-              ))
+                    <div className="text-right ml-2 shrink-0">
+                      <p className={`font-bold ${isPT ? 'text-indigo-400' : 'text-primary'}`}>{formatCurrency(enroll.teams?.price_monthly || 0)}</p>
+                      <p className={`text-xs ${isPT ? 'text-zinc-500' : 'text-muted-foreground'}`}>/mes</p>
+                    </div>
+                  </button>
+                );
+              })
             ) : (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">No tienes hijos registrados.</p>
@@ -750,12 +772,11 @@ export default function MyPaymentsPage() {
           onOpenChange={setShowCheckout}
           studentId={selectedPayment.childId}
           childId={selectedPayment.childId}
-          programId={selectedPayment.programId}
           teamId={selectedPayment.teamId}
           schoolId={selectedPayment.schoolId}
           paymentId={selectedPayment.paymentId}
           amount={selectedPayment.amount}
-          concept={selectedPayment.programName}
+          concept={selectedPayment.teamName}
           mode={selectedPayment.paymentId ? 'update' : 'create'}
           onSuccess={fetchPaymentData}
         />

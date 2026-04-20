@@ -9,6 +9,7 @@ import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, Histo
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { todayColombia, daysDiffFromToday } from '@/lib/dateUtils';
 
 interface OverdueAccount {
   id: string;
@@ -66,12 +67,12 @@ export default function FinancesPage() {
   // Calculate Aggregates
   const financialSummary = {
     totalIncome: payments?.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
-    pendingPayments: payments?.filter(p => p.status === 'pending' && new Date(p.due_date) >= new Date()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    totalOverdue: payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
+    pendingPayments: payments?.filter(p => p.status === 'pending' && p.due_date >= todayColombia()).reduce((sum, p) => sum + Number(p.amount), 0) || 0,
   };
 
   // Map Overdue Accounts
-  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && new Date(p.due_date) < new Date())) || [];
+  const accountsData = payments?.filter(p => p.status === 'overdue' || (p.status === 'pending' && p.due_date < todayColombia())) || [];
 
   const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
 
@@ -80,11 +81,11 @@ export default function FinancesPage() {
     if (accountsData) {
       setOverdueAccounts(accountsData.map(p => ({
         id: p.id,
-        parent: p.parent?.full_name || 'Desconocido',
-        student: p.student?.full_name || 'Estudiante',
+        parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
+        student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Estudiante',
         concept: p.concept,
         amount: Number(p.amount),
-        daysOverdue: Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 3600 * 24)),
+        daysOverdue: daysDiffFromToday(p.due_date),
         status: 'overdue'
       })));
     }
@@ -95,7 +96,7 @@ export default function FinancesPage() {
   const recentTransactions = payments?.filter(p => p.status === 'paid').slice(0, 5).map(p => ({
     id: p.id,
     date: p.payment_date || p.due_date,
-    parent: p.parent?.full_name || 'Desconocido',
+    parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
     concept: p.concept,
     amount: Number(p.amount),
     method: 'Transferencia' // Default as method might not be in query yet
@@ -165,7 +166,7 @@ export default function FinancesPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Finanzas</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Finanzas</h1>
           <p className="text-muted-foreground">Panel de control financiero</p>
         </div>
         <Button variant="outline" onClick={() => setShowHistoryModal(true)}>

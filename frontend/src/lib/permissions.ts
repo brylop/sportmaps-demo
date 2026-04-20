@@ -15,7 +15,16 @@ export type Permission =
   | 'finances:view' | 'finances:manage'
   | 'messages:view' | 'messages:send'
   | 'settings:view' | 'settings:edit'
-  | 'admin:users' | 'admin:system' | 'admin:all';
+  | 'events:view' | 'events:create' | 'events:edit' | 'events:delete'
+  | 'admin:users' | 'admin:system' | 'admin:all'
+  // Marketplace permissions
+  | 'marketplace:browse' | 'marketplace:manage'
+  | 'products:view' | 'products:create' | 'products:edit' | 'products:delete'
+  | 'services:view' | 'services:create' | 'services:edit' | 'services:delete'
+  | 'orders:view' | 'orders:manage'
+  | 'appointments:view' | 'appointments:create' | 'appointments:manage'
+  | 'inventory:view' | 'inventory:manage'
+  | 'health_records:view' | 'health_records:create' | 'health_records:edit';
 
 export type Resource =
   | 'dashboard'
@@ -27,7 +36,15 @@ export type Resource =
   | 'finances'
   | 'messages'
   | 'settings'
-  | 'admin';
+  | 'events'
+  | 'admin'
+  | 'marketplace'
+  | 'products'
+  | 'services'
+  | 'orders'
+  | 'appointments'
+  | 'inventory'
+  | 'health_records';
 
 export type Action = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'all';
 
@@ -41,10 +58,14 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'calendar:view',
     'teams:view',
     'stats:view',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
-    'settings:edit'
+    'settings:edit',
+    'marketplace:browse',
+    'orders:view',
+    'appointments:view'
   ],
 
   parent: [
@@ -53,10 +74,15 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'students:view',
     'stats:view',
     'reports:view',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
-    'settings:edit'
+    'settings:edit',
+    'marketplace:browse',
+    'orders:view',
+    'appointments:view',
+    'appointments:create'
   ],
 
   coach: [
@@ -74,6 +100,7 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'stats:edit',
     'reports:view',
     'reports:create',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -100,10 +127,15 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'reports:create',
     'finances:view',
     'finances:manage',
+    'events:view',
     'messages:view',
     'messages:send',
     'settings:view',
-    'settings:edit'
+    'settings:edit',
+    'marketplace:manage',
+    'products:view',
+    'products:create',
+    'products:edit'
   ],
 
   wellness_professional: [
@@ -117,7 +149,18 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'messages:view',
     'messages:send',
     'settings:view',
-    'settings:edit'
+    'settings:edit',
+    'marketplace:manage',
+    'services:view',
+    'services:create',
+    'services:edit',
+    'services:delete',
+    'appointments:view',
+    'appointments:create',
+    'appointments:manage',
+    'health_records:view',
+    'health_records:create',
+    'health_records:edit'
   ],
 
   store_owner: [
@@ -131,7 +174,16 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'messages:view',
     'messages:send',
     'settings:view',
-    'settings:edit'
+    'settings:edit',
+    'marketplace:manage',
+    'products:view',
+    'products:create',
+    'products:edit',
+    'products:delete',
+    'orders:view',
+    'orders:manage',
+    'inventory:view',
+    'inventory:manage'
   ],
 
   organizer: [
@@ -140,9 +192,15 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'calendar:create',
     'calendar:edit',
     'calendar:delete',
+    'events:view',
+    'events:create',
+    'events:edit',
+    'events:delete',
     'stats:view',
     'reports:view',
     'reports:create',
+    'finances:view',
+    'finances:manage',
     'messages:view',
     'messages:send',
     'settings:view',
@@ -186,9 +244,33 @@ const rolePermissions: Partial<Record<UserRole, Permission[]>> & Record<string, 
     'messages:send',
     'settings:view',
     'settings:edit',
+    'events:view',
+    'events:create',
+    'events:edit',
+    'events:delete',
     'admin:users',
     'admin:system',
-    'admin:all'
+    'admin:all',
+    'marketplace:browse',
+    'marketplace:manage',
+    'products:view',
+    'products:create',
+    'products:edit',
+    'products:delete',
+    'services:view',
+    'services:create',
+    'services:edit',
+    'services:delete',
+    'orders:view',
+    'orders:manage',
+    'appointments:view',
+    'appointments:create',
+    'appointments:manage',
+    'inventory:view',
+    'inventory:manage',
+    'health_records:view',
+    'health_records:create',
+    'health_records:edit'
   ]
 };
 
@@ -247,63 +329,99 @@ export const featureFlags: Partial<Record<UserRole, Record<string, boolean>>> & 
     canManageTeams: false,
     canViewFinances: false,
     canAccessAdmin: false,
-    canExportData: false
+    canExportData: false,
+    canSellProducts: false,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: true
   },
   parent: {
     canCreateEvents: false,
     canManageTeams: false,
     canViewFinances: true,
     canAccessAdmin: false,
-    canExportData: false
+    canExportData: false,
+    canSellProducts: false,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: true
   },
   coach: {
     canCreateEvents: true,
     canManageTeams: true,
     canViewFinances: false,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: false,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: false
   },
   school: {
     canCreateEvents: true,
     canManageTeams: true,
     canViewFinances: true,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: true,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: false
   },
   wellness_professional: {
     canCreateEvents: true,
     canManageTeams: false,
     canViewFinances: false,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: false,
+    canSellServices: true,
+    canBrowseMarketplace: true,
+    canBookAppointments: false
   },
   store_owner: {
     canCreateEvents: false,
     canManageTeams: false,
     canViewFinances: true,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: true,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: false
   },
   organizer: {
     canCreateEvents: true,
     canManageTeams: false,
     canViewFinances: true,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: false,
+    canSellServices: false,
+    canBrowseMarketplace: true,
+    canBookAppointments: false
   },
   reporter: {
     canCreateEvents: false,
     canManageTeams: false,
     canViewFinances: false,
     canAccessAdmin: false,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: false,
+    canSellServices: false,
+    canBrowseMarketplace: false,
+    canBookAppointments: false
   },
   admin: {
     canCreateEvents: true,
     canManageTeams: true,
     canViewFinances: true,
     canAccessAdmin: true,
-    canExportData: true
+    canExportData: true,
+    canSellProducts: true,
+    canSellServices: true,
+    canBrowseMarketplace: true,
+    canBookAppointments: true
   }
 };
 
@@ -324,7 +442,8 @@ export const dataVisibility = {
     canSeeTeamData: true,
     canSeeAllStudents: false,
     canSeeFinancialData: false,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   parent: {
     canSeeOwnData: true,
@@ -332,46 +451,53 @@ export const dataVisibility = {
     canSeeTeamData: true,
     canSeeAllStudents: false,
     canSeeFinancialData: false,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   coach: {
     canSeeOwnData: true,
     canSeeTeamData: true,
     canSeeAllStudents: true,
     canSeeFinancialData: false,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   school: {
     canSeeOwnData: true,
     canSeeTeamData: true,
     canSeeAllStudents: true,
     canSeeFinancialData: true,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   wellness_professional: {
     canSeeOwnData: true,
     canSeeAssignedAthletes: true,
     canSeeAllStudents: false,
     canSeeFinancialData: false,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: true
   },
   store_owner: {
     canSeeOwnData: true,
     canSeeCustomerData: true,
     canSeeFinancialData: true,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   organizer: {
     canSeeOwnData: true,
     canSeeEventRegistrations: true,
     canSeeFinancialData: true,
-    canSeeSystemLogs: false
+    canSeeSystemLogs: false,
+    canSeeHealthRecords: false
   },
   admin: {
     canSeeOwnData: true,
     canSeeTeamData: true,
     canSeeAllStudents: true,
     canSeeFinancialData: true,
-    canSeeSystemLogs: true
+    canSeeSystemLogs: true,
+    canSeeHealthRecords: true
   }
 };

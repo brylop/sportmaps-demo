@@ -20,7 +20,9 @@ import {
   Award,
   Circle,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  DollarSign,
+  Zap
 } from 'lucide-react';
 
 /**
@@ -226,25 +228,27 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               title: 'Equipos',
               value: stats.programs,
               description: stats.programs === 0 ? 'Crea tu primer equipo' : `${stats.activePrograms} activos`,
-              icon: Activity
+              icon: Trophy
             },
             {
               title: 'Entrenadores',
-              value: stats.activeTeams, // Using activeTeams as proxy or 0 if not counted separate
-              description: 'Equipo técnico',
+              value: stats.activeTeams,
+              description: stats.activeTeams === 0 ? 'Sin entrenadores aún' : 'Equipo técnico',
               icon: Users
             },
             {
               title: 'Ingresos Mensuales',
               value: `$${stats.totalRevenue || 0}`,
               description: 'Este mes',
-              icon: TrendingUp
+              icon: DollarSign
             }
           ],
           activities: [],
           quickActions: [
             { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
-            { label: 'Ver Equipos', icon: Activity, href: '/programs-management', variant: 'outline' },
+            { label: 'Ver Equipos', icon: Trophy, href: '/programs-management', variant: 'outline' },
+            { label: 'Ver Planes', icon: Zap, href: '/offerings', variant: 'outline' },
+            { label: 'Cobros y Pagos', icon: DollarSign, href: '/payments-automation', variant: 'outline' },
             { label: 'Agregar Entrenador', icon: Users, href: '/staff', variant: 'outline' }
           ],
           onboardingSteps: onboardingConfigs.school

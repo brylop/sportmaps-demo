@@ -128,11 +128,11 @@ export default function TrainingPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-poppins">Entrenamientos</h1>
-          <p className="text-muted-foreground mt-1 font-poppins">
+          <h1 className="text-3xl font-bold tracking-tight">Entrenamientos</h1>
+          <p className="text-muted-foreground mt-1">
             Tu plan de entrenamiento personalizado
           </p>
         </div>
@@ -146,10 +146,17 @@ export default function TrainingPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Registrar Entrenamiento</DialogTitle>
-              <DialogDescription>
-                Ingresa los detalles de tu sesión de entrenamiento.
-              </DialogDescription>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Dumbbell className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle>Registrar Entrenamiento</DialogTitle>
+                  <DialogDescription>
+                    Ingresa los detalles de tu sesión de entrenamiento.
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -236,8 +243,8 @@ export default function TrainingPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground font-poppins">Entrenamiento de hoy</p>
-                <h2 className="text-2xl font-bold font-poppins mt-1">{todayTraining.exercise_type}</h2>
+                <p className="text-sm text-muted-foreground">Entrenamiento de hoy</p>
+                <h2 className="text-2xl font-bold mt-1">{todayTraining.exercise_type}</h2>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Clock className="h-4 w-4" />
@@ -255,41 +262,41 @@ export default function TrainingPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-primary/10">
-                <Dumbbell className="h-6 w-6 text-primary" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Dumbbell className="h-4 w-4 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Sesiones totales</p>
-                <p className="text-2xl font-bold font-poppins">{aggregates.totalSessions}</p>
+                <p className="text-xs text-muted-foreground">Sesiones totales</p>
+                <p className="text-2xl font-bold">{aggregates.totalSessions}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-[hsl(35,97%,55%)]/10">
-                <Flame className="h-6 w-6 text-[hsl(35,97%,55%)]" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <Flame className="h-4 w-4 text-amber-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Calorías quemadas</p>
-                <p className="text-2xl font-bold font-poppins">{aggregates.totalCalories} kcal</p>
+                <p className="text-xs text-muted-foreground">Calorías quemadas</p>
+                <p className="text-2xl font-bold">{aggregates.totalCalories} kcal</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-full bg-primary/10">
-                <Clock className="h-6 w-6 text-primary" />
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-blue-500" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Tiempo total</p>
-                <p className="text-2xl font-bold font-poppins">{aggregates.totalMinutes} min</p>
+                <p className="text-xs text-muted-foreground">Tiempo total</p>
+                <p className="text-2xl font-bold">{aggregates.totalMinutes} min</p>
               </div>
             </div>
           </CardContent>
@@ -299,7 +306,7 @@ export default function TrainingPage() {
       {/* Training List */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 font-poppins">
+          <CardTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
             Historial de Entrenamientos
           </CardTitle>
@@ -315,7 +322,7 @@ export default function TrainingPage() {
                   <Dumbbell className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold font-poppins">{log.exercise_type}</h3>
+                  <h3 className="font-semibold">{log.exercise_type}</h3>
                   <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
                     <span>{new Date(log.training_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</span>
                     <span>•</span>
@@ -364,7 +371,7 @@ export default function TrainingPage() {
           {logs.length === 0 && (
             <div className="text-center py-8">
               <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground font-poppins">
+              <p className="text-muted-foreground">
                 No hay entrenamientos registrados
               </p>
               <Button className="mt-4 gap-2" onClick={() => setDialogOpen(true)}>

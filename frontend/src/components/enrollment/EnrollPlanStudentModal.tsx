@@ -35,6 +35,7 @@ interface Enrollment {
     id: string;
     user_id: string;
     child_id?: string | null;
+    unregistered_athlete_id?: string | null;
     offering_plan_id: string;
     status: string;
     sessions_used: number;
@@ -108,7 +109,7 @@ export function EnrollPlanStudentModal({
         try {
             const { data, error } = await (supabase
                 .from('enrollments') as any)
-                .select('id, user_id, child_id, sessions_used, secondary_sessions_used, expires_at, status')
+                .select('id, user_id, child_id, unregistered_athlete_id, sessions_used, secondary_sessions_used, expires_at, status')
                 .eq('offering_plan_id', plan.id)
                 .eq('status', 'active');
 
@@ -117,12 +118,13 @@ export function EnrollPlanStudentModal({
             // ✅ Crear mapeo: studentId -> Enrollment object
             const map = new Map<string, Enrollment>();
             data?.forEach((enrollment: any) => {
-                const studentId = enrollment.child_id ?? enrollment.user_id;
+                const studentId = enrollment.child_id ?? enrollment.user_id ?? enrollment.unregistered_athlete_id;
                 if (studentId) {
                     map.set(studentId, {
                         id: enrollment.id,
                         user_id: enrollment.user_id || '',
                         child_id: enrollment.child_id,
+                        unregistered_athlete_id: enrollment.unregistered_athlete_id,
                         offering_plan_id: plan.id,
                         status: enrollment.status,
                         sessions_used: enrollment.sessions_used || 0,
@@ -150,12 +152,15 @@ export function EnrollPlanStudentModal({
 
         try {
             setEnrolling(student.id);
-            const isAdult = student.athlete_type === 'adult';
+            const isAdult        = student.athlete_type === 'adult';
+            const isUnregistered = student.athlete_type === 'unregistered';
             const { bffClient } = await import('@/lib/api/bffClient');
 
             // ✅ Inscribir en el plan
             const response = await bffClient.post<any>('/api/v1/enrollments', {
-                ...(isAdult ? { user_id: student.id } : { child_id: student.id }),
+                ...(isAdult        ? { user_id: student.id }                  : {}),
+                ...(isUnregistered ? { unregistered_athlete_id: student.id }  : {}),
+                ...(!isAdult && !isUnregistered ? { child_id: student.id }    : {}),
                 offering_plan_id: plan.id,
                 school_id: schoolId,
                 status: 'active',
@@ -174,8 +179,9 @@ export function EnrollPlanStudentModal({
                 const newMap = new Map(enrollmentMap);
                 newMap.set(student.id, {
                     id: enrollmentId,
-                    user_id: isAdult ? student.id : '',
-                    child_id: isAdult ? null : student.id,
+                    user_id:                  isAdult        ? student.id : '',
+                    child_id:                 (!isAdult && !isUnregistered) ? student.id : null,
+                    unregistered_athlete_id:  isUnregistered ? student.id : null,
                     offering_plan_id: plan.id,
                     status: 'active',
                     sessions_used: 0,
@@ -248,9 +254,10 @@ export function EnrollPlanStudentModal({
     };
 
     // ✅ Filtrar por búsqueda
-    const filteredStudents = students.filter(s =>
+    const filteredStudents = students.filter((s: any) =>
         s.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+        (s.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (s.parent_email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
     );
 
     // ✅ Separar en dos grupos (usar enrollmentMap)
@@ -264,7 +271,7 @@ export function EnrollPlanStudentModal({
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="max-w-2xl flex flex-col max-h-[95vh]">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                     <UserPlus className="h-5 w-5 text-primary" />
@@ -286,8 +293,7 @@ export function EnrollPlanStudentModal({
                     </div>
                 </DialogDescription>
             </DialogHeader>
-
-            <div className="flex-1 flex flex-col gap-4 py-2 overflow-hidden">
+            <div className="space-y-4 py-2">
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -297,14 +303,14 @@ export function EnrollPlanStudentModal({
                         className="pl-10 h-9"
                     />
                 </div>
-
+ 
                 {plan && (
                     <p className="text-[10px] text-muted-foreground px-1">
                         {enrollmentMap.size} estudiante{enrollmentMap.size !== 1 ? 's' : ''} inscrito{enrollmentMap.size !== 1 ? 's' : ''}
                     </p>
                 )}
-
-                <ScrollArea className="flex-1 border rounded-md p-2">
+ 
+                <ScrollArea className="h-[400px] border rounded-md p-2">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-12">
                             <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -316,60 +322,11 @@ export function EnrollPlanStudentModal({
                             <p className="text-muted-foreground text-sm">No hay estudiantes en la escuela</p>
                         </div>
                     ) : (
-                        <div className="space-y-2">
-                            {/* Disponibles para inscribir */}
-                            {availableStudents.length > 0 && (
-                                <>
-                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">
-                                        Disponibles ({availableStudents.length})
-                                    </p>
-                                    {availableStudents.map((student) => {
-                                        const isCurrentlyEnrolling = enrolling === student.id;
-                                        return (
-                                            <Card
-                                                key={student.id}
-                                                className="border-border/50 hover:border-primary/30 transition-colors"
-                                            >
-                                                <CardContent className="p-3">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="font-medium text-sm truncate">
-                                                                    {student.full_name}
-                                                                </p>
-                                                                <MedicalAlertBadge medicalInfo={student.medical_info} />
-                                                            </div>
-                                                            <p className="text-[11px] text-muted-foreground truncate">
-                                                                {student.email || 'Sin email'}
-                                                            </p>
-                                                        </div>
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={() => handleEnroll(student)}
-                                                            disabled={isCurrentlyEnrolling}
-                                                            className="h-8 gap-1.5 shrink-0"
-                                                        >
-                                                            {isCurrentlyEnrolling ? (
-                                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                                            ) : (
-                                                                <>
-                                                                    <UserPlus className="h-3.5 w-3.5" />
-                                                                    <span>Inscribir</span>
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
-                                        );
-                                    })}
-                                </>
-                            )}
-
-                            {/* Ya inscritos */}
+                        <div className="space-y-4">
+                            {/* Ya inscritos - MOVED TO TOP */}
                             {plan && alreadyEnrolled.length > 0 && (
                                 <>
-                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1 mt-4">
+                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">
                                         📊 Ya inscritos ({alreadyEnrolled.length})
                                     </p>
                                     {alreadyEnrolled.map((student) => {
@@ -384,13 +341,13 @@ export function EnrollPlanStudentModal({
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center gap-2">
-                                                                <p className="font-medium text-sm truncate">
+                                                                 <p className="font-medium text-sm truncate">
                                                                     {student.full_name}
                                                                 </p>
                                                                 <MedicalAlertBadge medicalInfo={student.medical_info} />
                                                             </div>
                                                             <p className="text-[11px] text-muted-foreground truncate">
-                                                                {student.email || 'Sin email'}
+                                                                {student.email || student.parent_email || 'Sin email'}
                                                             </p>
                                                             {/* ✅ Sesiones Dinámicas */}
                                                             <div className="text-[10px] text-blue-600 font-medium mt-1 space-y-0.5">
@@ -421,6 +378,55 @@ export function EnrollPlanStudentModal({
                                                                 <>
                                                                     <Trash2 className="h-3.5 w-3.5" />
                                                                     <span>Remover</span>
+                                                                </>
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        );
+                                    })}
+                                </>
+                            )}
+
+                            {/* Disponibles para inscribir */}
+                            {availableStudents.length > 0 && (
+                                <>
+                                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1 mt-4">
+                                        Disponibles ({availableStudents.length})
+                                    </p>
+                                    {availableStudents.map((student) => {
+                                        const isCurrentlyEnrolling = enrolling === student.id;
+                                        return (
+                                            <Card
+                                                key={student.id}
+                                                className="border-border/50 hover:border-primary/30 transition-colors"
+                                            >
+                                                <CardContent className="p-3">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-medium text-sm truncate">
+                                                                    {student.full_name}
+                                                                </p>
+                                                                <MedicalAlertBadge medicalInfo={student.medical_info} />
+                                                            </div>
+                                                            <p className="text-[11px] text-muted-foreground truncate">
+                                                                {student.email || student.parent_email || 'Sin email'}
+                                                            </p>
+                                                        </div>
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleEnroll(student)}
+                                                            disabled={isCurrentlyEnrolling}
+                                                            className="h-8 gap-1.5 shrink-0"
+                                                        >
+                                                            {isCurrentlyEnrolling ? (
+                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                            ) : (
+                                                                <>
+                                                                    <UserPlus className="h-3.5 w-3.5" />
+                                                                    <span>Inscribir</span>
                                                                 </>
                                                             )}
                                                         </Button>

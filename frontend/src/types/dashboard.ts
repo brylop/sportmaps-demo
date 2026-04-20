@@ -1,5 +1,5 @@
 // Dashboard Types - Centralized type definitions
-export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'super_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer' | 'reporter';
+export type UserRole = 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin' | 'super_admin' | 'wellness_professional' | 'store_owner' | 'admin' | 'organizer' | 'reporter' | 'personal_trainer';
 
 export interface StatCardProps {
   title: string;
@@ -10,6 +10,10 @@ export interface StatCardProps {
     value: string;
     positive: boolean;
   };
+  // Split mode: shows two equal-priority metrics in one card
+  splitValue?: string | number;
+  splitTitle?: string;
+  splitIcon?: React.ComponentType<{ className?: string }>;
 }
 
 export interface ActivityItem {

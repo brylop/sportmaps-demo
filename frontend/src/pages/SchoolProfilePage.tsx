@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useSchoolDetail } from "@/hooks/useExplorar";
 import { useFavoritos } from "@/hooks/useFavoritos";
 import { SchoolMap } from "@/components/SchoolMap";
-import type { SchoolDetail, Program, Offering, Review } from "@/types/school.types";
+import type { SchoolDetail, Team, Offering, Review } from "@/types/school.types";
+import { Target, CreditCard, Building2, MapPin, Star } from "lucide-react";
 
 // ─── utils ───────────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ function cop(n: number | null) {
 }
 function timeShort(t: string) { return t?.slice(0, 5) ?? ""; }
 function accentFor(s: SchoolDetail) {
-  const sport = s.sports?.[0] ?? s.program_sports?.[0];
+  const sport = s.sports?.[0] ?? s.team_sports?.[0];
   return (sport && SPORT_COLORS[sport]) || s.branding_settings?.primary_color || "#6366f1";
 }
 
@@ -101,36 +102,49 @@ function RatingBars({ dist, total }: { dist: Record<string, number>; total: numb
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
+const TAB_ICONS: Record<string, React.ElementType> = {
+  programas: Target,
+  planes: CreditCard,
+  instalaciones: Building2,
+  sedes: MapPin,
+  opiniones: Star,
+};
+
 const TABS = [
-  { key: "programas",     label: "Programas",    icon: "🎯" },
-  { key: "planes",        label: "Planes",       icon: "💳" },
-  { key: "instalaciones", label: "Instalaciones",icon: "🏟️" },
-  { key: "sedes",         label: "Sedes y Mapa", icon: "📍" },
-  { key: "opiniones",     label: "Opiniones",    icon: "⭐" },
+  { key: "programas",     label: "Programas" },
+  { key: "planes",        label: "Planes" },
+  { key: "instalaciones", label: "Instalaciones" },
+  { key: "sedes",         label: "Sedes y Mapa" },
+  { key: "opiniones",     label: "Opiniones" },
 ];
 
 function TabNav({ active, onChange, accent }: { active: string; onChange: (t: string) => void; accent: string }) {
   return (
     <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 2, scrollbarWidth: "none" }}>
-      {TABS.map(t => (
-        <button key={t.key} onClick={() => onChange(t.key)} style={{
-          padding: "8px 16px", borderRadius: 24, border: "none", fontFamily: "inherit",
-          fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-          background: active === t.key ? accent : "#1e293b",
-          color: active === t.key ? "#fff" : "#94a3b8",
-          transition: "all 0.2s",
-          boxShadow: active === t.key ? `0 4px 14px ${accent}55` : "none",
-        }}>
-          {t.icon} {t.label}
-        </button>
-      ))}
+      {TABS.map(t => {
+        const Icon = TAB_ICONS[t.key];
+        return (
+          <button key={t.key} onClick={() => onChange(t.key)} style={{
+            padding: "8px 16px", borderRadius: 24, border: "none", fontFamily: "inherit",
+            fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: active === t.key ? accent : "#1e293b",
+            color: active === t.key ? "#fff" : "#94a3b8",
+            transition: "all 0.2s",
+            boxShadow: active === t.key ? `0 4px 14px ${accent}55` : "none",
+          }}>
+            {Icon && <Icon style={{ width: 14, height: 14 }} />}
+            {t.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ProgramCard({ program, accent }: { program: Program; accent: string }) {
+function ProgramCard({ program, accent }: { program: Team; accent: string }) {
   const [open, setOpen] = useState(false);
   const byDay = (program.classes ?? []).reduce((acc, c) => {
     if (!acc[c.day_of_week]) acc[c.day_of_week] = [];
@@ -143,7 +157,7 @@ function ProgramCard({ program, accent }: { program: Program; accent: string }) 
       <div onClick={() => setOpen(o => !o)} style={{ padding: 16, cursor: "pointer", display: "flex", gap: 14, alignItems: "flex-start" }}>
         {program.image_url
           ? <img src={program.image_url} alt="" style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
-          : <div style={{ width: 56, height: 56, borderRadius: 10, background: `${accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>🎯</div>
+          : <div style={{ width: 56, height: 56, borderRadius: 10, background: `${accent}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Target style={{ width: 24, height: 24, color: accent }} /></div>
         }
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -323,7 +337,7 @@ export default function SchoolProfilePage() {
         {!loading && school?.description && <p className="fade-up" style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.7, margin: "0 0 16px" }}>{school.description}</p>}
         {!loading && school && (
           <div className="fade-up" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
-            {(school.sports ?? school.program_sports ?? []).map(s => (
+            {(school.sports ?? school.team_sports ?? []).map(s => (
               <span key={s} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 20, background: `${SPORT_COLORS[s] ?? accent}18`, color: SPORT_COLORS[s] ?? accent, border: `1px solid ${SPORT_COLORS[s] ?? accent}44`, fontWeight: 600 }}>{s}</span>
             ))}
           </div>
@@ -358,8 +372,8 @@ export default function SchoolProfilePage() {
 
             {tab === "programas" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {!(school.programs_detail?.length) ? <p style={{ color: "#475569", fontSize: 14 }}>Aún sin programas publicados.</p>
-                  : school.programs_detail!.map(p => <ProgramCard key={p.id} program={p} accent={accent} />)}
+                {!(school.teams_detail?.length) ? <p style={{ color: "#475569", fontSize: 14 }}>Aún sin programas publicados.</p>
+                  : school.teams_detail!.map(p => <ProgramCard key={p.id} program={p} accent={accent} />)}
               </div>
             )}
 

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserPlus, Mail, Trash2, Users, UserMinus, UserCheck, Clock } from 'lucide-react';
+import { UserPlus, Pencil, Trash2, Users, UserMinus, UserCheck, Clock } from 'lucide-react';
 import { useSchoolStaff } from '@/hooks/useSchoolData';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { StaffFormDialog } from '@/components/school/StaffFormDialog';
@@ -30,6 +30,7 @@ export default function StaffPage() {
   const [activeTab, setActiveTab] = useState('active');
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [selectedCoach, setSelectedCoach] = useState<any>(null);
+  const [editingStaff, setEditingStaff] = useState<any>(null);
 
   const filteredStaff = staff.filter(member =>
     activeTab === 'active' ? member.status === 'active' : member.status !== 'active'
@@ -58,16 +59,29 @@ export default function StaffPage() {
     setAvailabilityOpen(true);
   };
 
+  const handleOpenEdit = (member: any) => {
+    setEditingStaff(member);
+    setDialogOpen(true);
+  };
+
+  const handleFormSubmit = (data: any) => {
+    if (editingStaff) {
+      updateStaff({ id: editingStaff.id, ...data });
+    } else {
+      createStaff(data);
+    }
+  };
+
   if (isLoading) {
     return <LoadingSpinner text="Cargando personal..." />;
   }
 
   if (staff.length === 0) {
     return (
-      <div className="container mx-auto p-6 space-y-6">
+      <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold">Entrenadores</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Entrenadores</h1>
             <p className="text-muted-foreground">Gestión de personal y asignaciones</p>
           </div>
         </div>
@@ -91,15 +105,15 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Entrenadores</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Entrenadores</h1>
           <p className="text-muted-foreground">
             {staff.length} entrenador{staff.length !== 1 ? 'es' : ''} registrado{staff.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button onClick={() => { setEditingStaff(null); setDialogOpen(true); }}>
           <UserPlus className="mr-2 h-4 w-4" />
           Contratar Entrenador
         </Button>
@@ -158,8 +172,14 @@ export default function StaffPage() {
                         >
                           <Clock className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
-                          <Mail className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleOpenEdit(member)}
+                          title="Editar información"
+                          className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                        >
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -193,8 +213,9 @@ export default function StaffPage() {
       <StaffFormDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onSubmit={createStaff}
+        onSubmit={handleFormSubmit}
         isLoading={isCreating}
+        initialData={editingStaff}
       />
 
       {selectedCoach && (

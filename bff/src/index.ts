@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 dotenv.config();
 
 import studentsRouter from './routes/students';
+import createOneRouter from './routes/students-create-one.route';
 import enrollmentsRouter from './routes/enrollments';
 import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
@@ -20,9 +21,34 @@ import billingEventsRouter from './routes/billing-events';
 import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
+import epaycoRouter from './routes/epayco';
+import epaycoWebhookRouter from './routes/epayco-webhook';
+import { requireTrainerAuth } from './middlewares/authMiddleware';
+import systemRouter from './routes/system';
+import { initMaintenanceJobs } from './jobs/maintenance.job';
+import organizerRouter from './routes/organizers.route';
+import eventsRouter from './routes/events.route';
+import templatesRouter from './routes/templates';
+import pollsRouter from './routes/polls';
+import schoolDelegationsRouter from './routes/school-delegations.route';
+import marketplaceRouter from './routes/marketplace.routes';
+import vendorRouter from './routes/vendor.routes';
+import vendorProductsRouter from './routes/vendor-products.routes';
+import vendorServicesRouter from './routes/vendor-services.routes';
+import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
+import ogPreviewRouter from './routes/og-preview.routes';
+
+import trainerProfileRouter from './routes/trainer/profile';
+import trainerOnboardingRouter from './routes/trainer/onboarding';
+import trainerWorkspaceRouter from './routes/trainer/workspace';
+import trainerClientsRouter from './routes/trainer/clients';
+import trainerRoutinesRouter from './routes/trainer/routines';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Necesario para express-rate-limit en entornos con proxy (Render, Vercel, Heroku)
+app.set('trust proxy', 1);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 const generalLimiter = rateLimit({
@@ -42,7 +68,17 @@ const paymentLimiter = rateLimit({
 });
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
+app.use((_req: Request, res: Response, next: NextFunction) => {
+    // Prevent profile leaking by disabling all caching for API responses
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+});
+
 app.use(cors({
+
     origin: (origin, callback) => {
         // Permitir requests sin origin (como Postman o curl) o localhost en development
         if (!origin || origin.startsWith('http://localhost:')) {
@@ -87,6 +123,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/v1/students', generalLimiter, studentsRouter);
+app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
@@ -100,6 +137,34 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+app.use('/api/v1/payments', paymentLimiter, epaycoRouter);
+app.use('/api/v1/webhooks/epayco', epaycoWebhookRouter);
+app.use('/api/v1/system', systemRouter);
+app.use('/api/v1/organizer', generalLimiter, organizerRouter);
+app.use('/api/v1/events', generalLimiter, eventsRouter);
+app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
+app.use('/api/v1/templates', generalLimiter, templatesRouter);
+app.use('/api/v1/polls', generalLimiter, pollsRouter);
+
+// ── Marketplace routes ──────────────────────────────────────────────────────
+app.use('/api/v1/marketplace', generalLimiter, marketplaceRouter);
+app.use('/api/v1/vendor', generalLimiter, vendorRouter);
+app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
+app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
+app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
+
+// ── Social sharing — OG meta tags for crawlers ──────────────────────────────
+app.use('/share', ogPreviewRouter);
+
+// ── Trainer routes ────────────────────────────────────────────────────────────
+// Ruta pública (sin requireAuth): perfil público de un entrenador
+app.use('/api/v1/trainer', generalLimiter, trainerProfileRouter);
+
+// Rutas autenticadas del entrenador personal: usan requireTrainerAuth, NO requireAuth
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerOnboardingRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWorkspaceRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
@@ -123,4 +188,8 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 app.listen(PORT, () => {
     console.log(`🚀 BFF corriendo en http://localhost:${PORT}`);
     console.log(`   NODE_ENV: ${process.env.NODE_ENV ?? 'development'}`);
+    
+    // Iniciar trabajos de mantenimiento programados
+    initMaintenanceJobs();
 });
+

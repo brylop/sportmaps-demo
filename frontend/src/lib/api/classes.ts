@@ -2,9 +2,7 @@
 // Per NAMING_DICTIONARY.md: "classes" in UI = "teams" in Supabase
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from './bffClient';
-import { Database } from '@/integrations/supabase/types';
-
-type TeamRow = Database['public']['Tables']['teams']['Row'];
+type TeamRow = any;
 type TeamWithCoach = TeamRow & { coach?: { full_name: string | null } | null };
 
 export interface Schedule {
@@ -205,7 +203,7 @@ class ClassesAPI {
    * Update a program
    */
   async updateClass(id: string, updates: ClassUpdate): Promise<Class> {
-    const updateData: Database['public']['Tables']['teams']['Update'] = {};
+    const updateData: any = {};
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.sport !== undefined) updateData.sport = updates.sport;
@@ -276,7 +274,7 @@ class ClassesAPI {
     const { error } = await supabase
       .from('enrollments')
       .update({ status: 'cancelled' })
-      .eq('program_id', classId)
+      .eq('team_id', classId)
       .eq('child_id', studentId)
       .eq('status', 'active');
 

@@ -88,13 +88,15 @@ export function MatchResultFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Trophy className="h-5 w-5" />
-            Registrar Resultado
-          </DialogTitle>
-          <DialogDescription>
-            Registra el resultado de un partido
-          </DialogDescription>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Trophy className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <DialogTitle>Registrar Resultado</DialogTitle>
+              <DialogDescription>Registra el resultado del partido.</DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">

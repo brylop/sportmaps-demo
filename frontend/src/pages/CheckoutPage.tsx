@@ -34,6 +34,12 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const { items, getTotal, clearCart } = useCart();
   const { user } = useAuth();
+
+  // Guest flow: si no esta autenticado, redirigir a login con redirect de vuelta
+  if (!user) {
+    navigate('/login?redirect=/checkout', { replace: true });
+    return null;
+  }
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
@@ -100,7 +106,7 @@ export default function CheckoutPage() {
         customerEmail,
         customerName,
         studentName: customerName,
-        programName: items[0]?.name,
+        teamName: items[0]?.name,
         schoolName: items[0]?.metadata?.schoolName || 'SportMaps',
       });
 
@@ -181,7 +187,7 @@ export default function CheckoutPage() {
       paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'one_time',
       schoolName: items[0]?.metadata.schoolName,
-      programName: items[0]?.name,
+      teamName: items[0]?.name,
       logoUrl: schoolBranding?.logo_url,
       brandingSettings: schoolBranding?.branding_settings,
     });

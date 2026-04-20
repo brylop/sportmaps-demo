@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 
@@ -16,6 +19,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
+import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
+import { useEPaycoCheckout } from '@/hooks/useEPaycoCheckout';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -23,9 +28,9 @@ interface PaymentCheckoutModalProps {
   studentId: string;
   schoolId: string;
   paymentId?: string;
-  programId?: string;
   teamId?: string;
   childId?: string;
+  childName?: string;
   branchId?: string;
   amount: number;
   concept: string;
@@ -34,12 +39,21 @@ interface PaymentCheckoutModalProps {
 }
 
 export function PaymentCheckoutModal({
-  open, onOpenChange, studentId, schoolId, paymentId, programId, teamId, childId, branchId, amount, concept, mode = 'update', onSuccess
+  open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | null>(null);
+  const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
+  const [epaycoEnabled, setEpaycoEnabled] = useState(false);
+  const [onlineFeePct, setOnlineFeePct] = useState(3);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
+  
+  // Custom Payment Fields
+  const [conceptType, setConceptType] = useState<'mensualidad' | 'inscripcion_fija' | 'inscripcion_variable' | 'otro'>('mensualidad');
+  const [customAmount, setCustomAmount] = useState((amount || 0).toString());
+  const [customConcept, setCustomConcept] = useState('');
+
   const [checkingPending, setCheckingPending] = useState(false);
   const [pendingPaymentDate, setPendingPaymentDate] = useState<string | null>(null);
   const { toast } = useToast();
@@ -52,11 +66,39 @@ export function PaymentCheckoutModal({
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, epayco_enabled, online_fee_pct')
         .eq('school_id', schoolId).single()
-        .then(({ data }) => setBankDetails(data));
+        .then(({ data }) => {
+          setBankDetails(data);
+          setEpaycoEnabled(!!(data as any)?.epayco_enabled);
+          setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+        });
     }
   }, [open, schoolId]);
+
+  // ── ePayco checkout hook ──────────────────────────────────────────────────
+  const finalAmount = mode === 'create' && !['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (parseFloat(customAmount) || 0) : amount;
+  const finalConcept = mode === 'create' && conceptType !== 'mensualidad' 
+    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono') 
+    : concept;
+
+  const sportmapsFee = Math.round(finalAmount * (onlineFeePct / 100));
+  const grossAmount = finalAmount + sportmapsFee;
+
+  const { openCheckout, loading: epaycoLoading } = useEPaycoCheckout({
+    paymentId: paymentId || '',
+    onSuccess: () => {
+      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con ePayco.' });
+      onSuccess?.();
+      onOpenChange(false);
+    },
+    onError: (err) => {
+      toast({ title: 'Error en el pago', description: err.message, variant: 'destructive' });
+    },
+    onClosed: () => {
+      setShowOnlineConfirm(false);
+    },
+  });
 
   useEffect(() => {
     if (open && user?.id) {
@@ -78,13 +120,17 @@ export function PaymentCheckoutModal({
       setCheckingPending(true);
       setPendingPaymentDate(null);
       try {
-        const response = await supabase.from('school_athletes' as any).select('athlete_type').eq('id', studentId).single();
-        const athleteData = response.data as unknown as { athlete_type: string } | null;
-        const idField = athleteData?.athlete_type === 'adult' ? 'user_id' : 'child_id';
+        const effectiveChildId = childId || null;
+        const idColumn = effectiveChildId ? 'child_id' : 'user_id';
+        const idValue = effectiveChildId || studentId;
 
         const query = (supabase as any).from('payments').select('id, payment_date, created_at')
-          .eq(idField, studentId).eq('status', 'awaiting_approval').limit(1);
+          .eq(idColumn, idValue)
+          .eq('status', 'awaiting_approval')
+          .limit(1);
+        
         if (mode === 'update' && paymentId) query.neq('id', paymentId);
+        
         const { data, error } = await query;
         if (error) { console.error('[PaymentCheckoutModal]', error); return; }
         if (data && data.length > 0) {
@@ -104,11 +150,23 @@ export function PaymentCheckoutModal({
       setSelectedMethod(null);
       setProofUrl(null);
       setPendingPaymentDate(null);
+      setShowOnlineConfirm(false);
     }
   }, [open]);
 
   const paymentMethods = [
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: true, enabled: true },
+    // ── Pago online (solo si la escuela lo tiene habilitado) ──────────────
+    ...(epaycoEnabled ? [{
+      id: 'online' as const,
+      name: 'Pagar online',
+      description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
+      icon: Globe,
+      popular: true,
+      enabled: true,
+      badge: `+${formatCurrency(sportmapsFee)} fee`,
+    }] : []),
+    // ── Pago manual (siempre disponible) ──────────────────────────────────
+    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !epaycoEnabled, enabled: true },
     { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
     { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
   ];
@@ -122,29 +180,13 @@ export function PaymentCheckoutModal({
       if (!user) throw new Error('Usuario no autenticado');
 
       // Build the correct child/user IDs for the payment
-      // If childId is provided (from enrollment), use it directly.
-      // Otherwise fall back to lookup (legacy path for update mode).
-      let payloadChildId: string | null = childId || null;
-      let payloadBranchId: string | null = branchId || null;
+      const payloadChildId: string | null = childId || null;
+      const payloadBranchId: string | null = branchId || null;
 
-      if (!payloadChildId && studentId) {
-        // Legacy path: try to look up from school_athletes
-        const { data: athleteData } = await supabase
-          .from('school_athletes' as any)
-          .select('*, branch_id')
-          .eq('id', studentId)
-          .single();
-        if (athleteData) {
-          const athlete = athleteData as unknown as SchoolAthlete;
-          const ids = getPaymentPayload(athlete);
-          payloadChildId = ids.child_id || null;
-          payloadBranchId = (athleteData as any).branch_id || null;
-        }
-      }
-
-      // Duplicate check
+      // Duplicate check (already handled via checkPendingPayment but double check here)
       const idColumn = payloadChildId ? 'child_id' : 'user_id';
       const idValue = payloadChildId || user.id;
+
       const duplicateQuery = (supabase as any).from('payments').select('id')
         .eq(idColumn, idValue)
         .eq('status', 'awaiting_approval').limit(1);
@@ -175,12 +217,11 @@ export function PaymentCheckoutModal({
           const { error: insertError } = await supabase.from('payments').insert({ 
             parent_id: user?.id, 
             child_id: payloadChildId, 
-            program_id: (programId && programId !== '') ? programId : null, 
-            team_id: (teamId && teamId !== '') ? teamId : null, 
+            team_id: (teamId && teamId !== '') ? teamId : null,
             school_id: (schoolId && schoolId !== '') ? schoolId : null, 
             branch_id: payloadBranchId, 
-            amount, 
-            concept, 
+            amount: finalAmount, 
+            concept: finalConcept, 
             status: 'awaiting_approval', 
             payment_method: 'transfer', 
             payment_type: 'one_time',
@@ -212,12 +253,11 @@ export function PaymentCheckoutModal({
         const { error: insertError } = await supabase.from('payments').insert({ 
           parent_id: user?.id, 
           child_id: payloadChildId, 
-          program_id: (programId && programId !== '') ? programId : null, 
           team_id: (teamId && teamId !== '') ? teamId : null, 
           school_id: (schoolId && schoolId !== '') ? schoolId : null, 
           branch_id: payloadBranchId, 
-          amount, 
-          concept, 
+          amount: finalAmount, 
+          concept: finalConcept, 
           status: 'paid', 
           payment_method: selectedMethod, 
           payment_type: 'one_time',
@@ -230,30 +270,22 @@ export function PaymentCheckoutModal({
       if (error) throw error;
 
       // Notificar al padre/atleta por email (fire-and-forget)
-      supabase
-        .from('school_athletes' as any)
-        .select('full_name, parent_email')
-        .eq('id', studentId)
-        .single()
-        .then((response: any) => {
-          const child = response.data as { full_name: string; parent_email: string } | null;
-          const parentEmail = (!payloadChildId) ? user?.email : child?.parent_email;
-          if (parentEmail) {
-            emailClient.send({
-              type: 'payment_confirmation',
-              to: parentEmail,
-              data: {
-                studentName: child?.full_name || 'tu cuenta',
-                amount: formatCurrency(amount),
-                concept,
-                paymentMethod: selectedMethod === 'pse' ? 'PSE' : 'Tarjeta',
-              },
-            }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
-          }
-        });
+      const parentEmail = user?.email;
+      if (parentEmail) {
+        emailClient.send({
+          type: 'payment_confirmation',
+          to: parentEmail,
+          data: {
+            studentName: childName || (childId ? 'tu hijo' : 'tu cuenta'),
+            amount: formatCurrency(finalAmount),
+            concept: finalConcept,
+            paymentMethod: selectedMethod === 'pse' ? 'PSE' : (selectedMethod === 'card' ? 'Tarjeta' : 'Transferencia'),
+          },
+        }).catch(() => {/* silencio — no interrumpir flujo si email falla */ });
+      }
 
       setPaymentStatus('success');
-      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(amount)} fue procesado correctamente` });
+      toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(finalAmount)} fue procesado correctamente` });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
     } catch (error: unknown) {
       const err = error as { message?: string };
@@ -268,6 +300,7 @@ export function PaymentCheckoutModal({
   const handleClose = () => { if (!processing) onOpenChange(false); };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       {/*
         RESPONSIVE KEY:
@@ -315,14 +348,54 @@ export function PaymentCheckoutModal({
         {!checkingPending && pendingPaymentDate === null && paymentStatus === 'idle' && (
           <div className="space-y-5 py-2">
             {/* Resumen */}
-            <div className="bg-primary/5 rounded-lg p-4 space-y-1">
-              <p className="text-xs text-muted-foreground">Concepto</p>
-              <p className="font-semibold text-base leading-tight">{concept}</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
-                <p className="text-sm text-muted-foreground">/mes</p>
-              </div>
-              <p className="text-xs text-muted-foreground">Pago recurrente mensual.</p>
+            <div className="bg-primary/5 rounded-lg p-4 space-y-4">
+              {mode === 'create' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pago</Label>
+                    <Select value={conceptType} onValueChange={(v: any) => setConceptType(v)}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Concepto" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mensualidad">Mensualidad ({concept})</SelectItem>
+                        <SelectItem value="inscripcion_fija">Inscripción Anual (Monto Fijo)</SelectItem>
+                        <SelectItem value="inscripcion_variable">Inscripción Anual (Monto Variable)</SelectItem>
+                        <SelectItem value="otro">Otro Concepto / Abono libre</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {conceptType === 'otro' && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Pago</Label>
+                      <Input placeholder="Ej. Uniforme, Aporte especial..." value={customConcept} onChange={(e) => setCustomConcept(e.target.value)} className="bg-white" />
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monto ($ COP)</Label>
+                    {['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                        <p className="text-sm text-muted-foreground">/ {conceptType === 'mensualidad' ? 'mes' : 'tarifa plan'}</p>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">$</span>
+                        <Input type="number" min="0" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} className="bg-white pl-7 text-lg font-bold text-primary" placeholder="Ej. 150000" />
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Concepto</p>
+                  <p className="font-semibold text-base leading-tight">{concept}</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-2xl sm:text-3xl font-bold text-primary">{formatCurrency(amount)}</p>
+                    <p className="text-sm text-muted-foreground">cobro pendiente</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Métodos */}
@@ -349,6 +422,7 @@ export function PaymentCheckoutModal({
                         <p className="font-semibold text-sm">{method.name}</p>
                         {method.popular && method.enabled && <Badge variant="secondary" className="text-xs">Recomendado</Badge>}
                         {isDisabled && <Badge variant="outline" className="text-xs text-muted-foreground">Próximamente</Badge>}
+                        {(method as any).badge && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">{(method as any).badge}</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground">{method.description}</p>
                     </div>
@@ -406,19 +480,40 @@ export function PaymentCheckoutModal({
             )}
 
             {/* Botones acción */}
-            {hasCompleteDianData && (
+            {hasCompleteDianData && selectedMethod !== 'online' && (
               <div className="space-y-2 pt-2">
                 <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={processPayment}>
-                  {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(amount)}`}
+                  {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(finalAmount)}`}
                 </Button>
                 <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
+              </div>
+            )}
+
+            {/* Botón online → abre PaymentConfirmModal */}
+            {selectedMethod === 'online' && (
+              <div className="space-y-2 pt-2">
+                <Button
+                  className="w-full bg-green-600 hover:bg-green-700"
+                  size="lg"
+                  disabled={epaycoLoading}
+                  onClick={() => setShowOnlineConfirm(true)}
+                >
+                  {epaycoLoading ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
+                  ) : (
+                    `Pagar online ${formatCurrency(grossAmount)}`
+                  )}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={handleClose}>Cancelar</Button>
               </div>
             )}
 
             <p className="text-xs text-center text-muted-foreground">
               {selectedMethod === 'transfer'
                 ? "El comprobante será revisado por la administración antes de validarse."
-                : "🔒 Pago 100% seguro."}
+                : selectedMethod === 'online'
+                  ? `Incluye ${formatCurrency(sportmapsFee)} de procesamiento. Tu escuela recibe ${formatCurrency(finalAmount)} completos.`
+                  : "🔒 Pago 100% seguro."}
             </p>
           </div>
         )}
@@ -442,7 +537,7 @@ export function PaymentCheckoutModal({
             </div>
             <div>
               <h3 className="text-lg font-semibold text-green-600">¡Pago exitoso!</h3>
-              <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(amount)} fue procesado correctamente</p>
+              <p className="text-sm text-muted-foreground">Tu pago de {formatCurrency(finalAmount)} fue procesado correctamente</p>
             </div>
           </div>
         )}
@@ -478,5 +573,21 @@ export function PaymentCheckoutModal({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* ── Modal de confirmación de pago online (ePayco) ────────────────────── */}
+    <PaymentConfirmModal
+      open={showOnlineConfirm}
+      onOpenChange={setShowOnlineConfirm}
+      baseAmount={finalAmount}
+      grossAmount={grossAmount}
+      sportmapsFee={sportmapsFee}
+      feePct={onlineFeePct}
+      concept={finalConcept}
+      childName={childName}
+      loading={epaycoLoading}
+      onConfirm={openCheckout}
+      onBack={() => setShowOnlineConfirm(false)}
+    />
+    </>
   );
 }

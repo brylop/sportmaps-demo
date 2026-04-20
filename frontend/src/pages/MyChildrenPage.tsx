@@ -6,11 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
-import { Plus, Calendar, User, AlertTriangle, School, Pencil } from 'lucide-react';
+import { Plus, Calendar, User, AlertTriangle, School, Pencil, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AddChildDialog } from '@/components/children/AddChildDialog';
 import { EditChildDialog } from '@/components/children/EditChildDialog';
+import { UploadChildDocumentsDialog } from '@/components/children/UploadChildDocumentsDialog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Badge } from '@/components/ui/badge';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -19,6 +20,7 @@ export default function MyChildrenPage() {
   const { user } = useAuth();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingChild, setEditingChild] = useState<any | null>(null);
+  const [uploadingDocsFor, setUploadingDocsFor] = useState<any | null>(null);
 
 
 
@@ -30,10 +32,20 @@ export default function MyChildrenPage() {
         .select(`
           *,
           schools(name),
-          teams!team_id(name, sport, level, school_staff(full_name)),
+          teams!team_id(
+            name, sport, level,
+            coach:coach_id(full_name)
+          ),
           enrollments(
-            status,
-            teams!program_id(name, sport, level, school_staff(full_name))
+            id, status, team_id, offering_plan_id, offering_id,
+            teams!enrollments_team_id_fkey(
+              name, sport, level,
+              coach:coach_id(full_name)
+            ),
+            offering_plans!offering_plan_id(
+              name, price,
+              offerings!offering_id(name)
+            )
           )
         `)
         .eq('parent_id', user?.id)
@@ -45,7 +57,7 @@ export default function MyChildrenPage() {
       }
 
       // Deduplicar por child.id (Supabase puede retornar duplicados
-      // cuando hay JOINs a teams via children.team_id Y enrollments.program_id)
+      // cuando hay JOINs a teams via children.team_id Y enrollments.team_id)
       const seen = new Set<string>();
       return (data || []).filter(child => {
         if (seen.has(child.id)) return false;
@@ -74,10 +86,10 @@ export default function MyChildrenPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Mis Hijos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Mis Hijos</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona la información de tus hijos y sus actividades deportivas
           </p>
@@ -132,33 +144,62 @@ export default function MyChildrenPage() {
               <div className="space-y-2">
                 {(() => {
                   const activeEnrollment = child.enrollments?.find((e: any) => e.status === 'active');
+
+                  // Caso equipo — directo en children o via enrollment
                   const team = activeEnrollment?.teams || child.teams;
 
-                  if (!team) return null;
+                  // Caso plan — solo si no hay equipo
+                  const plan = !team ? activeEnrollment?.offering_plans : null;
+                  const offering = plan?.offerings;
 
-                  return (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <School className="w-4 h-4 text-muted-foreground" />
-                        <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                  if (team) {
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <School className="w-4 h-4 text-muted-foreground" />
+                          <span>{team.name} {team.level ? `(${team.level})` : ''}</span>
+                        </div>
+                        {team.coach?.full_name && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
+                            <User className="w-3 h-3" />
+                            <span>Entrenador: {team.coach.full_name}</span>
+                          </div>
+                        )}
+                        {team.sport && (
+                          <div className="ml-6 mt-1">
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                              {team.sport}
+                            </Badge>
+                          </div>
+                        )}
                       </div>
+                    );
+                  }
 
-                      {team.school_staff?.full_name && (
+                  if (plan) {
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <School className="w-4 h-4 text-muted-foreground" />
+                          <span>{offering?.name || 'Plan'}</span>
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground ml-6">
-                          <User className="w-3 h-3" />
-                          <span>Entrenador: {team.school_staff.full_name}</span>
+                          <span>{plan.name}</span>
                         </div>
-                      )}
+                        {plan.price && (
+                          <div className="ml-6 mt-1">
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                              {new Intl.NumberFormat('es-CO', {
+                                style: 'currency', currency: 'COP', minimumFractionDigits: 0
+                              }).format(plan.price)}/mes
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
 
-                      {team.sport && (
-                        <div className="ml-6 mt-1">
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
-                            {team.sport}
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-                  );
+                  return null;
                 })()}
 
                 {child.schools?.name && (
@@ -189,6 +230,15 @@ export default function MyChildrenPage() {
                     Ver Asistencias
                   </Button>
                 </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setUploadingDocsFor(child)}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Subir documentos
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -207,6 +257,14 @@ export default function MyChildrenPage() {
           onOpenChange={(open) => !open && setEditingChild(null)}
           onSuccess={refetch}
           child={editingChild}
+        />
+      )}
+
+      {uploadingDocsFor && (
+        <UploadChildDocumentsDialog
+          open={!!uploadingDocsFor}
+          onOpenChange={(open) => !open && setUploadingDocsFor(null)}
+          child={uploadingDocsFor}
         />
       )}
     </div>

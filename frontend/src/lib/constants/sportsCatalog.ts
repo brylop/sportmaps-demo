@@ -1644,6 +1644,51 @@ export const SPORTS_CATALOG: SportCatalogEntry[] = [
       estilos: ['Libre', 'Grecorromana', 'Femenina'],
     },
   },
+  {
+    id: 126,
+    nombre: 'Baile',
+    nombreIngles: 'Dance',
+    slug: 'baile',
+    federacion: 'N/A',
+    acronimo: 'BAILE',
+    estadoOlimpico: 'No Olímpico',
+    categoriaGlobal: 'no_olimpicos_federacion_internacional' as CategoriaGlobal,
+    categoriasCompetencia: {
+      genero: ['Masculino', 'Femenino', 'Mixto'],
+      categorias_edad: ['Infantil', 'Juvenil', 'Adulto', 'Senior'],
+      estilos: ['Aéreos', 'Urbanos', 'Salón', 'Comercial'],
+    },
+  },
+  {
+    id: 127,
+    nombre: 'Danza',
+    nombreIngles: 'Dance Arts',
+    slug: 'danza',
+    federacion: 'N/A',
+    acronimo: 'DANZA',
+    estadoOlimpico: 'No Olímpico',
+    categoriaGlobal: 'no_olimpicos_federacion_internacional' as CategoriaGlobal,
+    categoriasCompetencia: {
+      genero: ['Masculino', 'Femenino', 'Mixto'],
+      categorias_edad: ['Iniciación', 'Formativo', 'Profesional'],
+      generos: ['Clásica', 'Contemporánea', 'Folclórica', 'Moderna'],
+    },
+  },
+  {
+    id: 128,
+    nombre: 'Crosstraining',
+    nombreIngles: 'Crosstraining',
+    slug: 'crosstraining',
+    federacion: 'N/A',
+    acronimo: 'CT',
+    estadoOlimpico: 'No Olímpico',
+    categoriaGlobal: 'no_olimpicos_federacion_internacional' as CategoriaGlobal,
+    categoriasCompetencia: {
+      genero: ['Masculino', 'Femenino', 'Mixto'],
+      categorias_edad: ['General', 'Masters'],
+      niveles: ['Principiante', 'Intermedio', 'Avanzado'],
+    },
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

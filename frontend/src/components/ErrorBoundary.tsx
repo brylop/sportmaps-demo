@@ -39,8 +39,18 @@ class ErrorBoundary extends Component<Props, State> {
 
         this.setState({ errorInfo });
 
-        // TODO: Log to error reporting service (e.g., Sentry, LogRocket)
-        // logErrorToService(error, errorInfo);
+        // Auto-reload on stale chunk errors (post-deploy)
+        const isChunkError =
+            error.message?.includes('Failed to fetch dynamically imported module') ||
+            error.message?.includes('Loading chunk') ||
+            error.message?.includes('Loading CSS chunk');
+
+        const reloadedKey = 'chunk-reload';
+        if (isChunkError && !sessionStorage.getItem(reloadedKey)) {
+            sessionStorage.setItem(reloadedKey, '1');
+            window.location.reload();
+            return;
+        }
     }
 
     handleReload = (): void => {

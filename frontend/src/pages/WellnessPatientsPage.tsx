@@ -59,10 +59,10 @@ export default function WellnessPatientsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Mis Atletas</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Mis Atletas</h1>
           <p className="text-muted-foreground">Gestiona a tus pacientes y atletas</p>
           {isUsingMockData && (
             <Badge variant="secondary" className="mt-2 gap-1">
@@ -95,51 +95,59 @@ export default function WellnessPatientsPage() {
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-primary" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total Atletas</p>
+                <p className="text-xs text-muted-foreground">Total Atletas</p>
                 <p className="text-2xl font-bold">{displayPatients.length}</p>
               </div>
-              <User className="h-8 w-8 text-primary" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <Activity className="h-4 w-4 text-green-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Activos</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-xs text-muted-foreground">Activos</p>
+                <p className="text-2xl font-bold">
                   {displayPatients.filter(p => p.status === 'active').length}
                 </p>
               </div>
-              <Activity className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <FileText className="h-4 w-4 text-amber-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Evaluaciones</p>
+                <p className="text-xs text-muted-foreground">Evaluaciones</p>
                 <p className="text-2xl font-bold">{evaluations.length}</p>
               </div>
-              <FileText className="h-8 w-8 text-orange" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-yellow-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Seguimientos Pendientes</p>
-                <p className="text-2xl font-bold text-yellow-600">
+                <p className="text-xs text-muted-foreground">Seguimientos Pendientes</p>
+                <p className="text-2xl font-bold">
                   {evaluations.filter(e => e.status === 'pending').length}
                 </p>
               </div>
-              <Calendar className="h-8 w-8 text-yellow-500" />
             </div>
           </CardContent>
         </Card>

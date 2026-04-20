@@ -6,6 +6,7 @@ export type EmailType =
     | 'enrollment_confirmation'
     | 'welcome_school'
     | 'parent_invitation'
+    | 'coach_invitation'
     | 'payment_reminder';
 
 interface SendEmailParams {

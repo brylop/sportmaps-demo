@@ -20,6 +20,36 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [isAccepting, setIsAccepting] = React.useState(false);
+    const [isRejecting, setIsRejecting] = React.useState(false);
+
+    const handleReject = async () => {
+        if (!invitation?.id) return;
+        setIsRejecting(true);
+        try {
+            const { error } = await supabase
+                .from('invitations')
+                .update({ status: 'rejected' })
+                .eq('id', invitation.id);
+
+            if (error) throw error;
+
+            toast({
+                title: "Invitación rechazada",
+                description: "Puedes aceptarla más tarde desde tu email si cambias de opinión.",
+            });
+
+            queryClient.invalidateQueries({ queryKey: ['invitations'] });
+            onAction();
+        } catch (error: any) {
+            toast({
+                title: "Error",
+                description: error.message || "No se pudo rechazar la invitación.",
+                variant: "destructive"
+            });
+        } finally {
+            setIsRejecting(false);
+        }
+    };
 
     const handleAccept = async () => {
         if (!invitation?.id) {
@@ -91,8 +121,17 @@ export const InvitationBanner: React.FC<InvitationBannerProps> = ({ invitation, 
                         )}
                         Aceptar Invitación
                     </button>
-                    <button className="bg-black/20 text-white p-2.5 rounded-xl hover:bg-black/30 transition-colors border border-white/10">
-                        <X className="w-4 h-4" />
+                    <button
+                        onClick={handleReject}
+                        disabled={isRejecting}
+                        className="bg-black/20 text-white p-2.5 rounded-xl hover:bg-red-500/40 transition-colors border border-white/10 disabled:opacity-50"
+                        title="Rechazar invitación"
+                    >
+                        {isRejecting ? (
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        ) : (
+                            <X className="w-4 h-4" />
+                        )}
                     </button>
                 </div>
             </div>

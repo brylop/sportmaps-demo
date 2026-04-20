@@ -153,11 +153,11 @@ export default function ShopPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-poppins">Tienda SportMaps</h1>
+          <h1 className="text-3xl font-bold">Tienda SportMaps</h1>
           <p className="text-muted-foreground mt-1">
             Encuentra el mejor equipamiento deportivo
           </p>
@@ -274,7 +274,7 @@ export default function ShopPage() {
         {showCart && (
           <Card className="h-fit sticky top-4">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 font-poppins">
+              <CardTitle className="flex items-center gap-2">
                 <ShoppingBag className="h-5 w-5 text-primary" />
                 Tu Carrito
               </CardTitle>
@@ -345,7 +345,7 @@ export default function ShopPage() {
                       <span className="text-primary">{formatCurrency(cartTotal)}</span>
                     </div>
                     <Button
-                      className="w-full font-poppins"
+                      className="w-full"
                       size="lg"
                       onClick={handleCheckout}
                     >

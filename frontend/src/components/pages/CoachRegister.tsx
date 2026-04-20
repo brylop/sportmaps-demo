@@ -1,3 +1,4 @@
+import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,7 +38,9 @@ const documentsSchema = z.object({
 });
 
 const codeOfConductSchema = z.object({
-  acceptCode: z.boolean().refine(val => val === true, "Debes aceptar el Código de Conducta")
+  acceptCode: z.boolean().refine(val => val === true, "Debes aceptar el Código de Conducta"),
+  acceptTerms: z.boolean().refine(val => val === true, "Debes aceptar los Términos y Condiciones"),
+  acceptPrivacy: z.boolean().refine(val => val === true, "Debes aceptar la Política de Privacidad")
 });
 
 const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
@@ -74,7 +77,9 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
   const codeForm = useForm({
     resolver: zodResolver(codeOfConductSchema),
     defaultValues: {
-      acceptCode: false
+      acceptCode: false,
+      acceptTerms: false,
+      acceptPrivacy: false
     }
   });
 
@@ -164,15 +169,12 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
                 <SelectValue placeholder="Selecciona tu especialidad" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="futbol">Fútbol</SelectItem>
-                <SelectItem value="baloncesto">Baloncesto</SelectItem>
-                <SelectItem value="tenis">Tenis</SelectItem>
-                <SelectItem value="natacion">Natación</SelectItem>
-                <SelectItem value="voleibol">Voleibol</SelectItem>
-                <SelectItem value="atletismo">Atletismo</SelectItem>
-                <SelectItem value="gimnasia">Gimnasia</SelectItem>
-                <SelectItem value="crossfit">CrossFit</SelectItem>
-                <SelectItem value="multideporte">Multideporte</SelectItem>
+                {SPORTS_LIST.map((sport) => (
+                  <SelectItem key={sport} value={sport}>
+                    {sport}
+                  </SelectItem>
+                ))}
+                <SelectItem value="otro">Otro</SelectItem>
               </SelectContent>
             </Select>
             {professionalForm.formState.errors.specialty && (
@@ -307,7 +309,7 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
             <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
               <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
               <p className="text-sm text-muted-foreground mb-2">
-                Certificaciones deportivas, títulos académicos, etc.
+                Certificaciones deportivas, títulos deportivos, etc.
               </p>
               <Button type="button" variant="outline" size="sm" className="border-primary text-primary">
                 Seleccionar Archivos
@@ -381,6 +383,46 @@ const CoachRegister = ({ onNavigate }: CoachRegisterProps) => {
           </div>
           {codeForm.formState.errors.acceptCode && (
             <p className="text-destructive text-sm">{codeForm.formState.errors.acceptCode.message}</p>
+          )}
+
+          <div className="flex items-start space-x-2">
+            <Checkbox
+              id="acceptTerms"
+              checked={codeForm.watch("acceptTerms")}
+              onCheckedChange={(checked) => codeForm.setValue("acceptTerms", !!checked)}
+              className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+            />
+            <div className="text-sm">
+              <Label htmlFor="acceptTerms" className="font-normal cursor-pointer">
+                Acepto los{" "}
+                <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                  Términos y Condiciones
+                </a>
+              </Label>
+            </div>
+          </div>
+          {codeForm.formState.errors.acceptTerms && (
+            <p className="text-destructive text-sm">{codeForm.formState.errors.acceptTerms.message}</p>
+          )}
+
+          <div className="flex items-start space-x-2">
+            <Checkbox
+              id="acceptPrivacy"
+              checked={codeForm.watch("acceptPrivacy")}
+              onCheckedChange={(checked) => codeForm.setValue("acceptPrivacy", !!checked)}
+              className="border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+            />
+            <div className="text-sm">
+              <Label htmlFor="acceptPrivacy" className="font-normal cursor-pointer">
+                Acepto la{" "}
+                <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                  Política de Privacidad
+                </a>
+              </Label>
+            </div>
+          </div>
+          {codeForm.formState.errors.acceptPrivacy && (
+            <p className="text-destructive text-sm">{codeForm.formState.errors.acceptPrivacy.message}</p>
           )}
 
           <div className="flex gap-2">

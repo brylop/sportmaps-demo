@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Plus, Users, Check, Pencil, X, Minus } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { useSchoolFeatures } from '@/hooks/useSchoolFeatures';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -59,7 +59,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
         name: '',
         description: '',
         sport: '',
-        level: 'beginner',
+        level: '',
         max_students: 20 as number | '',
         location: '',
         price_monthly: 0 as number | '',
@@ -73,6 +73,37 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const [branchesList, setBranchesList] = useState<any[]>([]);
     const [loadingInitialData, setLoadingInitialData] = useState(false);
 
+    // Dynamic levels list based on selected sport
+    const levelOptions = useMemo(() => {
+        const selectedSport = SPORTS_CATALOG.find(s => s.nombre === formData.sport);
+        const levels: { label: string; value: string }[] = [];
+
+        if (selectedSport) {
+            if (selectedSport.id === 121) {
+                // Cheerleading All Stars special case
+                const programs = selectedSport.categoriasCompetencia;
+                Object.entries(programs).forEach(([key, program]: [string, any]) => {
+                    if (program.niveles) {
+                        const programName = key.replace('CHEER_ALL_STAR_', '').replace(/_/g, ' ');
+                        program.niveles.forEach((n: any) => {
+                            const label = `Nivel ${n.nivel} (${programName})`;
+                            levels.push({ label, value: label });
+                        });
+                    }
+                });
+            } else if (selectedSport.categoriasCompetencia.niveles) {
+                // General case with levels in catalog
+                const catalogLevels = selectedSport.categoriasCompetencia.niveles as any[];
+                catalogLevels.forEach(l => {
+                    const label = typeof l === 'string' ? l : `Nivel ${l.nivel || l}`;
+                    levels.push({ label, value: label });
+                });
+            }
+        }
+
+        return levels;
+    }, [formData.sport]);
+
     // Populate form if editing
     useEffect(() => {
         if (open && team) {
@@ -80,7 +111,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: team.name || '',
                 description: team.description || '',
                 sport: team.sport || '',
-                level: team.level || 'beginner',
+                level: team.level || '',
                 max_students: team.max_students || 20,
                 location: team.location || '',
                 price_monthly: team.price_monthly || 0,
@@ -101,7 +132,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: '',
                 description: '',
                 sport: '',
-                level: 'beginner',
+                level: '',
                 max_students: 20,
                 location: '',
                 price_monthly: 0,
@@ -232,6 +263,15 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        if (!schoolId) {
+            toast({
+                title: 'Error',
+                description: 'No se ha seleccionado una escuela. Completa el onboarding primero.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
         if (!formData.name || !formData.sport) {
             toast({
                 title: 'Campos requeridos',
@@ -324,7 +364,7 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                 name: '',
                 description: '',
                 sport: '',
-                level: 'beginner',
+                level: '',
                 max_students: 20,
                 location: '',
                 price_monthly: 0,
@@ -367,7 +407,13 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                             <Label htmlFor="sport">Deporte *</Label>
                             <Select
                                 value={formData.sport}
-                                onValueChange={(value) => setFormData({ ...formData, sport: value })}
+                                onValueChange={(value) => {
+                                    setFormData({ 
+                                        ...formData, 
+                                        sport: value,
+                                        level: '' // Reset level when sport changes
+                                    });
+                                }}
                             >
                                 <SelectTrigger>
                                     <SelectValue placeholder="Seleccionar deporte" />
@@ -394,12 +440,22 @@ export function CreateTeamModal({ open, onClose, onSuccess, schoolId, branchId, 
                                 onValueChange={(value: any) => setFormData({ ...formData, level: value })}
                             >
                                 <SelectTrigger>
-                                    <SelectValue />
+                                    <SelectValue placeholder="Seleccionar nivel" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="beginner">Principiante</SelectItem>
-                                    <SelectItem value="intermediate">Intermedio</SelectItem>
-                                    <SelectItem value="advanced">Avanzado</SelectItem>
+                                    {levelOptions.length > 0 ? (
+                                        levelOptions.map((lvl) => (
+                                            <SelectItem key={lvl.value} value={lvl.value}>
+                                                {lvl.label}
+                                            </SelectItem>
+                                        ))
+                                    ) : (
+                                        <>
+                                            <SelectItem value="beginner">Principiante</SelectItem>
+                                            <SelectItem value="intermediate">Intermedio</SelectItem>
+                                            <SelectItem value="advanced">Avanzado</SelectItem>
+                                        </>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>

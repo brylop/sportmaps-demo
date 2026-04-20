@@ -121,36 +121,36 @@ export default function EventsMapPage() {
           {showFilters && (
             <div className="mt-4 pt-4 border-t">
               <div className="flex flex-wrap gap-4">
-                <Select value={filters.sport || ''} onValueChange={(v) => handleFilterChange('sport', v)}>
+                <Select value={filters.sport || '__all__'} onValueChange={(v) => handleFilterChange('sport', v === '__all__' ? '' : v)}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Deporte" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos</SelectItem>
+                    <SelectItem value="__all__">Todos</SelectItem>
                     {SPORT_OPTIONS.map((sport) => (
                       <SelectItem key={sport} value={sport}>{sport}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
 
-                <Select value={filters.city || ''} onValueChange={(v) => handleFilterChange('city', v)}>
+                <Select value={filters.city || '__all__'} onValueChange={(v) => handleFilterChange('city', v === '__all__' ? '' : v)}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Ciudad" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todas</SelectItem>
+                    <SelectItem value="__all__">Todas</SelectItem>
                     {COLOMBIAN_CITIES.map((city) => (
                       <SelectItem key={city} value={city}>{city}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
 
-                <Select value={filters.event_type || ''} onValueChange={(v) => handleFilterChange('event_type', v as any)}>
+                <Select value={filters.event_type || '__all__'} onValueChange={(v) => handleFilterChange('event_type', v === '__all__' ? '' : v as any)}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Tipo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos</SelectItem>
+                    <SelectItem value="__all__">Todos</SelectItem>
                     {EVENT_TYPE_OPTIONS.map((type) => (
                       <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
                     ))}

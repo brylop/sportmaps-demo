@@ -95,13 +95,15 @@ export function TrainingPlanFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ClipboardList className="h-5 w-5" />
-            Crear Plan de Entrenamiento
-          </DialogTitle>
-          <DialogDescription>
-            Planifica tu próxima sesión de entrenamiento
-          </DialogDescription>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <ClipboardList className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <DialogTitle>Crear Plan de Entrenamiento</DialogTitle>
+              <DialogDescription>Crea un plan de entrenamiento para tu equipo.</DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">

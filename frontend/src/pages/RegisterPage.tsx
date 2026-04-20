@@ -24,10 +24,11 @@ import { cn } from '@/lib/utils';
 import { useInvitationBranding } from '@/hooks/useInvitationBranding';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
-import sportsData from '@/lib/constants/deportes_globales_categorias.json';
+import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 
+const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
-const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer'];
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer', 'personal_trainer'];
 
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -118,11 +119,12 @@ export default function RegisterPage() {
   };
 
   const [sportOpen, setSportOpen] = useState(false);
-  const allSports = useMemo(() => sportsData.deportes || [], []);
+  const allSports = SPORTS_CATALOG;
   
   const inviteId = searchParams.get('invite');
   const inviteEmail = searchParams.get('email');
   const inviteRole = searchParams.get('role');
+  const referralCode = searchParams.get('ref');
   const [invitationInfo, setInvitationInfo] = useState<{
     school_name: string;
     role_to_assign: string;
@@ -224,23 +226,24 @@ export default function RegisterPage() {
     setIsLoading(true);
     setEmailForDisplay(data.email);
     try {
-      let metadata: any = {
+      const metadata: any = {
         full_name: data.fullName,
         phone: data.phone,
         date_of_birth: data.dateOfBirth,
         role: data.role as any,
         invitation_code: data.code,
         school_name: data.schoolName,
+        referral_code: referralCode || undefined,
       };
 
       if (data.role === 'school' && selectedSport) {
         metadata.sport_id = selectedSport.id;
         metadata.sport_name = selectedSport.nombre;
         const defaultCategories = [];
-        if (selectedSport.categorias_competencia) {
-          for (const key in selectedSport.categorias_competencia) {
-            if (Array.isArray(selectedSport.categorias_competencia[key])) {
-              defaultCategories.push(...selectedSport.categorias_competencia[key]);
+        if (selectedSport.categoriasCompetencia) {
+          for (const key in selectedSport.categoriasCompetencia) {
+            if (Array.isArray(selectedSport.categoriasCompetencia[key])) {
+              defaultCategories.push(...selectedSport.categoriasCompetencia[key]);
             }
           }
         }
@@ -249,6 +252,13 @@ export default function RegisterPage() {
 
       await signUp(data.email, data.password, metadata);
       setIsSubmitted(true);
+
+      if (data.role === 'personal_trainer') {
+        // No redirect yet — user must verify email first.
+        // After verification & login, AuthContext will detect isPersonalTrainer
+        // and the router guard will redirect to /trainer/onboarding.
+        localStorage.setItem('post_register_role', 'personal_trainer');
+      }
 
       if (inviteId) {
         localStorage.setItem('pending_invite_id', inviteId);
@@ -583,7 +593,10 @@ export default function RegisterPage() {
                     { id: 'athlete', icon: '⚽', label: 'Atleta' },
                     { id: 'parent', icon: '👨‍👩‍👧', label: 'Padre' },
                     { id: 'coach', icon: '📋', label: 'Coach' },
-                    { id: 'school', icon: '🏫', label: 'Escuela' }
+                    { id: 'school', icon: '🏫', label: 'Escuela' },
+                    { id: 'wellness_professional', icon: '💚', label: 'Profesional' },
+                    { id: 'store_owner', icon: '🏪', label: 'Tienda' },
+                    { id: 'personal_trainer', icon: '🏋️', label: 'Entrenador' },
                   ].map((role) => (
                     <div 
                       key={role.id}
@@ -611,17 +624,66 @@ export default function RegisterPage() {
                   <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">
                     Fecha de Nacimiento
                   </label>
-                  <div className="relative group">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <CalendarIcon className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
-                    </div>
-                    <input
-                      {...register('dateOfBirth')}
-                      type="date"
-                      max={new Date().toISOString().split('T')[0]}
-                      className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all text-[#f5f7f2] [color-scheme:dark]"
-                    />
-                  </div>
+                  <Controller
+                    name="dateOfBirth"
+                    control={control}
+                    render={({ field }) => (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "w-full bg-[#0f2614] border border-white/5 rounded-xl py-6 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all hover:bg-[#0f2614] hover:text-[#f5f7f2] justify-start text-left font-normal",
+                              !field.value && "text-[#4a5246]",
+                              field.value && "text-[#f5f7f2]"
+                            )}
+                          >
+                            <CalendarIcon className="absolute left-4 w-4 h-4 text-[#4a5246]" />
+                            {field.value ? (
+                              format(new Date(field.value + "T12:00:00"), "PPP", { locale: es })
+                            ) : (
+                              <span>Selecciona una fecha</span>
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0 bg-[#0f2614] border-white/10 text-[#f5f7f2] shadow-2xl" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value ? new Date(field.value + "T12:00:00") : undefined}
+                            onSelect={(date) => {
+                              if (date) {
+                                field.onChange(format(date, 'yyyy-MM-dd'));
+                              } else {
+                                field.onChange('');
+                              }
+                            }}
+                            disabled={(date) =>
+                              date > new Date() || date < new Date("1900-01-01")
+                            }
+                            defaultMonth={field.value ? new Date(field.value + "T12:00:00") : new Date(new Date().setFullYear(new Date().getFullYear() - 15))}
+                            captionLayout="dropdown-buttons"
+                            fromYear={1920}
+                            toYear={new Date().getFullYear()}
+                            initialFocus
+                            className="bg-[#0f2614] text-[#f5f7f2] rounded-xl"
+                            classNames={{
+                              head_cell: "text-[#8a9186] font-normal text-[0.8rem] w-9",
+                              cell: "h-9 w-9 text-center text-sm p-0",
+                              day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-white/10 rounded-md transition-colors",
+                              day_selected: "bg-[#248223] text-white hover:bg-[#2ea82d] hover:text-white focus:bg-[#248223] focus:text-white font-bold",
+                              day_today: "bg-white/5 text-[#4dcc4c] font-bold",
+                              day_outside: "text-[#8a9186]/50",
+                              day_disabled: "text-[#8a9186]/30",
+                              nav_button: "h-7 w-7 bg-transparent p-0 text-[#f5f7f2] hover:bg-white/10 rounded-md border border-white/10 transition-colors",
+                              dropdown: "bg-[#0f2614] border border-white/10 text-[#f5f7f2] rounded-md custom-scrollbar focus:ring-[#248223]",
+                              dropdown_month: "[&>option]:text-black",
+                              dropdown_year: "[&>option]:text-black"
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  />
                   {errors.dateOfBirth && <p className="text-[10px] text-red-500 font-medium px-1 mt-1">{errors.dateOfBirth.message}</p>}
                 </div>
               )}
@@ -678,7 +740,7 @@ export default function RegisterPage() {
                                     key={sport.id}
                                     value={sport.nombre}
                                     onSelect={() => { setValue('sportId', sport.id); setSportOpen(false); }}
-                                    className="data-[selected=true]:bg-[#248223]/20 data-[selected=true]:text-[#f5f7f2]"
+                                    className="text-[#f5f7f2]/80 data-[selected=true]:bg-[#248223]/20 data-[selected=true]:text-[#f5f7f2]"
                                   >
                                     <Check className={cn("mr-2 h-4 w-4", field.value === sport.id ? "opacity-100" : "opacity-0")} />
                                     {sport.nombre}
@@ -706,7 +768,7 @@ export default function RegisterPage() {
                 {watch('acceptTerms') && <Check className="w-3.5 h-3.5 text-white" />}
               </div>
               <p className="text-xs text-[#8a9186] leading-relaxed select-none">
-                Acepto los <a href="/terms" className="text-[#4dcc4c] hover:underline font-bold">Términos y Condiciones</a> y la <a href="/privacy" className="text-[#4dcc4c] hover:underline font-bold">Política de Privacidad</a> de SportMaps.
+                Acepto los <a href="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer" className="text-[#4dcc4c] hover:underline font-bold">Términos y Condiciones</a> y la <a href="/politica-de-privacidad" target="_blank" rel="noopener noreferrer" className="text-[#4dcc4c] hover:underline font-bold">Política de Privacidad</a> de SportMaps.
               </p>
             </div>
             {errors.acceptTerms && <p className="text-[10px] text-red-500 font-medium px-1 -mt-4">{errors.acceptTerms.message}</p>}

@@ -11,6 +11,7 @@ export interface CoachAvailability {
   end_time: string; // HH:MM
   available_for_group_classes: boolean;
   available_for_personal_classes: boolean;
+  max_group_capacity: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +22,7 @@ export interface CoachAvailabilityInput {
   end_time: string;
   available_for_group_classes: boolean;
   available_for_personal_classes: boolean;
+  max_group_capacity?: number | null;
 }
 
 export function useCoachAvailability(coachId: string, schoolId: string) {
@@ -44,16 +46,19 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
     enabled: !!coachId && !!schoolId,
   });
 
-  // Crear disponibilidad
+  // Crear/actualizar disponibilidad (upsert para evitar conflicto de unique constraint)
   const createMutation = useMutation({
     mutationFn: async (input: CoachAvailabilityInput) => {
       const { data, error } = await (supabase as any)
         .from('coach_availability')
-        .insert({
-          school_id: schoolId,
-          coach_id: coachId,
-          ...input,
-        })
+        .upsert(
+          {
+            school_id: schoolId,
+            coach_id: coachId,
+            ...input,
+          },
+          { onConflict: 'coach_id,day_of_week,start_time,end_time', ignoreDuplicates: false }
+        )
         .select()
         .single();
 
@@ -63,7 +68,7 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['coach-availability', coachId] });
       toast({
-        title: '✅ Horario agregado',
+        title: '✅ Horario guardado',
         description: 'La disponibilidad se guardó correctamente',
       });
     },

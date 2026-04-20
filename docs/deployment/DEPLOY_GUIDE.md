@@ -72,11 +72,16 @@ supabase link --project-ref tu-project-ref
 # Configurar secrets de las Edge Functions
 supabase secrets set WOMPI_INTEGRITY_SECRET=tu_integrity_secret_de_wompi
 supabase secrets set WOMPI_EVENTS_SECRET=tu_events_secret_de_wompi
+supabase secrets set RESEND_API_KEY=re_xxxx_tu_api_key
 supabase secrets set ENVIRONMENT=production
 
 # Desplegar las funciones
 supabase functions deploy wompi-webhook
 supabase functions deploy wompi-sign
+supabase functions deploy send-email
+supabase functions deploy payment-reminders-cron
+supabase functions deploy send-push-notification
+supabase functions deploy analyze-receipt
 
 # Verificar que están activas
 supabase functions list

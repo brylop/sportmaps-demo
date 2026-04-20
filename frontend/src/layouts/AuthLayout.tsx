@@ -93,7 +93,8 @@ export default function AuthLayout() {
                     {profile?.role === 'parent' ? 'Padre' :
                       profile?.role === 'athlete' ? 'Deportista' :
                         profile?.role === 'coach' ? 'Entrenador' :
-                          profile?.role || 'Usuario'}
+                          profile?.role === 'personal_trainer' ? 'Entrenador Personal' :
+                            profile?.role || 'Usuario'}
                   </span>
                 </div>
                 <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border-2 border-primary/20 hover:border-primary/50 transition-all cursor-pointer">

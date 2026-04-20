@@ -1,483 +1,465 @@
-# SportMaps — Arquitectura de Base de Datos y Estado del MVP
+# SportMaps — Arquitectura Backend y Base de Datos
 
-> **Última actualización:** 2026-02-18
-> **Branch activo:** `develop`
-> **Stack:** React + Vite + TypeScript · Supabase (PostgreSQL) · Vercel
+> Ultima actualizacion: Abril 2026
+> Branch activo: `develop`
+> Stack: React + Vite + TypeScript | Express BFF | Supabase (PostgreSQL) | Vercel
 
 ---
 
-## 📦 Stack Tecnológico
+## Stack Tecnologico
 
-| Capa | Tecnología |
+| Capa | Tecnologia |
 |------|-----------|
-| **Frontend** | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui |
-| **Estado Global** | React Context API + TanStack React Query |
-| **Routing** | React Router DOM v6 |
-| **Backend / DB** | Supabase (PostgreSQL 15 + RLS) |
-| **Autenticación** | Supabase Auth (JWT) |
-| **Storage** | Supabase Storage (avatares, logos) |
-| **Despliegue** | Vercel (frontend) + Supabase Cloud (DB) |
+| Frontend | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui |
+| BFF (Backend for Frontend) | Express 5, Node.js, pg, Supabase JS |
+| Base de Datos | Supabase (PostgreSQL 15 + RLS) |
+| Autenticacion | Supabase Auth (JWT) |
+| Storage | Supabase Storage (avatares, logos, documentos) |
+| Email | Resend (via Edge Function `send-email`) |
+| Pagos | Wompi + ePayco (Colombia) |
+| Despliegue | Vercel (frontend + BFF) + Supabase Cloud (DB) |
 
 ---
 
-## 🗄️ Arquitectura de Base de Datos
-
-### Diagrama General
+## Arquitectura General
 
 ```
-auth.users
-    └── profiles (role ENUM, onboarding_completed, sportmaps_points)
-            │
-            ├── [school] ──→ schools
-            │                  ├── school_branches (N sedes)
-            │                  │     └── facilities → facility_reservations
-            │                  ├── school_members (pivot: profiles ↔ escuela ↔ sede)
-            │                  ├── school_staff   (coaches con branch_id)
-            │                  ├── invitations
-            │                  ├── programs → enrollments
-            │                  └── teams
-            │                        ├── training_sessions → session_attendance
-            │                        └── training_plans
-            │
-            ├── [coach] ──→ school_staff / school_members
-            │                  └── → attendance_records, evaluations, announcements
-            │
-            ├── [parent] ──→ children
-            │                  ├── → schools, school_branches, teams, programs
-            │                  ├── academic_progress
-            │                  └── payments (child_id, parent_id, school_id)
-            │
-            ├── [athlete] ──→ enrollments, athlete_stats, training_logs
-            │                   └── health_records, wellness_appointments
-            │
-            └── [wellness_professional] ──→ wellness_appointments, health_records
+Cliente (React SPA)
+    |
+    |-- Supabase Auth (login, register, JWT)
+    |-- Supabase Client (consultas directas con RLS)
+    |
+    └── BFF (Express API)
+          |-- /api/v1/* (rutas autenticadas)
+          |-- /api/explorar (busqueda publica)
+          |-- /api/favoritos (favoritos ligeros)
+          |-- /share (OG preview)
+          |
+          └── Supabase Service Role (operaciones privilegiadas)
+                |-- Bypass RLS para operaciones admin
+                |-- Bulk operations
+                |-- Cross-table joins complejos
 ```
+
+### Cuando se usa el BFF vs consulta directa
+
+| Caso | Mecanismo |
+|------|-----------|
+| Consultas simples de lectura | Supabase Client directo (RLS protege) |
+| Operaciones multi-tabla (crear alumno + enrollment + pago + invitacion) | BFF |
+| Validaciones de negocio complejas | BFF |
+| Webhooks de pasarelas de pago | BFF |
+| Busqueda publica con filtros avanzados | BFF (`/api/explorar`) |
+| Asistencia con deduccion de creditos | BFF |
+| Renderizado de templates de mensajes | BFF |
 
 ---
 
-## 📋 Tablas del Esquema
+## BFF — Estructura de Archivos
 
-### 🔐 MÓDULO: USUARIOS
+```
+bff/
+  src/
+    index.ts                         # App Express, CORS, rate limiting, montaje de rutas
+    middlewares/
+      authMiddleware.ts              # requireAuth, requireRole, requirePermission, etc.
+    routes/
+      students.ts                    # GET /api/v1/students, POST /bulk
+      students-create-one.route.ts   # POST /api/v1/students/create-one
+      enrollments.ts                 # CRUD /api/v1/enrollments
+      attendance.ts                  # Sesiones, asistencia, walk-in, finalize
+      offerings.ts                   # Ofertas y planes
+      session-bookings.ts            # Reservas de sesiones
+      school-context.ts              # Modulos y features de escuela
+      sport-configs.ts               # Configuracion por deporte
+      billing-events.ts              # Eventos de facturacion
+      reports.ts                     # Reportes y analitica
+      epayco.ts                      # Crear sesion de pago
+      epayco-webhook.ts              # Webhook ePayco
+      wompi.ts                       # Webhook Wompi
+      explorar.routes.ts             # Busqueda publica
+      favoritos.routes.ts            # Favoritos
+      school-staff.ts                # Staff de escuela
+      events.route.ts                # Eventos deportivos
+      organizers.route.ts            # Perfil de organizador
+      school-delegations.route.ts    # Delegaciones a eventos
+      templates.ts                   # Plantillas de mensajes
+      polls.ts                       # Encuestas de asistencia
+      marketplace.routes.ts          # Busqueda marketplace
+      vendor.routes.ts               # Perfil de vendedor
+      vendor-products.routes.ts      # Productos del vendedor
+      vendor-services.routes.ts      # Servicios del vendedor
+      marketplace-orders.routes.ts   # Ordenes de compra
+      og-preview.routes.ts           # Meta tags para redes sociales
+      system.ts                      # Cleanup y mantenimiento
+      trainer/
+        profile.ts                   # Perfil de entrenador personal
+        onboarding.ts                # Onboarding del trainer
+        workspace.ts                 # Workspace del trainer
+        clients.ts                   # Clientes del trainer
+        routines.ts                  # Rutinas y clases
+    utils/
+      brandingUtils.ts               # Branding para emails
+```
+
+### Montaje de Rutas (index.ts)
+
+| Base Path | Router | Rate Limit |
+|-----------|--------|------------|
+| `/api/v1/students` | students + students-create-one | General |
+| `/api/v1/enrollments` | enrollments | General |
+| `/api/v1/attendance` | attendance | General |
+| `/api/v1/offerings` | offerings | General |
+| `/api/v1/sessions` | session-bookings | General |
+| `/api/v1/session-bookings` | session-bookings | General |
+| `/api/v1/school/context` | school-context | General |
+| `/api/v1/sport-configs` | sport-configs | General |
+| `/api/v1/billing-events` | billing-events | General |
+| `/api/v1/reports` | reports | General |
+| `/api/v1/payments` | epayco | **Payment** (20/min) |
+| `/api/v1/webhooks/epayco` | epayco-webhook | Sin limite |
+| `/api/v1/webhooks/wompi` | wompi | Sin limite |
+| `/api/explorar` | explorar | General |
+| `/api/favoritos` | favoritos | General |
+| `/api/v1/school-staff` | school-staff | General |
+| `/api/v1/events` | events | General |
+| `/api/v1/organizer` | organizers | General |
+| `/api/v1/school/delegations` | school-delegations | General |
+| `/api/v1/templates` | templates | General |
+| `/api/v1/polls` | polls | General |
+| `/api/v1/marketplace` | marketplace | General |
+| `/api/v1/vendor` | vendor | General |
+| `/api/v1/vendor/products` | vendor-products | General |
+| `/api/v1/vendor/services` | vendor-services | General |
+| `/api/v1/marketplace/orders` | marketplace-orders | **Payment** (20/min) |
+| `/share` | og-preview | General |
+| `/api/v1/trainer` | trainer/* | General |
+| `/api/v1/system` | system | General |
+
+### Rate Limiting
+
+| Tipo | Limite |
+|------|--------|
+| General | 200 requests / 15 minutos |
+| Payment | 20 requests / 1 minuto |
+
+---
+
+## Middleware de Autenticacion y Autorizacion
+
+**Archivo:** `bff/src/middlewares/authMiddleware.ts`
+
+### Cadena de Middleware
+
+```
+Request
+  → CORS (origenes permitidos)
+  → Body Parser (JSON, 5MB max)
+  → Pino HTTP Logger
+  → Rate Limiter
+  → Route Handler
+      → requireAuth / requireBasicAuth / requireMarketplaceAuth / requireTrainerAuth / optionalAuth
+      → requireRole(...)
+      → requirePermission(...)
+      → requireOwnership(...)
+      → Controller Logic
+      → auditLog(...)
+```
+
+### Tipos de Auth
+
+| Middleware | Uso | Contexto |
+|-----------|-----|----------|
+| `requireAuth` | Rutas de escuela | Resuelve school_id, branch_id, role desde `school_members` |
+| `requireBasicAuth` | Favoritos | Solo valida token, sin contexto de escuela |
+| `requireMarketplaceAuth` | Vendor/Marketplace | Lee role desde `profiles` (no school_members) |
+| `requireTrainerAuth` | Entrenador personal | Busca workspace en `schools` con `school_type='personal_trainer'` |
+| `optionalAuth` | Marketplace publico | No falla sin token. Personaliza si hay usuario logueado |
+
+### Roles y Permisos
+
+| Rol | Permisos Clave |
+|-----|---------------|
+| `athlete` | dashboard, calendar:view, teams:view, stats:view, marketplace:browse |
+| `parent` | + students:view, reports:view, appointments:create |
+| `coach` | + calendar:CRUD, teams:create/edit, students:edit, reports:create |
+| `school` | + teams:delete, students:CRUD, finances:view/manage |
+| `school_admin` | Similar a school (scoped a sede) |
+| `organizer` | events:CRUD, finances:view/manage |
+| `wellness_professional` | services:CRUD, appointments:manage, health_records |
+| `store_owner` | products:CRUD, inventory:manage, orders:manage |
+| `staff` | Permisos operativos basicos |
+| `reporter` | reports:view (solo lectura) |
+| `admin` / `super_admin` / `owner` | **Acceso total** — bypass de requireRole |
+
+---
+
+## Base de Datos — Tablas Principales
+
+### Modulo: Usuarios
 
 #### `profiles`
 Extiende `auth.users`. Tabla central de identidad.
 
-| Columna | Tipo | Descripción |
+| Columna | Tipo | Descripcion |
 |---------|------|-------------|
-| `id` | `uuid` PK | = `auth.users.id` |
-| `full_name` | `text` | Nombre completo |
-| `email` | `text` | Email sincronizado desde auth |
-| `phone` | `text` | Teléfono |
-| `role` | `ENUM` | `athlete \| parent \| coach \| school \| wellness_professional \| store_owner \| admin \| organizer` |
-| `avatar_url` | `text` | URL de foto de perfil |
-| `bio` | `text` | Biografía |
-| `date_of_birth` | `date` | Fecha de nacimiento |
-| `sportmaps_points` | `int` | Puntos de gamificación |
-| `subscription_tier` | `ENUM` | `free \| basic \| premium` |
-| `invitation_code` | `text` | Código único de invitación |
-| `onboarding_completed` | `boolean` | ✅ Si completó el tour inicial |
-| `created_at` | `timestamptz` | — |
-| `updated_at` | `timestamptz` | — |
+| `id` | uuid PK | = `auth.users.id` |
+| `full_name` | text | Nombre completo |
+| `email` | text | Email sincronizado desde auth |
+| `phone` | text | Telefono |
+| `role` | text | athlete, parent, coach, school, organizer, etc. |
+| `avatar_url` | text | URL de foto de perfil |
+| `bio` | text | Biografia |
+| `date_of_birth` | date | Fecha de nacimiento |
+| `onboarding_completed` | boolean | Si completo el tour inicial |
 
----
-
-### 🏫 MÓDULO: ESCUELAS
+### Modulo: Escuelas
 
 #### `schools`
-
-| Columna | Tipo | Descripción |
+| Columna | Tipo | Descripcion |
 |---------|------|-------------|
-| `id` | `uuid` PK | — |
-| `owner_id` | `uuid` FK→`auth.users` | Dueño de la escuela |
-| `name` | `text` | Nombre de la escuela |
-| `slug` | `text` UNIQUE | Para URL pública `/s/:slug` |
-| `description` | `text` | Descripción |
-| `sport_types` | `text[]` | Deportes que ofrece |
-| `city` | `text` | Ciudad |
-| `lat` / `lng` | `numeric` | Geolocalización |
-| `logo_url` | `text` | Logo |
-| `cover_url` | `text` | Foto de portada |
-| `is_verified` | `boolean` | Verificada por SportMaps |
-| `is_demo` | `boolean` | Escuela de demostración |
-| `status` | `text` | `active \| inactive \| pending` |
+| `id` | uuid PK | |
+| `owner_id` | uuid FK→auth.users | Dueno de la escuela |
+| `name` | text | Nombre |
+| `slug` | text UNIQUE | Para URL publica |
+| `city` | text | Ciudad |
+| `lat` / `lng` | numeric | Geolocalizacion |
+| `is_verified` | boolean | Verificada por SportMaps |
+| `school_type` | text | `school` o `personal_trainer` |
+| `status` | text | active, inactive, pending |
 
-#### `school_branches` _(Multi-sede)_
+#### `school_branches` (Multi-sede)
+| Columna | Descripcion |
+|---------|-------------|
+| `school_id` | FK→schools |
+| `name` | Nombre de la sede |
+| `address` | Direccion fisica |
+| `capacity` | Aforo |
+| `is_main` | Sede principal |
 
-| Columna | Tipo | Descripción |
-|---------|------|-------------|
-| `id` | `uuid` PK | — |
-| `school_id` | `uuid` FK→`schools` ON DELETE CASCADE | — |
-| `name` | `text` | Ej: "Sede Norte", "Sede Fontibón" |
-| `address` | `text` | Dirección física |
-| `city` | `text` | Ciudad |
-| `lat` / `lng` | `numeric` | Geolocalización |
-| `is_main` | `boolean` | Sede principal |
-| `capacity` | `int` | Aforo |
-| `status` | `text` | `active \| inactive \| maintenance` |
-
-#### `school_members` _(Tabla Pivot de Membresía)_
-
-| Columna | Tipo | Descripción |
-|---------|------|-------------|
-| `id` | `uuid` PK | — |
-| `school_id` | `uuid` FK→`schools` | — |
-| `profile_id` | `uuid` FK→`profiles` | — |
-| `branch_id` | `uuid` FK→`school_branches` | `NULL` = acceso a toda la escuela |
-| `role` | `text` | `owner \| admin \| coach \| athlete \| parent` |
-| `status` | `text` | `active \| inactive \| pending` |
+#### `school_members` (Pivot de Membresia)
+| Columna | Descripcion |
+|---------|-------------|
+| `school_id` | FK→schools |
+| `profile_id` | FK→profiles |
+| `branch_id` | FK→school_branches (null = toda la escuela) |
+| `role` | owner, admin, coach, athlete, parent, staff |
+| `status` | active, inactive, pending |
 
 #### `school_staff`
-
-| Columna | Descripción |
+| Columna | Descripcion |
 |---------|-------------|
-| `profile_id` | Coach o admin |
-| `school_id` | A qué escuela pertenece |
-| `branch_id` | A qué sede está asignado (nullable) |
-| `role` | `coach \| admin \| assistant` |
+| `school_id` | FK→schools |
+| `full_name` | Nombre |
+| `email` | Email |
+| `specialty` | Especialidad |
+| `branch_id` | Sede asignada |
+| `coach_auth_id` | FK→auth.users (sync automatico) |
 
-#### `invitations`
+#### `school_settings`
+Configuracion de la escuela: modulos activos, SportMaps Pay, etc.
 
-| Columna | Descripción |
-|---------|-------------|
-| `code` | Código único |
-| `school_id` | Escuela que invita |
-| `role` | Rol al que se invita |
-| `email` | Email del invitado |
-| `status` | `pending \| accepted \| expired` |
-
----
-
-### 🏃 MÓDULO: PROGRAMAS Y EQUIPOS
-
-#### `programs`
-
-| Columna | Descripción |
-|---------|-------------|
-| `school_id` | Escuela dueña |
-| `name` | Nombre del programa |
-| `sport` | Deporte |
-| `description` | Descripción |
-| `price` | Mensualidad |
-| `capacity` | Cupos máximos |
-| `schedule` | `JSONB` con días/horarios |
-| `coach_id` | Entrenador asignado |
-
-#### `enrollments`
-
-| Columna | Descripción |
-|---------|-------------|
-| `profile_id` | FK→`profiles` (atleta) |
-| `program_id` | FK→`programs` |
-| `status` | `active \| cancelled \| pending` |
-| `enrolled_at` | Fecha de inscripción |
+### Modulo: Equipos y Ofertas
 
 #### `teams`
-
-| Columna | Descripción |
+| Columna | Descripcion |
 |---------|-------------|
-| `school_id` | FK→`schools` |
-| `branch_id` | FK→`school_branches` |
+| `school_id` | FK→schools |
+| `branch_id` | FK→school_branches |
 | `name` | Nombre del equipo |
 | `sport` | Deporte |
-| `coach_id` | Entrenador principal |
 
-#### `training_sessions` + `session_attendance`
+#### `offerings`
+| Columna | Descripcion |
+|---------|-------------|
+| `school_id` | FK→schools |
+| `name` | Nombre de la oferta |
+| `offering_type` | membership, session_pack, court_booking, tournament, single_session |
+| `sport` | Deporte |
+| `is_active` | Estado |
 
-```
-training_sessions (team_id, date, duration)
-    └── session_attendance (session_id, player_id, status: present|absent|late)
-```
+#### `offering_plans`
+| Columna | Descripcion |
+|---------|-------------|
+| `offering_id` | FK→offerings |
+| `name` | Nombre del plan |
+| `max_sessions` | Sesiones incluidas |
+| `max_secondary_sessions` | Sesiones secundarias |
+| `duration_days` | Duracion en dias |
+| `price` | Precio |
+| `auto_renew` | Renovacion automatica |
 
-#### `training_plans` · `training_logs` · `athlete_stats`
+#### `enrollments`
+| Columna | Descripcion |
+|---------|-------------|
+| `user_id` / `child_id` / `unregistered_athlete_id` | Atleta inscrito (uno de tres) |
+| `team_id` | FK→teams |
+| `offering_plan_id` | FK→offering_plans |
+| `school_id` | FK→schools |
+| `status` | active, cancelled, pending |
+| `start_date` / `end_date` | Periodo |
 
-Módulos de rendimiento deportivo individual y por equipo.
-
----
-
-### 👨‍👩‍👧 MÓDULO: PADRES E HIJOS
+### Modulo: Hijos y Atletas
 
 #### `children`
-
-| Columna | Descripción |
+| Columna | Descripcion |
 |---------|-------------|
-| `parent_id` | FK→`auth.users` |
-| `school_id` | FK→`schools` |
-| `branch_id` | FK→`school_branches` |
-| `team_id` | FK→`teams` |
-| `program_id` | FK→`programs` |
-| `full_name` | Nombre del hijo |
-| `date_of_birth` | — |
-| `monthly_fee` | Mensualidad individual |
+| `parent_id` | FK→auth.users |
+| `school_id` | FK→schools |
+| `full_name` | Nombre |
+| `date_of_birth` | Fecha de nacimiento |
+| `doc_number` / `doc_type` | Documento de identidad |
+| `medical_info` | Informacion medica |
 
-#### `academic_progress`
+#### `unregistered_athletes`
+Atletas temporales antes de que se registren en la plataforma.
 
-| Columna | Descripción |
+### Modulo: Asistencia
+
+#### `attendance_sessions`
+| Columna | Descripcion |
 |---------|-------------|
-| `child_id` | FK→`children` |
-| `coach_id` | FK→`auth.users` |
-| `subject` | Materia o habilidad evaluada |
-| `score` | Calificación |
-| `period` | Período escolar |
+| `team_id` | FK→teams |
+| `session_date` | Fecha |
+| `finalized` | Si esta cerrada |
+| `created_by` | FK→auth.users |
 
----
+#### `attendance_records`
+| Columna | Descripcion |
+|---------|-------------|
+| `session_id` | FK→attendance_sessions |
+| `child_id` / `user_id` / `unregistered_athlete_id` | Atleta |
+| `status` | present, absent, late, excused |
 
-### 💰 MÓDULO: PAGOS
+#### `session_bookings`
+Reservas de sesiones en ofertas con capacidad limitada.
+
+### Modulo: Pagos
 
 #### `payments`
-
-| Columna | Descripción |
+| Columna | Descripcion |
 |---------|-------------|
-| `school_id` | FK→`schools` |
-| `parent_id` | FK→`auth.users` |
-| `child_id` | FK→`children` |
-| `program_id` | FK→`programs` (nullable) |
+| `school_id` | FK→schools |
+| `parent_id` / `user_id` | Quien paga |
+| `child_id` | Hijo (si aplica) |
+| `enrollment_id` | FK→enrollments |
 | `amount` | Monto |
-| `status` | `pending \| paid \| overdue \| cancelled` |
-| `due_date` | Fecha límite |
-| `payment_method` | `cash \| transfer \| card \| online` |
-| `payment_date` | Fecha de pago efectivo |
+| `status` | pending, paid, overdue, cancelled |
+| `due_date` | Fecha limite |
+| `payment_method` | Manual, Wompi, ePayco |
 
-#### `cart`
+#### `billing_events`
+Eventos detallados de facturacion (cargos, pagos parciales, reembolsos, recargos).
 
-| Columna | Descripción |
+### Modulo: Eventos Deportivos
+
+#### `events`
+| Columna | Descripcion |
 |---------|-------------|
-| `user_id` | FK→`auth.users` |
-| `items` | `JSONB` con productos/programas |
+| `organizer_id` | FK→event_organizers |
+| `title` | Titulo |
+| `sport` | Deporte |
+| `event_date` | Fecha |
+| `city` | Ciudad |
+| `status` | draft, published, cancelled, completed |
+| `visibility` | public, private |
+
+#### `event_organizers`
+Perfil de organizador: organization_name, nit, is_verified, etc.
+
+#### `event_delegations`
+Delegaciones de escuelas a eventos.
+
+#### `event_teams` / `event_team_members`
+Equipos y atletas dentro de delegaciones.
+
+### Modulo: Marketplace
+
+#### `vendor_profiles`
+Perfil de vendedor: display_name, city, nit, vendor_type.
+
+#### `products` / `product_variants`
+Productos con variantes (talla, color, etc).
+
+#### `service_listings` / `service_variations`
+Servicios ofrecidos con variaciones.
+
+### Modulo: Trainer (Entrenador Personal)
+
+#### `trainer_profiles`
+Perfil publico del entrenador: especialidades, tarifas, certificaciones, galeria.
+
+Usa `schools` con `school_type = 'personal_trainer'` como workspace.
 
 ---
 
-### 🏥 MÓDULO: WELLNESS
+## Funciones PostgreSQL (RPC)
 
-#### `wellness_appointments`
-
-```
-professional_id (FK→auth.users)  ←→  athlete_id (FK→profiles)
-```
-
-#### `health_records`
-
-```
-athlete_id  ←→  professional_id
-Contiene: diagnóstico, observaciones, fecha
-```
-
----
-
-### 🎪 MÓDULO: INSTALACIONES
-
-#### `facilities`
-
-| Columna | Descripción |
+| Funcion | Descripcion |
 |---------|-------------|
-| `school_id` | FK→`schools` |
-| `branch_id` | FK→`school_branches` |
-| `name` | Nombre (cancha, piscina...) |
-| `type` | `court \| pool \| gym \| field` |
-| `capacity` | Aforo |
-| `price_per_hour` | Precio por hora |
-| `is_available` | Disponibilidad |
+| `handle_new_user()` | Trigger en auth.users INSERT. Crea profile con rol de raw_user_meta_data |
+| `user_school_ids()` | Retorna array de school_ids donde el usuario tiene membresia activa. Usada en RLS |
+| `search_marketplace()` | Busqueda unificada de productos y servicios |
+| `accept_invitation()` | SECURITY DEFINER. Acepta invitacion y crea school_member |
 
-#### `facility_reservations`
+---
+
+## Seguridad (Row Level Security)
+
+**RLS activado en todas las tablas de datos.**
+
+### Patron por tipo
+
+| Tipo de tabla | Patron RLS |
+|--------------|-----------|
+| Escolar (children, payments, enrollments) | `school_id IN user_school_ids() OR parent_id = auth.uid()` |
+| Personal (carts, notifications) | `user_id = auth.uid()` |
+| Publica (events publicados, marketplace) | `SELECT` abierto, `INSERT/UPDATE/DELETE` restringido |
+
+### Headers de seguridad del BFF
 
 ```
-facility_id ↔ user_id ↔ team_id (opcional)
-Con: date, start_time, end_time, status, participants
+Cache-Control: no-store
+Pragma: no-cache
+Expires: 0
 ```
 
----
-
-### 🎫 MÓDULO: EVENTOS (Organizer)
-
-| Tabla | Descripción |
-|-------|-------------|
-| `events` | Evento público con `slug`, `sport`, `lat/lng`, `date` |
-| `event_registrations` | Inscripciones al evento |
+Previene cache de datos sensibles en proxies y navegadores.
 
 ---
 
-## 🔧 Funciones PostgreSQL (RPC)
-
-| Función | Descripción |
-|---------|-------------|
-| `handle_new_user()` | **Trigger** en `auth.users → INSERT`. Crea el `profile` automáticamente con el rol del `raw_user_meta_data`. Fallback inteligente a `athlete`. |
-| `complete_onboarding()` | `SECURITY DEFINER`. Actualiza `onboarding_completed = TRUE` para `auth.uid()`. |
-| `is_branch_admin(user_id, branch_id)` | Verifica si un usuario es admin de una sede específica. Usada en RLS policies. |
-
----
-
-## 🛡️ Seguridad (Row Level Security)
-
-**RLS activado en:** `profiles`, `schools`, `school_branches`, `school_members`, `school_staff`, `payments`, `facilities`, `facility_reservations`, `children`, `programs`, `enrollments`, `invitations`, `events`.
-
-**Políticas clave:**
-- `profiles`: cada usuario solo ve/edita su propio perfil.
-- `schools`: solo el `owner_id` puede hacer `UPDATE/DELETE`.
-- `payments`: la escuela ve todos sus pagos; el padre solo ve los propios.
-- `school_branches`: lectura pública; escritura solo para el owner de la escuela.
-- `children`: solo el `parent_id` puede ver/editar.
-
----
-
-## ⚡ Índices de Performance
-
-```sql
--- Compuestos para dashboards
-idx_payments_school_status_date  (school_id, status, due_date)
-idx_attendance_records_composite (school_id, student_id, date)
-idx_classes_school_schedule      (school_id, day_of_week, start_time)
-idx_school_members_composite     (school_id, profile_id, status)
-
--- Búsqueda de texto fuzzy
-idx_schools_name_trgm  USING GIN (name gin_trgm_ops) -- pg_trgm
-idx_programs_schedule_gin        USING GIN (schedule)
-
--- FKs frecuentes
-idx_children_parent_id / school_id / team_id / branch_id
-idx_payments_child_id / parent_id / school_id
-idx_teams_school_id / branch_id
-```
-
----
-
-## 📱 Estado del MVP — Frontend
-
-### Páginas Implementadas (78 total)
-
-#### ✅ Autenticación y Onboarding
-| Página | Estado |
-|--------|--------|
-| `/login` | ✅ |
-| `/register` | ✅ |
-| `/school-onboarding` | ✅ Pasos guiados con progress bar |
-| `/coach-onboarding` | ✅ Info + botón de confirmación |
-| `/athlete-onboarding` | ✅ Info + acciones rápidas |
-| `/parent-onboarding` | ✅ Hijos + Pagos + Calendario |
-| `/wellness-onboarding` | ✅ |
-| `/store-onboarding` | ✅ |
-| `/organizer-onboarding` | ✅ |
-
-#### ✅ Panel Escuela (Dueño)
-| Página | Ruta |
-|--------|------|
-| Dashboard | `/dashboard` |
-| Gestión de Sedes | `/branches` |
-| Estudiantes | `/students` |
-| Staff / Coaches | `/staff` |
-| Programas | `/programs-management` |
-| Instalaciones | `/facilities` |
-| Finanzas | `/finances` |
-| Pagos y Automatización | `/payments-automation` |
-| Recordatorios de Pago | `/payment-reminders` |
-| Asistencia (supervisión) | `/attendance-supervision` |
-| Resultados globales | `/results-overview` |
-| Reportes | `/school-reports` |
-| Configuración | `/school-config` |
-| Control de Pickup | `/pickup` |
-
-#### ✅ Panel Coach
-| Página | Ruta |
-|--------|------|
-| Toma de Asistencia | `/coach-attendance` |
-| Evaluaciones | `/evaluations` |
-| Planes de Entrenamiento | `/training-plans` |
-| Resultados | `/results` |
-| Reportes | `/coach-reports` |
-| Anuncios | `/announcements` |
-
-#### ✅ Panel Padre
-| Página | Ruta |
-|--------|------|
-| Mis Hijos | `/children` |
-| Progreso del Hijo | `/children/:id/progress` |
-| Asistencia del Hijo | `/children/:id/attendance` |
-| Mis Pagos | `/my-payments` |
-| Progreso Académico | `/academic-progress` |
-| Checkout para Padre | `/parent-checkout` |
-
-#### ✅ Panel Atleta
-| Página | Ruta |
-|--------|------|
-| Inscripciones | `/enrollments` |
-| Estadísticas | `/stats` |
-| Objetivos | `/goals` |
-| Entrenamiento | `/training` |
-| Wellness personal | `/wellness` |
-| Tienda | `/shop` |
-
-#### ✅ Módulos Compartidos
-| Página | Ruta |
-|--------|------|
-| Calendario | `/calendar` |
-| Mensajes | `/messages` |
-| Notificaciones | `/notifications` |
-| Perfil | `/profile` |
-| Configuración | `/settings` |
-| Explorar Escuelas | `/explore` |
-| Página Pública Escuela | `/s/:slug` |
-| Mapa de Eventos | `/events` |
-| Evento Público | `/event/:slug` |
-
----
-
-## 🔄 Flujo de Onboarding (Implementado)
+## Flujo de Onboarding
 
 ```
 Registro → auth.users INSERT
      ↓
-Trigger handle_new_user() → crea profiles con onboarding_completed = FALSE
+Trigger handle_new_user() → crea profile con onboarding_completed = FALSE
      ↓
 ProtectedRoute detecta onboarding_completed === false
      ↓
-Redirige según role:
-  school  → /school-onboarding  (pasos guiados)
-  coach   → /coach-onboarding   (info + confirmar)
-  parent  → /parent-onboarding  (hijos + pagos)
-  athlete → /athlete-onboarding (explorar + reservar)
+Redirige segun role:
+  school    → /setup/school (wizard guiado)
+  coach     → /coach-onboarding
+  parent    → /parent-onboarding
+  athlete   → /athlete-onboarding
+  organizer → /organizer/onboarding
      ↓
-Usuario hace clic en cualquier acción
+Usuario completa onboarding
      ↓
-updateProfile({ onboarding_completed: true }) → DB actualizada
+updateProfile({ onboarding_completed: true })
      ↓
-Navega a la ruta destino → ProtectedRoute permite el paso
-     ↓
-Dashboard / Módulo solicitado ✅
+Dashboard del rol correspondiente
 ```
 
 ---
 
-## ⚠️ Deuda Técnica y Pendientes
+## Documentacion Relacionada
 
-| Item | Prioridad | Estado |
-|------|-----------|--------|
-| Aplicar migración `add_onboarding_tracking.sql` en Supabase Cloud | 🔴 Alta | Pendiente manual |
-| Lint error: `payment_settings` en `ParentCheckoutPage` | 🟡 Media | Pendiente |
-| Lint error: `activeTeams` en `DashboardPage` | 🟡 Media | Pendiente |
-| Tests E2E del flujo de onboarding | 🔴 Alta | Sin implementar |
-| Real-time notifications (Supabase Realtime) | 🟢 Baja | Sin implementar |
-| Push notifications móviles | 🟢 Baja | Sin implementar |
+- **API completa de endpoints:** [`api_specifications.md`](./api_specifications.md)
+- **Seguridad y RBAC:** [`security.md`](./security.md)
+- **Arquitectura frontend:** [`frontend_architecture.md`](./frontend_architecture.md)
+- **Credenciales demo:** [`../guides/DEMO_CREDENTIALS.md`](../guides/DEMO_CREDENTIALS.md)
 
 ---
 
-## 📁 Estructura de Archivos Clave
-
-```
-frontend/
-├── src/
-│   ├── contexts/
-│   │   ├── AuthContext.tsx        # Sesión, perfil, updateProfile
-│   │   └── SchoolContext.tsx      # Escuela activa, rol, onboardingStatus
-│   ├── components/
-│   │   └── ProtectedRoute.tsx     # Guard de rutas + check de onboarding
-│   ├── hooks/
-│   │   ├── useSchoolContext.ts    # Lógica de resolución de escuela/rol
-│   │   └── useDashboardStatsReal.ts
-│   └── pages/                    # 78 páginas (ver listado arriba)
-└── supabase/
-    ├── migrations/
-    │   └── 20260218120000_add_onboarding_tracking.sql  # ⚠️ Aplicar en Cloud
-    └── OPTIMIZE_DATABASE.sql     # Índices de performance
-```
-
----
-
-*Generado por Antigravity AI · SportMaps Demo · 2026-02-18*
+*SportMaps Demo — Abril 2026*

@@ -90,13 +90,13 @@ export default function ChildAttendancePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/children')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold font-poppins">Asistencias de {child?.full_name}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Asistencias de {child?.full_name}</h1>
           <p className="text-muted-foreground mt-1">
             {child?.sport} - {child?.team_name}
           </p>
@@ -105,46 +105,57 @@ export default function ChildAttendancePage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">Tasa de Asistencia</p>
-              <p className="text-4xl font-bold font-poppins text-primary">{attendanceRate}%</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-border/50">
+          <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
+              <div className="h-9 w-9 rounded-lg bg-primary/20 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-primary" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Presentes</p>
-                <p className="text-2xl font-bold font-poppins">{stats.present}</p>
+                <p className="text-xs text-muted-foreground">Tasa de Asistencia</p>
+                <p className="text-2xl font-bold text-primary">{attendanceRate}%</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-6">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <XCircle className="h-8 w-8 text-red-500" />
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ausencias</p>
-                <p className="text-2xl font-bold font-poppins">{stats.absent}</p>
+                <p className="text-xs text-muted-foreground">Presentes</p>
+                <p className="text-2xl font-bold">{stats.present}</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-6">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <Clock className="h-8 w-8 text-yellow-500" />
+              <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                <XCircle className="h-4 w-4 text-red-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Tardanzas</p>
-                <p className="text-2xl font-bold font-poppins">{stats.late}</p>
+                <p className="text-xs text-muted-foreground">Ausencias</p>
+                <p className="text-2xl font-bold">{stats.absent}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-yellow-500" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Tardanzas</p>
+                <p className="text-2xl font-bold">{stats.late}</p>
               </div>
             </div>
           </CardContent>

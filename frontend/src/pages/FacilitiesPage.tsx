@@ -1,9 +1,23 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, MapPin } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Plus, MapPin, Building2 } from 'lucide-react';
 
 export default function FacilitiesPage() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   const facilities = [
     { id: '1', name: 'Spring Floor A', type: 'Cheerleading', status: 'active' },
     { id: '2', name: 'Spring Floor B', type: 'Cheerleading', status: 'active' },
@@ -23,13 +37,50 @@ export default function FacilitiesPage() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Instalaciones</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Instalaciones</h1>
           <p className="text-muted-foreground">Gestión de canchas y recursos</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          Crear Reserva
-        </Button>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Nueva Instalación
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Building2 className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle>Nueva Instalación</DialogTitle>
+                  <DialogDescription>
+                    Registra una nueva instalación deportiva.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Nombre de la instalación *</Label>
+                <Input placeholder="Ej: Spring Floor C" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Tipo</Label>
+                <Input placeholder="Ej: Cheerleading, Gimnasia..." />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={() => setDialogOpen(false)}>
+                Guardar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

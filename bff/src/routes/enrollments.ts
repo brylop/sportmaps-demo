@@ -10,15 +10,16 @@ const router = Router();
 const CreateEnrollmentSchema = z.object({
     user_id: z.string().uuid().optional(),
     child_id: z.string().uuid().optional(),
+    unregistered_athlete_id: z.string().uuid().optional(),
     team_id: z.string().uuid().optional(),
-    program_id: z.string().uuid().optional(),
+
     offering_plan_id: z.string().uuid().optional(),
     status: z.enum(['active', 'cancelled', 'pending']).default('active'),
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 }).refine(
-    (data) => data.user_id || data.child_id,
-    { message: 'Debe proporcionar user_id o child_id' }
+    (data) => data.user_id || data.child_id || data.unregistered_athlete_id,
+    { message: 'Se requiere user_id, child_id o unregistered_athlete_id', path: ['user_id'] }
 ).refine(
     (data) => data.team_id || data.offering_plan_id,
     { message: 'Debe proporcionar team_id u offering_plan_id' }
@@ -39,11 +40,11 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
         const { schoolId } = req;
         const data = parsed.data;
 
-        // ✅ Validar que user_id o child_id existe
-        const studentId = data.user_id || data.child_id;
-        const studentField = data.user_id ? 'user_id' : 'child_id';
+        // ✅ Validar que user_id o child_id o unregistered_athlete_id existe
+        const studentId = data.user_id || data.child_id || data.unregistered_athlete_id;
+        const studentField = data.user_id ? 'user_id' : data.child_id ? 'child_id' : 'unregistered_athlete_id';
 
-        const targetTable = data.user_id ? 'profiles' : 'children';
+        const targetTable = data.user_id ? 'profiles' : data.child_id ? 'children' : 'unregistered_athletes';
         const { data: student, error: studentError } = await supabase
             .from(targetTable)
             .select('id')
@@ -114,8 +115,9 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             .insert({
                 user_id: data.user_id || null,
                 child_id: data.child_id || null,
+                unregistered_athlete_id: data.unregistered_athlete_id || null,
                 team_id: data.team_id || null,
-                program_id: data.program_id || null,
+
                 offering_plan_id: data.offering_plan_id || null,
                 school_id: schoolId,
                 status: data.status,
@@ -189,9 +191,8 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             .from('enrollments')
             .select(`
                 id, status, sessions_used, secondary_sessions_used,
-                expires_at, start_date, team_id, offering_plan_id
+                expires_at, start_date, team_id, offering_plan_id, school_id
             `)
-            .eq('school_id', schoolId)
             .eq('status', 'active');
 
         if (child_id && typeof child_id === 'string') {
@@ -206,11 +207,13 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
         const planIds = [...new Set((enrollments || []).map((e: any) => e.offering_plan_id).filter(Boolean))];
         const teamIds = [...new Set((enrollments || []).map((e: any) => e.team_id).filter(Boolean))];
 
-        const [plansRes, teamsRes] = await Promise.all([
+        const schoolIds = [...new Set((enrollments || []).map((e: any) => e.school_id).filter(Boolean))];
+
+        const [plansRes, teamsRes, schoolsRes] = await Promise.all([
             planIds.length
                 ? supabase
                     .from('offering_plans')
-                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id, offering:offerings(id, name, offering_type, sport)')
+                    .select('id, name, max_sessions, max_secondary_sessions, duration_days, price, offering_id, metadata, offering:offerings(id, name, offering_type, sport)')
                     .in('id', planIds)
                 : Promise.resolve({ data: [], error: null }),
             teamIds.length
@@ -219,10 +222,17 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                     .select('id, name, sport, price_monthly')
                     .in('id', teamIds)
                 : Promise.resolve({ data: [], error: null }),
+            schoolIds.length
+                ? supabase
+                    .from('schools')
+                    .select('id, name, city, school_type')
+                    .in('id', schoolIds)
+                : Promise.resolve({ data: [], error: null }),
         ]);
 
         const planMap = Object.fromEntries((plansRes.data || []).map((p: any) => [p.id, p]));
         const teamMap = Object.fromEntries((teamsRes.data || []).map((t: any) => [t.id, t]));
+        const schoolMap = Object.fromEntries((schoolsRes.data || []).map((s: any) => [s.id, s]));
 
         const enriched = (enrollments || []).map((enrollment: any) => {
             const offeringPlan = enrollment.offering_plan_id ? planMap[enrollment.offering_plan_id] : null;
@@ -259,6 +269,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                 offering_plan: offeringPlan,
                 offering: offeringPlan?.offering ?? null,
                 team,
+                school: enrollment.school_id ? schoolMap[enrollment.school_id] : null,
                 offering_id: (offeringPlan?.offering as any)?.id ?? null,
                 // Precio unificado: plan tiene price, equipo tiene price_monthly
                 price_monthly: offeringPlan?.price ?? team?.price_monthly ?? null,

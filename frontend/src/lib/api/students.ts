@@ -64,8 +64,14 @@ export interface StudentUpdate {
   avatar_url?: string;
   school_id?: string;
   status?: 'active' | 'inactive' | 'suspended';
-  program_id?: string;
+  team_id?: string;
   branch_id?: string;
+  monthly_fee?: number;
+  doc_type?: string;
+  doc_number?: string;
+  tshirt_size?: string | null;
+  blood_type?: string | null;
+  eps_name?: string | null;
 }
 
 // ── Tipos de respuesta del BFF ────────────────────────────────────────────────
@@ -111,18 +117,22 @@ export interface StudentViewRow {
   parent_email?: string;
   parent_avatar?: string;
   enrollment_id?: string;
-  program_id?: string;
+  team_id?: string;
   branch_id?: string;
   enrollment_status?: string;
-  program_name?: string;
   team_name?: string;
-  program_sport?: string;
+  team_sport?: string;
   price_monthly?: number;
   monthly_fee?: number;
   branch_name?: string;
   medical_info?: string | null;
   display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
+  doc_type?: string | null;
+  doc_number?: string | null;
+  tshirt_size?: string | null;
+  blood_type?: string | null;
+  eps_name?: string | null;
 }
 
 export interface StudentStats {

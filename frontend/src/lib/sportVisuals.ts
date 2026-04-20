@@ -136,6 +136,9 @@ const SPORT_VISUALS: Record<string, SportVisual> = {
     swimming: { label: 'Natación', sessionLabel: 'Clase', memberLabel: 'Nadador', categoryLabel: 'Nivel', icon: '🏊', color: 'text-cyan-600', bgColor: 'bg-cyan-50' },
     football: { label: 'Fútbol', sessionLabel: 'Entrenamiento', memberLabel: 'Jugador', categoryLabel: 'Categoría', icon: '⚽', color: 'text-green-700', bgColor: 'bg-green-50' },
     basketball: { label: 'Baloncesto', sessionLabel: 'Entrenamiento', memberLabel: 'Jugador', categoryLabel: 'Categoría', icon: '🏀', color: 'text-orange-500', bgColor: 'bg-orange-50' },
+    baile: { label: 'Baile', sessionLabel: 'Clase', memberLabel: 'Bailarín', categoryLabel: 'Estilo', icon: '💃', color: 'text-pink-600', bgColor: 'bg-pink-50' },
+    danza: { label: 'Danza', sessionLabel: 'Ensayo', memberLabel: 'Bailarín', categoryLabel: 'Género', icon: '🩰', color: 'text-rose-600', bgColor: 'bg-rose-50' },
+    crosstraining: { label: 'Crosstraining', sessionLabel: 'WOD', memberLabel: 'Atleta', categoryLabel: 'Nivel', icon: '🔥', color: 'text-red-700', bgColor: 'bg-red-50' },
 };
 
 export const DEFAULT_VISUAL: SportVisual = {

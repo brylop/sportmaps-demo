@@ -126,7 +126,6 @@ export default function ParentCheckoutPage() {
 
   const childId = searchParams.get('child_id');
   const teamId = searchParams.get('team_id');
-  const programId = searchParams.get('program_id');
 
   const recordPaymentWithTraceability = async (reference: string) => {
     // Resolve School ID (Robustly)
@@ -162,7 +161,6 @@ export default function ParentCheckoutPage() {
       parent_id: user?.id, 
       child_id: childId || null,
       team_id: teamId || null,
-      program_id: programId || null,
       amount, 
       concept, 
       status: 'paid',
@@ -218,7 +216,7 @@ export default function ParentCheckoutPage() {
         customerEmail,
         customerName,
         studentName,
-        programName: concept,
+        teamName: concept,
         schoolName,
       });
 

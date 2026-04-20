@@ -16,12 +16,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen } from 'lucide-react';
+import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap, Calendar, CalendarCheck, CalendarX } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
+import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
+import { CreateChildModal } from '@/components/students/CreateChildModal';
+import { CreateAdultAthleteModal } from '@/components/students/CreateAdultAthleteModal';
 import { useSchoolContext, createStudentWithPendingPayment } from '@/hooks/useSchoolContext';
 import { studentsAPI, StudentViewRow } from '@/lib/api/students';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
@@ -32,10 +35,17 @@ const studentSchema = z.object({
   date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
   parent_email: z.string().email('Email inválido').max(255),
   parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
-  program_id: z.string().min(1, 'Selecciona un programa'),
-  monthly_fee: z.number().min(10000, 'Mínimo $10.000 COP'),
+  team_id: z.string().optional(),
+  offering_plan_id: z.string().optional(),
+  monthly_fee: z.number().min(0).optional(),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
+  tshirt_size: z.string().optional(),
+  blood_type: z.string().optional(),
+  eps_name: z.string().optional(),
+}).refine(data => data.team_id || data.offering_plan_id, {
+  message: 'Debes seleccionar al menos un equipo o un plan',
+  path: ['team_id'],
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
@@ -47,16 +57,56 @@ export default function SchoolStudentsManagementPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
+  const [showCreateChildModal, setShowCreateChildModal] = useState(false);
+  const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
+  const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
+  const [studentDocInfo, setStudentDocInfo] = useState<{
+    doc_type?: string | null;
+    doc_number?: string | null;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
+  }>({});
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [studentPlanInfo, setStudentPlanInfo] = useState<{
+    plan_name: string;
+    offering_name?: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    status?: string;
+  } | null>(null);
+  const [loadingPlanInfo, setLoadingPlanInfo] = useState(false);
 
-  const { schoolId, schoolName, programs, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+  const { schoolId, schoolName, teams, branches, activeBranchId, defaultMonthlyFee, loading: schoolLoading } = useSchoolContext();
+
+  const { data: offeringPlans = [] } = useQuery({
+    queryKey: ['offering-plans', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await (supabase as any)
+        .from('offering_plans')
+        .select('id, name, price, offering_id, offerings!offering_plans_offering_id_fkey(name)')
+        .eq('school_id', schoolId)
+        .eq('is_active', true)
+        .order('name');
+      if (error) return [];
+      return (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        price: p.price || 0,
+        offering_name: p.offerings?.name || '',
+      }));
+    },
+    enabled: !!schoolId,
+  });
 
   // Para coaches: obtener coachId para filtrar solo sus estudiantes
   const [coachId, setCoachId] = useState<string | undefined>(undefined);
@@ -79,8 +129,36 @@ export default function SchoolStudentsManagementPage() {
   }, [profile?.role, profile?.email, schoolId]);
 
   useEffect(() => {
-    if (!viewingStudent) { setStudentDocs([]); return; }
+    if (!viewingStudent) {
+      setStudentDocs([]);
+      setStudentDocInfo({});
+      setStudentPlanInfo(null);
+      return;
+    }
     const studentId = viewingStudent.id;
+
+    // ── Cargar campos estructurados desde children ──────────────────────
+    // (La vista school_athletes no siempre los expone, asi que consultamos directo)
+    if (getAthleteType(viewingStudent) === 'child') {
+      (supabase as any)
+        .from('children')
+        .select('doc_type, doc_number, tshirt_size, blood_type, eps_name')
+        .eq('id', studentId)
+        .maybeSingle()
+        .then(({ data }: { data: any }) => {
+          setStudentDocInfo({
+            doc_type:    data?.doc_type    || null,
+            doc_number:  data?.doc_number  || null,
+            tshirt_size: data?.tshirt_size || null,
+            blood_type:  data?.blood_type  || null,
+            eps_name:    data?.eps_name    || null,
+          });
+        });
+    } else {
+      setStudentDocInfo({});
+    }
+
+    // ── Cargar documentos de identidad ────────────────────────────────────
     setLoadingDocs(true);
     supabase.storage
       .from('identity-documents')
@@ -98,6 +176,56 @@ export default function SchoolStudentsManagementPage() {
         setStudentDocs(docs.filter(d => d.url));
       })
       .finally(() => setLoadingDocs(false));
+
+    // ── Cargar info del plan activo del atleta ────────────────────────────
+    setLoadingPlanInfo(true);
+    setStudentPlanInfo(null);
+
+    const athleteType = getAthleteType(viewingStudent);
+
+    let planQuery = (supabase as any)
+      .from('enrollments')
+      .select(`
+        status,
+        start_date,
+        end_date,
+        expires_at,
+        offering_plans!enrollments_offering_plan_id_fkey (
+          name,
+          offerings!offering_plans_offering_id_fkey ( name )
+        )
+      `)
+      .eq('status', 'active')
+      .not('offering_plan_id', 'is', null)
+      .order('start_date', { ascending: false })
+      .limit(1);
+
+    // ✅ Filtrar por el campo correcto según tipo de atleta
+    if (athleteType === 'child') {
+      planQuery = planQuery.eq('child_id', studentId);
+    } else if (athleteType === 'adult') {
+      planQuery = planQuery.eq('user_id', studentId);
+    } else {
+      // unregistered
+      planQuery = planQuery.eq('unregistered_athlete_id', studentId);
+    }
+
+    planQuery
+      .maybeSingle()
+      .then(({ data: planRow }: { data: any }) => {
+        if (planRow?.offering_plans) {
+          setStudentPlanInfo({
+            plan_name:     planRow.offering_plans.name,
+            offering_name: planRow.offering_plans.offerings?.name,
+            start_date:    planRow.start_date,
+            end_date:      planRow.end_date ?? planRow.expires_at,
+            status:        planRow.status,
+          });
+        } else {
+          setStudentPlanInfo(null);
+        }
+      })
+      .finally(() => setLoadingPlanInfo(false));
   }, [viewingStudent]);
 
   const { data: students = [], isLoading } = useQuery({
@@ -146,7 +274,8 @@ export default function SchoolStudentsManagementPage() {
       date_of_birth: '',
       parent_email: '',
       parent_phone: '',
-      program_id: '',
+      team_id: '',
+      offering_plan_id: '',
       monthly_fee: Number(defaultMonthlyFee) || 0,
       medical_info: '',
       notes: '',
@@ -155,7 +284,7 @@ export default function SchoolStudentsManagementPage() {
 
   const createStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
-      const selectedProgram = programs.find(p => p.id === data.program_id);
+      const selectedTeam = teams.find(p => p.id === data.team_id);
       if (schoolId) {
         const result = await createStudentWithPendingPayment({
           fullName: data.full_name,
@@ -164,17 +293,38 @@ export default function SchoolStudentsManagementPage() {
           parentPhone: data.parent_phone,
           parentName: data.parent_email.split('@')[0],
           schoolId,
-          branchId: selectedProgram?.branch_id || activeBranchId || undefined,
-          programId: data.program_id,
-          programName: selectedProgram?.name || 'Programa',
+          branchId: selectedTeam?.branch_id || activeBranchId || undefined,
+          teamId: data.team_id,
+          teamName: selectedTeam?.name || 'Equipo',
           monthlyFee: data.monthly_fee,
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
+
+        // ── NUEVO: inscribir al plan si se seleccionó uno ─────────────────────
+        if (result.success && result.childId && data.offering_plan_id) {
+          try {
+            const { bffClient } = await import('@/lib/api/bffClient');
+            await bffClient.post('/api/v1/enrollments', {
+              child_id:         result.childId,
+              offering_plan_id: data.offering_plan_id,
+              school_id:        schoolId,
+              status:           'active',
+            });
+          } catch (enrollErr) {
+            console.error('Error al inscribir en plan:', enrollErr);
+            toast({
+              title: '⚠️ Atleta creado, pero no se inscribió al plan',
+              description: 'Puedes inscribirlo manualmente desde Mis Planes.',
+            });
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         if (result.success) {
           toast({
             title: '✅ Atleta registrado',
-            description: `${data.full_name} asociado a ${schoolName} con mensualidad de $${data.monthly_fee.toLocaleString('es-CO')} COP`,
+            description: `${data.full_name} asociado a ${schoolName}`,
           });
         }
       }
@@ -190,20 +340,64 @@ export default function SchoolStudentsManagementPage() {
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
       if (!editingStudent) return data;
-      const selectedProgram = programs.find(p => p.id === data.program_id);
+      // Atleta sin cuenta → tabla unregistered_athletes
+      if (editingAthleteType === 'unregistered') {
+        const { error } = await (supabase as any).from('unregistered_athletes')
+          .update({
+            full_name:     data.full_name,
+            date_of_birth: data.date_of_birth || null,
+            updated_at:    new Date().toISOString(),
+          })
+          .eq('id', editingStudent.id);
+        if (error) throw error;
+        return data;
+      }
+
+      // Atleta adulto con cuenta → tabla profiles
+      if (editingAthleteType === 'adult') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            full_name:     data.full_name,
+            date_of_birth: data.date_of_birth || null,
+            updated_at:    new Date().toISOString(),
+          })
+          .eq('id', editingStudent.id);
+        if (error) throw error;
+        return data;
+      }
+
+      // Menor → tabla children (flujo original)
+      const selectedTeam = teams.find(p => p.id === data.team_id);
       await studentsAPI.updateStudent(editingStudent.id, {
-        full_name: data.full_name,
+        full_name:     data.full_name,
         date_of_birth: data.date_of_birth,
-        medical_info: data.medical_info,
-        program_id: data.program_id,
-        branch_id: selectedProgram?.branch_id || activeBranchId || undefined,
+        medical_info:  data.medical_info,
+        team_id:       data.team_id || null,
+        branch_id:     selectedTeam?.branch_id || activeBranchId || undefined,
+        monthly_fee:   typeof data.monthly_fee === 'number' ? data.monthly_fee : undefined,
+        tshirt_size:   data.tshirt_size || null,
+        blood_type:    data.blood_type  || null,
+        eps_name:      data.eps_name    || null,
       });
+      // Upsert enrollment con team y/o plan
+      if (schoolId && (data.team_id || data.offering_plan_id)) {
+        await (supabase as any).from('enrollments').upsert({
+          child_id:         editingStudent.id,
+          school_id:        schoolId,
+          branch_id:        selectedTeam?.branch_id || activeBranchId || null,
+          team_id:          data.team_id || null,
+          offering_plan_id: data.offering_plan_id || null,
+          status:           'active',
+        }, { onConflict: 'child_id,school_id' });
+      }
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
       setDialogOpen(false);
       setEditingStudent(null);
+      setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
     }
   });
@@ -217,31 +411,54 @@ export default function SchoolStudentsManagementPage() {
   };
 
   const handleCreateStudent = () => {
-    setEditingStudent(null);
-    form.reset({
-      full_name: '',
-      date_of_birth: '',
-      parent_email: '',
-      parent_phone: '',
-      program_id: '',
-      monthly_fee: Number(defaultMonthlyFee) || 0,
-      medical_info: '',
-      notes: '',
-    });
-    setDialogOpen(true);
+    setShowTypeSelector(true);
   };
 
-  const handleEditStudent = (student: any) => {
+  // Helper para detectar tipo desde cualquier objeto de atleta
+  const getAthleteType = (student: any): 'child' | 'adult' | 'unregistered' => {
+    if (student.athlete_type) return student.athlete_type;
+    // Fallback: si tiene parent_id o parent_email_temp es menor
+    if (student.parent_id || student.parent_email_temp) return 'child';
+    // Si tiene user_id propio es adulto con cuenta
+    if (student.user_id) return 'adult';
+    return 'unregistered';
+  };
+
+  const handleEditStudent = async (student: any) => {
+    const athleteType = getAthleteType(student);
     setEditingStudent(student);
+    setEditingAthleteType(athleteType);
+
+    // Traer campos estructurados que la view school_athletes no expone
+    let extraFields = { tshirt_size: '', blood_type: '', eps_name: '' };
+    if (athleteType === 'child') {
+      const { data } = await (supabase as any)
+        .from('children')
+        .select('tshirt_size, blood_type, eps_name')
+        .eq('id', student.id)
+        .maybeSingle();
+      if (data) {
+        extraFields = {
+          tshirt_size: data.tshirt_size || '',
+          blood_type:  data.blood_type  || '',
+          eps_name:    data.eps_name    || '',
+        };
+      }
+    }
+
     form.reset({
-      full_name: student.full_name,
-      date_of_birth: student.date_of_birth || '',
-      parent_email: student.parent_email || '',
-      parent_phone: student.parent_phone || '',
-      program_id: student.program_id || '',
-      monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
-      medical_info: student.medical_info || '',
-      notes: student.notes || '',
+      full_name:        student.full_name,
+      date_of_birth:    student.date_of_birth || '',
+      parent_email:     student.parent_email || '',
+      parent_phone:     student.parent_phone || '',
+      team_id:          student.team_id || '',
+      offering_plan_id: student.offering_plan_id || '',
+      monthly_fee:      student.price_monthly || Number(defaultMonthlyFee) || 0,
+      medical_info:     student.medical_info || '',
+      notes:            student.notes || '',
+      tshirt_size:      extraFields.tshirt_size,
+      blood_type:       extraFields.blood_type,
+      eps_name:         extraFields.eps_name,
     });
     setDialogOpen(true);
   };
@@ -257,14 +474,14 @@ export default function SchoolStudentsManagementPage() {
             p_email: student.parent_email,
             p_role: 'parent',
             p_child_name: student.full_name,
-            p_program_id: student.program_id || null,
+            p_team_id: student.team_id || null,
             p_monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
             p_parent_phone: student.parent_phone || null,
             p_branch_id: student.branch_id || activeBranchId || null
           });
           if (error) throw error;
           const registration_link = `${window.location.origin}/register?email=${encodeURIComponent(student.parent_email)}&role=parent&invite=${inviteId}`;
-          const selectedProgram = programs.find(p => p.id === student.program_id);
+          const selectedTeam = teams.find(p => p.id === student.team_id);
           const { data: { session: edgeSession } } = await supabase.auth.getSession();
           fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invitation-email`, {
             method: 'POST',
@@ -274,7 +491,7 @@ export default function SchoolStudentsManagementPage() {
               parentName: student.parent_name || student.parent_email.split('@')[0],
               childName: student.full_name,
               schoolName,
-              programName: selectedProgram?.name || 'Equipo',
+              teamName: selectedTeam?.name || 'Equipo',
               monthlyFee: student.price_monthly || Number(defaultMonthlyFee) || 0,
               invitationLink: registration_link,
             })
@@ -327,10 +544,10 @@ export default function SchoolStudentsManagementPage() {
     toggleStatusMutation.mutate({ id: student.id, status: student.status === 'inactive' ? 'active' : 'inactive' });
   };
 
-  const handleProgramChange = (programId: string) => {
-    form.setValue('program_id', programId);
-    const selectedProgram = programs.find(p => p.id === programId);
-    if (selectedProgram) form.setValue('monthly_fee', selectedProgram.monthly_fee);
+  const handleTeamChange = (teamId: string) => {
+    form.setValue('team_id', teamId);
+    const selectedTeam = teams.find(p => p.id === teamId);
+    if (selectedTeam) form.setValue('monthly_fee', selectedTeam.monthly_fee);
   };
 
   const enhancedStudents = students.map(student => {
@@ -355,13 +572,19 @@ export default function SchoolStudentsManagementPage() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
-  const getPaymentBadge = (status: string) => {
-    switch (status) {
-      case 'paid': return <Badge className="bg-green-500 text-xs">Al día</Badge>;
-      case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-      case 'pending': return <Badge variant="secondary" className="text-xs">Pendiente</Badge>;
-      default: return null;
-    }
+  const getPaymentBadge = (student: any) => {
+    const ps  = student.payment_status;
+    const due = student.payment_due_date;
+
+    if (!ps)
+      return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
+    if (ps === 'paid')
+      return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+    if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
+      return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
+    if (ps === 'pending' || ps === 'awaiting_approval')
+      return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+    return <Badge variant="secondary" className="text-xs">{ps}</Badge>;
   };
 
   const calculateAge = (dateOfBirth?: string | null) => {
@@ -397,7 +620,7 @@ export default function SchoolStudentsManagementPage() {
           const params = new URLSearchParams({
             email: student.parent_email || '',
             child: student.full_name || '',
-            program: student.program_id || '',
+            team: student.team_id || '',
             phone: student.parent_phone || ''
           });
           navigate(`/invitations?${params.toString()}`);
@@ -411,11 +634,11 @@ export default function SchoolStudentsManagementPage() {
   if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Atletas</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
           </p>
@@ -508,14 +731,27 @@ export default function SchoolStudentsManagementPage() {
                         <p className="font-semibold text-sm truncate">{student.full_name}</p>
                         <MedicalAlertBadge medicalInfo={student.medical_info} />
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {student.team_name || student.program_name || 'Sin equipo'} · {student.branch_name || 'Sede Principal'}
-                      </p>
+                        <div className="flex gap-1 flex-wrap mt-1">
+                          {student.team_name && (
+                            <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 py-0 h-5">
+                              <Trophy className="h-2.5 w-2.5 mr-1" /> {student.team_name}
+                            </Badge>
+                          )}
+                          {(student as any).plan_name && (
+                            <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200 py-0 h-5">
+                              <Zap className="h-2.5 w-2.5 mr-1" /> {(student as any).plan_name}
+                            </Badge>
+                          )}
+                          {!student.team_name && !(student as any).plan_name && (
+                            <span className="text-xs text-muted-foreground">Sin asignar</span>
+                          )}
+                          <span className="text-muted-foreground text-xs ml-1">· {student.branch_name || "Sin sede"}</span>
+                        </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-xs font-semibold text-primary">
-                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
+                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
                         </span>
-                        {getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}
+                        {getPaymentBadge(student)}
                       </div>
                     </div>
                     {/* Dropdown acciones */}
@@ -537,7 +773,7 @@ export default function SchoolStudentsManagementPage() {
                       </TableHead>
                       <TableHead>Nombre</TableHead>
                       <TableHead>Edad</TableHead>
-                      <TableHead>Equipo</TableHead>
+                      <TableHead>Equipo / Plan</TableHead>
                       <TableHead>Sede</TableHead>
                       <TableHead>Acudiente</TableHead>
                       <TableHead>Mensualidad</TableHead>
@@ -559,16 +795,30 @@ export default function SchoolStudentsManagementPage() {
                         </TableCell>
                         <TableCell>{calculateAge(student.date_of_birth)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">{student.team_name || student.program_name || 'Sin equipo'}</Badge>
+                          <div className="flex flex-col gap-1">
+                            {student.team_name && (
+                              <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 w-fit">
+                                <Trophy className="h-3 w-3 mr-1" /> {student.team_name}
+                              </Badge>
+                            )}
+                            {(student as any).plan_name && (
+                              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 w-fit">
+                                <Zap className="h-3 w-3 mr-1" /> {(student as any).plan_name}
+                              </Badge>
+                            )}
+                            {!student.team_name && !(student as any).plan_name && (
+                              <span className="text-xs text-muted-foreground">Sin asignar</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs text-muted-foreground">{student.branch_name || 'Sede Principal'}</span>
+                          <span className="text-xs text-muted-foreground">{student.branch_name || <span className="text-muted-foreground text-xs">Sin sede</span>}</span>
                         </TableCell>
                         <TableCell>{(student as any).athlete_type === 'adult' ? '\u2014' : (student.display_parent_name || student.parent_name || '-')}</TableCell>
                         <TableCell className="font-semibold text-primary">
-                          {(student.monthly_fee || student.price_monthly) ? formatCurrency(student.monthly_fee || student.price_monthly!) : '-'}
+                          {(student as any).price_monthly > 0 ? formatCurrency((student as any).price_monthly) : '-'}
                         </TableCell>
-                        <TableCell>{getPaymentBadge(student.enrollment_status === 'active' ? 'paid' : 'pending')}</TableCell>
+                          <TableCell>{getPaymentBadge(student)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="sm" onClick={() => setViewingStudent(student)}>Ver</Button>
@@ -587,7 +837,7 @@ export default function SchoolStudentsManagementPage() {
                                 const params = new URLSearchParams({
                                   email: student.parent_email || '',
                                   child: student.full_name || '',
-                                  program: student.program_id || '',
+                                  team: student.team_id || '',
                                   phone: student.parent_phone || ''
                                 });
                                 navigate(`/invitations?${params.toString()}`);
@@ -612,11 +862,21 @@ export default function SchoolStudentsManagementPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingStudent ? 'Editar Atleta' : 'Agregar Nuevo Atleta'}</DialogTitle>
+            <DialogTitle>
+              {editingStudent 
+                ? `Editar ${editingAthleteType === 'child' ? 'Menor' : 'Atleta'} — ${editingStudent.full_name}`
+                : 'Agregar Nuevo Atleta'}
+            </DialogTitle>
             <DialogDescription>
-              {editingStudent
-                ? `Actualiza la información de ${editingStudent.full_name}.`
-                : <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>}
+              {editingStudent ? (
+                editingAthleteType === 'child'
+                  ? `Actualiza la información del menor y su acudiente.`
+                  : editingAthleteType === 'adult'
+                  ? `Actualiza la información del atleta. El email se gestiona desde su cuenta.`
+                  : `Actualiza la información del atleta registrado manualmente.`
+              ) : (
+                <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>
+              )}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -638,57 +898,204 @@ export default function SchoolStudentsManagementPage() {
                   <div className="border-2 border-dashed border-muted rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
                     <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground mb-2">Sube una foto del atleta</p>
-                    <Input type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
+                    <Input id="photo" type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto" />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><DollarSign className="w-4 h-4" />Equipo y Mensualidad</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="program_id">Equipo *</Label>
-                  <Select value={form.watch('program_id')} onValueChange={handleProgramChange}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
-                    <SelectContent>
-                      {programs.map(program => (
-                        <SelectItem key={program.id} value={program.id}>{program.name} — {formatCurrency(program.monthly_fee)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {form.formState.errors.program_id && <p className="text-sm text-destructive">{form.formState.errors.program_id.message}</p>}
+            {/* ── Equipo y Plan — dos secciones independientes ─────────── */}
+            {(!editingStudent || editingAthleteType === 'child') && (
+              <div className="space-y-3">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />Equipo y/o Plan
+                </h3>
+
+                {/* ── Sección Equipo ── */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Trophy className="h-4 w-4 text-red-500" />
+                    Equipo
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="team_id">Seleccionar Equipo</Label>
+                      <Select
+                        value={form.watch('team_id') || '__none__'}
+                        onValueChange={(v) => {
+                          const val = v === '__none__' ? '' : v;
+                          form.setValue('team_id', val);
+                          if (val) {
+                            const t = teams.find(p => p.id === val);
+                            if (t) form.setValue('monthly_fee', t.monthly_fee);
+                          } else {
+                            form.setValue('monthly_fee', 0);
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="team_id">
+                          <SelectValue placeholder="Sin equipo asignado" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sin equipo</SelectItem>
+                          {teams.map(team => (
+                            <SelectItem key={team.id} value={team.id}>
+                              {team.name} — {formatCurrency(team.monthly_fee)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {form.formState.errors.team_id && (
+                        <p className="text-sm text-destructive">{form.formState.errors.team_id.message}</p>
+                      )}
+                    </div>
+                    {form.watch('team_id') && form.watch('team_id') !== '__none__' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="monthly_fee">Mensualidad (COP)</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id="monthly_fee"
+                            type="number"
+                            className="pl-9"
+                            placeholder="150000"
+                            {...form.register('monthly_fee', { valueAsNumber: true })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Datos del atleta (talla, RH, EPS) */}
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t">
+                    <div className="space-y-1">
+                      <Label htmlFor="tshirt_size" className="text-xs">Talla</Label>
+                      <Select
+                        value={form.watch('tshirt_size') || ''}
+                        onValueChange={(v) => form.setValue('tshirt_size', v)}
+                      >
+                        <SelectTrigger id="tshirt_size" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="XS">XS</SelectItem>
+                          <SelectItem value="S">S</SelectItem>
+                          <SelectItem value="M">M</SelectItem>
+                          <SelectItem value="L">L</SelectItem>
+                          <SelectItem value="XL">XL</SelectItem>
+                          <SelectItem value="4">4</SelectItem>
+                          <SelectItem value="6">6</SelectItem>
+                          <SelectItem value="8">8</SelectItem>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="12">12</SelectItem>
+                          <SelectItem value="14">14</SelectItem>
+                          <SelectItem value="16">16</SelectItem>
+                          <SelectItem value="18">18</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="blood_type" className="text-xs">RH</Label>
+                      <Select
+                        value={form.watch('blood_type') || ''}
+                        onValueChange={(v) => form.setValue('blood_type', v)}
+                      >
+                        <SelectTrigger id="blood_type" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="O+">O+</SelectItem>
+                          <SelectItem value="O-">O-</SelectItem>
+                          <SelectItem value="A+">A+</SelectItem>
+                          <SelectItem value="A-">A-</SelectItem>
+                          <SelectItem value="B+">B+</SelectItem>
+                          <SelectItem value="B-">B-</SelectItem>
+                          <SelectItem value="AB+">AB+</SelectItem>
+                          <SelectItem value="AB-">AB-</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="eps_name" className="text-xs">EPS</Label>
+                      <Input id="eps_name" className="h-9" placeholder="Sanitas..." {...form.register('eps_name')} />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="monthly_fee">Mensualidad (COP) *</Label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="monthly_fee"
-                      type="number"
-                      className="pl-9"
-                      placeholder="150000"
-                      {...form.register('monthly_fee', { valueAsNumber: true })}
+
+                {/* ── Sección Plan ── */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Zap className="h-4 w-4 text-purple-500" />
+                    Plan de Servicio
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="offering_plan_id">Seleccionar Plan</Label>
+                    <Select
+                      value={form.watch('offering_plan_id') || '__none__'}
+                      onValueChange={(v) => form.setValue('offering_plan_id', v === '__none__' ? '' : v)}
+                    >
+                      <SelectTrigger id="offering_plan_id">
+                        <SelectValue placeholder="Sin plan asignado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin plan</SelectItem>
+                        {offeringPlans.map((plan: any) => (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {plan.offering_name ? `${plan.offering_name} — ` : ''}{plan.name}
+                            {plan.price > 0 ? ` (${formatCurrency(plan.price)})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {offeringPlans.length === 0 && (
+                      <p className="text-xs text-muted-foreground">No hay planes activos para esta escuela.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+            {/* Para adultos y unregistered — mensaje informativo en lugar del selector */}
+            {editingStudent && editingAthleteType !== 'child' && (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground text-center">
+                El equipo y plan de este atleta se gestionan desde el módulo
+                <strong> Equipos y Planes</strong>.
+              </div>
+            )}
+            {/* Contacto del Padre/Tutor — solo para menores */}
+            {(!editingStudent || editingAthleteType === 'child') && (
+              <div className="space-y-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Mail className="w-4 h-4" />Contacto del Padre/Tutor
+                </h3>
+                <div className="grid gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
+                    <Input 
+                      id="parent_email" 
+                      type="email" 
+                      placeholder="padre@ejemplo.com" 
+                      {...form.register('parent_email')} 
                     />
+                    {form.formState.errors.parent_email && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.parent_email.message}
+                      </p>
+                    )}
                   </div>
-                  {form.formState.errors.monthly_fee && <p className="text-sm text-destructive">{form.formState.errors.monthly_fee.message}</p>}
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_phone">Teléfono de Contacto *</Label>
+                    <Input 
+                      id="parent_phone" 
+                      type="tel" 
+                      placeholder="+57 300 123 4567" 
+                      {...form.register('parent_phone')} 
+                    />
+                    {form.formState.errors.parent_phone && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.parent_phone.message}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><Mail className="w-4 h-4" />Contacto del Padre/Tutor</h3>
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="parent_email">Email del Padre/Tutor *</Label>
-                  <Input id="parent_email" type="email" placeholder="padre@ejemplo.com" {...form.register('parent_email')} />
-                  {form.formState.errors.parent_email && <p className="text-sm text-destructive">{form.formState.errors.parent_email.message}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="parent_phone">Teléfono de Contacto *</Label>
-                  <Input id="parent_phone" type="tel" placeholder="+57 300 123 4567" {...form.register('parent_phone')} />
-                  {form.formState.errors.parent_phone && <p className="text-sm text-destructive">{form.formState.errors.parent_phone.message}</p>}
-                </div>
-              </div>
-            </div>
+            )}
             <div className="space-y-4">
               <h3 className="font-semibold flex items-center gap-2"><FileText className="w-4 h-4" />Información Adicional</h3>
               <div className="space-y-2">
@@ -712,15 +1119,16 @@ export default function SchoolStudentsManagementPage() {
 
       {/* Dialog Ver Perfil */}
       <Dialog open={!!viewingStudent} onOpenChange={(open) => !open && setViewingStudent(null)}>
-        <DialogContent className="w-[95vw] max-w-md">
+        <DialogContent className="w-[95vw] max-w-lg">
           <DialogHeader>
             <DialogTitle>Perfil del Atleta</DialogTitle>
-            <DialogDescription>Detalles académicos y de contacto</DialogDescription>
+            <DialogDescription>Detalles deportivos y de contacto</DialogDescription>
           </DialogHeader>
           {viewingStudent && (
             <div className="space-y-4">
+              {/* ── Avatar + nombre ── */}
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-xl font-bold text-muted-foreground uppercase shrink-0">
+                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-bold text-primary uppercase shrink-0">
                   {viewingStudent.full_name.substring(0, 2)}
                 </div>
                 <div className="min-w-0">
@@ -729,13 +1137,17 @@ export default function SchoolStudentsManagementPage() {
                     <MedicalAlertBadge medicalInfo={viewingStudent.medical_info} />
                   </div>
                   <p className="text-sm text-muted-foreground">{calculateAge(viewingStudent.date_of_birth)}</p>
-                  {getPaymentBadge(viewingStudent.enrollment_status === 'active' ? 'paid' : 'pending')}
                 </div>
               </div>
-              <div className="grid gap-2">
+
+              {/* ── Info básica ── */}
+              <div className="grid gap-1">
                 {[
                   { label: 'Escuela', value: schoolName },
-                  { label: 'Equipo', value: (viewingStudent as any).team_name || viewingStudent.program_name || '-' },
+                  { label: 'Documento', value: studentDocInfo.doc_number ? `${studentDocInfo.doc_type || ''} ${studentDocInfo.doc_number}`.trim() : ((viewingStudent as any).doc_number ? `${(viewingStudent as any).doc_type || ''} ${(viewingStudent as any).doc_number}`.trim() : '-') },
+                  { label: 'EPS', value: studentDocInfo.eps_name || '-' },
+                  { label: 'Talla camiseta', value: studentDocInfo.tshirt_size || '-' },
+                  { label: 'RH', value: studentDocInfo.blood_type || '-' },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
                   { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
@@ -746,11 +1158,104 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ))}
               </div>
-              {/* Identity Documents */}
+
+              {/* ── Equipo y Plan ── */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Inscripciones</p>
+
+                {/* Equipo */}
+                {(viewingStudent as any).team_name ? (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20">
+                    <div className="h-8 w-8 rounded-full bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center shrink-0">
+                      <Trophy className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{(viewingStudent as any).team_name}</p>
+                      <p className="text-xs text-muted-foreground">Equipo{(viewingStudent as any).branch_name ? ` · ${(viewingStudent as any).branch_name}` : ''}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
+                    <Trophy className="h-4 w-4 shrink-0" />
+                    <p className="text-xs">Sin equipo asignado</p>
+                  </div>
+                )}
+
+                {/* Plan */}
+                {loadingPlanInfo ? (
+                  <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando plan...
+                  </div>
+                ) : studentPlanInfo ? (
+                  <div className="p-3 rounded-lg border border-border bg-muted/40 dark:bg-muted/20 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-violet-100 dark:bg-violet-950/50 flex items-center justify-center shrink-0">
+                        <Zap className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {studentPlanInfo.offering_name ? `${studentPlanInfo.offering_name} — ` : ''}{studentPlanInfo.plan_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Plan de servicio</p>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] shrink-0 bg-green-100 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800">Activo</Badge>
+                    </div>
+                    {/* Fechas del plan */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <CalendarCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                        <span className="text-muted-foreground">Inicio:</span>
+                        <span className="font-medium text-foreground">
+                          {studentPlanInfo.start_date
+                            ? new Date(studentPlanInfo.start_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <CalendarX className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <span className="text-muted-foreground">Vence:</span>
+                        <span className={`font-medium ${
+                          studentPlanInfo.end_date && new Date(studentPlanInfo.end_date) < new Date()
+                            ? 'text-destructive'
+                            : 'text-foreground'
+                        }`}>
+                          {studentPlanInfo.end_date
+                            ? new Date(studentPlanInfo.end_date + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : 'Sin vencimiento'}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Alerta de vencimiento */}
+                    {studentPlanInfo.end_date && (() => {
+                      const endDate = new Date(studentPlanInfo.end_date!);
+                      const today = new Date();
+                      const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) return (
+                        <div className="flex items-center gap-1.5 text-xs text-destructive bg-destructive/10 rounded-md p-2">
+                          <CalendarX className="h-3 w-3 shrink-0" /> Plan vencido hace {Math.abs(diffDays)} día{Math.abs(diffDays) !== 1 ? 's' : ''}
+                        </div>
+                      );
+                      if (diffDays <= 15) return (
+                        <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded-md p-2">
+                          <Calendar className="h-3 w-3 shrink-0" /> Vence en {diffDays} día{diffDays !== 1 ? 's' : ''}
+                        </div>
+                      );
+                      return null;
+                    })()}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed text-muted-foreground">
+                    <Zap className="h-4 w-4 shrink-0" />
+                    <p className="text-xs">Sin plan activo</p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Documentos del atleta ── */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold">
                   <FolderOpen className="h-4 w-4 text-primary" />
-                  Documentos de Identidad
+                  Documentos
                 </div>
                 {loadingDocs ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground p-2">
@@ -758,28 +1263,58 @@ export default function SchoolStudentsManagementPage() {
                   </div>
                 ) : studentDocs.length === 0 ? (
                   <p className="text-xs text-muted-foreground p-2 rounded border border-dashed text-center">
-                    No hay documentos subidos para este atleta.
+                    El acudiente aun no ha subido documentos para este atleta.
                   </p>
                 ) : (
-                  <div className="space-y-1">
-                    {studentDocs.map((doc) => (
-                      <a
-                        key={doc.name}
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
-                      >
-                        <span className="flex items-center gap-2 truncate">
-                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <span className="truncate">{doc.name}</span>
-                        </span>
-                        <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
-                      </a>
-                    ))}
-                  </div>
+                  (() => {
+                    const classify = (n: string): 'identity' | 'eps' | 'other' => {
+                      if (n.startsWith('identity-') || n.startsWith('id-')) return 'identity';
+                      if (n.startsWith('eps-')) return 'eps';
+                      return 'other';
+                    };
+                    const groups = {
+                      identity: studentDocs.filter(d => classify(d.name) === 'identity'),
+                      eps:      studentDocs.filter(d => classify(d.name) === 'eps'),
+                      other:    studentDocs.filter(d => classify(d.name) === 'other'),
+                    };
+                    const DocList = ({ label, docs, color }: { label: string; docs: typeof studentDocs; color: string }) => (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-xs font-medium">
+                          <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+                          {label} <span className="text-muted-foreground">({docs.length})</span>
+                        </div>
+                        {docs.length === 0 ? (
+                          <p className="text-[11px] text-muted-foreground pl-3 italic">Sin archivo</p>
+                        ) : docs.map(doc => (
+                          <a
+                            key={doc.name}
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-2 rounded border hover:bg-muted/50 transition-colors text-xs group"
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="truncate">{doc.name}</span>
+                            </span>
+                            <Download className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0 ml-2" />
+                          </a>
+                        ))}
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-3">
+                        <DocList label="Documento de identidad" docs={groups.identity} color="bg-blue-500" />
+                        <DocList label="Certificado EPS" docs={groups.eps} color="bg-green-500" />
+                        {groups.other.length > 0 && (
+                          <DocList label="Otros" docs={groups.other} color="bg-muted-foreground/50" />
+                        )}
+                      </div>
+                    );
+                  })()
                 )}
               </div>
+
               <DialogFooter><Button onClick={() => setViewingStudent(null)}>Cerrar</Button></DialogFooter>
             </div>
           )}
@@ -798,8 +1333,35 @@ export default function SchoolStudentsManagementPage() {
         schoolName={schoolName}
         branchId={activeBranchId}
         students={students}
-        programs={programs}
+        teams={teams}
         branches={branches}
+      />
+
+      <StudentTypeSelector
+        open={showTypeSelector}
+        onClose={() => setShowTypeSelector(false)}
+        onSelectChild={() => setShowCreateChildModal(true)}
+        onSelectAdult={() => setShowCreateAdultModal(true)}
+      />
+
+      <CreateChildModal
+        open={showCreateChildModal}
+        onClose={() => setShowCreateChildModal(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+          setShowCreateChildModal(false);
+        }}
+        schoolId={schoolId || ''}
+      />
+
+      <CreateAdultAthleteModal
+        open={showCreateAdultModal}
+        onClose={() => setShowCreateAdultModal(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['school-students'] });
+          setShowCreateAdultModal(false);
+        }}
+        schoolId={schoolId || ''}
       />
     </div>
   );

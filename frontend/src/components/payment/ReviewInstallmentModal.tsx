@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/utils';
+import { getSignedReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle, Calendar, DollarSign, Info, Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -25,7 +26,22 @@ export function ReviewInstallmentModal({
 }: ReviewInstallmentModalProps) {
   const [rejectionReason, setRejectionReason] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [loadingImage, setLoadingImage] = useState(false);
   const { toast } = useToast();
+
+  // Generate signed URL when modal opens with a receipt
+  useEffect(() => {
+    if (open && installment?.receipt_url) {
+      setLoadingImage(true);
+      getSignedReceiptUrl(installment.receipt_url)
+        .then(url => setSignedUrl(url))
+        .catch(() => setSignedUrl(null))
+        .finally(() => setLoadingImage(false));
+    } else {
+      setSignedUrl(null);
+    }
+  }, [open, installment?.receipt_url]);
 
   if (!installment) return null;
 
@@ -176,15 +192,23 @@ export function ReviewInstallmentModal({
               <Eye className="h-4 w-4" /> Comprobante Adjunto
             </Label>
             <div className="border rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center min-h-[400px]">
-              <img 
-                src={installment.receipt_url} 
-                alt="Comprobante de pago" 
-                className="max-w-full object-contain shadow-sm"
-              />
+              {loadingImage ? (
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : signedUrl ? (
+                <img 
+                  src={signedUrl} 
+                  alt="Comprobante de pago" 
+                  className="max-w-full object-contain shadow-sm"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">No se pudo cargar el comprobante</p>
+              )}
             </div>
-            <Button variant="link" className="p-0 text-xs h-auto" onClick={() => window.open(installment.receipt_url, '_blank')}>
-              Ver en pantalla completa
-            </Button>
+            {signedUrl && (
+              <Button variant="link" className="p-0 text-xs h-auto" onClick={() => window.open(signedUrl, '_blank')}>
+                Ver en pantalla completa
+              </Button>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 import { USER_ROLES } from '../../constants/roles';
-import { Building, Users, Award, Bell, Activity, Shield, TrendingUp, Trophy, UserCircle, Calendar, Plus, Heart, ShoppingBag } from 'lucide-react';
+import { Building, Users, Award, Bell, Activity, Shield, TrendingUp, Trophy, UserCircle, Calendar, Plus, Heart, ShoppingBag, CreditCard } from 'lucide-react';
 
 export const getStepsForRole = (role: string, status: any) => {
     switch (role) {
@@ -10,17 +10,16 @@ export const getStepsForRole = (role: string, status: any) => {
             if (!status.has_school && role === USER_ROLES.SCHOOL) {
                 return [
                     { id: 'create_school', title: 'Registrar Academia', description: 'Nombre, logo y dirección fiscal.', completed: false, href: '/setup/school', icon: Building },
-                    { id: 'create_branch', title: 'Configurar Sedes', description: 'Crea tu sede principal o sucursales.', completed: status.has_branches, href: '/branches', icon: Building },
-                    { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users }
                 ];
             }
 
-            // Operational flow (Branch Admin or Owner)
+            // Wizard guiado: sede → equipo → coach → atleta → pagos
             return [
-                { id: 'create_branch', title: 'Configurar Sede Principal', description: 'Edita dirección, ciudad y capacidad de tu sede.', completed: status.has_branches, href: '/branches', icon: Building },
-                { id: 'create_team', title: 'Equipos', description: 'Crea tus equipos y grupos de entrenamiento.', completed: status.has_teams, href: '/teams', icon: Users },
-                { id: 'invite_staff', title: 'Equipo Técnico', description: 'Invita a tus entrenadores.', completed: status.has_staff, href: '/staff', icon: Users },
-                { id: 'invite_parents', title: 'Vincular Familias', description: 'Envía invitaciones o agrega estudiantes.', completed: status.has_accepted_invite, href: '/students', icon: Bell }
+                { id: 'confirm_branch', title: 'Tu Sede', description: 'Confirma la dirección de tu sede principal.', completed: status.has_branches, href: '/dashboard', icon: Building },
+                { id: 'create_team', title: 'Primer Equipo', description: 'Crea tu primer grupo o equipo deportivo.', completed: status.has_teams, href: '/dashboard', icon: Trophy },
+                { id: 'invite_staff', title: 'Entrenador', description: 'Invita a tu primer entrenador.', completed: status.has_staff, href: '/dashboard', icon: Users },
+                { id: 'add_student', title: 'Primer Atleta', description: 'Registra a tu primer deportista.', completed: !!status.has_students, href: '/dashboard', icon: Bell },
+                { id: 'setup_payments', title: 'Cobros', description: 'Configura cómo recibir pagos.', completed: status.payment_setup_completed === true, href: '/dashboard', icon: CreditCard },
             ];
 
         case USER_ROLES.PARENT: {
@@ -53,15 +52,15 @@ export const getStepsForRole = (role: string, status: any) => {
             }
 
             // Paso 2: Completar perfil deportivo
-            athleteSteps.push({ id: 'complete_profile', title: 'Completa tu perfil', description: 'Datos personales, documento y nivel de experiencia.', completed: status.profile_complete, href: '/profile', icon: UserCircle });
+            athleteSteps.push({ id: 'complete_profile', title: 'Completa tu perfil', description: 'Datos personales, documento y nivel de experiencia.', completed: status.profile_complete, href: '/settings', icon: UserCircle });
 
             // Paso 3: Foto de perfil (opcional pero recomendado)
             if (!status.has_avatar) {
-                athleteSteps.push({ id: 'upload_avatar', title: 'Foto de perfil', description: 'Sube una foto para que te reconozcan.', completed: false, href: '/profile', icon: UserCircle });
+                athleteSteps.push({ id: 'upload_avatar', title: 'Foto de perfil', description: 'Sube una foto para que te reconozcan.', completed: false, href: '/settings', icon: UserCircle });
             }
 
             // Paso 4: Seleccionar deporte de interés
-            athleteSteps.push({ id: 'select_sport', title: 'Elige tu deporte', description: 'Selecciona los deportes que te interesan.', completed: status.has_sports_interest, href: '/profile', icon: Activity });
+            athleteSteps.push({ id: 'select_sport', title: 'Elige tu deporte', description: 'Selecciona los deportes que te interesan.', completed: status.has_sports_interest, href: '/settings', icon: Activity });
 
             // Paso 5: Inscribirse o aceptar invitación
             if (status.has_pending_invitation || status.has_accepted_invite) {

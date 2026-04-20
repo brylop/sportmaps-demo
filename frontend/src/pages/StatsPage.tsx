@@ -71,69 +71,67 @@ export default function StatsPage() {
 
       {/* Key Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <Trophy className="h-8 w-8 text-primary" />
-              <Badge variant="secondary" className="bg-green-500/10 text-green-600">
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/20 flex items-center justify-center">
+                <Trophy className="h-4 w-4 text-primary" />
+              </div>
+              <Badge variant="secondary" className="bg-green-500/10 text-green-600 text-[10px]">
                 Activo
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Sesiones Totales</p>
-            <p className="text-3xl font-bold">{totalSessions}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Últimos 30 días
-            </p>
+            <p className="text-xs text-muted-foreground">Sesiones Totales</p>
+            <p className="text-2xl font-bold">{totalSessions}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Ultimos 30 dias</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <Flame className="h-8 w-8 text-orange-500" />
-              <Badge variant="secondary" className="bg-orange-500/10 text-orange-600">
-                {totalCalories > 0 ? '+' + Math.round(totalCalories / totalSessions) + '/sesión' : '-'}
+        <Card className="bg-gradient-to-br from-orange-500/10 to-orange-500/5 border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-9 w-9 rounded-lg bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center">
+                <Flame className="h-4 w-4 text-orange-500" />
+              </div>
+              <Badge variant="secondary" className="bg-orange-500/10 text-orange-600 text-[10px]">
+                {totalCalories > 0 && totalSessions > 0 ? '+' + Math.round(totalCalories / totalSessions) + '/sesion' : '-'}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Calorías Quemadas</p>
-            <p className="text-3xl font-bold">{totalCalories.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              kcal totales
-            </p>
+            <p className="text-xs text-muted-foreground">Calorias Quemadas</p>
+            <p className="text-2xl font-bold">{totalCalories.toLocaleString()}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">kcal totales</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <Target className="h-8 w-8 text-blue-500" />
-              <Badge variant="secondary" className="bg-blue-500/10 text-blue-600">
+        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Target className="h-4 w-4 text-blue-500" />
+              </div>
+              <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 text-[10px]">
                 {maxSpeed > 0 ? maxSpeed + ' km/h' : '-'}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Velocidad Máxima</p>
-            <p className="text-3xl font-bold">{maxSpeed.toFixed(1)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              km/h registrados
-            </p>
+            <p className="text-xs text-muted-foreground">Velocidad Maxima</p>
+            <p className="text-2xl font-bold">{maxSpeed.toFixed(1)}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">km/h registrados</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-purple-500/10 to-purple-500/5">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <Clock className="h-8 w-8 text-purple-500" />
-              <Badge variant="secondary" className="bg-purple-500/10 text-purple-600">
+        <Card className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-border/50 hover:shadow-md transition-all hover:-translate-y-0.5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-9 w-9 rounded-lg bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-purple-500" />
+              </div>
+              <Badge variant="secondary" className="bg-purple-500/10 text-purple-600 text-[10px]">
                 {Math.round(totalMinutes / 60)}h
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Tiempo de Entrenamiento</p>
-            <p className="text-3xl font-bold">
-              {totalMinutes}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              minutos totales
-            </p>
+            <p className="text-xs text-muted-foreground">Tiempo de Entrenamiento</p>
+            <p className="text-2xl font-bold">{totalMinutes}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">minutos totales</p>
           </CardContent>
         </Card>
       </div>

@@ -42,62 +42,62 @@ export default function StoreOrdersPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div>
-        <h1 className="text-3xl font-bold">Pedidos</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Pedidos</h1>
         <p className="text-muted-foreground">Gestiona los pedidos de tu tienda</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="hover:border-yellow-500 transition-colors cursor-pointer" onClick={() => setStatusFilter('pending')}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pendientes</p>
-                <p className="text-2xl font-bold">
-                  {displayOrders.filter(o => o.status === 'pending').length}
-                </p>
+        <Card className="border-border/50 hover:border-yellow-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('pending')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-yellow-50 dark:bg-yellow-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-yellow-500" />
               </div>
-              <Clock className="h-8 w-8 text-yellow-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Pendientes</p>
+                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'pending').length}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:border-blue-500 transition-colors cursor-pointer" onClick={() => setStatusFilter('processing')}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">En Proceso</p>
-                <p className="text-2xl font-bold">
-                  {displayOrders.filter(o => o.status === 'processing').length}
-                </p>
+        <Card className="border-border/50 hover:border-blue-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('processing')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Package className="h-4 w-4 text-blue-500" />
               </div>
-              <Package className="h-8 w-8 text-blue-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">En Proceso</p>
+                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'processing').length}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:border-purple-500 transition-colors cursor-pointer" onClick={() => setStatusFilter('shipped')}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Enviados</p>
-                <p className="text-2xl font-bold">
-                  {displayOrders.filter(o => o.status === 'shipped').length}
-                </p>
+        <Card className="border-border/50 hover:border-purple-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('shipped')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center">
+                <Truck className="h-4 w-4 text-purple-500" />
               </div>
-              <Truck className="h-8 w-8 text-purple-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Enviados</p>
+                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'shipped').length}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="hover:border-green-500 transition-colors cursor-pointer" onClick={() => setStatusFilter('delivered')}>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Entregados</p>
-                <p className="text-2xl font-bold">
-                  {displayOrders.filter(o => o.status === 'delivered').length}
-                </p>
+        <Card className="border-border/50 hover:border-green-500/50 transition-all cursor-pointer hover:shadow-md hover:-translate-y-0.5" onClick={() => setStatusFilter('delivered')}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <CheckCircle className="h-4 w-4 text-green-500" />
               </div>
-              <CheckCircle className="h-8 w-8 text-green-500" />
+              <div>
+                <p className="text-xs text-muted-foreground">Entregados</p>
+                <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'delivered').length}</p>
+              </div>
             </div>
           </CardContent>
         </Card>

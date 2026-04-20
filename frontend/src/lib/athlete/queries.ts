@@ -7,6 +7,7 @@
  * ⚠️ NEVER reference parent/child/student tables from here.
  */
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 
 // ─── Dashboard Stats ────────────────────────────────────────
 export async function getAthleteDashboardStats() {
@@ -49,7 +50,7 @@ export async function getAthleteBookings(userId: string, filters?: { status?: st
     .from('bookings')
     .select(`
       *,
-      programs:program_id (
+      teams:team_id (
         name, sport, price_monthly,
         schools:school_id (name, address, logo_url, city)
       )
@@ -70,20 +71,20 @@ export interface AthleteEnrollment {
   id: string;
   enrollment_status: string;
   start_date: string;
-  end_date: string | null;
   expires_at: string | null;
   sessions_used: number;
-  program_id: string | null;
   team_id: string | null;
+  child_id: string | null;
+  child_name: string | null;
+  team_name: string;
   program_name: string;
-  sport: string;
-  level: string;
-  image_url: string | null;
+  program_sport: string;
   price_monthly: number;
   school_id: string;
   school_name: string;
   school_logo: string | null;
   school_primary_color: string;
+  offering_plan_id: string | null;
   payment_id: string | null;
   payment_status: string | null;
   payment_amount_cents: number | null;
@@ -164,15 +165,15 @@ export async function getAthletePayments(params: {
   page?: number;
   limit?: number;
 }) {
-  const { data, error } = await supabase.rpc('get_athlete_payments', {
+  const { data, error } = await (supabase as any).rpc('get_athlete_payments_v2', {
+    p_limit:  params.limit  || 20,
+    p_page:   params.page   || 1,
     p_status: params.status || null,
-    p_page: params.page || 1,
-    p_limit: params.limit || 20
   });
 
   if (error) throw error;
   return data as unknown as {
-    data: any[];
+    data: Array<Database['public']['Tables']['payments']['Row']>;
     total: number;
     summary: {
       count_approved: number;
@@ -211,7 +212,7 @@ export async function getAthleteCalendarEvents(userId: string, startDate: string
     .from('bookings')
     .select(`
       id, scheduled_at, booking_type, status, notes,
-      programs:program_id (name, sport,
+      teams:team_id (name, sport,
         schools:school_id (name, address))
     `)
     .eq('athlete_id', userId)
@@ -223,13 +224,13 @@ export async function getAthleteCalendarEvents(userId: string, startDate: string
 
   return (bookings || []).map(b => ({
     id: b.id,
-    title: b.programs?.name || 'Sesión',
+    title: b.teams?.name || 'Sesión',
     start: b.scheduled_at,
     type: b.booking_type as 'trial' | 'session' | 'program',
     status: b.status,
-    school: b.programs?.schools?.name,
-    address: b.programs?.schools?.address,
-    sport: b.programs?.sport,
+    school: b.teams?.schools?.name,
+    address: b.teams?.schools?.address,
+    sport: b.teams?.sport,
   }));
 }
 

@@ -195,7 +195,7 @@ export function useSchoolFacilities() {
       queryClient.setQueryData(['school-facilities', schoolId], (old: Facility[] | undefined) => {
         const optimisticFacility = {
           id: `temp-${Date.now()}`,
-          school_id: schoolId || '',
+          school_id: schoolId!,
           ...newFacility,
           status: 'available',
           created_at: new Date().toISOString(),

@@ -37,10 +37,10 @@ export default function NutritionPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Planes Nutricionales</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Planes Nutricionales</h1>
           <p className="text-muted-foreground">Gestiona la nutrición de tus atletas</p>
         </div>
         <Button className="gap-2">
@@ -51,53 +51,61 @@ export default function NutritionPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Salad className="h-4 w-4 text-primary" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Planes Activos</p>
-                <p className="text-2xl font-bold text-primary">
+                <p className="text-xs text-muted-foreground">Planes Activos</p>
+                <p className="text-2xl font-bold">
                   {mockPlans.filter(p => p.status === 'active').length}
                 </p>
               </div>
-              <Salad className="h-8 w-8 text-primary" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-amber-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Atletas</p>
+                <p className="text-xs text-muted-foreground">Atletas</p>
                 <p className="text-2xl font-bold">{mockPlans.length}</p>
               </div>
-              <User className="h-8 w-8 text-orange" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+                <Target className="h-4 w-4 text-green-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Objetivos Cumplidos</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-xs text-muted-foreground">Objetivos Cumplidos</p>
+                <p className="text-2xl font-bold">
                   {mockPlans.filter(p => p.status === 'completed').length}
                 </p>
               </div>
-              <Target className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
+                <Apple className="h-4 w-4 text-red-500" />
+              </div>
               <div>
-                <p className="text-sm text-muted-foreground">Prom. Calorías</p>
+                <p className="text-xs text-muted-foreground">Prom. Calorías</p>
                 <p className="text-2xl font-bold">
-                  {Math.round(mockPlans.reduce((a, p) => a + p.calories, 0) / mockPlans.length)}
+                  {mockPlans.length > 0 ? Math.round(mockPlans.reduce((a, p) => a + p.calories, 0) / mockPlans.length) : 0}
                 </p>
               </div>
-              <Apple className="h-8 w-8 text-red-500" />
             </div>
           </CardContent>
         </Card>

@@ -16,6 +16,7 @@ export { FinalizeSessionModal } from './FinalizeSessionModal';
 
 // ── Owner Components ─────────────────────────────────────────────────────────
 export { OfferingsManagement } from './OfferingsManagement';
+export { OfferingCoachesPanel } from './OfferingCoachesPanel';
 export { BusinessModelConfig } from './BusinessModelConfig';
 
 // ── Parent Components ────────────────────────────────────────────────────────

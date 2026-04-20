@@ -54,35 +54,36 @@ export function NumberStepper({
         : "";
 
     return (
-        <div className={cn("flex items-center border rounded-md h-10 bg-background overflow-hidden relative", className)}>
+        <div className={cn("flex h-11 items-center bg-background/50 border border-border/40 rounded-xl overflow-hidden group focus-within:border-primary/50 transition-colors", className)}>
             <button
                 type="button"
                 onClick={handleDecrement}
-                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute left-0 z-10 flex items-center justify-center border-r"
+                className="h-full w-10 flex items-center justify-center border-r border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
             >
                 <Minus className="h-4 w-4" />
             </button>
 
-            {unit && (
-                <span className="absolute left-12 text-muted-foreground font-medium z-10 pointer-events-none">
-                    {unit}
-                </span>
-            )}
-
-            <Input
-                type="text"
-                className={cn(
-                    "border-0 text-center font-semibold focus-visible:ring-0 no-spinners",
-                    unit ? "pl-16 pr-10" : "px-10"
+            <div className="flex-1 relative flex items-center h-full min-w-0">
+                <Input
+                    type="text"
+                    className={cn(
+                        "border-0 bg-transparent text-center font-bold text-sm focus-visible:ring-0 focus-visible:ring-offset-0 h-full no-spinners w-full px-2",
+                        unit ? "pr-10" : "px-2"
+                    )}
+                    value={displayValue}
+                    onChange={handleChange}
+                />
+                {unit && (
+                    <span className="absolute right-2 text-muted-foreground font-black text-[9px] uppercase tracking-tighter shadow-sm pointer-events-none bg-background/80 px-1 rounded-sm">
+                        {unit}
+                    </span>
                 )}
-                value={displayValue}
-                onChange={handleChange}
-            />
+            </div>
 
             <button
                 type="button"
                 onClick={handleIncrement}
-                className="h-full px-3 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors absolute right-0 z-10 flex items-center justify-center border-l"
+                className="h-full w-10 flex items-center justify-center border-l border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground shrink-0"
             >
                 <Plus className="h-4 w-4" />
             </button>

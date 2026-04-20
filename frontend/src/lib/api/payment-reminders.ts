@@ -1,14 +1,36 @@
-// Payment Reminders API: Generates and sends payment reminders to parents
 import { supabase } from '@/integrations/supabase/client';
+import { daysDiffFromToday } from '@/lib/dateUtils';
+
+/**
+ * Cleans raw payment concept strings like:
+ *   "Equipo Equipo - Mensualidad completa, vence dia 10 -- Santiago Robles"
+ * Into: "Mensualidad completa, vence dia 10"
+ */
+function cleanConcept(concept: string | null): string {
+    if (!concept) return '';
+    let clean = concept;
+    // Remove team prefix before any dash separator (-, –, —, --)
+    const prefixMatch = clean.match(/^.+?\s[-–—]+\s/);
+    if (prefixMatch) {
+        clean = clean.substring(prefixMatch[0].length);
+    }
+    // Remove athlete name suffix after last " -- " or " – " or " — "
+    const suffixMatch = clean.match(/^(.+)\s[-–—]+\s[^-–—]+$/);
+    if (suffixMatch) {
+        clean = suffixMatch[1];
+    }
+    return clean.trim();
+}
 
 export interface PaymentReminder {
     id: string;
     parentId: string;
     parentName: string;
     parentEmail: string;
+    parentPhone: string;
     childName: string;
     childId: string;
-    programName: string;
+    teamName: string;
     amount: number;
     dueDate: string;
     status: 'pending' | 'paid' | 'overdue';
@@ -45,7 +67,10 @@ class PaymentRemindersAPI {
                 payment_date,
                 parent_id,
                 child_id,
-                program_id
+                team_id,
+                unregistered_athlete_id,
+                offering_plan_id,
+                concept
             `)
             .eq('school_id', schoolId)
             .in('status', ['pending', 'overdue']);
@@ -68,52 +93,80 @@ class PaymentRemindersAPI {
             };
         }
 
-        // Get unique parent/child/program IDs
+        // Get unique parent/child/unregistered/program IDs
         const parentIds = [...new Set(payments.map(p => p.parent_id).filter(Boolean))];
         const childIds = [...new Set(payments.map(p => p.child_id).filter(Boolean))];
-        const programIds = [...new Set(payments.map(p => p.program_id).filter(Boolean))];
+        const unregisteredIds = [...new Set(payments.map(p => p.unregistered_athlete_id).filter(Boolean))];
+        const teamIds = [...new Set(payments.map(p => p.team_id).filter(Boolean))];
+        const planIds = [...new Set(payments.map(p => p.offering_plan_id).filter(Boolean))];
 
         // Fetch parent profiles
-        const { data: parents } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, phone')
-            .in('id', parentIds);
+        const { data: parents } = parentIds.length > 0
+            ? await supabase.from('profiles').select('id, full_name, email, phone').in('id', parentIds)
+            : { data: [] };
 
         // Fetch children
-        const { data: children } = await supabase
-            .from('children')
-            .select('id, full_name')
-            .in('id', childIds);
+        const { data: children } = childIds.length > 0
+            ? await supabase.from('children').select('id, full_name, parent_phone_temp').in('id', childIds)
+            : { data: [] };
 
-        // Fetch programs
-        const { data: programs } = await supabase
-            .from('teams')
-            .select('id, name')
-            .in('id', programIds);
+        // Fetch unregistered athletes (adult self-enrolled)
+        const { data: unregisteredAthletes } = unregisteredIds.length > 0
+            ? await supabase.from('unregistered_athletes').select('id, full_name, email, phone').in('id', unregisteredIds)
+            : { data: [] };
+
+        // Fetch teams
+        const { data: teamsData } = teamIds.length > 0
+            ? await supabase.from('teams').select('id, name').in('id', teamIds)
+            : { data: [] };
+
+        // Fetch offering plans
+        const { data: plansData } = planIds.length > 0
+            ? await supabase.from('offering_plans').select('id, name').in('id', planIds)
+            : { data: [] };
 
         const parentMap = new Map((parents || []).map(p => [p.id, p]));
         const childMap = new Map((children || []).map(c => [c.id, c]));
-        const programMap = new Map((programs || []).map(p => [p.id, p]));
+        const unregisteredMap = new Map((unregisteredAthletes || []).map(u => [u.id, u]));
+        const teamMap = new Map((teamsData || []).map(p => [p.id, p]));
+        const planMap = new Map((plansData || []).map(p => [p.id, p]));
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Deduplicate payments with same athlete + amount + due_date
+        const seen = new Set<string>();
+        const uniquePayments = payments.filter(payment => {
+            const athleteKey = payment.child_id || payment.unregistered_athlete_id || payment.parent_id || '';
+            const key = `${athleteKey}|${payment.amount}|${payment.due_date}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
 
-        const reminders: PaymentReminder[] = payments.map(payment => {
+        const reminders: PaymentReminder[] = uniquePayments.map(payment => {
             const parent = parentMap.get(payment.parent_id);
             const child = childMap.get(payment.child_id || '');
-            const program = programMap.get(payment.program_id || '');
-            const dueDate = new Date(payment.due_date);
-            dueDate.setHours(0, 0, 0, 0);
-            const daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
+            const unregistered = unregisteredMap.get(payment.unregistered_athlete_id || '');
+            const plan = planMap.get(payment.offering_plan_id || '');
+            const team = teamMap.get(payment.team_id || '');
+            const daysOverdue = Math.max(0, daysDiffFromToday(payment.due_date));
+
+            // For unregistered athletes, the athlete IS the contact person
+            const contactName = parent?.full_name || unregistered?.full_name || 'Sin nombre';
+            const contactEmail = (parent as any)?.email || unregistered?.email || '';
+            const contactPhone = (parent as any)?.phone || (child as any)?.parent_phone_temp || unregistered?.phone || '';
+            const athleteName = child?.full_name || unregistered?.full_name || 'Sin asignar';
+
+            // Show plan name > cleaned concept
+            const programLabel = plan?.name || cleanConcept(payment.concept);
 
             return {
                 id: payment.id,
-                parentId: payment.parent_id,
-                parentName: parent?.full_name || 'Sin nombre',
-                parentEmail: (parent as any)?.email || '',
-                childName: child?.full_name || 'Sin asignar',
-                childId: payment.child_id || '',
-                programName: program?.name || 'Programa',
+                parentId: payment.parent_id || payment.unregistered_athlete_id || '',
+                parentName: contactName,
+                parentEmail: contactEmail,
+                parentPhone: contactPhone,
+                childName: athleteName,
+                childId: payment.child_id || payment.unregistered_athlete_id || '',
+                teamName: programLabel,
                 amount: payment.amount,
                 dueDate: payment.due_date,
                 status: daysOverdue > 0 ? 'overdue' : 'pending',
@@ -137,20 +190,14 @@ class PaymentRemindersAPI {
 
     /**
      * Mark overdue payments in the database (batch update status)
+     * Delegated to Postgres RPC for server-side date validation and grace periods
      */
     async markOverduePayments(schoolId: string): Promise<number> {
-        const today = new Date().toISOString().split('T')[0];
-
-        const { data, error } = await supabase
-            .from('payments')
-            .update({ status: 'overdue' })
-            .eq('school_id', schoolId)
-            .eq('status', 'pending')
-            .lt('due_date', today)
-            .select('id');
+        const { data, error } = await (supabase as any)
+            .rpc('mark_overdue_payments', { p_school_id: schoolId });
 
         if (error) throw error;
-        return data?.length || 0;
+        return (data as number) || 0;
     }
 }
 
