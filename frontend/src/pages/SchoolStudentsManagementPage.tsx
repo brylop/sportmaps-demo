@@ -40,6 +40,9 @@ const studentSchema = z.object({
   monthly_fee: z.number().min(0).optional(),
   medical_info: z.string().max(1000).optional(),
   notes: z.string().max(500).optional(),
+  tshirt_size: z.string().optional(),
+  blood_type: z.string().optional(),
+  eps_name: z.string().optional(),
 }).refine(data => data.team_id || data.offering_plan_id, {
   message: 'Debes seleccionar al menos un equipo o un plan',
   path: ['team_id'],
@@ -65,7 +68,13 @@ export default function SchoolStudentsManagementPage() {
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentDocs, setStudentDocs] = useState<{ name: string; url: string }[]>([]);
-  const [studentDocInfo, setStudentDocInfo] = useState<{ doc_type?: string | null; doc_number?: string | null }>({});
+  const [studentDocInfo, setStudentDocInfo] = useState<{
+    doc_type?: string | null;
+    doc_number?: string | null;
+    tshirt_size?: string | null;
+    blood_type?: string | null;
+    eps_name?: string | null;
+  }>({});
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [studentPlanInfo, setStudentPlanInfo] = useState<{
     plan_name: string;
@@ -128,18 +137,21 @@ export default function SchoolStudentsManagementPage() {
     }
     const studentId = viewingStudent.id;
 
-    // ── Cargar doc_type + doc_number desde children ──────────────────────
+    // ── Cargar campos estructurados desde children ──────────────────────
     // (La vista school_athletes no siempre los expone, asi que consultamos directo)
     if (getAthleteType(viewingStudent) === 'child') {
       (supabase as any)
         .from('children')
-        .select('doc_type, doc_number')
+        .select('doc_type, doc_number, tshirt_size, blood_type, eps_name')
         .eq('id', studentId)
         .maybeSingle()
         .then(({ data }: { data: any }) => {
           setStudentDocInfo({
-            doc_type: data?.doc_type || null,
-            doc_number: data?.doc_number || null,
+            doc_type:    data?.doc_type    || null,
+            doc_number:  data?.doc_number  || null,
+            tshirt_size: data?.tshirt_size || null,
+            blood_type:  data?.blood_type  || null,
+            eps_name:    data?.eps_name    || null,
           });
         });
     } else {
@@ -364,6 +376,9 @@ export default function SchoolStudentsManagementPage() {
         team_id:       data.team_id || null,
         branch_id:     selectedTeam?.branch_id || activeBranchId || undefined,
         monthly_fee:   typeof data.monthly_fee === 'number' ? data.monthly_fee : undefined,
+        tshirt_size:   data.tshirt_size || null,
+        blood_type:    data.blood_type  || null,
+        eps_name:      data.eps_name    || null,
       });
       // Upsert enrollment con team y/o plan
       if (schoolId && (data.team_id || data.offering_plan_id)) {
@@ -409,10 +424,28 @@ export default function SchoolStudentsManagementPage() {
     return 'unregistered';
   };
 
-  const handleEditStudent = (student: any) => {
+  const handleEditStudent = async (student: any) => {
     const athleteType = getAthleteType(student);
     setEditingStudent(student);
     setEditingAthleteType(athleteType);
+
+    // Traer campos estructurados que la view school_athletes no expone
+    let extraFields = { tshirt_size: '', blood_type: '', eps_name: '' };
+    if (athleteType === 'child') {
+      const { data } = await (supabase as any)
+        .from('children')
+        .select('tshirt_size, blood_type, eps_name')
+        .eq('id', student.id)
+        .maybeSingle();
+      if (data) {
+        extraFields = {
+          tshirt_size: data.tshirt_size || '',
+          blood_type:  data.blood_type  || '',
+          eps_name:    data.eps_name    || '',
+        };
+      }
+    }
+
     form.reset({
       full_name:        student.full_name,
       date_of_birth:    student.date_of_birth || '',
@@ -423,6 +456,9 @@ export default function SchoolStudentsManagementPage() {
       monthly_fee:      student.price_monthly || Number(defaultMonthlyFee) || 0,
       medical_info:     student.medical_info || '',
       notes:            student.notes || '',
+      tshirt_size:      extraFields.tshirt_size,
+      blood_type:       extraFields.blood_type,
+      eps_name:         extraFields.eps_name,
     });
     setDialogOpen(true);
   };
@@ -928,6 +964,57 @@ export default function SchoolStudentsManagementPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Datos del atleta (talla, RH, EPS) */}
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t">
+                    <div className="space-y-1">
+                      <Label htmlFor="tshirt_size" className="text-xs">Talla</Label>
+                      <Select
+                        value={form.watch('tshirt_size') || ''}
+                        onValueChange={(v) => form.setValue('tshirt_size', v)}
+                      >
+                        <SelectTrigger id="tshirt_size" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="XS">XS</SelectItem>
+                          <SelectItem value="S">S</SelectItem>
+                          <SelectItem value="M">M</SelectItem>
+                          <SelectItem value="L">L</SelectItem>
+                          <SelectItem value="XL">XL</SelectItem>
+                          <SelectItem value="4">4</SelectItem>
+                          <SelectItem value="6">6</SelectItem>
+                          <SelectItem value="8">8</SelectItem>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="12">12</SelectItem>
+                          <SelectItem value="14">14</SelectItem>
+                          <SelectItem value="16">16</SelectItem>
+                          <SelectItem value="18">18</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="blood_type" className="text-xs">RH</Label>
+                      <Select
+                        value={form.watch('blood_type') || ''}
+                        onValueChange={(v) => form.setValue('blood_type', v)}
+                      >
+                        <SelectTrigger id="blood_type" className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="O+">O+</SelectItem>
+                          <SelectItem value="O-">O-</SelectItem>
+                          <SelectItem value="A+">A+</SelectItem>
+                          <SelectItem value="A-">A-</SelectItem>
+                          <SelectItem value="B+">B+</SelectItem>
+                          <SelectItem value="B-">B-</SelectItem>
+                          <SelectItem value="AB+">AB+</SelectItem>
+                          <SelectItem value="AB-">AB-</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="eps_name" className="text-xs">EPS</Label>
+                      <Input id="eps_name" className="h-9" placeholder="Sanitas..." {...form.register('eps_name')} />
+                    </div>
+                  </div>
                 </div>
 
                 {/* ── Sección Plan ── */}
@@ -1058,6 +1145,9 @@ export default function SchoolStudentsManagementPage() {
                 {[
                   { label: 'Escuela', value: schoolName },
                   { label: 'Documento', value: studentDocInfo.doc_number ? `${studentDocInfo.doc_type || ''} ${studentDocInfo.doc_number}`.trim() : ((viewingStudent as any).doc_number ? `${(viewingStudent as any).doc_type || ''} ${(viewingStudent as any).doc_number}`.trim() : '-') },
+                  { label: 'EPS', value: studentDocInfo.eps_name || '-' },
+                  { label: 'Talla camiseta', value: studentDocInfo.tshirt_size || '-' },
+                  { label: 'RH', value: studentDocInfo.blood_type || '-' },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
                   { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },

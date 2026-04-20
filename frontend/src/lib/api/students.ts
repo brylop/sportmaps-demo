@@ -69,6 +69,9 @@ export interface StudentUpdate {
   monthly_fee?: number;
   doc_type?: string;
   doc_number?: string;
+  tshirt_size?: string | null;
+  blood_type?: string | null;
+  eps_name?: string | null;
 }
 
 // ── Tipos de respuesta del BFF ────────────────────────────────────────────────
@@ -127,6 +130,9 @@ export interface StudentViewRow {
   status?: 'active' | 'inactive' | 'suspended';
   doc_type?: string | null;
   doc_number?: string | null;
+  tshirt_size?: string | null;
+  blood_type?: string | null;
+  eps_name?: string | null;
 }
 
 export interface StudentStats {
