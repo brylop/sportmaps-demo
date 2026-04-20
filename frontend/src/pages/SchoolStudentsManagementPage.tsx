@@ -260,7 +260,7 @@ export default function SchoolStudentsManagementPage() {
 
         data = athletes ?? [];
       } else {
-        data = await studentsAPI.getSchoolView(schoolId, activeBranchId);
+        data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId });
       }
       return data as StudentViewRow[];
     },

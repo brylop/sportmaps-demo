@@ -191,18 +191,27 @@ class StudentsAPI {
   }
 
   /**
-   * Get enriched students data for School Management UI (uses 'students' VIEW)
+   * Get enriched students data for School Management UI (uses 'school_athletes' view).
+   * Acepta filtros opcionales por team o branch. Pasar un string sigue funcionando
+   * como filtro por teamId (compat), pero lo ideal es usar el objeto.
    */
-  async getSchoolView(schoolId: string, teamId?: string) {
+  async getSchoolView(
+    schoolId: string,
+    filter?: string | { teamId?: string | null; branchId?: string | null }
+  ) {
+    const { teamId, branchId } =
+      typeof filter === 'string'
+        ? { teamId: filter, branchId: undefined }
+        : { teamId: filter?.teamId, branchId: filter?.branchId };
+
     let query = supabase
       .from('school_athletes' as any)
       .select('*')
       .eq('school_id', schoolId)
       .eq('is_active', true);
 
-    if (teamId) {
-      query = query.eq('enrolled_team_id', teamId);
-    }
+    if (teamId) query = query.eq('enrolled_team_id', teamId);
+    if (branchId) query = query.eq('branch_id', branchId);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -213,7 +222,7 @@ class StudentsAPI {
    * Lista atletas de un equipo específico.
    */
   async getByTeam(schoolId: string, teamId: string) {
-    return this.getSchoolView(schoolId, teamId);
+    return this.getSchoolView(schoolId, { teamId });
   }
 
   /**
