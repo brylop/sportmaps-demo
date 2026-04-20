@@ -40,9 +40,49 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 2. Datos recopilados por rol */}
+        {/* 2. Definiciones */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">2. Datos que Recopilamos</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">2. Definiciones</h2>
+          <p>Para efectos de esta Política, los términos en mayúsculas tienen el significado que se indica a continuación:</p>
+          <ul className="list-disc list-inside mt-3 space-y-2">
+            <li><strong className="text-foreground">Autorización:</strong> consentimiento previo, expreso e informado del Titular para llevar a cabo el Tratamiento de sus Datos Personales.</li>
+            <li><strong className="text-foreground">Base de Datos:</strong> conjunto organizado de Datos Personales objeto de Tratamiento, electrónico o no.</li>
+            <li><strong className="text-foreground">Dato Personal:</strong> cualquier información vinculada o que pueda asociarse a una o varias personas naturales determinadas o determinables.</li>
+            <li><strong className="text-foreground">Dato Público:</strong> dato calificado como tal por la ley o la Constitución y aquel que no sea semiprivado, privado o sensible.</li>
+            <li><strong className="text-foreground">Dato Sensible:</strong> dato que afecta la intimidad del Titular o cuyo uso indebido puede generar discriminación, tales como aquellos que revelen origen racial o étnico, orientación política, convicciones religiosas o filosóficas, datos de salud, vida sexual y <strong className="text-foreground">datos biométricos</strong>.</li>
+            <li><strong className="text-foreground">Dato Financiero:</strong> dato referido al nacimiento, ejecución y extinción de obligaciones dinerarias, cuyo Tratamiento se rige por la Ley 1266 de 2008.</li>
+            <li><strong className="text-foreground">Titular:</strong> persona natural a quien se refiere la información que reposa en una Base de Datos y sujeto del derecho de hábeas data.</li>
+            <li><strong className="text-foreground">Responsable del Tratamiento:</strong> persona natural o jurídica que decida sobre la Base de Datos y/o el Tratamiento. En esta Política, SportMaps actúa como Responsable.</li>
+            <li><strong className="text-foreground">Encargado del Tratamiento:</strong> persona natural o jurídica que realice el Tratamiento por cuenta del Responsable (ej. proveedores de infraestructura, pasarelas de pago).</li>
+            <li><strong className="text-foreground">Transferencia:</strong> comunicación de Datos Personales dentro o fuera de Colombia cuando tenga por objeto el Tratamiento por el Encargado por cuenta del Responsable.</li>
+            <li><strong className="text-foreground">Transmisión:</strong> comunicación de Datos Personales, interna o con terceros, para la realización de actividades de Tratamiento por el receptor.</li>
+            <li><strong className="text-foreground">Tratamiento:</strong> toda operación sobre Datos Personales: recolección, conservación, uso, circulación, bloqueo, supresión, entre otras.</li>
+            <li><strong className="text-foreground">Habeas Data:</strong> derecho constitucional de toda persona a conocer, actualizar y rectificar la información que sobre ella se recoja en bases de datos.</li>
+          </ul>
+        </section>
+
+        {/* 3. Principios */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">3. Principios del Tratamiento</h2>
+          <p>SportMaps aplica los siguientes principios rectores del tratamiento de datos personales, conforme al Artículo 4 de la Ley 1581 de 2012:</p>
+          <ul className="list-disc list-inside mt-3 space-y-2">
+            <li><strong className="text-foreground">Autorización previa:</strong> todo Tratamiento se lleva a cabo una vez obtenida la Autorización previa, expresa e informada del Titular, salvo excepciones legales.</li>
+            <li><strong className="text-foreground">Finalidad legítima:</strong> el Tratamiento obedece a las finalidades descritas en esta Política o autorizadas por el Titular, y no se utiliza para fines distintos.</li>
+            <li><strong className="text-foreground">Calidad del dato:</strong> la información sometida a Tratamiento debe ser veraz, completa, exacta, actualizada, comprobable y comprensible.</li>
+            <li><strong className="text-foreground">Transparencia:</strong> el Titular puede obtener en cualquier momento información sobre sus datos.</li>
+            <li><strong className="text-foreground">Circulación restringida:</strong> los Datos Personales solo pueden ser tratados por el personal autorizado de SportMaps o por los Encargados habilitados mediante contrato.</li>
+            <li><strong className="text-foreground">Seguridad:</strong> SportMaps adopta medidas técnicas, humanas y administrativas para evitar adulteración, pérdida, consulta, uso o acceso no autorizado.</li>
+            <li><strong className="text-foreground">Confidencialidad:</strong> todas las personas que intervengan en el Tratamiento están obligadas a garantizar la reserva de la información, incluso después de finalizada su relación con SportMaps.</li>
+            <li><strong className="text-foreground">Temporalidad:</strong> los datos no se utilizan más allá del plazo razonable que exija la finalidad informada al Titular.</li>
+            <li><strong className="text-foreground">Necesidad:</strong> los datos solo se tratan durante el tiempo y en la medida que el propósito del Tratamiento lo justifique.</li>
+            <li><strong className="text-foreground">Acceso restringido:</strong> SportMaps no hace disponibles Datos Personales en Internet u otros medios masivos sin medidas técnicas y de seguridad que controlen el acceso.</li>
+            <li><strong className="text-foreground">Individualidad:</strong> las bases de datos en las que SportMaps es Encargado se mantienen separadas de aquellas en las que es Responsable.</li>
+          </ul>
+        </section>
+
+        {/* 4. Datos recopilados por rol */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">4. Datos que Recopilamos</h2>
           <p>Recopilamos datos personales según el rol del usuario dentro de la Plataforma:</p>
 
           <div className="mt-4 space-y-4">
@@ -158,9 +198,9 @@ export default function PrivacyPage() {
           </div>
         </section>
 
-        {/* 3. Finalidad */}
+        {/* 5. Finalidad */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">3. Finalidad del Tratamiento</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">5. Finalidad del Tratamiento</h2>
           <p>Tus datos serán utilizados para las siguientes finalidades:</p>
 
           <div className="mt-3 space-y-3">
@@ -204,9 +244,41 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 4. Menores */}
+        {/* 6. Datos sensibles y biométricos */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">4. Tratamiento de Datos de Menores de Edad</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">6. Tratamiento de Datos Sensibles y Biométricos</h2>
+          <p>
+            De conformidad con los artículos 5 y 6 de la Ley 1581 de 2012, <strong className="text-foreground">el Titular NO está obligado a autorizar</strong> el tratamiento de datos sensibles. SportMaps trata datos sensibles únicamente cuando es estrictamente necesario para la finalidad deportiva y siempre con autorización explícita y separada del Titular.
+          </p>
+          <p className="mt-3">Los datos sensibles que SportMaps puede tratar incluyen:</p>
+          <ul className="list-disc list-inside mt-2 space-y-1">
+            <li><strong className="text-foreground">Datos de salud:</strong> condiciones médicas relevantes para la práctica deportiva segura (alergias, lesiones, tipo de sangre) — aportados voluntariamente por el acudiente o atleta.</li>
+            <li><strong className="text-foreground">Certificados médicos y de aptitud física:</strong> requeridos por algunas escuelas o eventos, cargados por el propio usuario.</li>
+            <li><strong className="text-foreground">Datos biométricos (fotografías):</strong> imágenes del rostro únicamente cuando el atleta o acudiente las carga voluntariamente para identificación en credenciales de eventos o como foto de perfil. SportMaps <strong className="text-foreground">no utiliza</strong> reconocimiento facial, huella dactilar ni ningún otro procesamiento biométrico automatizado.</li>
+          </ul>
+          <p className="mt-3">
+            El tratamiento de estos datos sensibles se limita exclusivamente a las finalidades: (i) operativa deportiva, (ii) estadística agregada, (iii) administrativa de la cuenta, (iv) cumplimiento legal. <strong className="text-foreground">Bajo ninguna circunstancia</strong> los datos sensibles serán vendidos ni circulados con terceros distintos a los previstos en esta Política.
+          </p>
+        </section>
+
+        {/* 7. Datos de ubicación */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">7. Tratamiento de Datos de Ubicación</h2>
+          <p>
+            SportMaps utiliza funciones de mapas y geolocalización para mostrarte escuelas, entrenadores, eventos y productos cercanos en la sección <strong className="text-foreground">"Explorar"</strong>. El tratamiento de datos de ubicación se rige por las siguientes reglas:
+          </p>
+          <ul className="list-disc list-inside mt-3 space-y-2">
+            <li><strong className="text-foreground">Solicitud de permiso:</strong> la ubicación en tiempo real solo se obtiene cuando el navegador o el sistema operativo te solicitan permiso expreso y tú lo concedes.</li>
+            <li><strong className="text-foreground">Uso temporal:</strong> la ubicación se utiliza en memoria para calcular resultados cercanos y ordenarlos por distancia. <strong className="text-foreground">No se almacena de forma persistente</strong> en nuestros servidores ni se asocia a tu perfil público.</li>
+            <li><strong className="text-foreground">Ubicaciones fijas (direcciones):</strong> las direcciones que registras voluntariamente (sede de una escuela, punto de encuentro de un evento) sí se almacenan en la base de datos porque son parte del servicio público ofrecido.</li>
+            <li><strong className="text-foreground">Control del usuario:</strong> puedes dejar de compartir tu ubicación en cualquier momento desde la configuración de tu navegador o dispositivo, sin que ello impida el uso general de la Plataforma (solo se desactivarán los resultados ordenados por distancia).</li>
+            <li><strong className="text-foreground">Sin publicidad basada en ubicación:</strong> SportMaps no utiliza tu ubicación para segmentación publicitaria ni la comparte con redes de anuncios.</li>
+          </ul>
+        </section>
+
+        {/* 8. Menores */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">8. Tratamiento de Datos de Menores de Edad</h2>
           <p>
             De conformidad con el <strong className="text-foreground">Artículo 7 de la Ley 1581 de 2012</strong>, el tratamiento de datos de menores de edad requiere la autorización expresa del padre, madre o representante legal.
           </p>
@@ -225,9 +297,9 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 5. Consentimiento */}
+        {/* 9. Consentimiento y conductas inequívocas */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">5. Obtención del Consentimiento</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">9. Obtención del Consentimiento y Conductas Inequívocas</h2>
           <p>Tu consentimiento para el tratamiento de datos se obtiene de las siguientes formas:</p>
           <ul className="list-disc list-inside mt-2 space-y-1">
             <li><strong className="text-foreground">Al registrarte:</strong> mediante la aceptación explícita (checkbox obligatorio) de esta Política de Privacidad y los Términos y Condiciones antes de crear tu cuenta.</li>
@@ -235,14 +307,24 @@ export default function PrivacyPage() {
             <li><strong className="text-foreground">Al activar SportMaps Pay:</strong> las escuelas aceptan términos adicionales de tratamiento de datos financieros al habilitar la pasarela de pagos.</li>
             <li><strong className="text-foreground">Newsletter (opcional):</strong> la suscripción a comunicaciones promocionales requiere consentimiento separado y puede revocarse en cualquier momento.</li>
           </ul>
-          <p className="mt-2">
+          <p className="mt-3">
+            <strong className="text-foreground">Conductas inequívocas:</strong> en los términos del artículo 7 del Decreto 1377 de 2013, constituyen conductas inequívocas del Titular que permiten concluir razonablemente que otorgó su autorización:
+          </p>
+          <ul className="list-disc list-inside mt-2 space-y-1">
+            <li>La aceptación expresa de esta Política durante el registro.</li>
+            <li>El envío voluntario de información personal con el fin de que SportMaps preste el servicio.</li>
+            <li>La carga, envío, guardado o almacenamiento de datos personales en la Plataforma o sus extensiones móviles.</li>
+            <li>El compartir la ubicación con SportMaps para acceder a las funciones de mapa y exploración.</li>
+            <li>La contratación o inscripción en cualquier servicio, clase, programa o evento que requiera el tratamiento de información personal.</li>
+          </ul>
+          <p className="mt-3">
             Registramos la fecha, hora e IP de cada aceptación para efectos probatorios conforme a la ley.
           </p>
         </section>
 
-        {/* 6. Seguridad */}
+        {/* 10. Seguridad */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">6. Seguridad de los Datos</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">10. Seguridad de los Datos</h2>
           <p>SportMaps implementa medidas técnicas y organizativas para proteger tus datos:</p>
           <ul className="list-disc list-inside mt-2 space-y-1">
             <li>Cifrado en tránsito mediante TLS/HTTPS en todas las comunicaciones.</li>
@@ -255,9 +337,9 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
-        {/* 7. Compartición */}
+        {/* 11. Compartición */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">7. Compartición de Datos con Terceros</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">11. Compartición de Datos con Terceros</h2>
           <p>Podemos compartir datos personales únicamente en los siguientes casos:</p>
 
           <div className="mt-3 space-y-3">
@@ -298,9 +380,9 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 8. Derechos */}
+        {/* 12. Derechos */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">8. Tus Derechos (Ley 1581 de 2012)</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">12. Derechos del Titular (Ley 1581 de 2012)</h2>
           <p>Como titular de tus datos personales tienes derecho a:</p>
           <ul className="list-disc list-inside mt-2 space-y-1">
             <li><strong className="text-foreground">Conocer</strong> qué datos tuyos tratamos y la finalidad de su tratamiento.</li>
@@ -311,18 +393,66 @@ export default function PrivacyPage() {
             <li><strong className="text-foreground">Solicitar prueba</strong> de la autorización otorgada, salvo cuando la ley no lo exija.</li>
             <li><strong className="text-foreground">Acceder gratuitamente</strong> a tus datos al menos una vez al mes.</li>
             <li><strong className="text-foreground">Presentar quejas</strong> ante la Superintendencia de Industria y Comercio (SIC) por violación a la ley.</li>
+            <li><strong className="text-foreground">Conocer las modificaciones</strong> a esta Política de manera previa y eficiente.</li>
+            <li><strong className="text-foreground">No estar obligado</strong> a autorizar el tratamiento de datos sensibles.</li>
           </ul>
           <p className="mt-2">
-            Para ejercer tus derechos escríbenos a{' '}
-            <a href="mailto:privacidad@sportmaps.co" className="text-[#248223] hover:underline">privacidad@sportmaps.co</a>{' '}
-            indicando tu nombre, correo registrado y el derecho que deseas ejercer.
-            Responderemos en un plazo máximo de <strong className="text-foreground">10 días hábiles</strong> (consultas) o <strong className="text-foreground">15 días hábiles</strong> (reclamos), conforme al artículo 14 de la Ley 1581 de 2012.
+            Los menores de edad pueden ejercer estos derechos personalmente o a través de sus padres o acudientes legales. Los causahabientes y apoderados debidamente acreditados también pueden ejercer los derechos del Titular.
           </p>
         </section>
 
-        {/* 9. Retención */}
+        {/* 13. Procedimiento para consultas y reclamos */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">9. Retención y Eliminación de Datos</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">13. Procedimiento para Ejercer Derechos</h2>
+          <p>
+            SportMaps dispone de los siguientes mecanismos para que el Titular, sus causahabientes, representantes o apoderados formulen consultas y reclamos sobre el tratamiento de sus datos personales:
+          </p>
+
+          <div className="mt-4 space-y-4">
+            <div className="bg-muted/30 rounded-lg p-4">
+              <p className="font-medium text-foreground mb-2">Consultas</p>
+              <p>Canales habilitados para consultar qué datos tuyos reposan en nuestras bases de datos:</p>
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li>Correo electrónico: <a href="mailto:privacidad@sportmaps.co" className="text-[#248223] hover:underline">privacidad@sportmaps.co</a></li>
+                <li>Línea telefónica: <a href="tel:+573128463555" className="text-[#248223] hover:underline">+57 (312) 846-3555</a></li>
+              </ul>
+              <p className="mt-2">
+                <strong className="text-foreground">Plazo de respuesta:</strong> las consultas se atenderán en un plazo máximo de <strong className="text-foreground">diez (10) días hábiles</strong> contados a partir de la recepción. Cuando no sea posible responder dentro de este término, SportMaps informará al interesado los motivos de la demora y la fecha en la que se atenderá, que en ningún caso podrá superar los <strong className="text-foreground">cinco (5) días hábiles</strong> siguientes al vencimiento del primer término.
+              </p>
+            </div>
+
+            <div className="bg-muted/30 rounded-lg p-4">
+              <p className="font-medium text-foreground mb-2">Reclamos</p>
+              <p>
+                El Titular puede presentar reclamos cuando considere que sus datos deben ser corregidos, actualizados, suprimidos, o cuando advierta un presunto incumplimiento de los deberes contenidos en la Ley 1581 de 2012.
+              </p>
+              <p className="mt-2"><strong className="text-foreground">El reclamo debe contener:</strong></p>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>Identificación del Titular (nombre completo y documento de identidad).</li>
+                <li>Descripción de los hechos que dan lugar al reclamo.</li>
+                <li>Objetivo perseguido (actualización, corrección, supresión, revocatoria, cumplimiento de deberes).</li>
+                <li>Dirección física o electrónica de notificación y datos de contacto.</li>
+                <li>Documentos que el reclamante quiera hacer valer.</li>
+              </ul>
+              <p className="mt-3">
+                <strong className="text-foreground">Trámite:</strong>
+              </p>
+              <ol className="list-decimal list-inside mt-1 space-y-1">
+                <li>Si el reclamo está incompleto, SportMaps requerirá al reclamante por una sola vez para subsanar las fallas dentro de los <strong className="text-foreground">cinco (5) días</strong> siguientes. Si no se subsana en los dos (2) meses siguientes, se entenderá desistido.</li>
+                <li>Recibido el reclamo completo, se incluirá en la base de datos donde reposen los datos del Titular una leyenda que diga <em>"reclamo en trámite"</em> y el motivo, que se mantendrá hasta que el reclamo sea decidido.</li>
+                <li>El término máximo para atender el reclamo será de <strong className="text-foreground">quince (15) días hábiles</strong> contados a partir del día siguiente a la fecha de su recepción. Cuando no sea posible atender el reclamo dentro de dicho término, se informará al interesado los motivos de la demora y la fecha de respuesta, que no podrá superar los <strong className="text-foreground">ocho (8) días hábiles</strong> siguientes al vencimiento del primer término.</li>
+                <li>Si SportMaps no es competente para resolverlo, dará traslado a quien corresponda en un plazo máximo de dos (2) días hábiles e informará al reclamante de dicha remisión.</li>
+              </ol>
+              <p className="mt-3">
+                <strong className="text-foreground">Antes de elevar quejas a la SIC:</strong> conforme al artículo 16 de la Ley 1581 de 2012, el Titular debe agotar previamente el trámite de reclamo directo ante SportMaps antes de presentar queja ante la Superintendencia de Industria y Comercio.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 14. Retención */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">14. Retención y Eliminación de Datos</h2>
           <p>
             Conservamos tus datos mientras mantengas una cuenta activa en SportMaps. Tras la eliminación de tu cuenta:
           </p>
@@ -334,9 +464,9 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
-        {/* 10. Cookies */}
+        {/* 15. Cookies */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">10. Cookies y Tecnologías de Rastreo</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">15. Cookies y Tecnologías de Rastreo</h2>
           <p>SportMaps utiliza las siguientes tecnologías:</p>
           <ul className="list-disc list-inside mt-2 space-y-1">
             <li><strong className="text-foreground">Cookies de sesión:</strong> estrictamente necesarias para la autenticación y el funcionamiento de la Plataforma. Se eliminan al cerrar sesión.</li>
@@ -348,17 +478,28 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 11. Transferencia internacional */}
+        {/* 16. Transferencia internacional */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">11. Transferencia Internacional de Datos</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">16. Transferencia Internacional de Datos</h2>
           <p>
             Algunos de nuestros proveedores de infraestructura (Supabase, Vercel, Resend) tienen servidores ubicados fuera de Colombia. Al aceptar esta Política, autorizas la transferencia internacional de tus datos a estos proveedores, quienes cumplen con estándares de protección equivalentes a los exigidos por la legislación colombiana (Decreto 1377 de 2013, Art. 26).
           </p>
         </section>
 
-        {/* 12. Cambios */}
+        {/* 17. Jurisdicción */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">12. Cambios en esta Política</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">17. Jurisdicción y Ley Aplicable</h2>
+          <p>
+            Esta Política de Privacidad se rige por las leyes de la <strong className="text-foreground">República de Colombia</strong>, especialmente por la Ley Estatutaria 1581 de 2012, el Decreto 1377 de 2013 y las demás normas concordantes expedidas por la Superintendencia de Industria y Comercio.
+          </p>
+          <p className="mt-2">
+            SportMaps no garantiza que esta Política sea aplicable en otras jurisdicciones. Si accedes a la Plataforma desde fuera de Colombia, reconoces y asumes cualquier riesgo relacionado con las leyes locales de otras jurisdicciones. Cualquier reclamación será tramitada conforme a la legislación colombiana y será competente la jurisdicción ordinaria de la ciudad de Bogotá D.C., sin perjuicio de las acciones constitucionales que correspondan al Titular.
+          </p>
+        </section>
+
+        {/* 18. Cambios */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">18. Cambios en esta Política</h2>
           <p>
             Podemos actualizar esta Política periódicamente. Notificaremos los cambios relevantes mediante:
           </p>
@@ -374,9 +515,17 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* 13. Contacto */}
+        {/* 19. Vigencia */}
         <section>
-          <h2 className="text-lg font-semibold text-foreground mb-3">13. Contacto y Consultas</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-3">19. Vigencia</h2>
+          <p>
+            Esta Política entra en vigencia a partir de <strong className="text-foreground">abril de 2026</strong> y permanecerá vigente hasta su modificación o derogación expresa por parte de SportMaps. Los datos personales almacenados, utilizados o transmitidos permanecerán en nuestras bases de datos, bajo los criterios de temporalidad y necesidad, durante el tiempo que sea razonablemente requerido para las finalidades descritas en esta Política.
+          </p>
+        </section>
+
+        {/* 20. Contacto */}
+        <section>
+          <h2 className="text-lg font-semibold text-foreground mb-3">20. Contacto y Oficial de Protección de Datos</h2>
           <p>
             <strong className="text-foreground">Oficial de Protección de Datos — SportMaps Technology S.A.S.</strong><br />
             Bogotá D.C., Colombia<br />
@@ -384,7 +533,7 @@ export default function PrivacyPage() {
             Línea de atención: <a href="tel:+573128463555" className="text-[#248223] hover:underline">+57 (312) 846-3555</a>
           </p>
           <p className="mt-3">
-            Si consideras que SportMaps ha vulnerado tus derechos como titular de datos, puedes presentar una queja ante la{' '}
+            Si consideras que SportMaps ha vulnerado tus derechos como titular de datos y el trámite de reclamo directo no fue satisfactorio, puedes presentar una queja ante la{' '}
             <strong className="text-foreground">Superintendencia de Industria y Comercio (SIC)</strong>:{' '}
             <a href="https://www.sic.gov.co" target="_blank" rel="noopener noreferrer" className="text-[#248223] hover:underline">www.sic.gov.co</a>
           </p>
