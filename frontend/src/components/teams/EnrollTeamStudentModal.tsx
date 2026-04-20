@@ -166,13 +166,26 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         }
     };
 
-    const filteredStudents = students.filter(s =>
-        s.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-        (s.grade?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-    );
-
     const isEnrolled = (studentId: string) => enrolledStudentIds.includes(studentId);
+
+    const matchesSearch = (s: Student) => {
+        const q = searchQuery.toLowerCase();
+        return (
+            s.full_name.toLowerCase().includes(q) ||
+            (s.email?.toLowerCase() || '').includes(q) ||
+            (s.grade?.toLowerCase() || '').includes(q)
+        );
+    };
+
+    // Los inscritos siempre se muestran (independiente del filtro), arriba y ordenados.
+    // Los no inscritos se filtran por búsqueda.
+    const enrolledList = students
+        .filter(s => isEnrolled(s.id))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    const availableList = students
+        .filter(s => !isEnrolled(s.id) && matchesSearch(s))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name));
+    const filteredStudents = [...enrolledList, ...availableList];
     const isFull = team ? enrolledStudentIds.length >= (team.max_students || 20) : false;
 
     return (
