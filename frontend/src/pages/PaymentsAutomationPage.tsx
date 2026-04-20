@@ -396,7 +396,7 @@ export default function PaymentsAutomationPage() {
           await supabase.rpc('notify_user', {
             p_user_id: payment.parent_id, p_title: '✅ Pago Aprobado',
             p_message: `Tu pago de ${formatCurrency(payment.amount)} ha sido validado.`,
-            p_type: 'success', p_link: '/history',
+            p_type: 'success', p_link: '/my-payments',
           });
         }
       }
