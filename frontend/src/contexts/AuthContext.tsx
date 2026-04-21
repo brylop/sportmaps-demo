@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { emailClient } from '@/lib/email-client';
+import { bffClient } from '@/lib/api/bffClient';
 import { Database } from '@/integrations/supabase/types';
 import { getUserFriendlyError } from '@/lib/error-translator';
 
@@ -341,7 +342,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    try {
+    const cleanupClientState = () => {
       // Clear demo session storage
       sessionStorage.removeItem('demo_mode');
       sessionStorage.removeItem('demo_role');
@@ -359,8 +360,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('sportmaps_welcome_dismissed');
       localStorage.removeItem('pending_invite_id');
 
+      // Reset BFF module-level school header so the next user doesn't inherit it.
+      bffClient.setSchoolId(null);
+
       // Clear React Query cache so the next user doesn't see stale data
       queryClient.clear();
+    };
+
+    try {
+      cleanupClientState();
 
       // Regular Supabase signout
       const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -375,10 +383,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
 
-      toast({
-        title: "Sesión cerrada",
-        description: "Has cerrado sesión exitosamente",
-      });
+      // Hard-reload to /login. Without this, providers stay mounted and
+      // module-level state (query cache, context refs) can leak across users.
+      window.location.replace('/login');
     } catch (error: unknown) {
       const err = error as Error;
       console.error('Error signing out:', error);
@@ -386,9 +393,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       setProfile(null);
-
-      // Still clear caches on error to prevent data leaking
-      queryClient.clear();
+      cleanupClientState();
 
       // Only show error if it's not a session missing error
       if (!err.message?.includes('session')) {
@@ -397,13 +402,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: getUserFriendlyError(err),
           variant: "destructive",
         });
-      } else {
-        // Session was already gone, treat as success
-        toast({
-          title: "Sesión cerrada",
-          description: "Has cerrado sesión exitosamente",
-        });
       }
+
+      window.location.replace('/login');
     }
   };
 

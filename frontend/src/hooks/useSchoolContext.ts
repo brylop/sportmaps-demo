@@ -135,7 +135,12 @@ function useSchoolContextManager(): SchoolContext {
         setBranches([]);
         setError(null);
         currentUserIdRef.current = null;
-    }, []);
+        previousSchoolIdRef.current = null;
+        // Defensive: clear module-level BFF header and query cache so
+        // subsequent renders never hit the previous user's tenant.
+        bffClient.setSchoolId(null);
+        queryClient.clear();
+    }, [queryClient]);
 
     // 1. Initial Load: Resolve User & Memberships
     useEffect(() => {
