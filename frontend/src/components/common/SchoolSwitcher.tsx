@@ -3,12 +3,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2 } from "lucide-react";
 
 /**
- * Cambiador de escuela activa.
+ * ⚠️ DESACTIVADO EN TODA LA APP (2026-04-21).
  *
- * Solo cambia entre schoolIds distintos. El filtrado por sede esta
- * deshabilitado en la UI porque el schema actual no tiene
- * enrollments.branch_id — forzar un branch en el contexto dejaria
- * enrollments "planes a nivel escuela" fuera del scope.
+ * Este componente NO esta montado en ningun layout. El import en
+ * AppSidebar.tsx esta comentado. Ver el comentario alli para contexto.
+ *
+ * Razon: el schema actual no tiene enrollments.branch_id y varios
+ * enrollments (planes sin team) no se pueden scopear a una sede
+ * concreta. Exponer un switch de escuela/sede que no filtra bien es
+ * peor que no ofrecerlo — los roles sin multiples escuelas (atletas,
+ * padres) ven una opcion que no tiene sentido para ellos.
+ *
+ * Para reactivar:
+ *   1. Aplicar migracion que agregue enrollments.branch_id con
+ *      backfill desde teams.branch_id / school_members.branch_id.
+ *   2. Confirmar que la columna esta en BD con information_schema.
+ *   3. Descomentar el import y el bloque <SchoolSwitcher /> en
+ *      AppSidebar.tsx.
+ *   4. Ajustar los filtros del BFF en bff/src/routes/session-bookings.ts
+ *      para usar enrollments.branch_id directo (hoy usan teams.branch_id
+ *      via join, que no aplica a planes sin team).
+ *
+ * Solo cambia entre schoolIds distintos. Al conmutar pasa branchId=null
+ * para que el contexto resuelva la sede natural del usuario.
  */
 export const SchoolSwitcher = () => {
     const { schoolId, availableSchools, switchSchool, loading } = useSchoolContext();

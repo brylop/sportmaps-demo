@@ -21,7 +21,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
-import { SchoolSwitcher } from './common/SchoolSwitcher';
+// NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
+// end-to-end (falta enrollments.branch_id y varios enrollments no tienen
+// team asociado, asi que no se puede scopear fiablemente). El componente
+// se conserva en src/components/common/SchoolSwitcher.tsx para reactivar
+// una vez se aplique la migracion correspondiente.
+// import { SchoolSwitcher } from './common/SchoolSwitcher';
 import Logo from './Logo';
 
 export function AppSidebar() {
@@ -138,9 +143,8 @@ export function AppSidebar() {
                 </Badge>
               </div>
             </div>
-            <div className="w-full mt-3 px-1">
-              <SchoolSwitcher />
-            </div>
+            {/* SchoolSwitcher desactivado — ver import comentado arriba. */}
+            {/* <div className="w-full mt-3 px-1"><SchoolSwitcher /></div> */}
           </div>
         )}
 
