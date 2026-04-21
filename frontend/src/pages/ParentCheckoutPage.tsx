@@ -43,6 +43,7 @@ export default function ParentCheckoutPage() {
   const studentName = searchParams.get('student') || 'Juan Vargas';
   const schoolName = searchParams.get('school') || 'Spirit All Stars';
   const teamName = searchParams.get('team') || '';
+  const schoolIdParam = searchParams.get('school_id');
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
 
@@ -71,13 +72,22 @@ export default function ParentCheckoutPage() {
   // Fetch School Settings (Feature Flag)
   useEffect(() => {
     const fetchSchoolSettings = async () => {
-      let query = supabase.from('schools').select('id, payment_settings').limit(1);
+      // Multi-tenant safe: prefer explicit school_id, fall back to name.
+      // Never use .limit(1) without a filter - would pick arbitrary tenant.
+      let query = supabase.from('schools').select('id, payment_settings');
 
-      if (schoolName) {
+      if (schoolIdParam) {
+        query = query.eq('id', schoolIdParam);
+      } else if (schoolName) {
         query = query.eq('name', schoolName);
+      } else {
+        setPaymentSettings({ allow_online: false, allow_manual: true });
+        setPaymentFlow('manual');
+        setLoadingSettings(false);
+        return;
       }
 
-      const { data, error } = await query.maybeSingle();
+      const { data } = await query.maybeSingle();
 
       if (data) {
         const settings = data.payment_settings as any || { allow_online: false, allow_manual: true };
@@ -104,7 +114,7 @@ export default function ParentCheckoutPage() {
     };
 
     fetchSchoolSettings();
-  }, [schoolName]);
+  }, [schoolName, schoolIdParam]);
 
   const handleDownloadReceipt = () => {
     downloadReceipt({
@@ -128,32 +138,31 @@ export default function ParentCheckoutPage() {
   const teamId = searchParams.get('team_id');
 
   const recordPaymentWithTraceability = async (reference: string) => {
-    // Resolve School ID (Robustly)
-    let schoolId = null;
-    let ownerId = null;
-    const { data: demoSchool } = await supabase
-      .from('schools')
-      .select('id, owner_id')
-      .eq('email', 'spoortmaps+school@gmail.com')
-      .maybeSingle();
+    // Multi-tenant safe: resolve schoolId from URL or derive from team_id.
+    // Never fall back to "any school" - would attach the payment to the wrong tenant.
+    let schoolId: string | null = schoolIdParam;
+    let ownerId: string | null = null;
 
-    if (demoSchool) {
-      schoolId = demoSchool.id;
-      ownerId = demoSchool.owner_id;
-    } else {
-      const { data: anySchool } = await supabase
-        .from('schools')
-        .select('id, owner_id')
-        .limit(1)
+    if (!schoolId && teamId) {
+      const { data: team } = await supabase
+        .from('teams')
+        .select('school_id')
+        .eq('id', teamId)
         .maybeSingle();
-      if (anySchool) {
-        schoolId = anySchool.id;
-        ownerId = anySchool.owner_id;
-      }
+      schoolId = team?.school_id ?? null;
+    }
+
+    if (schoolId) {
+      const { data: schoolRow } = await supabase
+        .from('schools')
+        .select('owner_id')
+        .eq('id', schoolId)
+        .maybeSingle();
+      ownerId = schoolRow?.owner_id ?? null;
     }
 
     if (!schoolId) {
-      toast({ title: 'Error', description: 'No se encontró una escuela válida', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Falta school_id en el checkout', variant: 'destructive' });
       return;
     }
 
