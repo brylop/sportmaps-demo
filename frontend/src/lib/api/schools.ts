@@ -35,14 +35,18 @@ class SchoolsAPI {
                 return await this.getDemoSchoolProfile(slug);
             }
 
-            // For other slugs, try DB lookup (future: add slug column)
+            // Schools table has no slug column yet. Match by name but handle
+            // duplicates deterministically (oldest wins) instead of erroring out.
             const { data, error } = await supabase
                 .from('schools')
                 .select('*')
                 .eq('name', slug)
-                .single();
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
 
             if (error) throw error;
+            if (!data) return null;
             return { ...data, slug } as SchoolProfile;
         } catch (error) {
             console.warn('Error fetching school, using demo fallback:', error);
@@ -55,12 +59,20 @@ class SchoolsAPI {
      */
     private async getDemoSchoolProfile(slug: string): Promise<SchoolProfile | null> {
         try {
-            // Get the demo school (first school in the system, or by owner email)
-            const { data: school, error: schoolError } = await supabase
+            // Prefer the configured demo school via env; fall back to the
+            // oldest school in the system. Never grab an arbitrary tenant.
+            const demoEmail = import.meta.env.VITE_DEMO_SCHOOL_EMAIL as string | undefined;
+            let schoolQuery = supabase
                 .from('schools')
                 .select('*')
-                .limit(1)
-                .single();
+                .order('created_at', { ascending: true })
+                .limit(1);
+
+            if (demoEmail) {
+                schoolQuery = schoolQuery.eq('email', demoEmail);
+            }
+
+            const { data: school, error: schoolError } = await schoolQuery.maybeSingle();
 
             if (schoolError || !school) throw new Error('No school found');
 
