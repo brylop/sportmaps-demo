@@ -89,12 +89,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { data } = await supabase
+      // Resilient to users with multiple PT workspaces: pick the oldest.
+      // .maybeSingle() would error if more than one row matches.
+      const { data: rows } = await supabase
         .from('schools')
         .select('id, school_type, onboarding_status, onboarding_step')
         .eq('owner_id', userId)
         .eq('school_type', 'personal_trainer')
-        .maybeSingle();
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      const data = rows?.[0];
 
       if (data && data.school_type === 'personal_trainer') {
         setIsPersonalTrainer(true);
