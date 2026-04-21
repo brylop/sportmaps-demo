@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
 
@@ -45,26 +46,9 @@ interface FacilityInput {
 }
 
 export function useSchoolStaff() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  // Get school ID for current user
-  const { data: school } = useQuery({
-    queryKey: ['user-school', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schools')
-        .select('id')
-        .eq('owner_id', user?.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id,
-  });
-
-  const schoolId = school?.id;
+  const { schoolId } = useSchoolContext();
 
   // Fetch staff
   const { data: staff, isLoading, error, refetch } = useQuery({
@@ -129,26 +113,9 @@ export function useSchoolStaff() {
 }
 
 export function useSchoolFacilities() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  // Get school ID for current user
-  const { data: school } = useQuery({
-    queryKey: ['user-school', user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('schools')
-        .select('id')
-        .eq('owner_id', user?.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!user?.id,
-  });
-
-  const schoolId = school?.id;
+  const { schoolId } = useSchoolContext();
 
   // Fetch facilities
   const { data: facilities, isLoading, error, refetch } = useQuery({
