@@ -235,16 +235,32 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
 
     // ── Fetch enrollments separados por tipo ──────────────────────────────
     let q = supabase.from('enrollments').select(`
-      id, school_id, branch_id, team_id, offering_plan_id, offering_id, sessions_used,
+      id, school_id, team_id, offering_plan_id, offering_id, sessions_used,
       offering_plans!enrollments_offering_plan_id_fkey(max_sessions, offering_id)
     `).eq('status', 'active');
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);
-    // Multi-tenant: si el atleta esta inscrito en varias sedes del mismo
-    // colegio y ya escogio una, limitamos el scope a esa sede.
-    if (branch_id) q = q.eq('branch_id', branch_id);
 
-    const { data: enrs, error: eErr } = await q;
+    const { data: enrsRaw, error: eErr } = await q;
+
+    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
+    // asi que derivamos la sede del team asociado. Si el enrollment no tiene
+    // team, lo dejamos pasar (plan a nivel escuela).
+    let enrs = enrsRaw;
+    if (!eErr && enrsRaw && branch_id) {
+      const teamIds = enrsRaw.map((e: any) => e.team_id).filter(Boolean);
+      const teamBranchMap: Record<string, string | null> = {};
+      if (teamIds.length) {
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('id, branch_id')
+          .in('id', teamIds);
+        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
+      }
+      enrs = enrsRaw.filter((e: any) =>
+        !e.team_id || teamBranchMap[e.team_id] === branch_id
+      );
+    }
     if (eErr || !enrs?.length) return res.json({ sessions: [] });
 
     const allSchoolIds = [...new Set(enrs.map((e: any) => e.school_id))];
@@ -821,16 +837,29 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'unauthorized' });
 
-    // Si viene branch_id, primero recolectamos los enrollment IDs de esa sede
-    // para filtrar session_bookings por enrollment (las bookings no tienen
-    // branch_id propio, pero heredan el de su enrollment).
+    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
+    // derivamos la sede via teams.branch_id. Primero recolectamos los
+    // enrollment IDs del atleta cuyo team este en la sede solicitada.
+    // Enrollments sin team_id se dejan pasar (plan a nivel escuela).
     let branchEnrollmentIds: string[] | null = null;
     if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id').eq('status', 'active').eq('branch_id', branch_id);
+      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
       if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
       else branchEnrQ = branchEnrQ.eq('user_id', userId);
       const { data: branchEnrs } = await branchEnrQ;
-      branchEnrollmentIds = (branchEnrs || []).map(e => e.id);
+
+      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
+      const teamBranchMap: Record<string, string | null> = {};
+      if (teamIds.length) {
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('id, branch_id')
+          .in('id', teamIds);
+        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
+      }
+      branchEnrollmentIds = (branchEnrs || [])
+        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
+        .map((e: any) => e.id);
     }
 
     // ── 1. Fetch de regular bookings (session_bookings) ────────────────────
@@ -860,7 +889,7 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
     let enrQ = supabase.from('enrollments').select('id').eq('status', 'active');
     if (child_id) enrQ = enrQ.eq('child_id', child_id);
     else enrQ = enrQ.eq('user_id', userId);
-    if (branch_id) enrQ = enrQ.eq('branch_id', branch_id);
+    if (branchEnrollmentIds) enrQ = enrQ.in('id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
     const { data: activeEnrs } = await enrQ;
     const activeEnrIds = (activeEnrs || []).map(e => e.id);
 
@@ -1092,15 +1121,27 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
 
     const today = todayInBogota();
 
-    // Multi-tenant: si el atleta escogio una sede, limitamos los enrollments
-    // y las bookings asociadas a esa sede.
+    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
+    // asi que derivamos la sede via teams.branch_id.
     let branchEnrollmentIds: string[] | null = null;
     if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id').eq('status', 'active').eq('branch_id', branch_id);
+      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
       if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
       else branchEnrQ = branchEnrQ.eq('user_id', userId);
       const { data: branchEnrs } = await branchEnrQ;
-      branchEnrollmentIds = (branchEnrs || []).map(e => e.id);
+
+      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
+      const teamBranchMap: Record<string, string | null> = {};
+      if (teamIds.length) {
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('id, branch_id')
+          .in('id', teamIds);
+        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
+      }
+      branchEnrollmentIds = (branchEnrs || [])
+        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
+        .map((e: any) => e.id);
     }
 
     // ── 1. Fetch de regular bookings futuros ───────────────────────────────
@@ -1255,14 +1296,27 @@ router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res:
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'unauthorized' });
 
-    // Multi-tenant: si escogio sede, restringimos a enrollments de esa sede.
+    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
+    // asi que derivamos la sede via teams.branch_id.
     let branchEnrollmentIds: string[] | null = null;
     if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id').eq('status', 'active').eq('branch_id', branch_id);
+      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
       if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
       else branchEnrQ = branchEnrQ.eq('user_id', userId);
       const { data: branchEnrs } = await branchEnrQ;
-      branchEnrollmentIds = (branchEnrs || []).map(e => e.id);
+
+      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
+      const teamBranchMap: Record<string, string | null> = {};
+      if (teamIds.length) {
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('id, branch_id')
+          .in('id', teamIds);
+        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
+      }
+      branchEnrollmentIds = (branchEnrs || [])
+        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
+        .map((e: any) => e.id);
     }
 
     let q = supabase.from('facility_reservations')
