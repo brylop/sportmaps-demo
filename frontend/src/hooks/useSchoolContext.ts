@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { emailClient } from '@/lib/email-client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -110,8 +111,12 @@ function useSchoolContextManager(): SchoolContext {
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
 
+    const queryClient = useQueryClient();
+
     // Track the current user ID to detect user changes
     const currentUserIdRef = useRef<string | null>(null);
+    // Track the previous school ID so we can invalidate stale caches on switch
+    const previousSchoolIdRef = useRef<string | null>(null);
 
     // Reset all school state (called on sign-out or user change)
     const resetState = useCallback(() => {
@@ -273,11 +278,33 @@ function useSchoolContextManager(): SchoolContext {
 
 
     const selectSchool = useCallback(async (school: SchoolRole) => {
+        const previousSchoolId = previousSchoolIdRef.current;
+        const isSwitch = previousSchoolId && previousSchoolId !== school.schoolId;
+
+        // Update BFF header synchronously so any query fired mid-render hits
+        // the right tenant (don't wait for the useEffect on activeSchoolId).
+        bffClient.setSchoolId(school.schoolId);
+
         setActiveSchoolId(school.schoolId);
         setActiveSchoolName(school.schoolName);
         setCurrentUserRole(school.role);
         setActiveBranchId(school.branchId);
         setIsGlobalAdmin(!!school.isGlobal);
+
+        // When switching to a different school, purge any cached query whose
+        // key references the old schoolId. Prevents the UI from flashing stale
+        // data for a few ms while the new queries refetch.
+        if (isSwitch) {
+            queryClient.removeQueries({
+                predicate: (query) => query.queryKey.some(
+                    (k) => typeof k === 'string' && k === previousSchoolId
+                ),
+            });
+            // Force refetch of active school-scoped queries so data appears ASAP.
+            queryClient.invalidateQueries({ refetchType: 'active' });
+        }
+
+        previousSchoolIdRef.current = school.schoolId;
 
         // Fetch branch count and data (for display purposes)
         const { data: branchesData, count } = await supabase
@@ -299,7 +326,7 @@ function useSchoolContextManager(): SchoolContext {
         // Clear branding when switching schools to avoid "flash" of previous branding
         setSchoolBranding(null);
         localStorage.setItem(STORAGE_KEY_ACTIVE_SCHOOL, school.schoolId);
-    }, []);
+    }, [queryClient]);
 
     const switchSchool = (schoolId: string, branchId: string | null = null) => {
         // First try exact match
