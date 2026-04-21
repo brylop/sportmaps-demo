@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { bffClient } from '@/lib/api/bffClient';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 // Types for staff and facilities
 interface Staff {

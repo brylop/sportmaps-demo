@@ -1,336 +1,312 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSearchParams, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { ErrorState } from '@/components/common/ErrorState';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Calendar, CheckCircle2, XCircle, Clock, AlertCircle, Dumbbell, User } from 'lucide-react';
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
-interface ChildItem {
-  id: string;
-  full_name: string;
-}
-
-interface AttendanceRecord {
-  id: string;
-  child_id: string;
-  attendance_date: string;
-  status: string;
-  team_id: string;
-  teamName?: string;
-  sessionFinalized?: boolean;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive'; icon: JSX.Element }> = {
-  present: {
-    label: 'Asistió',
-    variant: 'default',
-    icon: <CheckCircle className="w-5 h-5 text-green-500" />,
-  },
-  late: {
-    label: 'Tarde',
-    variant: 'secondary',
-    icon: <Clock className="w-5 h-5 text-yellow-500" />,
-  },
-  excused: {
-    label: 'Excusado',
-    variant: 'secondary',
-    icon: <AlertCircle className="w-5 h-5 text-blue-500" />,
-  },
-  absent: {
-    label: 'Faltó',
-    variant: 'destructive',
-    icon: <XCircle className="w-5 h-5 text-red-500" />,
-  },
-};
-
-// ── Componente ────────────────────────────────────────────────────────────────
 export default function AttendancePage() {
   const { user } = useAuth();
-  const [selectedChildId, setSelectedChildId] = useState<string>('');
+  const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedChildId, setSelectedChildId] = useState<string>(id || searchParams.get('childId') || '');
 
   // ── 1. Hijos del padre ──────────────────────────────────────────────────
-  const { data: children = [], isLoading: loadingChildren } = useQuery<ChildItem[]>({
-    queryKey: ['parent-children', user?.id],
+  const { data: children = [], isLoading: loadingChildren } = useQuery({
+    queryKey: ['parent-children-attendance', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('children')
-        .select('id, full_name')
+        .select('id, full_name, avatar_url')
         .eq('parent_id', user?.id)
         .order('full_name');
       if (error) throw error;
-      return data as ChildItem[];
+      return data;
     },
     enabled: !!user?.id,
   });
 
-  // ── 2. Registros de asistencia del hijo seleccionado ────────────────────
-  const {
-    data: records = [],
-    isLoading: loadingRecords,
-    error,
-    refetch,
-  } = useQuery<AttendanceRecord[]>({
-    queryKey: ['parent-attendance', selectedChildId],
+  // Sincronizar estado si cambia el query param
+  useEffect(() => {
+    const childId = searchParams.get('childId');
+    if (childId && childId !== selectedChildId) {
+      setSelectedChildId(childId);
+    }
+  }, [searchParams]);
+
+  const handleChildChange = (id: string) => {
+    setSelectedChildId(id);
+    setSearchParams({ childId: id });
+  };
+
+  // ── 2. Asistencia escuela ───────────────────────────────────────────────
+  const { data: attendance, isLoading: loadingAttendance } = useQuery({
+    queryKey: ['attendance', selectedChildId],
     queryFn: async () => {
-      if (!selectedChildId) return [];
-
-      // Traer registros de attendance_records
-      const { data: attendanceData, error: attErr } = await supabase
-        .from('attendance_records')
-        .select('child_id, attendance_date, status, team_id')
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
         .eq('child_id', selectedChildId)
-        .order('attendance_date', { ascending: false });
-
-      if (attErr) throw attErr;
-      if (!attendanceData || attendanceData.length === 0) return [];
-
-      // Resolver nombres de equipos
-      const teamIds = [...new Set(attendanceData.map((r: any) => r.team_id))] as string[];
-      const { data: teamsData } = await supabase
-        .from('teams')
-        .select('id, name')
-        .in('id', teamIds);
-      const teamMap = Object.fromEntries((teamsData || []).map((t: any) => [t.id, t.name]));
-
-      // Resolver estado de sesión (finalizada o no) para cada registro
-      const dates = [...new Set(attendanceData.map((r: any) => r.attendance_date))] as string[];
-      const { data: sessionsData } = await (supabase
-        .from('attendance_sessions' as any)
-        .select('team_id, session_date, finalized')
-        .in('team_id', teamIds)
-        .in('session_date', dates) as any);
-
-      // Mapa: `${team_id}_${session_date}` → finalized
-      const sessionMap = Object.fromEntries(
-        (sessionsData || []).map((s: any) => [`${s.team_id}_${s.session_date}`, s.finalized])
-      );
-
-      return attendanceData.map((r: any, i: number) => ({
-        id: `${r.child_id}_${r.attendance_date}_${r.team_id}_${i}`,
-        child_id: r.child_id,
-        attendance_date: r.attendance_date,
-        status: r.status,
-        team_id: r.team_id,
-        teamName: teamMap[r.team_id] ?? '—',
-        sessionFinalized: sessionMap[`${r.team_id}_${r.attendance_date}`] ?? false,
-      }));
+        .order('class_date', { ascending: false });
+      if (error) throw error;
+      return data;
     },
     enabled: !!selectedChildId,
   });
 
-  // ── Stats ────────────────────────────────────────────────────────────────
-  const stats = records.length > 0
-    ? {
-      total: records.length,
-      present: records.filter((r) => r.status === 'present').length,
-      late: records.filter((r) => r.status === 'late').length,
-      excused: records.filter((r) => r.status === 'excused').length,
-      absent: records.filter((r) => r.status === 'absent').length,
-    }
-    : null;
+  // ── 3. Sesiones PT ──────────────────────────────────────────────────────
+  const { data: ptSessions } = useQuery({
+    queryKey: ['child-pt-attendance', selectedChildId],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('trainer_session_plans')
+        .select('id, name, status, session_date, trainer_id')
+        .eq('client_id', selectedChildId)
+        .in('status', ['completed', 'assigned'])
+        .order('session_date', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!selectedChildId,
+  });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'present': return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+      case 'absent':  return <XCircle className="h-5 w-5 text-red-500" />;
+      case 'late':    return <Clock className="h-5 w-5 text-yellow-500" />;
+      default:        return <AlertCircle className="h-5 w-5 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'present': return <Badge className="bg-green-500/20 text-green-700 border-green-500/30">Presente</Badge>;
+      case 'absent':  return <Badge variant="destructive" className="bg-red-500/20 text-red-700 border-red-500/30">Ausente</Badge>;
+      case 'late':    return <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/30">Tardanza</Badge>;
+      default:        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const stats = {
+    total: attendance?.length || 0,
+    present: attendance?.filter(a => a.status === 'present').length || 0,
+    late: attendance?.filter(a => a.status === 'late').length || 0,
+    absent: attendance?.filter(a => a.status === 'absent').length || 0,
+  };
+
+  const attendanceRate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+  const hasPT = (ptSessions?.length ?? 0) > 0;
+  const ptPresent = ptSessions?.filter(s => s.status === 'completed').length ?? 0;
+
+  if (loadingChildren || (loadingAttendance && selectedChildId)) {
+    return <LoadingSpinner fullScreen text="Cargando asistencias..." />;
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Asistencias</h1>
-        <p className="text-muted-foreground mt-1">
-          Controla la asistencia de tus hijos a sus clases deportivas
-        </p>
-      </div>
+      {/* Header unificado con selector */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Registro de Asistencia</h1>
+          <p className="text-muted-foreground mt-1">
+            Seguimiento de puntualidad y constancia deportiva
+          </p>
+        </div>
 
-      {/* Selector de hijo */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">Seleccionar Hijo</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadingChildren ? (
-            <LoadingSpinner text="Cargando..." />
-          ) : (
-            <Select value={selectedChildId} onValueChange={setSelectedChildId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un hijo para ver sus asistencias" />
-              </SelectTrigger>
-              <SelectContent>
-                {children.map((child) => (
-                  <SelectItem key={child.id} value={child.id}>
-                    {child.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Contenido */}
-      {selectedChildId && (
-        <>
-          {loadingRecords ? (
-            <LoadingSpinner text="Cargando asistencias..." />
-          ) : error ? (
-            <ErrorState
-              title="Error al cargar"
-              message="No pudimos cargar las asistencias"
-              onRetry={refetch}
-            />
-          ) : (
-            <>
-              {/* Stats */}
-              {stats && (
-                <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
-                  <Card className="border-border/50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
-                          <Calendar className="h-4 w-4 text-blue-500" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Clases Totales</p>
-                          <p className="text-2xl font-bold">{stats.total}</p>
-                        </div>
+        <Card className="border-primary/20 bg-primary/5 min-w-[280px]">
+          <CardContent className="p-3 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
+              <User className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] uppercase font-black tracking-widest text-primary/70 mb-1">Deportista Seleccionado</p>
+              <Select value={selectedChildId} onValueChange={handleChildChange}>
+                <SelectTrigger className="h-8 border-none bg-transparent p-0 shadow-none focus:ring-0 text-foreground font-bold">
+                  <SelectValue placeholder="Elegir deportista..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/50">
+                  {children.map((child: any) => (
+                    <SelectItem key={child.id} value={child.id} className="rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-6 w-6 border border-primary/20">
+                          <AvatarImage src={child.avatar_url} />
+                          <AvatarFallback className="bg-primary text-[10px] text-white">
+                            {child.full_name?.charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>{child.full_name}</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Asistencias</p>
-                          <p className="text-2xl font-bold">{stats.present}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
-                          <Clock className="h-4 w-4 text-amber-500" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Tardanzas</p>
-                          <p className="text-2xl font-bold">{stats.late}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
-                          <AlertCircle className="h-4 w-4 text-blue-500" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Excusadas</p>
-                          <p className="text-2xl font-bold">{stats.excused}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Ausencias</p>
-                          <p className="text-2xl font-bold">{stats.absent}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Historial */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-primary" />
-                    <CardTitle>Historial de Asistencias</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {records.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">
-                      No hay registros de asistencia aún.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {records.map((record) => {
-                        const s = statusMap[record.status] ?? {
-                          label: record.status,
-                          variant: 'secondary' as const,
-                          icon: <AlertCircle className="w-5 h-5" />,
-                        };
-                        return (
-                          <div
-                            key={record.id}
-                            className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
-                          >
-                            <div className="flex items-center gap-4">
-                              {s.icon}
-                              <div>
-                                <p className="font-medium">
-                                  {new Date(record.attendance_date + 'T12:00:00').toLocaleDateString('es-CO', {
-                                    weekday: 'long',
-                                    year: 'numeric',
-                                    month: 'long',
-                                    day: 'numeric',
-                                  })}
-                                </p>
-                                <p className="text-sm text-muted-foreground">{record.teamName}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={s.variant}>{s.label}</Badge>
-                              {!record.sessionFinalized && (
-                                <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
-                                  En revisión
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </>
-      )}
-
-      {/* Estado vacío */}
-      {!selectedChildId && !loadingChildren && children.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-semibold mb-2">Selecciona un hijo</h3>
-            <p className="text-muted-foreground">
-              Elige un hijo del menú superior para ver sus asistencias
-            </p>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </CardContent>
         </Card>
-      )}
+      </div>
 
-      {!loadingChildren && children.length === 0 && (
+      {selectedChildId ? (
+        <>
+          {/* Summary Cards Premium */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-primary/20 shadow-lg shadow-primary/5 overflow-hidden group">
+              <CardContent className="p-5 relative">
+                <Calendar className="absolute -right-2 -bottom-2 h-16 w-16 text-primary/5 group-hover:scale-110 transition-transform duration-700" />
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary">
+                    <Calendar className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Tasa</p>
+                </div>
+                <p className="text-4xl font-black text-primary">{attendanceRate}%</p>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-green-500/10 via-green-500/5 to-transparent border-green-500/20 shadow-lg shadow-green-500/5 overflow-hidden group">
+              <CardContent className="p-5 relative">
+                <CheckCircle2 className="absolute -right-2 -bottom-2 h-16 w-16 text-green-500/5 group-hover:scale-110 transition-transform duration-700" />
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-10 w-10 rounded-xl bg-green-500/20 flex items-center justify-center text-green-500">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Presente</p>
+                </div>
+                <p className="text-4xl font-black text-green-600 dark:text-green-500">{stats.present}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-red-500/10 via-red-500/5 to-transparent border-red-500/20 shadow-lg shadow-red-500/5 overflow-hidden group">
+              <CardContent className="p-5 relative">
+                <XCircle className="absolute -right-2 -bottom-2 h-16 w-16 text-red-500/5 group-hover:scale-110 transition-transform duration-700" />
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-10 w-10 rounded-xl bg-red-500/20 flex items-center justify-center text-red-500">
+                    <XCircle className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Ausente</p>
+                </div>
+                <p className="text-4xl font-black text-red-600 dark:text-red-500">{stats.absent}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-yellow-500/10 via-yellow-500/5 to-transparent border-yellow-500/20 shadow-lg shadow-yellow-500/5 overflow-hidden group">
+              <CardContent className="p-5 relative">
+                <Clock className="absolute -right-2 -bottom-2 h-16 w-16 text-yellow-500/5 group-hover:scale-110 transition-transform duration-700" />
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="h-10 w-10 rounded-xl bg-yellow-500/20 flex items-center justify-center text-yellow-500">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Tardanza</p>
+                </div>
+                <p className="text-4xl font-black text-yellow-600 dark:text-yellow-500">{stats.late}</p>
+              </CardContent>
+            </Card>
+
+            {hasPT && (
+              <Card className="bg-gradient-to-br from-indigo-500/10 via-indigo-500/5 to-transparent border-indigo-500/20 shadow-lg overflow-hidden group md:col-span-4">
+                <CardContent className="p-4 flex items-center gap-6">
+                  <div className="h-10 w-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-indigo-500 shrink-0">
+                    <Dumbbell className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Entrenador Personal</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      <span className="text-2xl font-black text-indigo-500 mr-1">{ptPresent}</span>
+                      sesiones completadas de {ptSessions?.length ?? 0} asignadas
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <Card className="border-border/50 shadow-sm overflow-hidden">
+            <CardHeader className="bg-muted/30 border-b border-border/40">
+              <CardTitle className="text-lg font-bold flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Historial de Clases
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/40">
+                {attendance?.map((record) => (
+                  <div key={record.id} className="flex items-center justify-between p-4 hover:bg-accent/30 transition-all group/row">
+                    <div className="flex items-center gap-4">
+                      <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-colors ${
+                        record.status === 'present' ? 'bg-green-500/10 text-green-500' :
+                        record.status === 'absent' ? 'bg-red-500/10 text-red-500' :
+                        'bg-yellow-500/10 text-yellow-500'
+                      }`}>
+                        {getStatusIcon(record.status)}
+                      </div>
+                      <div>
+                        <p className="font-bold text-foreground group-hover/row:text-primary transition-colors capitalize">
+                          {new Date(record.class_date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tighter mt-0.5">
+                          Año {new Date(record.class_date).getFullYear()}
+                        </p>
+                      </div>
+                    </div>
+                    {getStatusBadge(record.status)}
+                  </div>
+                ))}
+                {(!attendance || attendance.length === 0) && (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <p>No hay registros de asistencia escolar</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {hasPT && (
+            <Card className="border-border/50 shadow-sm overflow-hidden">
+              <CardHeader className="bg-muted/30 border-b border-border/40">
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <Dumbbell className="h-5 w-5 text-primary" />
+                  Sesiones de Entrenador Personal
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-border/40">
+                  {ptSessions?.map(session => (
+                    <div key={session.id} className="flex items-center justify-between p-4 hover:bg-accent/30 transition-all group/row">
+                      <div className="flex items-center gap-4">
+                        <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-colors ${
+                          session.status === 'completed' ? 'bg-green-500/10 text-green-500' : 'bg-primary/10 text-primary'
+                        }`}>
+                          {session.status === 'completed' ? <CheckCircle2 className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
+                        </div>
+                        <div>
+                          <p className="font-bold text-foreground group-hover/row:text-primary transition-colors">{session.name}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase font-black tracking-tighter mt-0.5">
+                            {new Date(session.session_date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge className={session.status === 'completed' ? 'bg-green-500/20 text-green-700 border-green-500/30' : 'bg-primary/10 text-primary border-primary/20'}>
+                        {session.status === 'completed' ? '✅ Completada' : '⏳ Pendiente'}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      ) : (
         <Card>
-          <CardContent className="pt-6 text-center text-muted-foreground">
-            No tienes hijos registrados en la plataforma.
+          <CardContent className="pt-6 text-center">
+            <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground opactiy-20" />
+            <h3 className="text-lg font-semibold mb-2">Selecciona un deportista</h3>
+            <p className="text-muted-foreground">Elige un hijo para ver su historial completo de asistencias</p>
           </CardContent>
         </Card>
       )}

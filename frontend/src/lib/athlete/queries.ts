@@ -306,3 +306,104 @@ export function getAgeCategory(dob: string | Date): string {
   if (age >= 16 && age <= 17) return 'Senior';
   return 'Open';
 }
+
+// ─── BFF — Athlete Training (PT Sessions) ───────────────────
+import { bffClient } from '@/lib/api/bffClient';
+
+export interface PtSessionToday {
+  id: string;
+  name: string;
+  status: 'assigned' | 'in_progress' | 'completed';
+  session_date: string;
+  custom_notes: string | null;
+  blocks: any[];
+  trainer_profiles: {
+    display_name: string;
+    avatar_url: string | null;
+  } | null;
+}
+
+export interface TrainingTodayResponse {
+  date: string;
+  pt_sessions: PtSessionToday[];
+  free_activity: any[]; // Using any to avoid conflict with local TrainingLog if types differ slightly
+}
+
+export interface UnifiedStats {
+  sessions_total: number;
+  sessions_pt: number;
+  sessions_school: number;
+  sessions_free: number;
+  total_minutes: number;
+  minutes_pt: number;
+  minutes_school: number;
+  minutes_free: number;
+  total_calories: number;
+  calories_pt: number;
+  calories_free: number;
+  period_days: number;
+  context: string;
+}
+
+export interface StatSource {
+  type: 'pt' | 'school';
+  school_id: string;
+  name: string;
+}
+
+export interface ExerciseResult {
+  exercise_key: string;
+  exercise_name: string;
+  set_number: number;
+  reps_completed?: number | null;
+  weight_kg?: number | null;
+  duration_seconds?: number | null;
+  distance_m?: number | null;
+  rpe?: number | null;
+  notes?: string | null;
+}
+
+export async function getAthleteTrainingToday(): Promise<TrainingTodayResponse> {
+  return bffClient.get<TrainingTodayResponse>('/api/v1/athlete/training/today');
+}
+
+export async function getAthleteUnifiedStats(
+  context: 'all' | 'pt' | 'school' | 'free' = 'all',
+  sourceId?: string,
+  days = 30,
+): Promise<UnifiedStats> {
+  const params = new URLSearchParams({ context, days: String(days) });
+  if (sourceId) params.set('source_id', sourceId);
+  return bffClient.get<UnifiedStats>(`/api/v1/athlete/stats?${params}`);
+}
+
+export async function getAthleteStatSources(): Promise<StatSource[]> {
+  return bffClient.get<StatSource[]>('/api/v1/athlete/stats/sources');
+}
+
+export async function postSessionExerciseResults(
+  planId: string,
+  results: ExerciseResult[],
+): Promise<void> {
+  await bffClient.post(`/api/v1/athlete/training/session/${planId}/exercise-results`, { results });
+}
+
+export async function getBodyMetrics(limit = 30) {
+  return bffClient.get<any[]>(`/api/v1/athlete/training/body-metrics?limit=${limit}`);
+}
+
+export async function postBodyMetrics(data: {
+  measured_at: string;
+  weight_kg?: number | null;
+  height_cm?: number | null;
+  body_fat_pct?: number | null;
+  muscle_mass_kg?: number | null;
+  waist_cm?: number | null;
+  hip_cm?: number | null;
+  chest_cm?: number | null;
+  arm_cm?: number | null;
+  thigh_cm?: number | null;
+  notes?: string | null;
+}) {
+  return bffClient.post('/api/v1/athlete/training/body-metrics', data);
+}

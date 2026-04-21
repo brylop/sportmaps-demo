@@ -319,12 +319,12 @@ const App = () => (
                       } />
                       <Route path="children/:id/progress" element={
                         <ProtectedRoute allowedRoles={['parent']}>
-                          <ChildProgressPage />
+                          <AcademicProgressPage />
                         </ProtectedRoute>
                       } />
                       <Route path="children/:id/attendance" element={
                         <ProtectedRoute allowedRoles={['parent']}>
-                          <ChildAttendancePage />
+                          <AttendancePage />
                         </ProtectedRoute>
                       } />
                       <Route path="academic-progress" element={

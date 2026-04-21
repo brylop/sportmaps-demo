@@ -23,7 +23,7 @@ import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
 import epaycoRouter from './routes/epayco';
 import epaycoWebhookRouter from './routes/epayco-webhook';
-import { requireTrainerAuth } from './middlewares/authMiddleware';
+import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
 import systemRouter from './routes/system';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
@@ -42,7 +42,12 @@ import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
 import trainerWorkspaceRouter from './routes/trainer/workspace';
 import trainerClientsRouter from './routes/trainer/clients';
+import trainerAvailabilityRouter from './routes/trainer/availability';
 import trainerRoutinesRouter from './routes/trainer/routines';
+import trainerTrainingPlansRouter from './routes/trainer/training-plans';
+
+import athleteStatsRouter from './routes/athlete/stats';
+import athleteTrainingRouter from './routes/athlete/training';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,7 +58,7 @@ app.set('trust proxy', 1);
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 200,
+    max: process.env.NODE_ENV === 'production' ? 200 : 2000,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Demasiadas peticiones. Intenta de nuevo en 15 minutos.' },
@@ -164,7 +169,13 @@ app.use('/api/v1/trainer', generalLimiter, trainerProfileRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerOnboardingRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWorkspaceRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerAvailabilityRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPlansRouter);
+
+// Rutas autenticadas del atleta: usa requireAthleteAuth
+app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);
+app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

@@ -27,11 +27,13 @@ router.get('/search-profile', async (req: Request, res: Response) => {
           .from('profiles')
           .select('id, full_name, email, phone')
           .eq('email', q.toLowerCase())
+          .eq('role', 'athlete')
           .maybeSingle()
       : await supabase
           .from('profiles')
           .select('id, full_name, email, phone')
           .or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`)
+          .eq('role', 'athlete')
           .maybeSingle();
 
     if (error) throw error;
@@ -443,6 +445,149 @@ router.put('/clients/:clientId/progress/:progressId', async (req: Request, res: 
     if (error) throw error;
     res.json(data);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+//  BODY METRICS — /api/v1/trainer/clients/:clientId/body-metrics
+// ==========================================
+router.get('/clients/:clientId/body-metrics', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('measured_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/clients/:clientId/body-metrics', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const { 
+      client_type, weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
+      waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, notes, measured_at 
+    } = req.body;
+
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .insert({
+        client_id: clientId,
+        client_type,
+        weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
+        waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm,
+        notes,
+        measured_at: measured_at || new Date().toISOString(),
+        recorded_by: req.user.id,
+        source: 'trainer',
+        school_id: req.schoolId
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/clients/:clientId/body-metrics/:metricId', async (req: Request, res: Response) => {
+  try {
+    const { metricId } = req.params;
+    const updates = req.body;
+    delete updates.id;
+    delete updates.client_id;
+    delete updates.recorded_by;
+
+    const { data, error } = await supabase
+      .from('body_metrics')
+      .update(updates)
+      .eq('id', metricId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/clients/:clientId/body-metrics/:metricId', async (req: Request, res: Response) => {
+  try {
+    const { metricId } = req.params;
+    const { error } = await supabase
+      .from('body_metrics')
+      .delete()
+      .eq('id', metricId);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+//  GET /api/v1/trainer/clients/:id/summary
+// ==========================================
+// ==========================================
+//  GET /api/v1/trainer/clients/:clientId/summary
+//  Resumen PT del cliente usando get_pt_client_summary
+// ==========================================
+router.get('/clients/:clientId/summary', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const schoolId     = req.schoolId;
+    const type         = req.query.type as string ?? 'adult';
+
+    // Buscar el enrollment activo de este cliente en la escuela del PT
+    let enrollmentQuery = supabase
+      .from('enrollments')
+      .select('id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active');
+
+    if (type === 'child') {
+      enrollmentQuery = enrollmentQuery.eq('child_id', clientId);
+    } else if (type === 'unregistered') {
+      enrollmentQuery = enrollmentQuery.eq('unregistered_athlete_id', clientId);
+    } else {
+      enrollmentQuery = enrollmentQuery.eq('user_id', clientId).is('child_id', null);
+    }
+
+    const { data: enrollment, error: enrErr } = await enrollmentQuery
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (enrErr) throw enrErr;
+
+    // Si no tiene enrollment, retornar resumen vacío sin error
+    if (!enrollment) {
+      return res.json({
+        enrollment_id:       null,
+        plan_name:           null,
+        price:               null,
+        max_sessions:        null,
+        sessions_used:       0,
+        sessions_completed:  0,
+        sessions_scheduled:  0,
+        sessions_available:  null,
+        start_date:          null,
+        end_date:            null,
+        status:              null,
+      });
+    }
+
+    const { data, error } = await supabase.rpc('get_pt_client_summary', {
+      p_enrollment_id: enrollment.id,
+    });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

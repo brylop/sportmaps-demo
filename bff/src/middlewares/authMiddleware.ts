@@ -5,7 +5,14 @@ import { supabase } from '../config/supabase';
 declare global {
     namespace Express {
         interface Request {
-            user: { id: string; email: string };
+            user: { 
+                id: string; 
+                email: string;
+                user_metadata?: {
+                    full_name?: string;
+                    [key: string]: any;
+                };
+            };
             schoolId: string;
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
@@ -197,7 +204,11 @@ export const requireAuth = async (
 
         const member = members[0] as any;
 
-        req.user = { id: user.id, email: user.email! };
+        req.user = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
         req.schoolId = member.school_id;
         req.branchId = member.branch_id ?? null;
         req.role = member.role;
@@ -388,7 +399,11 @@ export const requireMarketplaceAuth = async (
             return res.status(500).json({ error: 'Error interno verificando permisos.' });
         }
 
-        req.user = { id: user.id, email: user.email! };
+        req.user = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
         req.role = (profile?.role as Request['role']) || 'athlete';
         // schoolId y branchId no aplican para vendor routes
         req.schoolId = '';
@@ -449,14 +464,22 @@ export const requireTrainerAuth = async (
                 });
             }
 
-            req.user     = { id: user.id, email: user.email! };
+            req.user     = { 
+                id: user.id, 
+                email: user.email!, 
+                user_metadata: user.user_metadata 
+            };
             req.schoolId = '';
             req.branchId = null;
             req.role     = 'owner' as Request['role'];
             return next();
         }
 
-        req.user     = { id: user.id, email: user.email! };
+        req.user     = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
         req.schoolId = school.id;
         req.branchId = null;
         req.role     = 'owner' as Request['role'];
@@ -492,11 +515,71 @@ export const optionalAuth = async (
             return next();
         }
 
-        req.user = { id: user.id, email: user.email! };
+        req.user = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
 
         next();
     } catch (err) {
         (req as any).user = null;
         next();
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireAthleteAuth — Middleware para atletas y padres (self-service).
+// No requiere school_members si solo accede a su propia información de perfil.
+// ─────────────────────────────────────────────────────────────────────────────
+export const requireAthleteAuth = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token de autorización requerido.' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+        if (authError || !user) {
+            return res.status(401).json({ error: 'Token inválido o expirado.' });
+        }
+
+        // Leer perfil para confirmar rol
+        const { data: profile, error: profileErr } = await supabase
+            .from('profiles')
+            .select('id, role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        if (profileErr) {
+            req.log?.error({ err: profileErr }, 'Error consultando profile para athlete auth');
+            return res.status(500).json({ error: 'Error interno verificando permisos.' });
+        }
+
+        const role = profile?.role as string;
+        if (!['athlete', 'parent', 'owner', 'personal_trainer'].includes(role)) {
+            return res.status(403).json({
+                error: 'Acceso denegado. Se requiere rol de atleta o padre.',
+            });
+        }
+
+        req.user     = { 
+            id: user.id, 
+            email: user.email!, 
+            user_metadata: user.user_metadata 
+        };
+        req.role     = role as Request['role'];
+        req.schoolId = ''; // No aplica contexto de escuela obligatoria
+        req.branchId = null;
+
+        next();
+    } catch (err) {
+        next(err);
     }
 };

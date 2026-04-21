@@ -61,6 +61,11 @@ const AdultExistingSchema = EnrollmentBase.extend({
   user_id: z.string().uuid(),   // profiles.id
 });
 
+const ChildExistingSchema = EnrollmentBase.extend({
+  type:     z.literal('child_existing'),
+  child_id: z.string().uuid(),
+});
+
 const AdultInviteSchema = z.object({
   type:  z.literal('adult_invite'),
   email: z.string().email(),
@@ -81,6 +86,7 @@ const UnregisteredAdultSchema = EnrollmentBase.extend({
 const CreateOneSchema = z.discriminatedUnion('type', [
   ChildSchema,
   AdultExistingSchema,
+  ChildExistingSchema,
   AdultInviteSchema,
   UnregisteredAdultSchema,
 ]);
@@ -501,6 +507,81 @@ router.post(
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           message: `${profile.full_name} inscrito correctamente. ${enrollmentsCreated} inscripción(es) creada(s).`,
+        });
+      }
+
+      // ══════════════════════════════════════════════════════════════════════
+      // FLUJO E — Menor ya registrado en children
+      // ══════════════════════════════════════════════════════════════════════
+      if (data.type === 'child_existing') {
+        const { child_id } = data;
+
+        // 1. Verificar que el menor exista
+        const { data: child } = await supabase
+          .from('children')
+          .select('id, full_name, school_id')
+          .eq('id', child_id)
+          .maybeSingle();
+
+        if (!child) {
+          return res.status(404).json({ error: 'No se encontró el registro del menor.' });
+        }
+
+        // 2. Enrollment de EQUIPO (independiente)
+        let enrollmentsCreated = 0;
+        let teamName = 'Equipo';
+        if (data.team_id) {
+          const { data: team } = await supabase.from('teams').select('name').eq('id', data.team_id).single();
+          if (team) teamName = team.name;
+
+          const eid = await createEnrollment({
+            childId: child_id, schoolId,
+            status: 'active',
+            startDate: data.start_date,
+            teamId: data.team_id,
+            log: req.log,
+          });
+          if (eid) enrollmentsCreated++;
+        }
+
+        // 3. Enrollment de PLAN (independiente)
+        if (data.offering_plan_id && data.offering_id) {
+          const eid = await createEnrollment({
+            childId: child_id, schoolId,
+            status: 'active',
+            startDate: data.start_date,
+            offeringPlanId: data.offering_plan_id,
+            offeringId: data.offering_id,
+            log: req.log,
+          });
+          if (eid) enrollmentsCreated++;
+        }
+
+        // 4. Pagos proporcionales
+        let paymentCreated = false;
+        if (data.monthly_fee && data.monthly_fee >= 10000) {
+          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+          const { error: payErr } = await supabase.from('payments').insert({
+            child_id:     child_id,
+            school_id:    schoolId,
+            branch_id:    data.branch_id || null,
+            team_id:      data.team_id || null,
+            offering_plan_id: data.offering_plan_id || null,
+            amount:       payCalc.amount,
+            concept:      `Suscripción — ${payCalc.description} — ${child.full_name}`,
+            due_date:     payCalc.dueDate,
+            status:       'pending',
+            payment_type: 'subscription',
+          });
+          if (!payErr) paymentCreated = true;
+        }
+
+        return res.status(201).json({
+          success: true,
+          child_id: child_id,
+          enrollments_created: enrollmentsCreated,
+          payment_created: paymentCreated,
+          message: `${child.full_name} inscrito correctamente. ${enrollmentsCreated} inscripción(es) creada(s).`,
         });
       }
 

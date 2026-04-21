@@ -213,9 +213,46 @@ class StudentsAPI {
     if (teamId) query = query.eq('enrolled_team_id', teamId);
     if (branchId) query = query.eq('branch_id', branchId);
 
-    const { data, error } = await query;
+    const { data: ownAthletes, error } = await query;
     if (error) throw error;
-    return data ?? [];
+
+    // Complemento multi-school — children enrollados en esta escuela
+    // pero cuyo children.school_id apunta a otra escuela
+    const { data: crossEnrollments } = await supabase
+      .from('enrollments')
+      .select('child_id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .not('child_id', 'is', null);
+
+    const ownIds = new Set((ownAthletes ?? []).map((a: any) => a.id));
+    const crossIds = (crossEnrollments ?? [])
+      .map((e: any) => e.child_id)
+      .filter((id: string) => !ownIds.has(id));
+
+    if (crossIds.length === 0) return ownAthletes ?? [];
+
+    const crossData = await bffClient.get<any[]>(
+      `/api/v1/students/children-by-ids?ids=${crossIds.join(',')}`,
+      { 'x-school-id': schoolId }
+    );
+
+    // Normalizar al shape de school_athletes para que el modal los trate igual
+    const extra = (crossData ?? []).map((c: any) => ({
+      id: c.id,
+      full_name: c.full_name,
+      date_of_birth: c.date_of_birth,
+      avatar_url: c.avatar_url,
+      school_id: schoolId,
+      athlete_type: 'child',
+      is_active: true,
+      email: null,
+      parent_email: null,
+      medical_info: c.medical_info ?? null,
+      enrolled_team_id: null,
+    }));
+
+    return [...(ownAthletes ?? []), ...extra];
   }
 
   /**

@@ -40,6 +40,24 @@ const BulkUploadSchema = z.object({
     }).default({ upsert: false }),
 });
 
+// GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const ids = (req.query.ids as string)?.split(',').filter(Boolean);
+        if (!ids?.length) return res.json([]);
+
+        const { data, error } = await supabase
+            .from('children')
+            .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
+            .in('id', ids);
+
+        if (error) throw error;
+        res.json(data ?? []);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── POST /api/v1/students/bulk ────────────────────────────────────────────────
 router.post(
     '/bulk',

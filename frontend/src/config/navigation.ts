@@ -460,6 +460,12 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
+        title: 'Mi Actividad',
+        items: [
+          { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
+        ]
+      },
+      {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/trainer/profile', icon: User },

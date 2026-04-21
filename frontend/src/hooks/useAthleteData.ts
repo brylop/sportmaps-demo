@@ -141,9 +141,66 @@ export function useAthleteDashboardStats() {
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_athlete_dashboard_stats');
       if (error) throw error;
-      return data as AthleteDashboardRPC;
+      return data as unknown as AthleteDashboardRPC;
     },
     enabled: !!user?.id,
     staleTime: 2 * 60 * 1000, // 2 minutes
+  });
+}
+
+import {
+  getAthleteTrainingToday,
+  getAthleteUnifiedStats,
+  getAthleteStatSources,
+  getBodyMetrics,
+  type UnifiedStats,
+  type StatSource,
+  type TrainingTodayResponse,
+} from '@/lib/athlete/queries';
+
+// Sesión de hoy (PT + actividad libre)
+export function useAthleteTrainingToday() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['athlete-training-today', user?.id],
+    queryFn: getAthleteTrainingToday,
+    enabled: !!user?.id,
+    staleTime: 60 * 1000, // 1 minuto
+  });
+}
+
+// Estadísticas unificadas desde BFF (PT + escuela + libre)
+export function useAthleteUnifiedStats(
+  context: 'all' | 'pt' | 'school' | 'free' = 'all',
+  sourceId?: string,
+  days = 30,
+) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['athlete-unified-stats', user?.id, context, sourceId, days],
+    queryFn: () => getAthleteUnifiedStats(context, sourceId, days),
+    enabled: !!user?.id,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+// Fuentes disponibles del atleta (escuelas + entrenadores PT)
+export function useAthleteStatSources() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['athlete-stat-sources', user?.id],
+    queryFn: getAthleteStatSources,
+    enabled: !!user?.id,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+// Métricas corporales del atleta
+export function useBodyMetrics(limit = 30) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['athlete-body-metrics', user?.id, limit],
+    queryFn: () => getBodyMetrics(limit),
+    enabled: !!user?.id,
   });
 }

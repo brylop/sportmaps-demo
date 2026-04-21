@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { useStorage } from '@/hooks/useStorage';
 import { PhoneInput } from '@/components/ui/phone-input';
+import { LocationAutocomplete } from '@/components/events/LocationAutocomplete';
 import { Minus, Plus, Dumbbell, MapPin, Clock, DollarSign, CreditCard, Camera, ChevronRight, ChevronLeft, Check, Search, ChevronsUpDown, Upload, Loader2, Video, Smartphone, Users } from 'lucide-react';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
@@ -83,6 +84,16 @@ export default function TrainerOnboarding() {
     }
   }, [trainerOnboardingStatus, navigate]);
 
+  const formatNumber = (num: string | number) => {
+    if (!num) return '';
+    const cleanNumber = String(num).replace(/\D/g, "");
+    return cleanNumber.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  };
+
+  const parseNumber = (str: string) => {
+    return str.replace(/\D/g, "");
+  };
+
   const getStepData = (step: number): Record<string, any> => {
     switch (step) {
       case 1:
@@ -96,7 +107,7 @@ export default function TrainerOnboarding() {
       case 3:
         return {}; // Disponibilidad: se configura por separado en /trainer/availability
       case 4:
-        return { rate_per_session: parseFloat(rate) || null, rate_currency: 'COP', rate_notes: rateNotes };
+        return { rate_per_session: parseFloat(parseNumber(rate)) || null, rate_currency: 'COP', rate_notes: rateNotes };
       case 5:
         return { 
           payment_settings: { nequi_number: nequi, bank_name: bank },
@@ -116,6 +127,23 @@ export default function TrainerOnboarding() {
 
   const handleNext = async () => {
     if (!token) return;
+
+    // Validaciones de campos obligatorios
+    if (currentStep === 1 && !sport) {
+      toast({ title: 'Campo requerido', description: 'Por favor selecciona tu deporte principal.', variant: 'destructive' });
+      return;
+    }
+    if (currentStep === 6 && !displayName) {
+      toast({ title: 'Campo requerido', description: 'Por favor ingresa tu nombre de perfil o marca.', variant: 'destructive' });
+      return;
+    }
+
+    // El paso 3 es puramente informativo, no enviamos nada al BFF
+    if (currentStep === 3) {
+      setCurrentStep(prev => prev + 1);
+      return;
+    }
+
     setIsLoading(true);
     try {
       await callBff('/onboarding/step', 'POST', { step: currentStep, data: getStepData(currentStep) }, token);
@@ -274,20 +302,48 @@ export default function TrainerOnboarding() {
 
             {currentStep === 2 && (
               <>
-                <div className="space-y-2">
+                <div className="space-y-4">
                   <label className="text-sm font-medium">Modalidad de entrenamiento</label>
-                  <Select value={modality} onValueChange={(v: any) => setModality(v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="presencial">Presencial</SelectItem>
-                      <SelectItem value="virtual">Virtual</SelectItem>
-                      <SelectItem value="ambas">Ambas</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { id: 'presencial', label: 'Presencial', sub: 'En persona', icon: Users },
+                      { id: 'virtual', label: 'Virtual', sub: 'Online / App', icon: Video },
+                      { id: 'ambas', label: 'Híbrido', sub: 'Ambas formas', icon: Smartphone },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setModality(opt.id as any)}
+                        className={cn(
+                          "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all duration-200 gap-2",
+                          modality === opt.id 
+                            ? "border-primary bg-primary/10 shadow-lg shadow-primary/5" 
+                            : "border-border/40 bg-background/50 hover:border-border/80"
+                        )}
+                      >
+                        <div className={cn(
+                          "h-10 w-10 rounded-full flex items-center justify-center",
+                          modality === opt.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                        )}>
+                          <opt.icon className="h-5 w-5" />
+                        </div>
+                        <div className="text-center">
+                          <p className={cn("text-sm font-bold", modality === opt.id ? "text-foreground" : "text-muted-foreground")}>
+                            {opt.label}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-tight">{opt.sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Ciudad</label>
-                  <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Ej: Bogotá, Medellín..." />
+                  <LocationAutocomplete 
+                    value={city} 
+                    onChange={setCity} 
+                    placeholder="Ej: Bogotá" 
+                  />
                 </div>
               </>
             )}
@@ -310,7 +366,7 @@ export default function TrainerOnboarding() {
                         type="button" 
                         className="w-10 flex items-center justify-center border-r border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
                         onClick={() => {
-                          const val = parseInt(rate) || 0;
+                          const val = parseInt(parseNumber(rate)) || 0;
                           if (val >= 5000) setRate(String(val - 5000));
                         }}
                       >
@@ -320,11 +376,10 @@ export default function TrainerOnboarding() {
                         <DollarSign className="absolute left-3 h-4 w-4 text-primary font-bold" />
                         <Input 
                           className="pl-8 border-0 bg-transparent h-full text-base font-bold focus-visible:ring-0 focus-visible:ring-offset-0" 
-                          type="number" 
-                          min={0} 
-                          value={rate} 
-                          onChange={e => setRate(e.target.value)} 
-                          placeholder="80000" 
+                          type="text" 
+                          value={formatNumber(rate)} 
+                          onChange={e => setRate(parseNumber(e.target.value))} 
+                          placeholder="80.000" 
                         />
                         <span className="absolute right-3 text-xs font-bold text-muted-foreground">COP</span>
                       </div>
@@ -332,7 +387,7 @@ export default function TrainerOnboarding() {
                         type="button" 
                         className="w-10 flex items-center justify-center border-l border-border/40 hover:bg-primary/10 hover:text-primary transition-colors text-muted-foreground"
                         onClick={() => {
-                          const val = parseInt(rate) || 0;
+                          const val = parseInt(parseNumber(rate)) || 0;
                           setRate(String(val + 5000));
                         }}
                       >

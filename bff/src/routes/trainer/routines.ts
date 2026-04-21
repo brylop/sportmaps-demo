@@ -16,7 +16,7 @@ router.get('/routines', async (req: Request, res: Response) => {
 
         const { data, error } = await supabase
             .from('trainer_routines')
-            .select('id, name, category, difficulty, estimated_minutes, tags, times_used, is_template, blocks, created_at')
+            .select('id, name, category, difficulty, estimated_minutes, estimated_calories, tags, times_used, is_template, blocks, created_at')
             .eq('school_id', schoolId)
             .eq('trainer_id', trainerId)
             .order('times_used', { ascending: false });
@@ -67,7 +67,7 @@ router.post('/routines', async (req: Request, res: Response) => {
         const { schoolId } = req;
         const { 
             name, category, description, warmup, blocks, 
-            cooldown, estimated_minutes, difficulty, tags, is_template 
+            cooldown, estimated_minutes, estimated_calories, difficulty, tags, is_template 
         } = req.body;
 
         if (!name || !blocks) {
@@ -89,6 +89,7 @@ router.post('/routines', async (req: Request, res: Response) => {
                 blocks,
                 cooldown,
                 estimated_minutes,
+                estimated_calories,
                 difficulty: normalizedDifficulty,
                 tags,
                 is_template: is_template ?? true,
@@ -398,6 +399,49 @@ router.delete('/session-plans/:planId', async (req: Request, res: Response) => {
     } catch (err) {
         (req as any).log?.error({ err }, 'Error deleting trainer session plan');
         res.status(500).json({ error: 'Error al eliminar el plan.' });
+    }
+});
+
+// ── RESULTADOS DE EJERCICIO (Set-by-set) ────────────────────────────────────────
+
+/**
+ * POST /trainer/session-exercise-results
+ * Registra el resultado de una serie específica.
+ */
+router.post('/session-exercise-results', async (req: Request, res: Response) => {
+    try {
+        const { id: trainerId } = req.user;
+        const { 
+            plan_id, athlete_id, exercise_name, set_number, 
+            reps_completed, weight_kg, rpe, rest_seconds, notes 
+        } = req.body;
+
+        if (!plan_id || !athlete_id || !exercise_name || set_number === undefined) {
+            return res.status(400).json({ error: 'Faltan campos requeridos (plan_id, athlete_id, exercise_name, set_number).' });
+        }
+
+        const { data, error } = await supabase
+            .from('session_exercise_results')
+            .insert({
+                plan_id,
+                athlete_id,
+                exercise_name,
+                set_number,
+                reps_completed,
+                weight_kg,
+                rpe,
+                rest_seconds,
+                notes,
+                recorded_by: trainerId
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (err) {
+        (req as any).log?.error({ err }, 'Error recording exercise result');
+        res.status(500).json({ error: 'Error al registrar resultado del ejercicio.' });
     }
 });
 

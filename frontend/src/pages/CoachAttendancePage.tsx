@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,7 +14,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   CheckCircle2, XCircle, Clock, AlertCircle, Users, Lock, Edit2,
   Flag, CalendarCheck, Search, UserX, CreditCard, AlertTriangle, ChevronRight, Trophy, Zap, Target, Star, Dumbbell, Layers,
-  Calendar as CalendarIcon, TrendingUp
+  Calendar as CalendarIcon, TrendingUp, Activity
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -21,6 +22,8 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { useUpdatePTAttendance } from '@/hooks/useAthleteSessionBookings';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -190,6 +193,8 @@ export default function CoachAttendancePage() {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { mutate: updatePTAttendance, isPending: updatingPT } = useUpdatePTAttendance();
 
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [isSecondary, setIsSecondary] = useState(false);
@@ -286,6 +291,26 @@ export default function CoachAttendancePage() {
     },
     enabled: !!schoolId && (!!user?.id || !!staffId),
   });
+
+  // ── 3b. Sesiones PT Personalizadas ─────────────────────────────────────
+  const { data: ptSchedule, isLoading: loadingPT } = useQuery({
+    queryKey: ['coach-pt-sessions', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const token = await getBearerToken();
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+      const res = await fetch(`${BFF_URL}/api/v1/trainer/availability/schedule?date=${today}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!user?.id,
+  });
+
+  const ptSessions     = ptSchedule?.sessions ?? [];
+  const ptAvailSlots   = ptSchedule?.availability_slots ?? [];
+  const hasAvailability = ptSchedule?.has_availability ?? false;
 
   // ── 4. Roster unificado (via BFF) ───────────────────────────────────────
   const {
@@ -582,7 +607,7 @@ export default function CoachAttendancePage() {
 
   const markedCount = Object.keys(attendanceState).length;
   const isBusy = saveMutation.isPending || finalizeMutation.isPending;
-  const isLoading = loadingTeams || loadingOfferings || loadingPlans;
+  const isLoading = loadingTeams || loadingOfferings || loadingPlans || loadingPT;
 
   return (
     <div className="space-y-6 pb-24 sm:pb-6 animate-in fade-in duration-500">
@@ -684,6 +709,93 @@ export default function CoachAttendancePage() {
             </div>
           )}
 
+          {/* Reservas del día (Solo para PT) */}
+          {ptSessions.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-sm font-black uppercase tracking-wider text-foreground">
+                    Reservas del día
+                  </h2>
+                </div>
+                <Badge variant="outline" className="text-[10px] font-bold py-0 h-5 border-indigo-200 text-indigo-600 bg-indigo-50">
+                  PT Sessions
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                {ptSessions.map((sess: any) => {
+                  const isCompleted = sess.status === 'completed';
+                  return (
+                    <Card key={sess.id} className="overflow-hidden border-border/40 hover:border-indigo-200 transition-all bg-card/60 backdrop-blur-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                          {/* Avatar del Cliente */}
+                          <Avatar className="h-12 w-12 border-2 border-indigo-100/50 shadow-sm shrink-0">
+                            <AvatarImage src={sess.client?.avatar_url || ''} />
+                            <AvatarFallback className="bg-indigo-50 text-indigo-600 text-xs font-bold">
+                              {sess.client?.full_name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'C'}
+                            </AvatarFallback>
+                          </Avatar>
+
+                          {/* Info de la Sesión */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h4 className="text-sm font-bold truncate text-foreground">
+                                {sess.client?.full_name || 'Nuevo Cliente'}
+                              </h4>
+                              {isCompleted ? (
+                                <Badge className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] py-0 h-4">Asistió</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] py-0 h-4 opacity-50">Pendiente</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                              <span className="flex items-center gap-1 font-medium bg-muted/50 px-1.5 py-0.5 rounded-md">
+                                <Clock className="w-3 h-3" />
+                                {sess.session_time?.substring(0, 5)}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Activity className="w-3 h-3 text-indigo-400" />
+                                Sesión PT
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Acciones */}
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              disabled={updatingPT}
+                              variant={isCompleted ? 'secondary' : 'default'}
+                              className={`h-8 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                isCompleted 
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200 border-none' 
+                                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
+                              }`}
+                              onClick={() => {
+                                updatePTAttendance({ 
+                                  sessionId: sess.id, 
+                                  status: isCompleted ? 'assigned' : 'completed' 
+                                }, {
+                                  onSuccess: () => toast({ title: isCompleted ? 'Pendiente' : '✅ Marcado como Asistió' })
+                                });
+                              }}
+                            >
+                              {isCompleted ? <CheckCircle2 className="w-3 h-3 mr-1.5" /> : null}
+                              {isCompleted ? 'Asistió' : 'Pendiente'}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Sesiones de hoy */}
           {planSessions.length > 0 && (
             <div className="space-y-4">
@@ -708,7 +820,7 @@ export default function CoachAttendancePage() {
                           <h4 className="text-lg font-black leading-tight truncate uppercase tracking-tighter">{ps.name}</h4>
                           <div className="flex items-center gap-2 mt-3">
                             <div className="flex items-center gap-1.5 px-2 py-0 h-5 bg-white/10 rounded-full border border-white/20 text-[10px] font-bold">
-                              {ps.start_time.substring(0, 5)} – {ps.end_time.substring(0, 5)}
+                              {ps.start_time?.substring(0, 5) ?? 'S/H'} – {ps.end_time?.substring(0, 5) ?? 'S/H'}
                             </div>
                           </div>
                         </div>

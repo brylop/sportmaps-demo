@@ -259,6 +259,19 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const handleSearch = useCallback(async () => {
     const q = searchQuery.trim();
     if (!q) return;
+
+    const isEmail = q.includes('@');
+    const isPhone = /^\+?\d{7,15}$/.test(q.replace(/\s/g, ''));
+
+    if (!isEmail && !isPhone) {
+      toast({ 
+        title: 'Búsqueda inválida', 
+        description: 'Ingresa un email o número de celular para buscar.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     setSearching(true);
     setFoundProfile(null);
     setNotFoundEmail('');
@@ -422,6 +435,9 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   : <Search className="h-4 w-4" />}
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground px-1">
+              Busca por email (ejemplo@correo.com) o celular (3001234567)
+            </p>
 
             {/* Encontrado */}
             {searchDone && foundProfile && (

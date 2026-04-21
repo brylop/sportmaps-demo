@@ -33,15 +33,8 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
   const { data: availability = [], isLoading, error, refetch } = useQuery({
     queryKey: ['coach-availability', coachId],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from('coach_availability')
-        .select('*')
-        .eq('coach_id', coachId)
-        .eq('school_id', schoolId)
-        .order('day_of_week, start_time');
-
-      if (error) throw error;
-      return data as CoachAvailability[];
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.get<CoachAvailability[]>(`/api/v1/school-staff/${coachId}/availability`);
     },
     enabled: !!coachId && !!schoolId,
   });
@@ -49,21 +42,8 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
   // Crear/actualizar disponibilidad (upsert para evitar conflicto de unique constraint)
   const createMutation = useMutation({
     mutationFn: async (input: CoachAvailabilityInput) => {
-      const { data, error } = await (supabase as any)
-        .from('coach_availability')
-        .upsert(
-          {
-            school_id: schoolId,
-            coach_id: coachId,
-            ...input,
-          },
-          { onConflict: 'coach_id,day_of_week,start_time,end_time', ignoreDuplicates: false }
-        )
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.post<CoachAvailability>(`/api/v1/school-staff/${coachId}/availability`, input);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['coach-availability', coachId] });
@@ -113,12 +93,8 @@ export function useCoachAvailability(coachId: string, schoolId: string) {
   // Eliminar disponibilidad
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from('coach_availability')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      const { bffClient } = await import('@/lib/api/bffClient');
+      return bffClient.delete(`/api/v1/school-staff/${coachId}/availability/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['coach-availability', coachId] });

@@ -21,15 +21,19 @@ export function ClientResumenTab({
   const nextGoal = activeGoals.sort((a: any, b: any) => new Date(a.target_date).getTime() - new Date(b.target_date).getTime())[0];
 
   const planName = enrollment?.offering_plans?.name || 'A demanda';
-  const sessionsUsed = attendance?.filter((a: any) => a.status === 'present').length || 0;
-  const sessionsMax = enrollment?.offering_plans?.max_sessions ?? null;
+  
+  // Usar ptSummary si existe (vía RPC get_pt_client_summary)
+  const sessionsMax = data.ptSummary ? data.ptSummary.max_sessions : (enrollment?.offering_plans?.max_sessions ?? null);
+  const sessionsCompleted = data.ptSummary ? data.ptSummary.sessions_completed : (attendance?.filter((a: any) => a.status === 'present').length || 0);
+  const sessionsBooked = data.ptSummary ? data.ptSummary.sessions_scheduled : 0;
+  const sessionsAvailable = data.ptSummary ? data.ptSummary.sessions_available : (sessionsMax ? sessionsMax - sessionsCompleted : null);
 
   // Small chart for attendance last 4 weeks
   const attendanceData = [
     { name: 'Sem 1', val: 2 },
     { name: 'Sem 2', val: 3 },
     { name: 'Sem 3', val: 1 },
-    { name: 'Sem 4', val: sessionsUsed > 6 ? 3 : sessionsUsed }, // Mocked trend
+    { name: 'Sem 4', val: sessionsCompleted > 6 ? 3 : sessionsCompleted }, // Mocked trend
   ];
 
   return (
@@ -41,11 +45,24 @@ export function ClientResumenTab({
         </CardHeader>
         <CardContent>
           <div className="text-xl font-bold truncate">{planName}</div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {sessionsUsed} de {sessionsMax ?? 'Ilimitadas'} sesiones usadas
-          </p>
+          <div className="flex flex-col gap-1 mt-2">
+            <p className="text-xs text-muted-foreground flex justify-between">
+              <span>Completadas:</span>
+              <span className="font-bold text-foreground">{sessionsCompleted} / {sessionsMax ?? '∞'}</span>
+            </p>
+            <p className="text-xs text-muted-foreground flex justify-between">
+              <span>Agendadas:</span>
+              <span className="font-bold text-indigo-400">{sessionsBooked}</span>
+            </p>
+            {sessionsAvailable !== null && (
+              <p className="text-xs font-medium text-primary flex justify-between border-t border-border/50 pt-1 mt-1">
+                <span>Disponibles:</span>
+                <span>{sessionsAvailable}</span>
+              </p>
+            )}
+          </div>
           <div className="mt-3 h-2 w-full bg-secondary rounded-full overflow-hidden">
-            <div className="h-full bg-primary" style={{ width: `${sessionsMax ? Math.min(100, (sessionsUsed / sessionsMax) * 100) : 0}%` }}></div>
+            <div className="h-full bg-primary" style={{ width: `${sessionsMax ? Math.min(100, (sessionsCompleted / sessionsMax) * 100) : 0}%` }}></div>
           </div>
         </CardContent>
       </Card>
