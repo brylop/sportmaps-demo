@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
+import { SchoolSwitcher } from './common/SchoolSwitcher';
 import Logo from './Logo';
 
 export function AppSidebar() {
@@ -136,6 +137,9 @@ export function AppSidebar() {
                   {getRoleBadge()}
                 </Badge>
               </div>
+            </div>
+            <div className="w-full mt-3 px-1">
+              <SchoolSwitcher />
             </div>
           </div>
         )}
