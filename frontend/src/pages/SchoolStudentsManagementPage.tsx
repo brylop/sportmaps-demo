@@ -1149,7 +1149,9 @@ export default function SchoolStudentsManagementPage() {
                   { label: 'Talla camiseta', value: studentDocInfo.tshirt_size || '-' },
                   { label: 'RH', value: studentDocInfo.blood_type || '-' },
                   { label: 'Mensualidad', value: ((viewingStudent as any).monthly_fee || viewingStudent.price_monthly) ? formatCurrency((viewingStudent as any).monthly_fee || viewingStudent.price_monthly!) : '-', bold: true },
-                  { label: 'Acudiente', value: (viewingStudent as any).athlete_type === 'adult' ? '—' : ((viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-') },
+                  ...((viewingStudent as any).athlete_type === 'adult'
+                    ? []
+                    : [{ label: 'Acudiente', value: (viewingStudent as any).display_parent_name || viewingStudent.parent_name || '-' }]),
                   { label: 'Teléfono', value: (viewingStudent as any).display_parent_phone || viewingStudent.parent_phone || '-' },
                 ].map(({ label, value, bold }) => (
                   <div key={label} className="flex items-center justify-between p-2 rounded hover:bg-muted/50 gap-2">
