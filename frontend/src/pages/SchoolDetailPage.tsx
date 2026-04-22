@@ -87,6 +87,27 @@ interface Facility {
   booking_enabled?: boolean;
 }
 
+interface OfferingPlan {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  duration_days: number;
+  max_sessions: number | null;
+  is_active: boolean;
+}
+
+interface Offering {
+  id: string;
+  name: string;
+  description: string | null;
+  sport: string | null;
+  offering_type: string;
+  is_active: boolean;
+  offering_plans: OfferingPlan[];
+}
+
 export default function SchoolDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -95,6 +116,7 @@ export default function SchoolDetailPage() {
 
   const [school, setSchool] = useState<School | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [offerings, setOfferings] = useState<Offering[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
@@ -127,21 +149,37 @@ export default function SchoolDetailPage() {
       if (schoolError) throw schoolError;
       setSchool(schoolData);
 
-      // Fetch programs from teams table
-      const { data: programsData, error: programsError } = await supabase
-        .from('teams')
-        .select('*')
+      // Fetch offerings + offering_plans (nueva arquitectura v2.1)
+      // Estos son los planes que el owner edita desde Mi Perfil Publico → tab Planes.
+      const { data: offeringsData } = await supabase
+        .from('offerings')
+        .select('id, name, description, sport, offering_type, is_active, offering_plans(id, name, description, price, currency, duration_days, max_sessions, is_active)')
         .eq('school_id', id)
-        .eq('active', true)
-        .order('name');
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      const activeOfferings = (offeringsData as unknown as Offering[] | null)?.filter(
+        o => (o.offering_plans ?? []).some(p => p.is_active)
+      ) ?? [];
+      setOfferings(activeOfferings);
 
-      if (programsError) throw programsError;
+      // Fallback: fetch programs from teams (legacy)
+      if (activeOfferings.length === 0) {
+        const { data: programsData, error: programsError } = await supabase
+          .from('teams')
+          .select('*')
+          .eq('school_id', id)
+          .eq('active', true)
+          .order('name');
 
-      // If no programs, add demo programs
-      if (!programsData || programsData.length === 0) {
-        setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+        if (programsError && programsError.code !== 'PGRST116') throw programsError;
+
+        if (!programsData || programsData.length === 0) {
+          setPrograms(getDemoPrograms(schoolData.name, schoolData.sports?.[0] || 'Fútbol'));
+        } else {
+          setPrograms(programsData);
+        }
       } else {
-        setPrograms(programsData);
+        setPrograms([]);
       }
 
       // Fetch facilities for reservations
@@ -190,6 +228,25 @@ export default function SchoolDetailPage() {
 
     // Padres u otros roles - seleccionar hijo primero
     setChildSelectionOpen(true);
+  };
+
+  // Adapta un offering + plan seleccionado a la forma Program para reusar el flujo
+  // de inscripción existente (auth → child selector → payment).
+  const handleEnrollOffering = (offering: Offering, plan: { price: number; durationDays: number; key: string; label: string }) => {
+    const pseudoProgram: Program = {
+      id: `${offering.id}:${plan.key}`,
+      name: `${offering.name} · ${plan.label}`,
+      description: offering.description,
+      sport: offering.sport ?? 'Multideporte',
+      schedule: null,
+      price_monthly: plan.price,
+      age_min: null,
+      age_max: null,
+      max_students: null,
+      current_students: 0,
+      active: true,
+    };
+    handleEnroll(pseudoProgram);
   };
 
   const handleChildSelected = (childId: string, childName: string) => {
@@ -509,7 +566,7 @@ export default function SchoolDetailPage() {
 
               {/* Programs Tab — Fitpal-style plan cards */}
               <TabsContent value="programs">
-                {programs.length === 0 ? (
+                {offerings.length === 0 && programs.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                     <h3 className="text-lg font-semibold mb-2">
@@ -519,7 +576,62 @@ export default function SchoolDetailPage() {
                       Esta escuela aún no ha publicado programas
                     </p>
                   </Card>
+                ) : offerings.length > 0 ? (
+                  // Nueva arquitectura: offerings con sus offering_plans como duraciones
+                  <>
+                    <div className="text-center mb-6">
+                      <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Encuentra el plan ideal para ti</h2>
+                      <p className="text-muted-foreground mt-1">Elige entre los servicios que ofrece {school.name}</p>
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {offerings.map((off) => {
+                        const activePlans = (off.offering_plans ?? []).filter(p => p.is_active);
+                        if (activePlans.length === 0) return null;
+
+                        const features: PlanFeature[] = [];
+                        if (off.description) {
+                          off.description.split(/\.\s+|\n+/).map(s => s.trim()).filter(s => s.length > 3)
+                            .slice(0, 4).forEach(s => features.push({ label: s.replace(/\.$/, '') }));
+                        }
+                        const firstPlan = activePlans[0];
+                        if (firstPlan?.max_sessions != null) {
+                          features.push({ label: `${firstPlan.max_sessions} sesiones incluidas` });
+                        }
+                        if (features.length === 0) {
+                          features.push({ label: `Clases ${off.offering_type}` });
+                        }
+
+                        const durations: PlanDuration[] = activePlans.map(p => {
+                          const priceFmt = `$${p.price.toLocaleString('es-CO')}`;
+                          const label = p.duration_days === 30 ? `1 mes / ${priceFmt}`
+                            : p.duration_days === 90 ? `3 meses / ${priceFmt}`
+                            : p.duration_days === 180 ? `6 meses / ${priceFmt}`
+                            : p.duration_days === 365 ? `1 año / ${priceFmt}`
+                            : `${p.duration_days} días / ${priceFmt}`;
+                          return {
+                            key: p.id,
+                            label: p.name ? `${p.name} - ${label}` : label,
+                            price: p.price,
+                            durationDays: p.duration_days,
+                          };
+                        });
+
+                        return (
+                          <PlanCard
+                            key={off.id}
+                            title={off.name}
+                            sport={off.sport ?? undefined}
+                            features={features}
+                            durations={durations}
+                            primaryCta="Inscribirme"
+                            onPrimary={(selected) => handleEnrollOffering(off, selected)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
                 ) : (
+                  // Fallback legacy: tabla teams
                   <>
                     <div className="text-center mb-6">
                       <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Encuentra el plan ideal para ti</h2>
