@@ -19,6 +19,17 @@ export const ERROR_MAPPINGS: Record<string, string> = {
     'Email not confirmed': 'Debes confirmar tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada.',
     'Invalid token': 'El enlace de invitación ha expirado o no es válido.',
 
+    // Errores de actualización / recuperación de contraseña
+    'New password should be different from the old password': 'La nueva contraseña debe ser distinta a la actual.',
+    'Password should be at least': 'La contraseña es demasiado corta. Usa al menos 6 caracteres.',
+    'Password is known to be weak': 'Esta contraseña es muy común o insegura. Elige una más robusta.',
+    'Auth session missing': 'Tu sesión expiró. Vuelve a solicitar el enlace de recuperación.',
+    'Token has expired or is invalid': 'El enlace de recuperación expiró o no es válido. Solicita uno nuevo.',
+    'Email rate limit exceeded': 'Demasiados intentos. Espera unos minutos antes de volver a intentarlo.',
+    'For security purposes, you can only request this after': 'Por seguridad, espera unos segundos antes de reintentar.',
+    'User not found': 'No encontramos una cuenta asociada a este correo.',
+    'Signup requires a valid password': 'Debes ingresar una contraseña válida para continuar.',
+
     // Errores de Red / Conexión
     'Failed to fetch': 'Error de conexión. Por favor, verifica tu internet e intenta de nuevo.',
     'Network request failed': 'Parece que hubo un problema de red. Reintenta en unos momentos.',
