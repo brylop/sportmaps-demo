@@ -70,21 +70,25 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
   const [bankSettings, setBankSettings] = useState<any>(null);
   const [loadingBank, setLoadingBank] = useState(false);
 
-  // Fetch school banking settings if we have a schoolId
+  // Fetch school payment info via RPC. La RPC bypasea la RLS "staff only" de
+  // school_settings y solo expone campos publicos-para-checkout.
   useEffect(() => {
     if (!item.schoolId) return;
     const fetchBank = async () => {
       setLoadingBank(true);
-      const { data } = await supabase
-        .from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id')
-        .eq('school_id', item.schoolId)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('get_school_payment_info', {
+        p_school_id: item.schoolId,
+      } as any);
+      if (error) {
+        console.error('[PaymentModal] get_school_payment_info', error);
+      }
       if (data) setBankSettings(data);
       setLoadingBank(false);
     };
     fetchBank();
   }, [item.schoolId]);
+
+  const hasGateway = !!(bankSettings?.sportmaps_pay_enabled || bankSettings?.epayco_enabled);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -238,7 +242,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden bg-background">
+      <DialogContent className="sm:max-w-[500px] p-0 bg-background max-h-[95vh] overflow-y-auto grid grid-rows-[1fr_auto] gap-0">
         {step === 'success' ? (
           renderSuccess()
         ) : (
@@ -304,37 +308,40 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                     {paymentMethod === 'manual' && <CheckCircle2 className="h-5 w-5 text-primary" />}
                   </label>
 
-                  {/* Card - DISABLED (Próximamente) */}
-                  <div className="flex items-center justify-between p-4 rounded-xl border-2 border-border/50 opacity-50 cursor-not-allowed bg-muted/20">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-blue-100/50 text-blue-400 flex items-center justify-center">
-                        <CreditCard className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-sm text-muted-foreground">Tarjeta de Crédito / Débito</p>
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground border-muted-foreground/30">Próximamente</Badge>
+                  {/* SportMaps Pay / ePayco - solo si la escuela lo habilito */}
+                  {hasGateway ? (
+                    <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:bg-muted/50 ${paymentMethod === 'card' ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                      <div className="flex items-center gap-3">
+                        <RadioGroupItem value="card" id="card" className="sr-only" />
+                        <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                          <CreditCard className="h-5 w-5" />
                         </div>
-                        <p className="text-xs text-muted-foreground">Procesamiento inmediato</p>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm">Tarjeta / PSE</p>
+                            <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-700">SportMaps Pay</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Procesamiento inmediato via ePayco</p>
+                        </div>
+                      </div>
+                      {paymentMethod === 'card' && <CheckCircle2 className="h-5 w-5 text-primary" />}
+                    </label>
+                  ) : (
+                    <div className="flex items-center justify-between p-4 rounded-xl border-2 border-border/50 opacity-50 cursor-not-allowed bg-muted/20">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-blue-100/50 text-blue-400 flex items-center justify-center">
+                          <CreditCard className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-sm text-muted-foreground">Tarjeta de Crédito / Débito</p>
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground border-muted-foreground/30">Próximamente</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Procesamiento inmediato</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* PSE - DISABLED (Próximamente) */}
-                  <div className="flex items-center justify-between p-4 rounded-xl border-2 border-border/50 opacity-50 cursor-not-allowed bg-muted/20">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-purple-100/50 text-purple-400 flex items-center justify-center">
-                        <Building2 className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-sm text-muted-foreground">PSE / Wompi</p>
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground border-muted-foreground/30">Próximamente</Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Transferencia bancaria segura</p>
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </RadioGroup>
               </div>
 
