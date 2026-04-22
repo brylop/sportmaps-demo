@@ -191,8 +191,7 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
       if (result.type === 'courtesy') {
         toast.success('Sesion de cortesia confirmada');
         onOpenChange(false);
-        // /wellness/appointments no existe todavia; mandamos al listado disponible
-        navigate(isParent ? '/children' : '/wellness');
+        navigate('/wellness/appointments');
       } else if (result.sessionId) {
         // Open ePayco checkout
         toast.success('Redirigiendo a pago...');

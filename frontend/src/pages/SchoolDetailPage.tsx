@@ -440,6 +440,8 @@ export default function SchoolDetailPage() {
         onOpenChange={setReservationModalOpen}
         facility={selectedFacility}
         schoolName={school?.name || ''}
+        schoolPhone={school?.phone}
+        schoolEmail={school?.email}
       />
 
       {/* Cover Image */}

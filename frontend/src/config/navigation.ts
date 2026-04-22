@@ -84,6 +84,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
@@ -121,6 +122,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

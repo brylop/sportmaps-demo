@@ -48,6 +48,7 @@ const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const SchoolPublicProfilePage = lazy(() => import("./pages/school/SchoolPublicProfilePage"));
 const VendorPublicProfilePage = lazy(() => import("./pages/vendor/VendorPublicProfilePage"));
+const MyAppointmentsPage = lazy(() => import("./pages/wellness/MyAppointmentsPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
@@ -449,6 +450,11 @@ const App = () => (
                       <Route path="vendor/public-profile" element={
                         <ProtectedRoute allowedRoles={['wellness_professional', 'store_owner']}>
                           <VendorPublicProfilePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="wellness/appointments" element={
+                        <ProtectedRoute>
+                          <MyAppointmentsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="pickup" element={
