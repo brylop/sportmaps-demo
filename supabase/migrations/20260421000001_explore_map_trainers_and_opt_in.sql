@@ -2,6 +2,7 @@
 -- Description: Actualiza search_explore_map para
 --   1) exigir school_settings.public_profile_enabled=true en schools
 --   2) agregar seccion trainers (trainer_profiles is_published=true con lat/lng)
+--   3) tolerar ausencia de vendor_profiles/service_listings (marketplace opcional)
 
 CREATE OR REPLACE FUNCTION public.search_explore_map(
     p_category text DEFAULT 'all',
@@ -27,50 +28,57 @@ DECLARE
     v_events jsonb := '[]';
     v_schools jsonb := '[]';
     v_use_bounds boolean;
+    v_has_marketplace boolean;
 BEGIN
     v_use_bounds := (p_bounds_sw_lat IS NOT NULL AND p_bounds_sw_lng IS NOT NULL
                      AND p_bounds_ne_lat IS NOT NULL AND p_bounds_ne_lng IS NOT NULL);
 
-    -- ── Services (vendor_profiles con servicios activos) ────────────────
-    IF p_category IN ('all', 'services') THEN
-        SELECT COALESCE(jsonb_agg(item), '[]') INTO v_services
-        FROM (
-            SELECT DISTINCT ON (vp.id) jsonb_build_object(
-                'id', sl.id,
-                'item_type', 'service',
-                'name', sl.name,
-                'lat', vp.lat,
-                'lng', vp.lng,
-                'price', sl.price,
-                'service_type', sl.service_type,
-                'vendor_name', vp.display_name,
-                'vendor_slug', vp.slug,
-                'vendor_city', vp.city,
-                'vendor_verified', vp.verification_status = 'verified',
-                'vendor_logo', vp.logo_url,
-                'duration_minutes', sl.duration_minutes
-            ) AS item
-            FROM service_listings sl
-            JOIN vendor_profiles vp ON vp.id = sl.vendor_profile_id
-            WHERE sl.is_active = true
-              AND sl.visibility = 'public'
-              AND vp.is_active = true
-              AND vp.lat IS NOT NULL
-              AND vp.lng IS NOT NULL
-              AND (p_query IS NULL OR sl.name ILIKE '%' || p_query || '%' OR vp.display_name ILIKE '%' || p_query || '%')
-              AND (p_city IS NULL OR vp.city ILIKE '%' || p_city || '%')
-              AND (p_service_type IS NULL OR sl.service_type = p_service_type)
-              AND (NOT v_use_bounds OR (
-                  vp.lat BETWEEN p_bounds_sw_lat AND p_bounds_ne_lat
-                  AND vp.lng BETWEEN p_bounds_sw_lng AND p_bounds_ne_lng
-              ))
-            ORDER BY vp.id, sl.created_at DESC
-            LIMIT 100
-        ) sub;
+    v_has_marketplace := to_regclass('public.vendor_profiles') IS NOT NULL
+                         AND to_regclass('public.service_listings') IS NOT NULL;
+
+    -- ── Services (solo si existe el marketplace) ────────────────────────
+    IF p_category IN ('all', 'services') AND v_has_marketplace THEN
+        EXECUTE $svc$
+            SELECT COALESCE(jsonb_agg(item), '[]')
+            FROM (
+                SELECT DISTINCT ON (vp.id) jsonb_build_object(
+                    'id', sl.id,
+                    'item_type', 'service',
+                    'name', sl.name,
+                    'lat', vp.lat,
+                    'lng', vp.lng,
+                    'price', sl.price,
+                    'service_type', sl.service_type,
+                    'vendor_name', vp.display_name,
+                    'vendor_slug', vp.slug,
+                    'vendor_city', vp.city,
+                    'vendor_verified', vp.verification_status = 'verified',
+                    'vendor_logo', vp.logo_url,
+                    'duration_minutes', sl.duration_minutes
+                ) AS item
+                FROM service_listings sl
+                JOIN vendor_profiles vp ON vp.id = sl.vendor_profile_id
+                WHERE sl.is_active = true
+                  AND sl.visibility = 'public'
+                  AND vp.is_active = true
+                  AND vp.lat IS NOT NULL
+                  AND vp.lng IS NOT NULL
+                  AND ($1 IS NULL OR sl.name ILIKE '%' || $1 || '%' OR vp.display_name ILIKE '%' || $1 || '%')
+                  AND ($2 IS NULL OR vp.city ILIKE '%' || $2 || '%')
+                  AND ($3 IS NULL OR sl.service_type = $3)
+                  AND (NOT $8 OR (vp.lat BETWEEN $4 AND $6 AND vp.lng BETWEEN $5 AND $7))
+                ORDER BY vp.id, sl.created_at DESC
+                LIMIT 100
+            ) sub
+        $svc$
+        INTO v_services
+        USING p_query, p_city, p_service_type,
+              p_bounds_sw_lat, p_bounds_sw_lng, p_bounds_ne_lat, p_bounds_ne_lng,
+              v_use_bounds;
     END IF;
 
     -- ── Trainers (trainer_profiles publicados con coordenadas) ──────────
-    IF p_category IN ('all', 'trainers') THEN
+    IF p_category IN ('all', 'trainers') AND to_regclass('public.trainer_profiles') IS NOT NULL THEN
         SELECT COALESCE(jsonb_agg(item), '[]') INTO v_trainers
         FROM (
             SELECT jsonb_build_object(
