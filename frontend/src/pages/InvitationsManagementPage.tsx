@@ -13,6 +13,7 @@ import {
   UserPlus, Search, X as XIcon, Clock, Check,
   Copy, MessageCircle, Send, Link as LinkIcon, Mail,
   Users, CreditCard, ChevronDown, Ban, Gift, Building2,
+  Pencil,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -70,6 +71,13 @@ export default function InvitationsManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+
+  // ── Asignar equipo/plan/mensualidad a invitacion existente ──────────────────
+  const [editingInv, setEditingInv] = useState<Invitation | null>(null);
+  const [editForm, setEditForm] = useState<{ teamId: string; offeringPlanId: string; monthlyFee: number }>(
+    { teamId: '', offeringPlanId: '', monthlyFee: 0 }
+  );
+
   const [suggestedContacts, setSuggestedContacts] = useState<
     { name: string; email: string; phone?: string; childName?: string; teamId?: string }[]
   >([]);
@@ -477,6 +485,68 @@ export default function InvitationsManagementPage() {
     },
   });
 
+  // ── Mutación asignar equipo/plan/mensualidad a invitación existente ─────────
+  const updateInvitationMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingInv) throw new Error('No invitation selected');
+      if (!editForm.teamId && !editForm.offeringPlanId) {
+        throw new Error('Selecciona un equipo o un plan de sesiones.');
+      }
+      if (!editForm.monthlyFee || editForm.monthlyFee <= 0) {
+        throw new Error('La mensualidad debe ser mayor a $0.');
+      }
+      const { error } = await (supabase.from('invitations') as any)
+        .update({
+          team_id: editForm.teamId || null,
+          offering_plan_id: editForm.offeringPlanId || null,
+          monthly_fee: editForm.monthlyFee,
+        })
+        .eq('id', editingInv.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      queryClient.refetchQueries({ queryKey: ['invitations', schoolId, activeBranchId] });
+      setEditingInv(null);
+      toast({ title: '✅ Asignación guardada', description: 'Equipo, plan y mensualidad actualizados.' });
+    },
+    onError: (error: unknown) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      toast({ title: '❌ Error', description: msg, variant: 'destructive' });
+    },
+  });
+
+  const openEditDialog = (inv: Invitation) => {
+    setEditingInv(inv);
+    const team = teams.find(t => t.id === inv.team_id);
+    const plan = offeringPlans.find(op => op.id === inv.offering_plan_id);
+    setEditForm({
+      teamId: inv.team_id || '',
+      offeringPlanId: inv.offering_plan_id || '',
+      monthlyFee: inv.monthly_fee ?? plan?.price ?? team?.monthly_fee ?? defaultMonthlyFee ?? 0,
+    });
+  };
+
+  const handleEditTeamChange = (val: string) => {
+    const teamId = val === 'none' ? '' : val;
+    const t = teams.find(p => p.id === teamId);
+    setEditForm(prev => ({
+      ...prev,
+      teamId,
+      monthlyFee: t?.monthly_fee || prev.monthlyFee,
+    }));
+  };
+
+  const handleEditPlanChange = (val: string) => {
+    const planId = val === 'none' ? '' : val;
+    const p = offeringPlans.find(op => op.id === planId);
+    setEditForm(prev => ({
+      ...prev,
+      offeringPlanId: planId,
+      monthlyFee: p?.price || prev.monthlyFee,
+    }));
+  };
+
   // ── Mutación cancelar invitación ──────────────────────────────────────────────
   const cancelInvitationMutation = useMutation({
     mutationFn: async (invitationId: string) => {
@@ -547,6 +617,22 @@ export default function InvitationsManagementPage() {
       toast({
         title: 'Dato requerido',
         description: 'Ingresa al menos un email o número de WhatsApp.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (['parent', 'athlete'].includes(formData.role) && !formData.teamId && !formData.offeringPlanId) {
+      toast({
+        title: 'Falta equipo o plan',
+        description: 'Selecciona un equipo o un plan de sesiones para poder calcular la mensualidad.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (['parent', 'athlete'].includes(formData.role) && (!formData.monthlyFee || formData.monthlyFee <= 0)) {
+      toast({
+        title: 'Mensualidad requerida',
+        description: 'La mensualidad debe ser mayor a $0 antes de enviar la invitación.',
         variant: 'destructive',
       });
       return;
@@ -752,6 +838,16 @@ export default function InvitationsManagementPage() {
 
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
+                        {['parent', 'athlete'].includes(inv.role_to_assign || '') && (
+                          <Button
+                            variant="ghost" size="sm"
+                            className={inv.monthly_fee == null ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50' : ''}
+                            onClick={() => openEditDialog(inv)}
+                            title={inv.monthly_fee == null ? 'Asignar equipo/plan/mensualidad' : 'Editar equipo/plan/mensualidad'}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => copyLinkToClipboard(inv)} title="Copiar link">
                           <Copy className="w-4 h-4" />
                         </Button>
@@ -1016,7 +1112,12 @@ export default function InvitationsManagementPage() {
 
                 {['parent', 'athlete', 'coach'].includes(formData.role) && (
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Equipo / Grupo</Label>
+                    <Label className="text-sm font-medium">
+                      Equipo / Grupo
+                      {['parent', 'athlete'].includes(formData.role) && (
+                        <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+                      )}
+                    </Label>
                     <Select value={formData.teamId || 'none'} onValueChange={handleTeamChange}>
                       <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
                       <SelectContent>
@@ -1029,7 +1130,10 @@ export default function InvitationsManagementPage() {
 
                 {['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Plan de sesiones</Label>
+                    <Label className="text-sm font-medium">
+                      Plan de sesiones
+                      <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+                    </Label>
                     <Select value={formData.offeringPlanId || 'none'} onValueChange={handlePlanChange}>
                       <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
                       <SelectContent>
@@ -1047,7 +1151,7 @@ export default function InvitationsManagementPage() {
                 {['parent', 'athlete'].includes(formData.role) && (
                   <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10 transition-all">
                     <Label className="text-sm font-semibold flex items-center justify-between">
-                      Mensualidad / Cobro inicial
+                      Mensualidad / Cobro inicial *
                       <Badge variant="secondary" className="font-normal text-[10px]">COP</Badge>
                     </Label>
                     <div className="relative">
@@ -1111,6 +1215,86 @@ export default function InvitationsManagementPage() {
               )}
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog editar asignación de invitación ───────────────────────── */}
+      <Dialog open={!!editingInv} onOpenChange={(open) => !open && setEditingInv(null)}>
+        <DialogContent className="max-w-md p-0 overflow-hidden">
+          <div className="px-6 pt-6 pb-4 border-b bg-gradient-to-b from-primary/5 to-transparent">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-primary" />
+                Asignar equipo y mensualidad
+              </DialogTitle>
+              <DialogDescription className="text-sm">
+                {editingInv?.invited_email}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <div className="px-6 pb-6 pt-4 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Equipo / Grupo
+                <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+              </Label>
+              <Select value={editForm.teamId || 'none'} onValueChange={handleEditTeamChange}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin equipo</SelectItem>
+                  {teams.map(p => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Plan de sesiones
+                <span className="text-muted-foreground font-normal ml-1">(equipo o plan requerido)</span>
+              </Label>
+              <Select value={editForm.offeringPlanId || 'none'} onValueChange={handleEditPlanChange}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin plan</SelectItem>
+                  {offeringPlans.map(op => (
+                    <SelectItem key={op.id} value={op.id} className="text-xs">
+                      {op.name} ({formatCurrency(op.price)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10">
+              <Label className="text-sm font-semibold flex items-center justify-between">
+                Mensualidad *
+                <Badge variant="secondary" className="font-normal text-[10px]">COP</Badge>
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                <Input
+                  type="number" value={editForm.monthlyFee || ''}
+                  className="pl-7 h-10 font-bold text-primary"
+                  onChange={e => setEditForm(prev => ({ ...prev, monthlyFee: Number(e.target.value) }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2 border-t">
+              <Button type="button" variant="ghost" onClick={() => setEditingInv(null)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={updateInvitationMutation.isPending}
+                onClick={() => updateInvitationMutation.mutate()}
+                className="px-6"
+              >
+                {updateInvitationMutation.isPending ? 'Guardando...' : 'Guardar'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
