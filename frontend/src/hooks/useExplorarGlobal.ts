@@ -104,8 +104,64 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
   const limit = filters.limit;
   const offset = (filters.page - 1) * limit;
 
-  // Services: requires service_listings table (marketplace migration).
-  // Skipped until the migration is deployed to Supabase.
+  // Fetch services (wellness, fisio, nutricion, psicologia, entrenamiento)
+  // Se une service_listings con vendor_profiles. RLS publica exige
+  // is_active=true en ambos + visibility='public' en service_listings.
+  if (filters.category === 'all' || filters.category === 'services') {
+    const svcLimit = filters.category === 'services' ? limit : 6;
+    let servicesQuery = supabase
+      .from('service_listings')
+      .select(`
+        id, name, description, service_type, price, currency, duration_minutes,
+        image_url, is_active, visibility, has_variations, created_at,
+        vendor_profile:vendor_profiles!inner(
+          id, display_name, slug, city, logo_url, verification_status, is_active
+        )
+      `)
+      .eq('is_active', true)
+      .eq('visibility', 'public');
+
+    if (filters.q) {
+      servicesQuery = servicesQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
+    }
+    if (filters.service_type) servicesQuery = servicesQuery.eq('service_type', filters.service_type);
+    if (filters.price_max) servicesQuery = servicesQuery.lte('price', filters.price_max);
+
+    servicesQuery = servicesQuery
+      .order('created_at', { ascending: false })
+      .range(0, svcLimit - 1);
+
+    const { data: services, error: svcErr } = await servicesQuery;
+    if (svcErr) console.error('[useExplorarGlobal] services', svcErr);
+
+    if (services) {
+      for (const raw of services as any[]) {
+        const vp = Array.isArray(raw.vendor_profile) ? raw.vendor_profile[0] : raw.vendor_profile;
+        if (!vp || !vp.is_active) continue;
+        // Filtro de ciudad sobre el vendor (la columna city esta en vendor_profiles)
+        if (filters.city && !(vp.city ?? '').toLowerCase().includes(filters.city.toLowerCase())) continue;
+        items.push({
+          id: raw.id,
+          item_type: 'service',
+          name: raw.name,
+          description: raw.description,
+          price: raw.price ?? 0,
+          currency: raw.currency ?? 'COP',
+          image_url: raw.image_url || vp.logo_url,
+          service_type: raw.service_type,
+          duration_minutes: raw.duration_minutes,
+          has_variants: raw.has_variations,
+          vendor_name: vp.display_name,
+          vendor_slug: vp.slug,
+          vendor_city: vp.city,
+          vendor_verified: vp.verification_status === 'verified',
+          vendor_logo: vp.logo_url,
+          vendor_id: vp.id,
+          created_at: raw.created_at,
+        });
+      }
+    }
+  }
 
   // Fetch events (open for individual registration)
   if (filters.category === 'all' || filters.category === 'events') {

@@ -258,18 +258,17 @@ export default function SchoolPublicProfilePage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-5xl">
+    <div className="container mx-auto px-4 py-6 max-w-3xl">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Mi Perfil Público</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Mi Perfil Público</h1>
           <p className="text-sm text-muted-foreground">
-            Personaliza como te ven los alumnos potenciales en Explorar.
+            Personaliza cómo te ven los alumnos potenciales en Explorar.
           </p>
           {isPublished && (
-            <Badge className="mt-2 bg-emerald-500/10 text-emerald-700 border-0 text-xs">
-              <Eye className="h-3 w-3 mr-1" />
-              Publicado
+            <Badge className="mt-2 bg-green-500 text-white gap-1.5">
+              <Globe className="h-3 w-3" /> Publicado
             </Badge>
           )}
         </div>
