@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCart } from '@/contexts/CartContext';
 import {
@@ -56,6 +56,7 @@ import {
   LayoutGrid,
   Dumbbell,
   Compass,
+  ArrowLeft,
 } from 'lucide-react';
 import { ServiceBookingModal } from '@/components/marketplace/ServiceBookingModal';
 import { UnifiedExploreMap } from '@/components/marketplace/UnifiedExploreMap';
@@ -538,8 +539,23 @@ export default function ExplorarGlobalPage() {
   const quickSports = ['Fútbol', 'Natación', 'Tenis', 'Cheerleading', 'Baloncesto', 'Karate', 'Gimnasia'];
   const totalResults = data?.total ?? 0;
 
+  const backTo = user ? '/dashboard' : '/';
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20">
+      {/* ── Back nav ─────────────────────────────────────────────────────────── */}
+      <div className="bg-background/80 backdrop-blur-md border-b sticky top-0 z-40">
+        <div className="container mx-auto px-4 py-3 max-w-7xl">
+          <Link
+            to={backTo}
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver
+          </Link>
+        </div>
+      </div>
+
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-emerald-600" />

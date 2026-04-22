@@ -27,6 +27,7 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 export interface NavItem {
   title: string;
@@ -41,9 +42,6 @@ export interface NavGroup {
   title: string;
   items: NavItem[];
 }
-
-// Explorar queda oculto en staging/prod; solo en dev se exponen los accesos.
-const SHOW_EXPLORE = import.meta.env.DEV;
 
 /**
  * Returns navigation structure based on user role

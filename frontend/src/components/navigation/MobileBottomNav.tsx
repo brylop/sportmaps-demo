@@ -2,8 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-
-const SHOW_EXPLORE = import.meta.env.DEV;
+import { SHOW_EXPLORE } from '@/lib/feature-flags';
 
 const getNavigationItemsForRole = (role: string) => {
   switch (role) {

@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { MapPin, Zap, Users } from "lucide-react";
 import heroImage from "@/assets/hero-sportsmaps.jpg";
+import { SHOW_EXPLORE } from "@/lib/feature-flags";
 
 const Hero = () => {
   return (
@@ -37,7 +38,7 @@ const Hero = () => {
               <Zap className="w-5 h-5" />
               Iniciar Actividad
             </Button>
-            {import.meta.env.DEV && (
+            {SHOW_EXPLORE && (
               <Button variant="orange" size="xl" className="min-w-[200px]">
                 <MapPin className="w-5 h-5" />
                 Explorar Rutas
