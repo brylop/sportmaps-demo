@@ -34,15 +34,15 @@ export function DemoQuickLinks() {
             <span className="text-xs text-center">App para Padres</span>
           </Button>
           
-          <Button
+          {/* <Button
             variant="outline"
             className="h-auto flex-col gap-2 p-4"
             onClick={() => navigate('/explore')}
           >
             <MapPin className="h-6 w-6 text-primary" />
             <span className="text-xs text-center">Tu Perfil Público</span>
-          </Button>
-          
+          </Button> */}
+
           <Button
             variant="outline"
             className="h-auto flex-col gap-2 p-4"

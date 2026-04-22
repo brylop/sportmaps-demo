@@ -60,13 +60,13 @@ const Layout = ({
             >
               Ecosistema
             </button>
-            <button 
+            {/* <button
               className="text-left text-lg font-medium hover:text-primary transition-colors"
               onClick={() => handleNavigation("explore")}
             >
               Explorar
-            </button>
-            <button 
+            </button> */}
+            <button
               className="text-left text-lg font-medium hover:text-primary transition-colors"
               onClick={() => handleNavigation("about")}
             >
@@ -140,13 +140,13 @@ const Layout = ({
                 >
                   Ecosistema
                 </button>
-                <button 
+                {/* <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => handleNavigation("explore")}
                 >
                   Explorar
-                </button>
-                <button 
+                </button> */}
+                <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => handleNavigation("about")}
                 >

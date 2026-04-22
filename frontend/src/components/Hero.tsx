@@ -37,10 +37,10 @@ const Hero = () => {
               <Zap className="w-5 h-5" />
               Iniciar Actividad
             </Button>
-            <Button variant="orange" size="xl" className="min-w-[200px]">
+            {/* <Button variant="orange" size="xl" className="min-w-[200px]">
               <MapPin className="w-5 h-5" />
               Explorar Rutas
-            </Button>
+            </Button> */}
           </div>
 
           {/* Stats */}
