@@ -222,13 +222,22 @@ export default function VendorPublicProfilePage() {
   }
 
   if (!vendor) {
+    const emptyTitle = isWellness
+      ? 'Aún no tienes perfil profesional'
+      : isStore
+        ? 'Aún no tienes perfil de tienda'
+        : 'Aún no tienes perfil público';
+    const emptyDescription = isWellness
+      ? 'Completa el onboarding para publicar tus servicios y que atletas te encuentren en Explorar.'
+      : isStore
+        ? 'Completa el onboarding para publicar tu catálogo y que los clientes te encuentren en Explorar.'
+        : 'Completa el onboarding para crear tu perfil público en Explorar.';
+
     return (
       <div className="container mx-auto px-4 py-10 max-w-2xl text-center">
         <Card><CardContent className="p-10 space-y-4">
-          <h2 className="text-xl font-bold">Aún no tienes perfil de vendedor</h2>
-          <p className="text-sm text-muted-foreground">
-            Completa el onboarding de vendedor para crear tu perfil público en Explorar.
-          </p>
+          <h2 className="text-xl font-bold">{emptyTitle}</h2>
+          <p className="text-sm text-muted-foreground">{emptyDescription}</p>
           <Button asChild>
             <Link to="/vendor/onboarding">Crear perfil</Link>
           </Button>
@@ -238,18 +247,17 @@ export default function VendorPublicProfilePage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-5xl">
+    <div className="container mx-auto px-4 py-6 max-w-3xl">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Mi Perfil Público</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Mi Perfil Público</h1>
           <p className="text-sm text-muted-foreground">
             Personaliza cómo te ven los clientes potenciales en Explorar.
           </p>
           {isPublished && (
-            <Badge className="mt-2 bg-emerald-500/10 text-emerald-700 border-0 text-xs">
-              <Eye className="h-3 w-3 mr-1" />
-              Publicado
+            <Badge className="mt-2 bg-green-500 text-white gap-1.5">
+              <Globe className="h-3 w-3" /> Publicado
             </Badge>
           )}
         </div>
