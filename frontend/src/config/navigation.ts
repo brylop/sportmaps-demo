@@ -198,13 +198,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
-      ...(SHOW_EXPLORE ? [{
-        title: 'Explorar & Competencias',
-        items: [
-          { title: 'Explorar', href: '/explorar', icon: MapPin },
-          { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
-        ]
-      }] : []),
+      // Explorar se oculta en rol school: solo visible para athlete y parent.
       // {
       //   title: 'Tienda',
       //   items: [
@@ -241,7 +235,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
           { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
-          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : [])
         ]
       },
       {
@@ -269,7 +262,6 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
           { title: 'Pedidos', href: '/orders', icon: FileText },
-          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : [])
         ]
       },
       {

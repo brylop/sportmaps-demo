@@ -9,10 +9,10 @@ const getNavigationItemsForRole = (role: string) => {
     case 'parent':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
+        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/children', label: 'Hijos', icon: Baby },
         { href: '/my-payments', label: 'Pagos', icon: CreditCard },
         { href: '/messages', label: 'Chat', icon: MessageSquare },
-        { href: '/settings', label: 'Config', icon: Settings },
       ];
     case 'school':
       return [
@@ -41,7 +41,6 @@ const getNavigationItemsForRole = (role: string) => {
     default:
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/calendar', label: 'Calendario', icon: Calendar },
         { href: '/messages', label: 'Mensajes', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },
