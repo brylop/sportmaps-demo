@@ -127,6 +127,9 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
 
   const slots: TimeSlot[] = slotsQuery.data?.slots || [];
 
+  // Un servicio es cortesia si viene marcado explicitamente is_courtesy o si su precio es 0.
+  const isCourtesyBooking = service.is_courtesy === true || isCourtesyBooking;
+
   // Create appointment + checkout
   const bookMutation = useMutation({
     mutationFn: async () => {
@@ -149,19 +152,19 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
           duration_minutes: selectedSlot.duration_minutes,
           service_type: service.service_type || 'Otro',
           service_listing_id: service.id,
-          price: service.price,
-          payment_status: service.price === 0 ? 'courtesy' : 'pending',
-          is_courtesy: service.price === 0,
+          price: isCourtesyBooking ? 0 : service.price,
+          payment_status: isCourtesyBooking ? 'courtesy' : 'pending',
+          is_courtesy: isCourtesyBooking,
           booking_source: 'marketplace',
-          status: service.price === 0 ? 'confirmed' : 'pending',
+          status: isCourtesyBooking ? 'confirmed' : 'pending',
         })
         .select('id')
         .single();
 
       if (aptErr) throw new Error(aptErr.message);
 
-      // 2. If free (courtesy), just return
-      if (service.price === 0) {
+      // 2. If courtesy, just return
+      if (isCourtesyBooking) {
         return { type: 'courtesy', appointmentId: appointment.id };
       }
 
@@ -188,7 +191,8 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
       if (result.type === 'courtesy') {
         toast.success('Sesion de cortesia confirmada');
         onOpenChange(false);
-        navigate('/wellness/appointments');
+        // /wellness/appointments no existe todavia; mandamos al listado disponible
+        navigate(isParent ? '/children' : '/wellness');
       } else if (result.sessionId) {
         // Open ePayco checkout
         toast.success('Redirigiendo a pago...');
@@ -416,7 +420,7 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
                 <div className="flex justify-between text-base">
                   <span className="font-semibold">Total</span>
                   <span className="font-bold text-emerald-600">
-                    {service.price === 0 ? (
+                    {isCourtesyBooking ? (
                       <span className="flex items-center gap-1">
                         <Sparkles className="h-4 w-4" />
                         Cortesia
@@ -496,7 +500,7 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
             >
               {bookMutation.isPending ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Procesando...</>
-              ) : service.price === 0 ? (
+              ) : isCourtesyBooking ? (
                 <><CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar cortesia</>
               ) : (
                 <><CheckCircle2 className="h-4 w-4 mr-2" /> Pagar ${service.price.toLocaleString('es-CO')}</>

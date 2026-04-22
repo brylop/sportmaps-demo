@@ -86,6 +86,8 @@ export function FacilityReservationModal({
 
       const endTime = `${parseInt(selectedSlot.split(':')[0]) + 1}:00`;
       
+      // status 'pending' porque el flujo de pago y la aprobacion del admin
+      // no estan integrados todavia. La escuela debe aprobar desde su panel.
       const { data, error } = await supabase
         .from('facility_reservations')
         .insert({
@@ -95,7 +97,7 @@ export function FacilityReservationModal({
           start_time: selectedSlot,
           end_time: endTime,
           price: facility.hourly_rate || 0,
-          status: 'confirmed',
+          status: 'pending',
         })
         .select()
         .single();
@@ -106,12 +108,12 @@ export function FacilityReservationModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['facility-reservations'] });
       queryClient.invalidateQueries({ queryKey: ['calendar-events'] });
-      
+
       toast({
-        title: '✅ Reserva Confirmada',
-        description: `Tu práctica en ${facility?.name} ha sido reservada para el ${format(selectedDate!, 'PPP', { locale: es })} a las ${selectedSlot}`,
+        title: 'Solicitud enviada',
+        description: `Tu solicitud de reserva en ${facility?.name} para el ${format(selectedDate!, 'PPP', { locale: es })} a las ${selectedSlot} fue enviada. La escuela la aprobara en las proximas horas.`,
       });
-      
+
       onOpenChange(false);
       resetState();
     },
@@ -292,13 +294,17 @@ export function FacilityReservationModal({
                 </CardContent>
               </Card>
 
+              <div className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+                <strong className="font-semibold">Importante:</strong> tu solicitud queda pendiente de aprobación por la escuela. Recibirás una confirmación cuando sea aprobada. El pago se coordina directamente con la academia.
+              </div>
+
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setStep('time')} className="flex-1">
                   Atrás
                 </Button>
-                <Button 
+                <Button
                   onClick={() => createReservation.mutate()}
-                  disabled={createReservation.isPending}
+                  disabled={createReservation.isPending || !user}
                   className="flex-1 bg-[#248223] hover:bg-[#1d6a1c]"
                 >
                   {createReservation.isPending ? (
@@ -306,7 +312,7 @@ export function FacilityReservationModal({
                   ) : (
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                   )}
-                  Confirmar Reserva
+                  Enviar solicitud
                 </Button>
               </div>
             </div>
