@@ -42,32 +42,35 @@ interface SchoolSettingsRow {
   show_facilities: boolean;
 }
 
-interface ProgramRow {
+interface OfferingPlanRow {
   id: string;
   name: string;
   description: string | null;
-  sport: string;
-  schedule: any | null;
-  price_monthly: number;
-  age_min: number | null;
-  age_max: number | null;
-  max_students: number | null;
-  current_students: number;
-  active: boolean | null;
-  level?: string | null;
+  price: number;
+  currency: string;
+  duration_days: number;
+  max_sessions: number | null;
+  is_active: boolean;
 }
 
-function getAgeRange(p: ProgramRow) {
-  if (!p.age_min && !p.age_max) return 'Todas las edades';
-  if (!p.age_max) return `${p.age_min}+ años`;
-  if (!p.age_min) return `Hasta ${p.age_max} años`;
-  return `${p.age_min}-${p.age_max} años`;
+interface OfferingRow {
+  id: string;
+  name: string;
+  description: string | null;
+  sport: string | null;
+  offering_type: string;
+  is_active: boolean;
+  offering_plans: OfferingPlanRow[];
 }
 
-function getAvailability(p: ProgramRow) {
-  if (!p.max_students) return 'Cupos ilimitados';
-  const available = p.max_students - p.current_students;
-  return available > 0 ? `${available} cupos disponibles` : 'Lleno';
+function formatDurationLabel(days: number, price: number) {
+  const priceFmt = `$${price.toLocaleString('es-CO')}`;
+  if (days === 30) return `1 mes - 30 días / ${priceFmt}`;
+  if (days === 90) return `3 meses - 90 días / ${priceFmt}`;
+  if (days === 180) return `6 meses - 180 días / ${priceFmt}`;
+  if (days === 365) return `1 año - 365 días / ${priceFmt}`;
+  if (days >= 28 && days <= 32) return `1 mes - ${days} días / ${priceFmt}`;
+  return `${days} días / ${priceFmt}`;
 }
 
 export default function SchoolPublicProfilePage() {
@@ -81,7 +84,7 @@ export default function SchoolPublicProfilePage() {
 
   const [school, setSchool] = useState<SchoolRow | null>(null);
   const [settings, setSettings] = useState<SchoolSettingsRow | null>(null);
-  const [programs, setPrograms] = useState<ProgramRow[]>([]);
+  const [offerings, setOfferings] = useState<OfferingRow[]>([]);
 
   const [form, setForm] = useState({
     name: '',
@@ -103,19 +106,23 @@ export default function SchoolPublicProfilePage() {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const [{ data: s }, { data: st }, { data: pr }] = await Promise.all([
+      const [schoolRes, settingsRes, offeringsRes] = await Promise.allSettled([
         supabase.from('schools')
           .select('id, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports')
           .eq('id', schoolId).single(),
         supabase.from('school_settings')
           .select('school_id, public_profile_enabled, show_plans, show_programs, show_facilities')
           .eq('school_id', schoolId).maybeSingle(),
-        supabase.from('programs')
-          .select('id, name, description, sport, schedule, price_monthly, age_min, age_max, max_students, current_students, active, level')
+        supabase.from('offerings')
+          .select('id, name, description, sport, offering_type, is_active, offering_plans(id, name, description, price, currency, duration_days, max_sessions, is_active)')
           .eq('school_id', schoolId)
-          .eq('active', true)
-          .order('created_at', { ascending: false }),
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true }),
       ]);
+
+      const s = schoolRes.status === 'fulfilled' ? schoolRes.value.data : null;
+      const st = settingsRes.status === 'fulfilled' ? settingsRes.value.data : null;
+      const off = offeringsRes.status === 'fulfilled' && !offeringsRes.value.error ? offeringsRes.value.data : null;
       if (s) {
         setSchool(s as SchoolRow);
         setForm(prev => ({
@@ -141,7 +148,7 @@ export default function SchoolPublicProfilePage() {
           show_facilities: st.show_facilities ?? false,
         }));
       }
-      if (pr) setPrograms(pr as ProgramRow[]);
+      if (off) setOfferings(off as unknown as OfferingRow[]);
     } catch (err: any) {
       console.error('[SchoolPublicProfile] load', err);
       toast.error('Error cargando el perfil');
@@ -419,12 +426,12 @@ export default function SchoolPublicProfilePage() {
                 </Button>
               </div>
 
-              {programs.length === 0 ? (
+              {offerings.length === 0 ? (
                 <div className="text-center py-12 border-2 border-dashed rounded-lg">
                   <Trophy className="h-10 w-10 mx-auto text-muted-foreground/50 mb-2" />
                   <p className="font-medium">Aún no tienes planes publicados</p>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Crea tu primer programa para que aparezca en Explorar.
+                    Crea tu primera oferta deportiva para que aparezca en Explorar.
                   </p>
                   <Button asChild>
                     <Link to="/offerings">Crear plan</Link>
@@ -432,36 +439,39 @@ export default function SchoolPublicProfilePage() {
                 </div>
               ) : (
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  {programs.map(p => {
+                  {offerings.map(off => {
+                    const activePlans = (off.offering_plans ?? []).filter(p => p.is_active);
+                    if (activePlans.length === 0) return null;
+
                     const features: PlanFeature[] = [];
-                    if (p.description) {
-                      p.description.split(/\.\s+|\n+/).map(s => s.trim()).filter(s => s.length > 3)
+                    if (off.description) {
+                      off.description.split(/\.\s+|\n+/).map(s => s.trim()).filter(s => s.length > 3)
                         .slice(0, 4).forEach(s => features.push({ label: s.replace(/\.$/, '') }));
                     }
-                    features.push({ label: `Edades: ${getAgeRange(p)}` });
-                    if (p.schedule) {
-                      const sched = typeof p.schedule === 'string' ? p.schedule : JSON.stringify(p.schedule);
-                      features.push({ label: `Horario: ${sched}` });
+                    const firstPlan = activePlans[0];
+                    if (firstPlan?.max_sessions != null) {
+                      features.push({ label: `${firstPlan.max_sessions} sesiones incluidas` });
                     }
-                    features.push({ label: getAvailability(p) });
+                    if (features.length === 0) {
+                      features.push({ label: `Clases ${off.offering_type}` });
+                    }
 
-                    const durations: PlanDuration[] = [{
-                      key: 'monthly',
-                      label: `1 mes - 30 días / $${p.price_monthly.toLocaleString('es-CO')}`,
-                      price: p.price_monthly,
-                      durationDays: 30,
-                    }];
+                    const durations: PlanDuration[] = activePlans.map(p => ({
+                      key: p.id,
+                      label: formatDurationLabel(p.duration_days, p.price),
+                      price: p.price,
+                      durationDays: p.duration_days,
+                    }));
 
                     return (
                       <PlanCard
-                        key={p.id}
-                        title={p.name}
-                        sport={p.sport}
-                        level={p.level ? p.level.charAt(0).toUpperCase() + p.level.slice(1) : null}
+                        key={off.id}
+                        title={off.name}
+                        sport={off.sport ?? undefined}
                         features={features}
                         durations={durations}
                         primaryCta="Vista previa"
-                        onPrimary={() => toast.info('Vista previa: los alumnos verán este card en Explorar.')}
+                        onPrimary={() => toast.info('Vista previa: así se ve este plan en Explorar.')}
                       />
                     );
                   })}
