@@ -31,9 +31,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [loading, setLoading] = useState(false);
   const [athletes, setAthletes] = useState<any[]>([]);
   const [loadingAthletes, setLoadingAthletes] = useState(false);
+  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
 
   // Form state
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>('');
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string>('new');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [concept, setConcept] = useState('Mensualidad');
   const [amount, setAmount] = useState<number | ''>(0);
@@ -45,6 +48,15 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     }
   }, [open, schoolId]);
 
+  useEffect(() => {
+    if (selectedAthleteId) {
+      fetchPendingPayments(selectedAthleteId);
+    } else {
+      setPendingPayments([]);
+      setSelectedPaymentId('new');
+    }
+  }, [selectedAthleteId]);
+
   const fetchAthletes = async () => {
     setLoadingAthletes(true);
     try {
@@ -53,7 +65,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
         .select('*')
         .eq('school_id', schoolId)
         .eq('is_active', true);
-      
+
       if (error) throw error;
       setAthletes(data || []);
     } catch (err: any) {
@@ -61,6 +73,51 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       toast({ title: 'Error al cargar estudiantes', description: err.message, variant: 'destructive' });
     } finally {
       setLoadingAthletes(false);
+    }
+  };
+
+  const fetchPendingPayments = async (athleteId: string) => {
+    const student = athletes.find(a => a.id === athleteId);
+    if (!student || !schoolId) return;
+
+    setLoadingPending(true);
+    setSelectedPaymentId('new');
+    try {
+      const hasUserId = !!student.user_id;
+      const hasParent = !!student.parent_id;
+      const userId         = hasUserId ? student.user_id : null;
+      const childId        = (!hasUserId && hasParent) ? student.id : null;
+      const unregisteredId = (!hasUserId && !hasParent) ? student.id : null;
+
+      let q = supabase
+        .from('payments')
+        .select('id, concept, amount, due_date, status')
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'overdue'])
+        .order('due_date', { ascending: true });
+
+      if (userId)              q = q.eq('user_id', userId);
+      else if (childId)        q = q.eq('child_id', childId);
+      else if (unregisteredId) q = q.eq('unregistered_athlete_id', unregisteredId);
+
+      const { data, error } = await q;
+      if (error) throw error;
+      setPendingPayments(data || []);
+    } catch (err: any) {
+      console.error(err);
+      setPendingPayments([]);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  const handlePendingSelect = (value: string) => {
+    setSelectedPaymentId(value);
+    if (value === 'new') return;
+    const pmt = pendingPayments.find(p => p.id === value);
+    if (pmt) {
+      setConcept(pmt.concept);
+      setAmount(Number(pmt.amount) || 0);
     }
   };
 
@@ -91,26 +148,14 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       const childId          = (!hasUserId && hasParent) ? selectedStudent.id : null;
       const unregisteredId   = (!hasUserId && !hasParent) ? selectedStudent.id : null;
 
-      // Find ALL pending/overdue payments for this student
-      let matchQuery = supabase
-        .from('payments')
-        .select('id')
-        .eq('school_id', schoolId)
-        .in('status', ['pending', 'overdue']);
-
-      if (userId)              matchQuery = matchQuery.eq('user_id', userId);
-      else if (childId)        matchQuery = matchQuery.eq('child_id', childId);
-      else if (unregisteredId) matchQuery = matchQuery.eq('unregistered_athlete_id', unregisteredId);
-
-      const { data: existingPayments } = await matchQuery;
-
-      if (existingPayments && existingPayments.length > 0) {
-        // Update ALL pending/overdue payments to paid
-        const ids = existingPayments.map(p => p.id);
+      // Apply only to the selected pending payment, or create a new one.
+      if (selectedPaymentId !== 'new') {
         const { error: updateError } = await supabase
           .from('payments')
           .update({
             status: 'paid',
+            concept,
+            amount: numericAmount,
             payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
             payment_date: paymentDate.toISOString().split('T')[0],
@@ -119,7 +164,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             reference,
             amount_paid: numericAmount,
           })
-          .in('id', ids);
+          .eq('id', selectedPaymentId);
 
         if (updateError) throw updateError;
       } else {
@@ -189,6 +234,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
   const resetForm = () => {
     setSelectedAthleteId('');
+    setSelectedPaymentId('new');
+    setPendingPayments([]);
     setPaymentMethod('cash');
     setConcept('Mensualidad');
     setAmount(0);
@@ -282,6 +329,30 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
               </SelectContent>
             </Select>
           </div>
+
+          {selectedAthleteId && (
+            <div className="space-y-3">
+              <Label htmlFor="pending-payment" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <FileText className="h-3.5 w-3.5" /> Aplicar a
+              </Label>
+              <Select value={selectedPaymentId} onValueChange={handlePendingSelect} disabled={loadingPending}>
+                <SelectTrigger id="pending-payment" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
+                  <SelectValue placeholder={loadingPending ? 'Cargando...' : 'Selecciona un pago pendiente'} />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md">
+                  <SelectItem value="new" className="rounded-lg py-2.5">
+                    Nuevo cobro (sin asociar)
+                  </SelectItem>
+                  {pendingPayments.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2.5">
+                      {p.concept} — {formatCurrency(Number(p.amount) || 0)} · Vence {format(new Date(p.due_date), 'd MMM yyyy', { locale: es })}
+                      {p.status === 'overdue' ? ' (atrasado)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-3">
             <Label htmlFor="concept" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
