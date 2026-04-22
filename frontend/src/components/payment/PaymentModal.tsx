@@ -42,7 +42,8 @@ export interface PaymentItem {
   amount: number;
   schoolId?: string;
   schoolName?: string;
-  teamId?: string;
+  teamId?: string;              // legacy team/program id
+  offeringPlanId?: string;      // v2.1 offering_plan id
   teamName?: string;
   vendorId?: string;
   childId?: string;
@@ -148,6 +149,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
           metadata: {
             schoolId: item.schoolId,
             teamId: item.teamId,
+            offeringPlanId: item.offeringPlanId,
             childId: item.childId,
             vendorId: item.vendorId,
           }

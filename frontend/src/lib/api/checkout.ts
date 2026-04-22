@@ -6,7 +6,8 @@ import { emailClient } from '@/lib/email-client';
 
 export interface CheckoutPayload {
     student_id: string; // The ID of the person being enrolled (child or user)
-    class_id: string;
+    class_id: string | null;                // legacy team/program id
+    offering_plan_id?: string | null;       // v2.1: plan id de offering_plans
     school_id: string;
     parent_id: string;
     amount: number;
@@ -38,14 +39,15 @@ class CheckoutAPI {
             const { data, error: rpcError } = await supabase.rpc(
                 'process_enrollment_checkout',
                 {
-                    p_team_id: payload.class_id,
+                    p_student_id: payload.student_id,
+                    p_class_id: payload.class_id ?? null,
                     p_school_id: payload.school_id,
                     p_parent_id: payload.parent_id,
                     p_amount: payload.amount,
                     p_payment_method: payload.payment_method,
-                    p_student_id: payload.is_child_enrollment ? null : payload.student_id,
-                    p_child_id: payload.is_child_enrollment ? payload.student_id : null
-                }
+                    p_is_child_enrollment: !!payload.is_child_enrollment,
+                    p_offering_plan_id: payload.offering_plan_id ?? null,
+                } as any
             );
             const result = data as any;
 
@@ -80,11 +82,25 @@ class CheckoutAPI {
                     .eq('id', payload.school_id)
                     .maybeSingle();
 
-                const { data: program } = await supabase
-                    .from('teams')
-                    .select('name')
-                    .eq('id', payload.class_id)
-                    .maybeSingle();
+                let program: { name: string } | null = null;
+                if (payload.offering_plan_id) {
+                    // v2.1: obtiene nombre desde offering (via plan)
+                    const { data } = await supabase
+                        .from('offering_plans')
+                        .select('name, offerings(name)')
+                        .eq('id', payload.offering_plan_id)
+                        .maybeSingle();
+                    const off = (data as any)?.offerings;
+                    const offName = Array.isArray(off) ? off[0]?.name : off?.name;
+                    if (offName) program = { name: offName };
+                } else if (payload.class_id) {
+                    const { data } = await supabase
+                        .from('teams')
+                        .select('name')
+                        .eq('id', payload.class_id)
+                        .maybeSingle();
+                    if (data) program = data as { name: string };
+                }
 
                 if (parentProfile?.email) {
                     // Payment confirmation email

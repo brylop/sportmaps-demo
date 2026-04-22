@@ -230,11 +230,13 @@ export default function SchoolDetailPage() {
     setChildSelectionOpen(true);
   };
 
-  // Adapta un offering + plan seleccionado a la forma Program para reusar el flujo
-  // de inscripción existente (auth → child selector → payment).
+  // v2.1: guardamos offering + plan separados para que el PaymentModal pueda pasar
+  // offering_plan_id real al backend (no un pseudo-id con ":").
+  const [selectedOffering, setSelectedOffering] = useState<{ offering: Offering; planId: string; planLabel: string; price: number } | null>(null);
+
   const handleEnrollOffering = (offering: Offering, plan: { price: number; durationDays: number; key: string; label: string }) => {
     const pseudoProgram: Program = {
-      id: `${offering.id}:${plan.key}`,
+      id: plan.key,  // el id real del offering_plan
       name: `${offering.name} · ${plan.label}`,
       description: offering.description,
       sport: offering.sport ?? 'Multideporte',
@@ -246,6 +248,7 @@ export default function SchoolDetailPage() {
       current_students: 0,
       active: true,
     };
+    setSelectedOffering({ offering, planId: plan.key, planLabel: plan.label, price: plan.price });
     handleEnroll(pseudoProgram);
   };
 
@@ -422,8 +425,10 @@ export default function SchoolDetailPage() {
             description: school?.name,
             amount: selectedProgram.price_monthly,
             schoolId: school?.id,
-            teamId: selectedProgram.id,
-            childId: selectedChildId || undefined, // Pass selected child
+            // v2.1: si viene de offering, pasamos offering_plan_id; si no, teamId legacy
+            teamId: selectedOffering ? undefined : selectedProgram.id,
+            offeringPlanId: selectedOffering?.planId,
+            childId: selectedChildId || undefined,
           }}
           onSuccess={handlePaymentSuccess}
         />
