@@ -155,45 +155,45 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
     }
   }
 
-  // Fetch schools (only those that opted-in via school_settings.public_profile_enabled)
+  // Fetch schools usando la RPC search_schools (SECURITY DEFINER bypasea RLS de
+  // school_settings y ya enforza public_profile_enabled=true). Antes hacia query
+  // directa con !inner pero la policy de select en school_settings es
+  // staff-only, asi que el join devolvia 0 filas y la escuela jamas aparecia.
   if (filters.category === 'all' || filters.category === 'schools') {
-    let schoolsQuery = supabase
-      .from('schools')
-      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at, school_settings!inner(public_profile_enabled)', { count: 'exact' })
-      .eq('school_settings.public_profile_enabled', true);
+    const schoolsLimit = filters.category === 'schools' ? limit : 6;
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('search_schools', {
+      p_page: 1,
+      p_limit: schoolsLimit,
+      p_order_by: 'rating',
+      p_query: filters.q ?? null,
+      p_city: filters.city ?? null,
+      p_sport: filters.sport ?? null,
+      p_price_max: filters.price_max ?? null,
+    } as any);
 
-    if (filters.q) {
-      schoolsQuery = schoolsQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
+    if (rpcErr) {
+      console.error('[useExplorarGlobal] search_schools', rpcErr);
     }
-    if (filters.city) schoolsQuery = schoolsQuery.ilike('city', `%${filters.city}%`);
-    if (filters.sport) schoolsQuery = schoolsQuery.contains('sports', [filters.sport]);
 
-    schoolsQuery = schoolsQuery
-      .order('rating', { ascending: false, nullsFirst: false })
-      .range(0, (filters.category === 'schools' ? limit : 6) - 1);
-
-    const { data: schools } = await schoolsQuery;
-
-    if (schools) {
-      for (const s of schools) {
-        items.push({
-          id: s.id,
-          item_type: 'school',
-          name: s.name,
-          description: s.description,
-          price: 0, // schools show "desde $X" separately
-          currency: 'COP',
-          image_url: s.cover_image_url || s.logo_url,
-          sports: s.sports,
-          rating: s.rating,
-          review_count: s.review_count,
-          vendor_name: s.name,
-          vendor_city: s.city,
-          vendor_verified: s.verified || false,
-          vendor_logo: s.logo_url,
-          created_at: s.created_at,
-        });
-      }
+    const schools = (rpcData as any)?.data ?? [];
+    for (const s of schools as any[]) {
+      items.push({
+        id: s.id,
+        item_type: 'school',
+        name: s.name,
+        description: null,
+        price: s.min_price ?? 0,
+        currency: 'COP',
+        image_url: s.cover_image_url || s.logo_url,
+        sports: s.program_sports ?? [],
+        rating: s.avg_rating ?? 0,
+        review_count: s.review_count ?? 0,
+        vendor_name: s.name,
+        vendor_city: s.city,
+        vendor_verified: s.verified || false,
+        vendor_logo: s.logo_url,
+        created_at: new Date().toISOString(),
+      });
     }
   }
 
