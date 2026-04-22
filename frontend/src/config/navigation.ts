@@ -254,7 +254,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Planes Nutricionales', href: '/nutrition', icon: BookOpen },
           { title: 'Reportes', href: '/wellness-reports', icon: FileText },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      },
+      {
+        title: 'Perfil',
+        items: [
+          { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
@@ -282,7 +288,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Clientes', href: '/customers', icon: Users },
           { title: 'Reportes', href: '/store-reports', icon: FileText },
           { title: 'Promociones', href: '/promotions', icon: Trophy },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+        ]
+      },
+      {
+        title: 'Perfil',
+        items: [
+          { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
