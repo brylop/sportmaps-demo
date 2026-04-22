@@ -32,7 +32,7 @@ const getNavigationItemsForRole = (role: string) => {
     case 'athlete':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/explore', label: 'Explorar', icon: Compass },
+        // { href: '/explore', label: 'Explorar', icon: Compass },
         { href: '/calendar', label: 'Agenda', icon: Calendar },
         { href: '/messages', label: 'Chat', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },
@@ -40,7 +40,7 @@ const getNavigationItemsForRole = (role: string) => {
     default:
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        { href: '/explore', label: 'Explorar', icon: Compass },
+        // { href: '/explore', label: 'Explorar', icon: Compass },
         { href: '/calendar', label: 'Calendario', icon: Calendar },
         { href: '/messages', label: 'Mensajes', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },

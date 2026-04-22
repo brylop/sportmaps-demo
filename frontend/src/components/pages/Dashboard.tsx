@@ -60,12 +60,12 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
 
               <nav className="hidden md:flex items-center gap-6">
                 <button className="font-medium text-primary">Inicio</button>
-                <button
+                {/* <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => onNavigate("schoolsearch")}
                 >
                   Explorar
-                </button>
+                </button> */}
                 <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => onNavigate("shop")}
@@ -186,13 +186,13 @@ const Dashboard = ({ onNavigate }: DashboardProps) => {
 
         {/* Quick Actions */}
         <div className="mt-8 flex flex-wrap gap-4 justify-center">
-          <Button
+          {/* <Button
             variant="hero"
             onClick={() => onNavigate("schoolsearch")}
           >
             <MapPin className="w-4 h-4 mr-2" />
             Explorar escuelas
-          </Button>
+          </Button> */}
           <Button
             variant="outline"
             onClick={() => onNavigate("shop")}
