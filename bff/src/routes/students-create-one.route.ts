@@ -205,7 +205,16 @@ router.post(
       const cutoffDay      = settings?.payment_cutoff_day || 10;
       const requireProof   = settings?.require_payment_proof ?? true;
 
-      const origin = process.env.CORS_ORIGIN || 'https://app.sportmaps.com';
+      // Fuente del link de invitacion, en orden de preferencia:
+      //   1. Origin del request (dominio desde donde se invita: stg / dev / app).
+      //   2. FRONTEND_URL del entorno como failsafe.
+      //   3. Fallback a app.sportmaps.co (TLD corregido; antes decia .com).
+      // El CORS middleware ya valida que Origin sea *.sportmaps.co / vercel.app,
+      // asi que no hay riesgo de spoof de un dominio arbitrario.
+      const requestOrigin =
+        (req.headers.origin as string | undefined) ||
+        (req.headers.referer as string | undefined)?.replace(/\/$/, '');
+      const origin = requestOrigin || process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
       // ══════════════════════════════════════════════════════════════════════
       // FLUJO A — Menor de edad
