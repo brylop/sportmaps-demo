@@ -605,7 +605,15 @@ export default function SchoolDetailPage() {
                           features.push({ label: `${firstPlan.max_sessions} sesiones incluidas` });
                         }
                         if (features.length === 0) {
-                          features.push({ label: `Clases ${off.offering_type}` });
+                          const typeLabel: Record<string, string> = {
+                            session_pack: 'Paquete de clases',
+                            monthly: 'Mensualidad',
+                            drop_in: 'Clase suelta',
+                            subscription: 'Suscripción',
+                            class: 'Clases regulares',
+                            program: 'Programa deportivo',
+                          };
+                          features.push({ label: typeLabel[off.offering_type] ?? 'Programa deportivo' });
                         }
 
                         const durations: PlanDuration[] = activePlans.map(p => {

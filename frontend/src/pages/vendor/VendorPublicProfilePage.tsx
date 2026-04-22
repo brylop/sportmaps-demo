@@ -153,8 +153,9 @@ export default function VendorPublicProfilePage() {
   const handleUpload = async (file: File, field: 'logo_url' | 'cover_image_url') => {
     if (!vendor) return;
     try {
-      const bucket = field === 'logo_url' ? 'vendor-logos' : 'vendor-covers';
-      const { publicUrl } = await uploadFile(file, bucket, `${vendor.id}/${Date.now()}-${file.name}`);
+      const folder = field === 'logo_url' ? `vendor-logos/${vendor.id}` : `vendor-covers/${vendor.id}`;
+      const publicUrl = await uploadFile(file, 'avatars', folder);
+      if (!publicUrl) return;
       set(field, publicUrl);
       toast.success('Imagen subida');
     } catch (err: any) {

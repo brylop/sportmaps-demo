@@ -166,8 +166,9 @@ export default function SchoolPublicProfilePage() {
   const handleUpload = async (file: File, field: 'logo_url' | 'cover_image_url') => {
     if (!schoolId) return;
     try {
-      const bucket = field === 'logo_url' ? 'school-logos' : 'school-covers';
-      const { publicUrl } = await uploadFile(file, bucket, `${schoolId}/${Date.now()}-${file.name}`);
+      const folder = field === 'logo_url' ? `logos/${schoolId}` : `covers/${schoolId}`;
+      const publicUrl = await uploadFile(file, 'school-assets', folder);
+      if (!publicUrl) return; // useStorage ya mostró toast de error
       set(field, publicUrl);
       toast.success('Imagen subida');
     } catch (err: any) {
@@ -509,7 +510,15 @@ export default function SchoolPublicProfilePage() {
                       features.push({ label: `${firstPlan.max_sessions} sesiones incluidas` });
                     }
                     if (features.length === 0) {
-                      features.push({ label: `Clases ${off.offering_type}` });
+                      const typeLabel: Record<string, string> = {
+                        session_pack: 'Paquete de clases',
+                        monthly: 'Mensualidad',
+                        drop_in: 'Clase suelta',
+                        subscription: 'Suscripción',
+                        class: 'Clases regulares',
+                        program: 'Programa deportivo',
+                      };
+                      features.push({ label: typeLabel[off.offering_type] ?? 'Programa deportivo' });
                     }
 
                     const durations: PlanDuration[] = activePlans.map(p => ({
