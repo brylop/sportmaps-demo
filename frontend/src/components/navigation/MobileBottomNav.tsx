@@ -3,6 +3,8 @@ import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, 
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
+const SHOW_EXPLORE = import.meta.env.DEV;
+
 const getNavigationItemsForRole = (role: string) => {
   switch (role) {
     case 'parent':
@@ -32,7 +34,7 @@ const getNavigationItemsForRole = (role: string) => {
     case 'athlete':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        // { href: '/explore', label: 'Explorar', icon: Compass },
+        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/calendar', label: 'Agenda', icon: Calendar },
         { href: '/messages', label: 'Chat', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },
@@ -40,7 +42,7 @@ const getNavigationItemsForRole = (role: string) => {
     default:
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        // { href: '/explore', label: 'Explorar', icon: Compass },
+        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
         { href: '/calendar', label: 'Calendario', icon: Calendar },
         { href: '/messages', label: 'Mensajes', icon: MessageSquare },
         { href: '/profile', label: 'Perfil', icon: User },

@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 export type ExploreCategory =
   | 'all'
   | 'services'
+  | 'trainers'
   | 'events'
   | 'schools'
   | 'products';
@@ -39,7 +40,7 @@ export interface ExploreFilters {
 
 export interface ExploreItem {
   id: string;
-  item_type: 'service' | 'event' | 'school' | 'product';
+  item_type: 'service' | 'trainer' | 'event' | 'school' | 'product';
   name: string;
   description: string | null;
   price: number;
@@ -58,10 +59,18 @@ export interface ExploreItem {
   registrations_count?: number;
   registrations_open?: boolean;
 
-  // School-specific
+  // School-specific / Trainer-specific shared
   sports?: string[];
   rating?: number;
   review_count?: number;
+
+  // Trainer-specific
+  tagline?: string | null;
+  primary_sport?: string | null;
+  modality?: 'presencial' | 'virtual' | 'ambas';
+  experience_years?: number | null;
+  specialties?: string[] | null;
+  trainer_user_id?: string;
 
   // Product-specific
   stock?: number;
@@ -146,11 +155,12 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
     }
   }
 
-  // Fetch schools
+  // Fetch schools (only those that opted-in via school_settings.public_profile_enabled)
   if (filters.category === 'all' || filters.category === 'schools') {
     let schoolsQuery = supabase
       .from('schools')
-      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at', { count: 'exact' });
+      .select('id, name, description, logo_url, cover_image_url, city, address, sports, verified, rating, review_count, created_at, school_settings!inner(public_profile_enabled)', { count: 'exact' })
+      .eq('school_settings.public_profile_enabled', true);
 
     if (filters.q) {
       schoolsQuery = schoolsQuery.or(`name.ilike.%${filters.q}%,description.ilike.%${filters.q}%`);
@@ -182,6 +192,55 @@ async function fetchExploreGlobal(filters: ExploreFilters): Promise<ExploreResul
           vendor_verified: s.verified || false,
           vendor_logo: s.logo_url,
           created_at: s.created_at,
+        });
+      }
+    }
+  }
+
+  // Fetch trainers (published profiles)
+  if (filters.category === 'all' || filters.category === 'trainers') {
+    const trnLimit = filters.category === 'trainers' ? limit : 6;
+    let trainersQuery = (supabase as any)
+      .from('trainer_profiles')
+      .select('id, user_id, display_name, tagline, avatar_url, primary_sport, city, modality, rate_per_session, rate_currency, rating, review_count, specialties, experience_years, created_at')
+      .eq('is_published', true);
+
+    if (filters.q) {
+      trainersQuery = trainersQuery.or(`display_name.ilike.%${filters.q}%,tagline.ilike.%${filters.q}%`);
+    }
+    if (filters.city) trainersQuery = trainersQuery.ilike('city', `%${filters.city}%`);
+    if (filters.sport) trainersQuery = trainersQuery.ilike('primary_sport', `%${filters.sport}%`);
+    if (filters.price_max) trainersQuery = trainersQuery.lte('rate_per_session', filters.price_max);
+
+    trainersQuery = trainersQuery
+      .order('rating', { ascending: false, nullsFirst: false })
+      .range(0, trnLimit - 1);
+
+    const { data: trainers } = await trainersQuery;
+
+    if (trainers) {
+      for (const t of trainers as any[]) {
+        items.push({
+          id: t.id,
+          item_type: 'trainer',
+          name: t.display_name || 'Entrenador',
+          description: t.tagline,
+          price: t.rate_per_session || 0,
+          currency: t.rate_currency || 'COP',
+          image_url: t.avatar_url,
+          tagline: t.tagline,
+          primary_sport: t.primary_sport,
+          modality: t.modality,
+          experience_years: t.experience_years,
+          specialties: t.specialties,
+          rating: t.rating || 0,
+          review_count: t.review_count || 0,
+          trainer_user_id: t.user_id,
+          vendor_name: t.display_name || '',
+          vendor_city: t.city,
+          vendor_verified: false,
+          vendor_logo: t.avatar_url,
+          created_at: t.created_at || new Date().toISOString(),
         });
       }
     }

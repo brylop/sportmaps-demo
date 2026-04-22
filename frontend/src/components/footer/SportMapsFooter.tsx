@@ -51,7 +51,7 @@ export function SportMapsFooter() {
             <h4 className="text-white font-semibold text-lg">SportMaps Tech</h4>
             <ul className="space-y-3">
               <FooterLink text="Marketplace" href="/shop" />
-              {/* <FooterLink text="Explorar Escuelas" href="/explore" /> */}
+              {import.meta.env.DEV && <FooterLink text="Explorar" href="/explorar" />}
               <FooterLink text="Blog Deportivo" href="/blog" />
               <FooterLink text="Centro de Ayuda" href="/help" />
               <FooterLink text="Zona de Partners" href="/partners" isHighlighted />

@@ -42,6 +42,9 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+// Explorar queda oculto en staging/prod; solo en dev se exponen los accesos.
+const SHOW_EXPLORE = import.meta.env.DEV;
+
 /**
  * Returns navigation structure based on user role
  */
@@ -72,12 +75,12 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Entrenamientos', href: '/training', icon: Activity }
         ]
       },
-      // {
-      //   title: 'Explorar',
-      //   items: [
-      //     { title: 'Explorar', href: '/explorar', icon: MapPin },
-      //   ]
-      // },
+      ...(SHOW_EXPLORE ? [{
+        title: 'Explorar',
+        items: [
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
+        ]
+      }] : []),
       {
         title: 'Mi Actividad',
         items: [
@@ -85,7 +88,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
-          // { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
+          ...(SHOW_EXPLORE ? [{ title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell }] : []),
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
@@ -101,12 +104,12 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Calendario Familiar', href: '/calendar', icon: Calendar }
         ]
       },
-      // {
-      //   title: 'Explorar',
-      //   items: [
-      //     { title: 'Explorar', href: '/explorar', icon: MapPin },
-      //   ]
-      // },
+      ...(SHOW_EXPLORE ? [{
+        title: 'Explorar',
+        items: [
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
+        ]
+      }] : []),
       {
         title: 'Seguimiento',
         items: [
@@ -119,7 +122,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Mi Actividad',
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
-          // { title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell },
+          ...(SHOW_EXPLORE ? [{ title: 'Entrenadores', href: '/explore/trainers', icon: Dumbbell }] : []),
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Configuración', href: '/settings', icon: Settings }
@@ -197,13 +200,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
-      // {
-      //   title: 'Competencias',
-      //   items: [
-      //     // { title: 'Explorar', href: '/explorar', icon: MapPin },
-      //     { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
-      //   ]
-      // },
+      ...(SHOW_EXPLORE ? [{
+        title: 'Explorar & Competencias',
+        items: [
+          { title: 'Explorar', href: '/explorar', icon: MapPin },
+          { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
+        ]
+      }] : []),
       // {
       //   title: 'Tienda',
       //   items: [
@@ -240,7 +243,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mis Servicios', href: '/vendor/services', icon: Activity },
           { title: 'Citas Reservadas', href: '/vendor/appointments', icon: Calendar },
-          // { title: 'Explorar', href: '/explorar', icon: MapPin }
+          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : [])
         ]
       },
       {
@@ -268,7 +271,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard Vendedor', href: '/vendor/dashboard', icon: Home },
           { title: 'Mis Productos', href: '/vendor/products', icon: ShoppingBag },
           { title: 'Pedidos', href: '/orders', icon: FileText },
-          // { title: 'Explorar', href: '/explorar', icon: MapPin }
+          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : [])
         ]
       },
       {

@@ -54,6 +54,8 @@ import {
   UserCircle,
   Map as MapIcon,
   LayoutGrid,
+  Dumbbell,
+  Compass,
 } from 'lucide-react';
 import { ServiceBookingModal } from '@/components/marketplace/ServiceBookingModal';
 import { UnifiedExploreMap } from '@/components/marketplace/UnifiedExploreMap';
@@ -63,6 +65,7 @@ import { UnifiedExploreMap } from '@/components/marketplace/UnifiedExploreMap';
 const CATEGORIES: { key: ExploreCategory; label: string; icon: React.ElementType; color: string }[] = [
   { key: 'all',      label: 'Todo',          icon: Sparkles,      color: 'bg-gradient-to-r from-primary to-purple-500' },
   { key: 'services', label: 'Profesionales', icon: Stethoscope,   color: 'bg-emerald-500' },
+  { key: 'trainers', label: 'Entrenadores',  icon: Dumbbell,      color: 'bg-violet-500' },
   { key: 'events',   label: 'Eventos',       icon: Trophy,        color: 'bg-amber-500' },
   { key: 'schools',  label: 'Escuelas',      icon: GraduationCap, color: 'bg-blue-500' },
   { key: 'products', label: 'Productos',     icon: Package,       color: 'bg-rose-500' },
@@ -203,64 +206,173 @@ function EventCard({ item, onRegister }: { item: ExploreItem; onRegister: (item:
 
 function SchoolCard({ item }: { item: ExploreItem }) {
   const navigate = useNavigate();
-
   return (
     <Card
-      className="group overflow-hidden cursor-pointer hover:shadow-xl transition-all duration-300 border-border/50 hover:border-blue-400/50"
+      className="group overflow-hidden cursor-pointer hover:shadow-2xl transition-all duration-500 border border-border/50 hover:border-primary/40 bg-card/80 backdrop-blur-sm"
       onClick={() => navigate(`/schools/${item.id}`)}
     >
-      <div className="relative aspect-[4/3] bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 overflow-hidden">
+      <div className="relative h-48 bg-gradient-to-br from-primary/10 via-primary/5 to-secondary/10 overflow-hidden">
         {item.image_url ? (
-          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" loading="lazy" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <GraduationCap className="h-12 w-12 text-blue-300" />
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/20">
+            <Trophy className="h-14 w-14 text-primary/30" />
           </div>
         )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
         {item.vendor_verified && (
-          <Badge className="absolute top-2.5 right-2.5 bg-white/95 text-blue-600 border-0 shadow-lg text-xs">
+          <Badge className="absolute top-3 right-3 bg-white/95 text-primary border-0 shadow-lg text-xs font-semibold px-2.5 py-1">
             <CheckCircle2 className="h-3 w-3 mr-1" />
             Verificada
           </Badge>
         )}
+
         {item.vendor_logo && (
-          <div className="absolute bottom-2.5 left-2.5">
-            <img src={item.vendor_logo} alt="" className="w-10 h-10 rounded-lg object-cover border-2 border-white shadow-lg" />
+          <div className="absolute bottom-3 left-3">
+            <img src={item.vendor_logo} alt="" className="w-10 h-10 rounded-lg border-2 border-white shadow-lg object-cover bg-white" />
+          </div>
+        )}
+
+        {item.price > 0 && (
+          <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">
+            Desde ${item.price.toLocaleString('es-CO')}
           </div>
         )}
       </div>
-      <CardContent className="p-4 space-y-2">
-        <h3 className="font-semibold text-sm line-clamp-2 group-hover:text-blue-600 transition-colors">{item.name}</h3>
-        {item.vendor_city && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5" />
-            <span>{item.vendor_city}</span>
+
+      <CardContent className="p-4 space-y-3">
+        <div>
+          <h3 className="font-bold text-base line-clamp-1 group-hover:text-primary transition-colors">
+            {item.name}
+          </h3>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+            <MapPin className="h-3 w-3" />
+            <span className="line-clamp-1">{item.vendor_city || 'Colombia'}</span>
           </div>
-        )}
-        {item.rating != null && item.rating > 0 && (
-          <div className="flex items-center gap-1.5 text-xs">
-            <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-            <span className="font-medium">{item.rating.toFixed(1)}</span>
-            {item.review_count != null && item.review_count > 0 && (
-              <span className="text-muted-foreground">({item.review_count})</span>
-            )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+              {(item.rating || 0).toFixed(1)}
+            </span>
           </div>
-        )}
+          <span className="text-xs text-muted-foreground">
+            {item.review_count || 0} reseñas
+          </span>
+        </div>
+
         {item.sports && item.sports.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {item.sports.slice(0, 3).map((s) => (
-              <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0">
-                {s}
+          <div className="flex flex-wrap gap-1.5">
+            {item.sports.slice(0, 3).map((sport) => (
+              <Badge key={sport} variant="secondary" className="text-[10px] font-medium px-2 py-0.5">
+                {sport}
               </Badge>
             ))}
             {item.sports.length > 3 && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">+{item.sports.length - 3}</Badge>
+              <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                +{item.sports.length - 3}
+              </Badge>
             )}
           </div>
         )}
-        <Separator className="my-1" />
-        <Button size="sm" variant="outline" className="w-full text-blue-600 border-blue-200 hover:bg-blue-50">
+
+        <Button className="w-full h-9 text-xs font-semibold shadow-sm group-hover:shadow-md transition-shadow" size="sm">
           Ver programas
+          <Sparkles className="h-3.5 w-3.5 ml-1.5" />
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrainerCard({ item }: { item: ExploreItem }) {
+  const navigate = useNavigate();
+  const modalityLabel = item.modality === 'presencial' ? 'Presencial'
+    : item.modality === 'virtual' ? 'Virtual'
+    : item.modality === 'ambas' ? 'Presencial y Virtual'
+    : null;
+
+  return (
+    <Card
+      className="group overflow-hidden cursor-pointer hover:shadow-2xl transition-all duration-500 border border-border/50 hover:border-violet-400/50 bg-card/80 backdrop-blur-sm"
+      onClick={() => item.trainer_user_id && navigate(`/entrenador/${item.trainer_user_id}`)}
+    >
+      <div className="relative h-48 bg-gradient-to-br from-violet-500/10 via-fuchsia-500/5 to-purple-500/10 overflow-hidden">
+        {item.image_url ? (
+          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" loading="lazy" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Dumbbell className="h-14 w-14 text-violet-400/40" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+        {modalityLabel && (
+          <Badge className="absolute top-3 right-3 bg-white/95 text-violet-700 border-0 shadow-lg text-xs font-semibold px-2.5 py-1">
+            {modalityLabel}
+          </Badge>
+        )}
+
+        {item.price > 0 && (
+          <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">
+            ${item.price.toLocaleString('es-CO')} / sesión
+          </div>
+        )}
+      </div>
+
+      <CardContent className="p-4 space-y-3">
+        <div>
+          <h3 className="font-bold text-base line-clamp-1 group-hover:text-violet-600 transition-colors">
+            {item.name}
+          </h3>
+          {item.tagline && (
+            <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{item.tagline}</p>
+          )}
+          {item.vendor_city && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+              <MapPin className="h-3 w-3" />
+              <span className="line-clamp-1">{item.vendor_city}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+              {(item.rating || 0).toFixed(1)}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {item.review_count || 0} reseñas
+          </span>
+          {item.experience_years != null && item.experience_years > 0 && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground">{item.experience_years} años</span>
+            </>
+          )}
+        </div>
+
+        {(item.primary_sport || (item.specialties && item.specialties.length > 0)) && (
+          <div className="flex flex-wrap gap-1.5">
+            {item.primary_sport && (
+              <Badge variant="secondary" className="text-[10px] font-medium px-2 py-0.5">
+                {item.primary_sport}
+              </Badge>
+            )}
+            {item.specialties?.slice(0, 2).map((s) => (
+              <Badge key={s} variant="outline" className="text-[10px] px-2 py-0.5">{s}</Badge>
+            ))}
+          </div>
+        )}
+
+        <Button className="w-full h-9 text-xs font-semibold bg-violet-600 hover:bg-violet-700" size="sm">
+          Ver perfil
+          <Sparkles className="h-3.5 w-3.5 ml-1.5" />
         </Button>
       </CardContent>
     </Card>
@@ -358,7 +470,7 @@ export default function ExplorarGlobalPage() {
 
   const initialCategory = (() => {
     const c = searchParams.get('category');
-    const valid: ExploreCategory[] = ['all', 'services', 'events', 'schools', 'products'];
+    const valid: ExploreCategory[] = ['all', 'services', 'trainers', 'events', 'schools', 'products'];
     return valid.includes(c as ExploreCategory) ? (c as ExploreCategory) : 'all';
   })();
 
@@ -372,6 +484,7 @@ export default function ExplorarGlobalPage() {
     if (!data?.items || filters.category !== 'all') return null;
     return {
       services: data.items.filter((i) => i.item_type === 'service'),
+      trainers: data.items.filter((i) => i.item_type === 'trainer'),
       events: data.items.filter((i) => i.item_type === 'event'),
       schools: data.items.filter((i) => i.item_type === 'school'),
       products: data.items.filter((i) => i.item_type === 'product'),
@@ -422,40 +535,83 @@ export default function ExplorarGlobalPage() {
     filters.q, filters.city, filters.service_type, filters.sport, filters.price_max,
   ].filter(Boolean).length;
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-br from-primary/10 via-background to-purple-500/5 border-b">
-        <div className="container mx-auto px-4 py-10 max-w-7xl">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl md:text-4xl font-bold">Explorar</h1>
-            {isParent && (
-              <Badge variant="outline" className="gap-1 text-sm">
-                <Baby className="h-3.5 w-3.5" />
-                Modo padre
-              </Badge>
-            )}
-          </div>
-          <p className="text-muted-foreground mb-6">
-            {isParent
-              ? 'Encuentra servicios, escuelas y eventos para tus hijos — todo en un solo lugar.'
-              : 'Fisioterapeutas, escuelas, eventos, entrenadores y productos deportivos en un solo lugar.'
-            }
-          </p>
+  const quickSports = ['Fútbol', 'Natación', 'Tenis', 'Cheerleading', 'Baloncesto', 'Karate', 'Gimnasia'];
+  const totalResults = data?.total ?? 0;
 
-          {/* Search bar */}
-          <div className="flex gap-2 max-w-2xl">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar fisioterapeuta, escuela, evento, producto..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="pl-10 h-11"
-              />
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20">
+      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary via-primary/90 to-emerald-600" />
+        <div className="absolute inset-0 opacity-[0.07]" style={{
+          backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+          backgroundSize: '28px 28px',
+        }} />
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-emerald-300/10 rounded-full blur-3xl" />
+
+        <div className="container mx-auto px-4 py-10 md:py-14 relative z-10 max-w-7xl">
+          <div className="max-w-3xl mx-auto text-center space-y-5">
+            <div className="flex items-center justify-center gap-2">
+              <Compass className="h-6 w-6 text-white/70 animate-pulse" />
+              <Badge variant="secondary" className="bg-white/15 text-white border-white/20 hover:bg-white/25 text-xs backdrop-blur-sm">
+                {totalResults > 0 ? `${totalResults} resultados` : 'Explora'}
+              </Badge>
+              {isParent && (
+                <Badge variant="secondary" className="bg-white/15 text-white border-white/20 text-xs backdrop-blur-sm gap-1">
+                  <Baby className="h-3 w-3" />
+                  Modo padre
+                </Badge>
+              )}
             </div>
-            <Button onClick={handleSearch} size="lg">Buscar</Button>
+
+            <h1 className="text-3xl md:text-5xl font-extrabold text-white leading-tight tracking-tight">
+              Encuentra todo en
+              <span className="block bg-gradient-to-r from-amber-300 to-yellow-200 bg-clip-text text-transparent">
+                un solo lugar
+              </span>
+            </h1>
+
+            <p className="text-white/70 text-sm md:text-base max-w-lg mx-auto">
+              Escuelas, entrenadores, fisioterapeutas, eventos y productos deportivos — explora y reserva al instante.
+            </p>
+
+            <div className="relative max-w-2xl mx-auto">
+              <div className="absolute inset-0 bg-white/10 rounded-2xl blur-xl" />
+              <div className="relative flex gap-2">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Busca fútbol, entrenador, cheerleading..."
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    className="pl-11 pr-4 h-12 text-sm bg-white rounded-xl border-0 shadow-2xl focus:ring-4 focus:ring-white/30"
+                  />
+                </div>
+                <Button
+                  onClick={handleSearch}
+                  className="h-12 px-6 rounded-xl shadow-2xl bg-amber-500 hover:bg-amber-600 text-white font-semibold"
+                >
+                  Buscar
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {quickSports.map((sport) => (
+                <Badge
+                  key={sport}
+                  variant="outline"
+                  className={`border-white/25 text-white hover:bg-white/20 cursor-pointer text-xs transition-all ${
+                    filters.sport === sport ? 'bg-white/25 border-white/50' : ''
+                  }`}
+                  onClick={() => updateFilters({ sport: filters.sport === sport ? undefined : sport })}
+                >
+                  {sport}
+                </Badge>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -716,6 +872,20 @@ export default function ExplorarGlobalPage() {
               </div>
             )}
 
+            {/* Trainers section */}
+            <SectionHeader
+              icon={Dumbbell} label="Entrenadores" color="bg-violet-500"
+              count={grouped.trainers.length}
+              onViewAll={() => updateFilters({ category: 'trainers' })}
+            />
+            {grouped.trainers.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {grouped.trainers.map((item) => (
+                  <TrainerCard key={`trn-${item.id}`} item={item} />
+                ))}
+              </div>
+            )}
+
             {/* Events section */}
             <SectionHeader
               icon={Trophy} label="Eventos y Competencias" color="bg-amber-500"
@@ -759,7 +929,7 @@ export default function ExplorarGlobalPage() {
             )}
 
             {/* No results at all */}
-            {grouped.services.length === 0 && grouped.events.length === 0 &&
+            {grouped.services.length === 0 && grouped.trainers.length === 0 && grouped.events.length === 0 &&
              grouped.schools.length === 0 && grouped.products.length === 0 && (
               <EmptyState onClear={clearFilters} />
             )}
@@ -778,6 +948,8 @@ export default function ExplorarGlobalPage() {
                   switch (item.item_type) {
                     case 'service':
                       return <ServiceCard key={`svc-${item.id}`} item={item} onBook={handleBook} />;
+                    case 'trainer':
+                      return <TrainerCard key={`trn-${item.id}`} item={item} />;
                     case 'event':
                       return <EventCard key={`evt-${item.id}`} item={item} onRegister={handleRegisterEvent} />;
                     case 'school':

@@ -112,6 +112,16 @@ export const explorarController = {
     try {
       const { id } = req.params;
 
+      const { data: settings } = await supabase
+        .from("school_settings")
+        .select("public_profile_enabled")
+        .eq("school_id", id)
+        .maybeSingle();
+
+      if (!settings?.public_profile_enabled) {
+        return res.status(404).json({ ok: false, error: "Escuela no encontrada" });
+      }
+
       const { data, error } = await supabase
         .from("school_detail_view")
         .select("*")

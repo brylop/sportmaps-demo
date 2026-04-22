@@ -37,7 +37,6 @@ const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
-const ExplorePage = lazy(() => import("./pages/ExplorePage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
 const UnauthorizedPage = lazy(() => import("./pages/UnauthorizedPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -48,7 +47,6 @@ const PaymentConfirmationPage = lazy(() => import("./pages/PaymentConfirmationPa
 const PublicSchoolPage = lazy(() => import("./pages/PublicSchoolPage"));
 const SchoolProfilePage = lazy(() => import("./pages/SchoolProfilePage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const ExploreTrainers = lazy(() => import("./pages/explore/ExploreTrainers"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -272,7 +270,6 @@ const App = () => (
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
-                    <Route path="/explore/trainers" element={<ExploreTrainers />} />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={

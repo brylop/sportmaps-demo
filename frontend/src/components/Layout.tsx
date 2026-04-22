@@ -60,12 +60,14 @@ const Layout = ({
             >
               Ecosistema
             </button>
-            {/* <button
-              className="text-left text-lg font-medium hover:text-primary transition-colors"
-              onClick={() => handleNavigation("explore")}
-            >
-              Explorar
-            </button> */}
+            {import.meta.env.DEV && (
+              <button
+                className="text-left text-lg font-medium hover:text-primary transition-colors"
+                onClick={() => handleNavigation("explore")}
+              >
+                Explorar
+              </button>
+            )}
             <button
               className="text-left text-lg font-medium hover:text-primary transition-colors"
               onClick={() => handleNavigation("about")}
@@ -140,12 +142,14 @@ const Layout = ({
                 >
                   Ecosistema
                 </button>
-                {/* <button
-                  className="font-medium hover:text-primary transition-colors"
-                  onClick={() => handleNavigation("explore")}
-                >
-                  Explorar
-                </button> */}
+                {import.meta.env.DEV && (
+                  <button
+                    className="font-medium hover:text-primary transition-colors"
+                    onClick={() => handleNavigation("explore")}
+                  >
+                    Explorar
+                  </button>
+                )}
                 <button
                   className="font-medium hover:text-primary transition-colors"
                   onClick={() => handleNavigation("about")}
