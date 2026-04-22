@@ -23,31 +23,27 @@ export interface SchoolProfile {
 class SchoolsAPI {
 
     /**
-     * Get public school profile by slug.
-     * Since the schools table doesn't have a slug column, we use a lookup
-     * strategy: first try to fetch real data from the DB for demo slugs,
-     * then fall back to hardcoded demo data.
+     * Get public school profile by slug (real DB column).
+     * Para los slugs especiales de demo hardcodeado, mantenemos el enriquecimiento
+     * con servicios/teams de ejemplo si la escuela de la DB no tiene datos completos.
      */
     async getSchoolBySlug(slug: string): Promise<SchoolProfile | null> {
         try {
-            // For the demo school, fetch real data from DB
+            const { data, error } = await (supabase
+                .from('schools') as any)
+                .select('*')
+                .eq('slug', slug)
+                .maybeSingle();
+
+            if (error) throw error;
+            if (data) return { ...data, slug: (data as any).slug ?? slug } as SchoolProfile;
+
+            // No match por slug: para slugs demo conocidos, devolver la escuela demo hardcodeada.
             if (slug === 'academia-demo' || slug === 'spirit-all-stars' || slug === 'demo') {
                 return await this.getDemoSchoolProfile(slug);
             }
 
-            // Schools table has no slug column yet. Match by name but handle
-            // duplicates deterministically (oldest wins) instead of erroring out.
-            const { data, error } = await supabase
-                .from('schools')
-                .select('*')
-                .eq('name', slug)
-                .order('created_at', { ascending: true })
-                .limit(1)
-                .maybeSingle();
-
-            if (error) throw error;
-            if (!data) return null;
-            return { ...data, slug } as SchoolProfile;
+            return null;
         } catch (error) {
             console.warn('Error fetching school, using demo fallback:', error);
             return this.getDemoFallback(slug);

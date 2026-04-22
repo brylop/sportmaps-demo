@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   User, DollarSign, Phone, Eye, Save, Loader2, Upload, Plus, ExternalLink, Globe,
-  MapPin, Mail, Building2, Trophy,
+  MapPin, Mail, Building2, Trophy, Copy,
 } from 'lucide-react';
 import { PublishedSuccessModal } from '@/components/settings/PublishedSuccessModal';
 import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
@@ -22,6 +22,7 @@ import { useStorage } from '@/hooks/useStorage';
 
 interface SchoolRow {
   id: string;
+  slug: string;
   name: string;
   description: string | null;
   city: string | null;
@@ -107,8 +108,8 @@ export default function SchoolPublicProfilePage() {
     setLoading(true);
     try {
       const [schoolRes, settingsRes, offeringsRes] = await Promise.allSettled([
-        supabase.from('schools')
-          .select('id, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports')
+        (supabase.from('schools') as any)
+          .select('id, slug, name, description, city, address, phone, email, website, logo_url, cover_image_url, sports')
           .eq('id', schoolId).single(),
         supabase.from('school_settings')
           .select('school_id, public_profile_enabled, show_plans, show_programs, show_facilities')
@@ -233,8 +234,20 @@ export default function SchoolPublicProfilePage() {
     }
   };
 
-  const publicUrl = schoolId ? `${window.location.origin}/schools/${schoolId}` : '';
+  const publicUrl = school?.slug
+    ? `${window.location.origin}/s/${school.slug}`
+    : '';
   const isPublished = settings?.public_profile_enabled ?? false;
+
+  const handleCopyUrl = async () => {
+    if (!publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      toast.success('Enlace copiado');
+    } catch {
+      toast.error('No se pudo copiar');
+    }
+  };
 
   if (loading || !schoolId) {
     return (
@@ -287,6 +300,50 @@ export default function SchoolPublicProfilePage() {
 
         {/* ── GENERAL ───────────────────────────────────────────────────── */}
         <TabsContent value="general" className="space-y-5 mt-6">
+
+          {/* Micrositio publico: link compartible */}
+          <Card className="border-dashed bg-muted/40">
+            <CardContent className="p-5 space-y-3">
+              <div>
+                <h3 className="font-semibold text-base flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-primary" />
+                  Tu Micrositio Público
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {isPublished
+                    ? 'Comparte este enlace para que padres y alumnos vean tus programas sin registrarse.'
+                    : 'Publica tu perfil para activar el enlace y compartirlo.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={publicUrl}
+                  placeholder="Se genera al crear la escuela…"
+                  className="font-mono text-sm bg-background"
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCopyUrl}
+                  disabled={!isPublished || !publicUrl}
+                  aria-label="Copiar enlace"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={() => publicUrl && window.open(publicUrl, '_blank')}
+                  disabled={!isPublished || !publicUrl}
+                  className="gap-1.5"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Ver Sitio
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-6 space-y-5">
               <div>
@@ -525,7 +582,7 @@ export default function SchoolPublicProfilePage() {
         open={successOpen}
         onOpenChange={setSuccessOpen}
         publicUrl={publicUrl}
-        viewUrl={`/schools/${schoolId}`}
+        viewUrl={school?.slug ? `/s/${school.slug}` : `/schools/${schoolId}`}
         exploreHint={{ label: 'Escuelas', href: '/explorar?category=schools' }}
         description={`${schoolName || 'Tu academia'} ya es visible para alumnos potenciales en SportMaps. Comparte tu link para que te encuentren.`}
       />
