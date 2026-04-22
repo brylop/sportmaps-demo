@@ -23,7 +23,8 @@ import {
   Send,
   GraduationCap,
   Dumbbell,
-  User
+  User,
+  ClipboardList
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 
@@ -140,7 +141,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión',
         items: [
-          { title: 'Asistencias', href: '/coach-attendance', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/coach-attendance', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
           { title: 'Reportes', href: '/coach-reports', icon: FileText }
@@ -178,7 +186,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -297,7 +312,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -338,7 +360,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
@@ -379,7 +408,14 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
-          { title: 'Asistencias', href: '/attendance-supervision', icon: BarChart3 },
+          {
+            title: 'Asistencias',
+            icon: BarChart3,
+            submenu: [
+              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
+              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
+            ],
+          },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
