@@ -197,20 +197,20 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
-      {
-        title: 'Competencias',
-        items: [
-          // { title: 'Explorar', href: '/explorar', icon: MapPin },
-          { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
-        ]
-      },
-      {
-        title: 'Tienda',
-        items: [
-          { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
-          { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
-        ]
-      },
+      // {
+      //   title: 'Competencias',
+      //   items: [
+      //     // { title: 'Explorar', href: '/explorar', icon: MapPin },
+      //     { title: 'Mis Delegaciones', href: '/school/delegations', icon: Map }
+      //   ]
+      // },
+      // {
+      //   title: 'Tienda',
+      //   items: [
+      //     { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
+      //     { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
+      //   ]
+      // },
       {
         title: 'Administración',
         items: [
