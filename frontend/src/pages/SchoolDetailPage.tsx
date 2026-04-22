@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { EnrollmentAuthModal } from '@/components/explore/EnrollmentAuthModal';
+import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
 import { PaymentModal } from '@/components/payment/PaymentModal';
 import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
@@ -506,8 +507,8 @@ export default function SchoolDetailPage() {
                 <TabsTrigger value="reviews">Reseñas</TabsTrigger>
               </TabsList>
 
-              {/* Programs Tab */}
-              <TabsContent value="programs" className="space-y-4">
+              {/* Programs Tab — Fitpal-style plan cards */}
+              <TabsContent value="programs">
                 {programs.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -519,76 +520,61 @@ export default function SchoolDetailPage() {
                     </p>
                   </Card>
                 ) : (
-                  programs.map((program) => (
-                    <Card key={program.id} className="overflow-hidden">
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CardTitle>{program.name}</CardTitle>
-                              {program.level && (
-                                <Badge variant="outline" className="text-xs">
-                                  <GraduationCap className="h-3 w-3 mr-1" />
-                                  {program.level.charAt(0).toUpperCase() + program.level.slice(1)}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary">{program.sport}</Badge>
-                              {program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0 && (
-                                <Badge variant="destructive" className="animate-pulse">
-                                  ¡Solo {program.spots_available} cupos!
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-primary">
-                              ${program.price_monthly.toLocaleString()}
-                            </p>
-                            <p className="text-sm text-muted-foreground">por mes</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {program.description && (
-                          <p className="text-muted-foreground">{program.description}</p>
-                        )}
+                  <>
+                    <div className="text-center mb-6">
+                      <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Encuentra el plan ideal para ti</h2>
+                      <p className="text-muted-foreground mt-1">Elige entre los programas que ofrece {school.name}</p>
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {programs.map((program) => {
+                        const isFull = program.max_students !== null && program.current_students >= program.max_students;
+                        const features: PlanFeature[] = [];
 
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span>{getAgeRange(program)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Trophy className="h-4 w-4 text-muted-foreground" />
-                            <span>{getAvailability(program)}</span>
-                          </div>
-                          {program.schedule && (
-                            <div className="flex items-center gap-2 col-span-2">
-                              <Clock className="h-4 w-4 text-muted-foreground" />
-                              <span>{typeof program.schedule === 'string' ? program.schedule : JSON.stringify(program.schedule)}</span>
-                            </div>
-                          )}
-                        </div>
+                        if (program.description) {
+                          program.description
+                            .split(/\.\s+|\n+/)
+                            .map(s => s.trim())
+                            .filter(s => s.length > 3)
+                            .slice(0, 4)
+                            .forEach(s => features.push({ label: s.replace(/\.$/, '') }));
+                        }
+                        features.push({ label: `Edades: ${getAgeRange(program)}` });
+                        if (program.schedule) {
+                          const sched = typeof program.schedule === 'string' ? program.schedule : JSON.stringify(program.schedule);
+                          features.push({ label: `Horario: ${sched}` });
+                        }
+                        features.push({ label: getAvailability(program) });
 
-                        <Button
-                          className="w-full"
-                          onClick={() => handleEnroll(program)}
-                          disabled={
-                            program.max_students !== null &&
-                            program.current_students >= program.max_students
-                          }
-                        >
-                          <Calendar className="h-4 w-4 mr-2" />
-                          {program.max_students !== null &&
-                            program.current_students >= program.max_students
-                            ? 'Programa Lleno'
-                            : 'Inscribirme'}
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))
+                        const badges: { label: string; tone?: 'destructive' | 'secondary' | 'outline' }[] = [];
+                        if (program.spots_available !== undefined && program.spots_available <= 5 && program.spots_available > 0) {
+                          badges.push({ label: `¡Solo ${program.spots_available} cupos!`, tone: 'destructive' });
+                        }
+
+                        const durations: PlanDuration[] = [{
+                          key: 'monthly',
+                          label: `1 mes - 30 días / $${program.price_monthly.toLocaleString('es-CO')}`,
+                          price: program.price_monthly,
+                          durationDays: 30,
+                        }];
+
+                        return (
+                          <PlanCard
+                            key={program.id}
+                            title={program.name}
+                            sport={program.sport}
+                            level={program.level ? program.level.charAt(0).toUpperCase() + program.level.slice(1) : null}
+                            badges={badges}
+                            features={features}
+                            durations={durations}
+                            primaryCta="Inscribirme"
+                            onPrimary={() => handleEnroll(program)}
+                            disabled={isFull}
+                            disabledLabel="Programa lleno"
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </TabsContent>
 
