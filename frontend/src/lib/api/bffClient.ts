@@ -50,23 +50,29 @@ class BFFError extends Error {
     }
 }
 
-async function buildHeaders(customHeaders?: Record<string, string>): Promise<Record<string, string>> {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-        throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
-    }
-
+async function buildHeaders(
+    customHeaders?: Record<string, string>,
+    isPublic = false,
+): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
     };
 
-    // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
-    // filtrando por school_id. Sin este header, toma el primer registro activo
-    // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
-    if (_schoolId) {
-        headers['x-school-id'] = _schoolId;
+    if (!isPublic) {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+            throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
+        }
+
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+
+        // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
+        // filtrando por school_id. Sin este header, toma el primer registro activo
+        // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
+        if (_schoolId) {
+            headers['x-school-id'] = _schoolId;
+        }
     }
 
     if (customHeaders) {
@@ -81,8 +87,9 @@ async function request<T>(
     path: string,
     body?: unknown,
     customHeaders?: Record<string, string>,
+    isPublic = false,
 ): Promise<T> {
-    const headers = await buildHeaders(customHeaders);
+    const headers = await buildHeaders(customHeaders, isPublic);
 
     const response = await fetch(`${BFF_URL}${path}`, {
         method,
@@ -130,20 +137,20 @@ export const bffClient = {
         return _schoolId;
     },
 
-    get: <T>(path: string, headers?: Record<string, string>) =>
-        request<T>('GET', path, undefined, headers),
+    get: <T>(path: string, headers?: Record<string, string>, isPublic = false) =>
+        request<T>('GET', path, undefined, headers, isPublic),
 
-    post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('POST', path, body, headers),
+    post: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
+        request<T>('POST', path, body, headers, isPublic),
 
-    put: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('PUT', path, body, headers),
+    put: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
+        request<T>('PUT', path, body, headers, isPublic),
 
-    patch: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-        request<T>('PATCH', path, body, headers),
+    patch: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
+        request<T>('PATCH', path, body, headers, isPublic),
 
-    delete: <T>(path: string, headers?: Record<string, string>) =>
-        request<T>('DELETE', path, undefined, headers),
+    delete: <T>(path: string, headers?: Record<string, string>, isPublic = false) =>
+        request<T>('DELETE', path, undefined, headers, isPublic),
 
     request,
 };
