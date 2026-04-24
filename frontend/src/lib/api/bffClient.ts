@@ -50,28 +50,40 @@ class BFFError extends Error {
     }
 }
 
+/**
+ * Modo de autenticacion para una llamada al BFF:
+ *  - 'required': debe haber sesion Supabase, si no, lanza 401 (default)
+ *  - 'optional': adjunta JWT si hay sesion, no falla si no la hay (links publicos
+ *                que tambien funcionan logueado, ej. confirmar asistencia)
+ *  - 'public':   no toca auth (link 100% anonimo, ej. leer encuesta publica)
+ */
+export type AuthMode = 'required' | 'optional' | 'public';
+
 async function buildHeaders(
     customHeaders?: Record<string, string>,
-    isPublic = false,
+    authMode: AuthMode = 'required',
 ): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
     };
 
-    if (!isPublic) {
+    if (authMode !== 'public') {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (!session?.access_token) {
-            throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
-        }
+            if (authMode === 'required') {
+                throw new BFFError(401, 'No hay sesión activa. Por favor inicia sesión.');
+            }
+            // 'optional' sin sesion: continuar sin Authorization
+        } else {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
 
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-
-        // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
-        // filtrando por school_id. Sin este header, toma el primer registro activo
-        // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
-        if (_schoolId) {
-            headers['x-school-id'] = _schoolId;
+            // CRÍTICO: el authMiddleware del BFF busca al miembro en school_members
+            // filtrando por school_id. Sin este header, toma el primer registro activo
+            // del usuario (puede ser incorrecto) o falla si hay ambigüedad.
+            if (_schoolId) {
+                headers['x-school-id'] = _schoolId;
+            }
         }
     }
 
@@ -87,9 +99,9 @@ async function request<T>(
     path: string,
     body?: unknown,
     customHeaders?: Record<string, string>,
-    isPublic = false,
+    authMode: AuthMode = 'required',
 ): Promise<T> {
-    const headers = await buildHeaders(customHeaders, isPublic);
+    const headers = await buildHeaders(customHeaders, authMode);
 
     const response = await fetch(`${BFF_URL}${path}`, {
         method,
@@ -137,20 +149,20 @@ export const bffClient = {
         return _schoolId;
     },
 
-    get: <T>(path: string, headers?: Record<string, string>, isPublic = false) =>
-        request<T>('GET', path, undefined, headers, isPublic),
+    get: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('GET', path, undefined, headers, authMode),
 
-    post: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
-        request<T>('POST', path, body, headers, isPublic),
+    post: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('POST', path, body, headers, authMode),
 
-    put: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
-        request<T>('PUT', path, body, headers, isPublic),
+    put: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('PUT', path, body, headers, authMode),
 
-    patch: <T>(path: string, body: unknown, headers?: Record<string, string>, isPublic = false) =>
-        request<T>('PATCH', path, body, headers, isPublic),
+    patch: <T>(path: string, body: unknown, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('PATCH', path, body, headers, authMode),
 
-    delete: <T>(path: string, headers?: Record<string, string>, isPublic = false) =>
-        request<T>('DELETE', path, undefined, headers, isPublic),
+    delete: <T>(path: string, headers?: Record<string, string>, authMode: AuthMode = 'required') =>
+        request<T>('DELETE', path, undefined, headers, authMode),
 
     request,
 };
