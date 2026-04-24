@@ -48,6 +48,7 @@ import trainerTrainingPlansRouter from './routes/trainer/training-plans';
 
 import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
+import bulkUploadRouter from './routes/athletes/bulkUpload';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -176,6 +177,7 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPl
 // Rutas autenticadas del atleta: usa requireAthleteAuth
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
+app.use('/api/v1/athletes', bulkUploadRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

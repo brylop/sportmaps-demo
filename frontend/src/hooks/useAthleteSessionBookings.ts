@@ -198,6 +198,7 @@ export function useAthleteFacilities(childId?: string) {
 
 export interface PTAvailabilitySlot {
   availability_id: string;
+  session_date: string; // Nueva: para filtrar en el front
   start_time: string;
   end_time: string;
   available_for_personal_classes: boolean;
@@ -220,12 +221,11 @@ export interface PTAvailabilityResponse {
   available_days?: number[];
 }
 
-export function usePTAvailability(enrollmentId: string, date: string, childId?: string) {
+export function usePTAvailability(enrollmentId: string, childId?: string) {
   return useQuery({
-    queryKey: ['pt-availability', enrollmentId, date, childId],
-    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}&date=${date}${childId ? `&child_id=${childId}` : ''}`),
+    queryKey: ['pt-availability', enrollmentId, childId],
+    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}${childId ? `&child_id=${childId}` : ''}`),
     enabled: !!enrollmentId,
-    placeholderData: keepPreviousData,
     staleTime: 30 * 1000,
   });
 }
@@ -235,8 +235,8 @@ export function usePTAvailability(enrollmentId: string, date: string, childId?: 
  */
 export function prefetchPTAvailability(queryClient: any, enrollmentId: string, childId?: string) {
   return queryClient.prefetchQuery({
-    queryKey: ['pt-availability', enrollmentId, '', childId],
-    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}&date=&${childId ? `child_id=${childId}` : ''}`),
+    queryKey: ['pt-availability', enrollmentId, childId],
+    queryFn: () => bffClient.get<PTAvailabilityResponse>(`/api/v1/athlete/training/pt-availability?enrollment_id=${enrollmentId}${childId ? `&child_id=${childId}` : ''}`),
     staleTime: 30 * 1000,
   });
 }

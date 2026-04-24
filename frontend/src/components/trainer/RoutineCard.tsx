@@ -1,7 +1,7 @@
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, Dumbbell, Play, Trash2, Tag, Star } from 'lucide-react';
+import { Clock, Dumbbell, Play, Trash2, Tag, Flame } from 'lucide-react';
 
 interface RoutineCardProps {
   routine: {
@@ -10,6 +10,7 @@ interface RoutineCardProps {
     category: string;
     difficulty: string;
     estimated_minutes: number;
+    estimated_calories: number;
     blocks: any[];
     tags: string[];
     times_used: number;
@@ -85,9 +86,9 @@ export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardPr
             <span className="text-[9px] text-muted-foreground uppercase font-medium">Ejers</span>
           </div>
           <div className="flex flex-col items-center text-center">
-            <Star className="h-3.5 w-3.5 text-amber-500 mb-1" />
-            <span className="text-sm font-bold">{routine.times_used}</span>
-            <span className="text-[9px] text-muted-foreground uppercase font-medium">Usos</span>
+            <Flame className="h-3.5 w-3.5 text-orange-500 mb-1" />
+            <span className="text-sm font-bold">{routine.estimated_calories || 0}</span>
+            <span className="text-[9px] text-muted-foreground uppercase font-medium">Kcal</span>
           </div>
         </div>
 

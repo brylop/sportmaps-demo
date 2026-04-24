@@ -150,6 +150,7 @@ export default function AthletesListPage() {
                                 <p className="text-xs text-muted-foreground">Activos</p>
                                 <p className="text-2xl font-bold">{athletes.filter(a => a.status === 'active').length}</p>
                             </div>
+                        </div>
                     </CardContent>
                 </Card>
                 <Card className="border-border/50">

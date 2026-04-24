@@ -26,6 +26,7 @@ export interface SchoolRole {
     branchId: string | null;
     isGlobal?: boolean; // If true, the user has school-wide access
     onboardingStatus?: 'pending' | 'in_progress' | 'completed';
+    schoolType?: string;
 }
 
 /**
@@ -192,7 +193,7 @@ function useSchoolContextManager(): SchoolContext {
                 // Fetch memberships
                 const { data: memberships, error: memberError } = await supabase
                     .from('school_members')
-                    .select('school_id, role, branch_id, schools(id, name, onboarding_status)')
+                    .select('school_id, role, branch_id, schools(id, name, onboarding_status, school_type)')
                     .eq('profile_id', user.id)
                     .eq('status', 'active');
 
@@ -208,6 +209,7 @@ function useSchoolContextManager(): SchoolContext {
                         return {
                             schoolId: m.school_id,
                             schoolName: m.schools?.name || 'Escuela sin nombre',
+                            schoolType: m.schools?.school_type || 'academy',
                             // Forzamos el rol "parent" si el perfil del usuario es padre, 
                             // para evitar que membresías erróneas de "athlete" sobrescriban su Dashboard.
                             role: (userProfile?.role === 'parent') ? 'parent' : (m.role as SchoolRole['role']),
@@ -227,7 +229,12 @@ function useSchoolContextManager(): SchoolContext {
                     if (found) {
                         selectSchool(found);
                     } else {
-                        selectSchool(mappedSchools[0]);
+                        // Para atletas: preferir academia sobre PT en la selección inicial
+                        // Para owners/admins/coaches: el primero siempre es su escuela principal
+                        const preferredSchool =
+                            mappedSchools.find(s => s.schoolType === 'academy')
+                            ?? mappedSchools[0];
+                        selectSchool(preferredSchool);
                     }
                 } else {
                     // Authenticated but no memberships

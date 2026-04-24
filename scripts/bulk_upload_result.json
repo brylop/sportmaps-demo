@@ -1,0 +1,602 @@
+{
+  "summary": {
+    "total": 74,
+    "inserted": 74,
+    "skipped": 0,
+    "errors": 0
+  },
+  "results": [
+    {
+      "fila": 0,
+      "full_name": "Juan Pablo Murillo Martinez",
+      "status": "inserted",
+      "unregistered_athlete_id": "f7c8f9e0-c5fa-444e-9fc4-cd827f964e17",
+      "enrollment_id": "b0bda993-8bc2-4ea0-8d2f-c27378db242f",
+      "payment_id": "51a14c97-2c95-40b5-b209-ffeba6c7a8d9"
+    },
+    {
+      "fila": 1,
+      "full_name": "Juan Camilo Cárdenas Benjumea",
+      "status": "inserted",
+      "unregistered_athlete_id": "fa9443ee-2624-4828-8a63-e72df16c4b88",
+      "enrollment_id": "10a49799-ac39-4843-92e2-e4078207e499",
+      "payment_id": "def0ade7-0db5-411f-9ef6-acbf24c6bb77"
+    },
+    {
+      "fila": 2,
+      "full_name": "Santiago Rincón Llaín",
+      "status": "inserted",
+      "unregistered_athlete_id": "fb5c9f0b-2c74-4a6e-bacd-2c94700e1450",
+      "enrollment_id": "78db4265-5f8a-403b-a6e1-02efd34c5165",
+      "payment_id": "66758129-d79f-462a-8587-5426a1aba2b5"
+    },
+    {
+      "fila": 3,
+      "full_name": "Juan fernando Cuervo",
+      "status": "inserted",
+      "unregistered_athlete_id": "be9c4ec3-1328-4516-98bb-146b585a7af0",
+      "enrollment_id": "8cd7c1d9-177d-4a1e-9eee-e896824def5d",
+      "payment_id": "ee62e7de-a14c-4d1a-bfbf-e6e8a343fa6d"
+    },
+    {
+      "fila": 4,
+      "full_name": "Diego Alfonso Parra Rodríguez",
+      "status": "inserted",
+      "unregistered_athlete_id": "2772f440-6a1d-42e7-a8e9-18be47732707",
+      "enrollment_id": "a49c6207-00e4-4f73-b122-134bf2225498",
+      "payment_id": "32047413-4a0a-4e3a-b3ba-58204fe4f4ff"
+    },
+    {
+      "fila": 5,
+      "full_name": "Luis Bruges Arenas",
+      "status": "inserted",
+      "unregistered_athlete_id": "1320dcd2-cb7f-4923-a131-4b224d63114d",
+      "enrollment_id": "dcb2c827-bd4a-4c9a-941d-ac070fc616de",
+      "payment_id": "d83093f8-5765-4933-ae84-929adf2fe61d"
+    },
+    {
+      "fila": 6,
+      "full_name": "Kevin Alejandro Torres Zamora",
+      "status": "inserted",
+      "unregistered_athlete_id": "d1318698-e869-442b-8f11-476fef3ce3ce",
+      "enrollment_id": "93f5b6c7-e6e3-4dad-8ca3-44368f32702f",
+      "payment_id": "85f9d395-fbc2-4c78-b4d3-5e821cbde271"
+    },
+    {
+      "fila": 7,
+      "full_name": "Brayan Steven Raigozo Nieto",
+      "status": "inserted",
+      "unregistered_athlete_id": "6ff5df5b-b67e-4940-9086-3acc59e7bb33",
+      "enrollment_id": "8f4c0ab9-4c57-42ea-ab80-873842e4e5e5",
+      "payment_id": "a88730de-8738-4ffa-973d-ea088e2b03dc"
+    },
+    {
+      "fila": 8,
+      "full_name": "Mauricio Balbi",
+      "status": "inserted",
+      "unregistered_athlete_id": "8e23ee69-ec8c-4b95-974a-b2e5c2d42bca",
+      "enrollment_id": "8fc8e24f-0d5e-4a57-8db6-dbdca04307bf",
+      "payment_id": "57564e97-d106-476b-98fc-df53f25feb28"
+    },
+    {
+      "fila": 9,
+      "full_name": "Julián David Acuña Rodríguez",
+      "status": "inserted",
+      "unregistered_athlete_id": "bf6536c7-accd-49ae-9279-5750c93a3f8a",
+      "enrollment_id": "8dddd61d-1321-4958-a294-95e400d1861b",
+      "payment_id": "9e2f6707-b004-44da-858f-6047761f5d37"
+    },
+    {
+      "fila": 10,
+      "full_name": "Carlos Andrés mora cadavid",
+      "status": "inserted",
+      "unregistered_athlete_id": "4df9695a-a479-4fb6-9305-06c0da4a0ac8",
+      "enrollment_id": "c5143b95-bc10-48f6-884a-df68c4d45a45",
+      "payment_id": "481930b9-5a84-46aa-8004-aeb6b1733da0"
+    },
+    {
+      "fila": 11,
+      "full_name": "Javier Cubillos",
+      "status": "inserted",
+      "unregistered_athlete_id": "77497d7e-8b90-4c66-81de-16f7d6648b0a",
+      "enrollment_id": "3fe7bea9-516a-40e0-b4d5-d4d2887e3cb5",
+      "payment_id": "04b3f712-0603-420b-b562-89ddf4128f4c"
+    },
+    {
+      "fila": 12,
+      "full_name": "Martín Santamaría",
+      "status": "inserted",
+      "unregistered_athlete_id": "31f9051e-8891-42bc-8f5a-59ccb2dbc138",
+      "enrollment_id": "7e35b4ef-f3d2-4496-9059-e8276d9182c4",
+      "payment_id": "e3769b43-7919-4511-98ff-efc6b552f43b"
+    },
+    {
+      "fila": 13,
+      "full_name": "Juan Diego Becerra Parrado",
+      "status": "inserted",
+      "unregistered_athlete_id": "21f8953b-525c-421d-96fa-ef0eaad8f1bb",
+      "enrollment_id": "024cc4b9-a76e-4492-b0a3-64ac9bd9e429",
+      "payment_id": "9f235f3e-5963-45c5-a25d-a41af8aca118"
+    },
+    {
+      "fila": 14,
+      "full_name": "Iván Camilo Sanabria Melo",
+      "status": "inserted",
+      "unregistered_athlete_id": "29c097c7-4d75-4afa-9df2-54d786ba9e29",
+      "enrollment_id": "2168f770-075f-45d5-9bf6-39d08d09a3cb",
+      "payment_id": "77fa28dd-05f6-449f-a5a4-87600470c8f0"
+    },
+    {
+      "fila": 15,
+      "full_name": "Juan Diego Castillo Bautista",
+      "status": "inserted",
+      "unregistered_athlete_id": "bac52ddf-06fc-41f8-a9d6-b07dfddc7374",
+      "enrollment_id": "af6d2ccf-82d8-4213-8407-ea8ebaa5a965",
+      "payment_id": "acf2faf9-8c5a-4e9f-b2e3-10206695c658"
+    },
+    {
+      "fila": 16,
+      "full_name": "Richard Steven Hernández Vega",
+      "status": "inserted",
+      "unregistered_athlete_id": "6a1f533f-e587-42d7-8ecc-b04c6e765970",
+      "enrollment_id": "d7a63bcc-ffe9-4f6e-88ed-01164136a2ce",
+      "payment_id": "7c49bb4f-0a68-4042-b31c-236009f8dafd"
+    },
+    {
+      "fila": 17,
+      "full_name": "Camilo Reyes Contreras",
+      "status": "inserted",
+      "unregistered_athlete_id": "5ffd177e-4fef-404e-ac9b-0e654ebc436a",
+      "enrollment_id": "b7688745-4516-4377-95cd-24d152bf2037",
+      "payment_id": "d1d37248-8cf4-4787-b693-d3bf4690c502"
+    },
+    {
+      "fila": 19,
+      "full_name": "Matías Julián Lozano Morales",
+      "status": "inserted",
+      "unregistered_athlete_id": "951bfb35-5783-4a97-9b22-3954a9c91cd7",
+      "enrollment_id": "c3c817fa-3f0f-4ff9-ab03-2502a0948dd1",
+      "payment_id": "12643e24-26dd-42ee-bde6-380b2116a09e"
+    },
+    {
+      "fila": 20,
+      "full_name": "Nicolás Stiven Tafur Palma",
+      "status": "inserted",
+      "unregistered_athlete_id": "88039d9b-4ee9-44ef-a957-c740a02a08a7",
+      "enrollment_id": "7aa94367-f390-4be6-a058-bf14e1183c3d",
+      "payment_id": "34df64f1-fedb-40c4-bc7d-73a97f5ad89c"
+    },
+    {
+      "fila": 22,
+      "full_name": "Juan Pablo Cortés González",
+      "status": "inserted",
+      "unregistered_athlete_id": "3a745f87-7b60-4318-8991-42b978b3ae51",
+      "enrollment_id": "98fc143b-a414-4b69-b97a-ef622e58254a",
+      "payment_id": "a4168321-e3fe-437b-ad64-6e0f3e84420d"
+    },
+    {
+      "fila": 23,
+      "full_name": "Andre’s Camilo Contreras Torres",
+      "status": "inserted",
+      "unregistered_athlete_id": "3f3a4cc2-2ab8-434a-9522-650ce7d37dd9",
+      "enrollment_id": "8adca5c9-0c45-45ab-874b-1bbbf18573fa",
+      "payment_id": "d24ed196-4c7a-4dbb-96cf-acec9099c96c"
+    },
+    {
+      "fila": 25,
+      "full_name": "Isabela Ortiz Barrera",
+      "status": "inserted",
+      "unregistered_athlete_id": "a109838f-26e4-4ddc-acea-b1ebe4c8a05f",
+      "enrollment_id": "f0f72b20-f025-4d4d-bf8b-941b61b36837",
+      "payment_id": "bd4299fc-3831-4900-8030-2ff064aaf797"
+    },
+    {
+      "fila": 26,
+      "full_name": "Ronald Alfonso Reyes Romero",
+      "status": "inserted",
+      "unregistered_athlete_id": "4c6e1ac4-ee3d-4d5c-85a8-04d5c28f4c07",
+      "enrollment_id": "0064c353-366f-48fe-848c-4fe07b7c2eee",
+      "payment_id": "bebd00c7-92d5-4e39-952b-f42d5efb0d9a"
+    },
+    {
+      "fila": 29,
+      "full_name": "Juan Camilo Rodriguez Rojas",
+      "status": "inserted",
+      "unregistered_athlete_id": "6dceaf6d-7a22-4cd6-8bdb-b253f99d78bd",
+      "enrollment_id": "ba81a099-3997-4ebb-b571-736552b2207e",
+      "payment_id": "3d9e6690-5185-442f-aabc-8f25f048c962"
+    },
+    {
+      "fila": 30,
+      "full_name": "TOMAS MARQUEZ CASALLAS",
+      "status": "inserted",
+      "unregistered_athlete_id": "0f5d3f79-cfb8-4354-be3e-76be4189d02f",
+      "enrollment_id": "da9c6134-a2d7-406f-a1ef-7f540f58d573",
+      "payment_id": "c036b5ab-10e6-4929-9efc-f31b22897d67"
+    },
+    {
+      "fila": 32,
+      "full_name": "SERGIO SANABRIA MELO",
+      "status": "inserted",
+      "unregistered_athlete_id": "cc8bfc08-0ca3-4dfe-9c41-8028ffb1eb60",
+      "enrollment_id": "9c841247-16f5-4d59-9961-8bc92a8064bf",
+      "payment_id": "4a31c840-a5d1-48d3-961f-b56db326d020"
+    },
+    {
+      "fila": 33,
+      "full_name": "YEIMY DANIELA GONZALEZ GARAY",
+      "status": "inserted",
+      "unregistered_athlete_id": "1f02ec23-c9d6-4b25-ad2f-273acc56b94f",
+      "enrollment_id": "e8c8d09b-d6cc-4428-92f2-31963988222d",
+      "payment_id": "c47501ff-8af2-4631-8d52-de52def3627d"
+    },
+    {
+      "fila": 34,
+      "full_name": "MANUEL ALONSO SUAREZ SARMIENTO",
+      "status": "inserted",
+      "unregistered_athlete_id": "106e88a7-50ed-4c45-9b05-e7d8ec478f3f",
+      "enrollment_id": "a9afc03a-1b55-41d1-82e7-eba3ae9ec476",
+      "payment_id": "f1fb1254-d9a3-423f-9485-4851f51deabf"
+    },
+    {
+      "fila": 35,
+      "full_name": "Camila Isabel Ortiz varon",
+      "status": "inserted",
+      "unregistered_athlete_id": "4eae270c-2b55-4e07-bc03-21ef452650bb",
+      "enrollment_id": "a29b579b-3238-4956-83cc-9396ed421a97",
+      "payment_id": "64c6bb53-3920-43df-95db-93f670771072"
+    },
+    {
+      "fila": 38,
+      "full_name": "JUAN DIEGO ESPINOSA",
+      "status": "inserted",
+      "unregistered_athlete_id": "520b9c6e-8418-4ef2-b96f-1e4b3b09a5aa",
+      "enrollment_id": "3a4bcae8-29a2-40a3-b7de-0b9c4425c3a1",
+      "payment_id": "8d5d88e5-be44-4f57-9a83-ce3c4a452f46"
+    },
+    {
+      "fila": 39,
+      "full_name": "ENZO JULIAN MEDICA",
+      "status": "inserted",
+      "unregistered_athlete_id": "cd8bd420-1b20-4e34-b530-0c1aaa0afc76",
+      "enrollment_id": "7018b26c-818f-4a9f-ad39-c63acba17e8f",
+      "payment_id": "7915156c-a10e-445d-a398-39ccb40b1119"
+    },
+    {
+      "fila": 40,
+      "full_name": "JOHN ALEXANDER PEREZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "d98a3033-2755-4bca-9f01-6c44d53cf152",
+      "enrollment_id": "59d13a1c-adfb-4338-8931-f1459bf34e97",
+      "payment_id": "a94b5aea-5ac2-4d15-9df7-ccc50cd3611a"
+    },
+    {
+      "fila": 41,
+      "full_name": "MARIA FERNANDA AMAYA FRIAS",
+      "status": "inserted",
+      "unregistered_athlete_id": "1b1998ab-8a3b-41eb-9b69-569eb281fd70",
+      "enrollment_id": "6dde5a98-b6c5-4537-ad3b-29f67091c15c",
+      "payment_id": "81f708fa-2702-479a-a88f-0e2eafbd99a7"
+    },
+    {
+      "fila": 42,
+      "full_name": "BRANDON CAMILO RODRIGUEZ SANTOS",
+      "status": "inserted",
+      "unregistered_athlete_id": "8f6bdcdc-ff4e-4e83-8a9b-b8eeb3ccae6a",
+      "enrollment_id": "8b0a3a6f-f45c-4638-9fef-eeadcbbfc70e",
+      "payment_id": "4dcb6954-5119-4b2e-b975-b663ac689596"
+    },
+    {
+      "fila": 43,
+      "full_name": "MIGUEL ANGEL RAMIREZ MURILLO",
+      "status": "inserted",
+      "unregistered_athlete_id": "dcd84d3c-9e3a-4581-8d8e-0e916e4a870d",
+      "enrollment_id": "cbbeea2e-568d-4bd9-bcf9-a03d4636978f",
+      "payment_id": "033b0a07-4ae2-4d33-83ff-3efbfe682790"
+    },
+    {
+      "fila": 44,
+      "full_name": "DIEGO CADENAS SALAMANCA",
+      "status": "inserted",
+      "unregistered_athlete_id": "19528d3b-f625-4ccf-899b-d3f301dc2777",
+      "enrollment_id": "31e712c7-1aec-4eff-acb8-55d6ac6de111",
+      "payment_id": "e979c471-4202-49f2-8ac3-442d926f653e"
+    },
+    {
+      "fila": 45,
+      "full_name": "MARIA FERNANDA GARCIA MONTAÑA",
+      "status": "inserted",
+      "unregistered_athlete_id": "0cfbfcf9-7dc2-4cd8-9fdc-b8f8a45a6086",
+      "enrollment_id": "4dbb8345-2efa-4fa1-a3ca-9bf9f1c2efa7",
+      "payment_id": "85274260-f137-47c7-ad68-b316c8257637"
+    },
+    {
+      "fila": 46,
+      "full_name": "ANGELA YISETH SUAREZ BENITEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "a1e7fc2e-a884-42c9-b18d-d03474dd4787",
+      "enrollment_id": "6e19fc9b-ffdc-423a-a1db-3db7e94fd2d5",
+      "payment_id": "5aa4e22b-8c56-4b2a-adad-0ca9f22261e4"
+    },
+    {
+      "fila": 47,
+      "full_name": "JUAN MARTIN HERNANDEZ CARDENAS",
+      "status": "inserted",
+      "unregistered_athlete_id": "9112c365-b449-470f-b8b3-47cafb638495",
+      "enrollment_id": "2bb0a6e0-fc7c-48f7-9522-29c23de138c9",
+      "payment_id": "bfbd7ac0-6c22-4e3a-92fa-d0419d53f76c"
+    },
+    {
+      "fila": 48,
+      "full_name": "NICOLAS TOCASUCHE BARON",
+      "status": "inserted",
+      "unregistered_athlete_id": "b8312842-395c-422d-93a0-ad56c5f18582",
+      "enrollment_id": "c6fd65de-369f-4364-97b0-0673d575a952",
+      "payment_id": "ee4b52e5-ba6b-4b50-bcb7-fef3076c58a3"
+    },
+    {
+      "fila": 49,
+      "full_name": "MARTIN JOSE SANTANA LOPEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "4aa23d2d-1cd4-4773-951b-8d851a454bcb",
+      "enrollment_id": "34c89261-55f5-4003-8f90-e661bebb50d0",
+      "payment_id": "a3c218eb-986e-4ce9-a5e8-2520eac79b91"
+    },
+    {
+      "fila": 50,
+      "full_name": "NICOLAS PACHECO RAMIREZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "9d269abb-4843-4ed6-8e36-89bab2bea8fb",
+      "enrollment_id": "305f0d08-498d-432a-bab2-453106764eaa",
+      "payment_id": "3025e473-1d4e-4602-8cf5-f83839a8336d"
+    },
+    {
+      "fila": 51,
+      "full_name": "JAIDER ADRIAN IRRAGA QUINTERO",
+      "status": "inserted",
+      "unregistered_athlete_id": "291809b1-f66d-4770-b074-ad44da139357",
+      "enrollment_id": "b3517ac2-6951-4f69-b377-4927ac1b5170",
+      "payment_id": "004178d0-6fc6-4632-865c-870da31effa6"
+    },
+    {
+      "fila": 52,
+      "full_name": "ANDRES HERRERA",
+      "status": "inserted",
+      "unregistered_athlete_id": "c089d77c-a7bf-4eb3-91e8-18ef593a9069",
+      "enrollment_id": "3cc7f368-5881-40cc-9d13-277468654dd1",
+      "payment_id": "ef91e0ba-3cdb-4e0a-8cf3-d9b7ac397162"
+    },
+    {
+      "fila": 53,
+      "full_name": "PABLO EMILIANO MEDINA PAEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "93f1f6a8-6e08-4f88-9863-4b2f60088ea8",
+      "enrollment_id": "e530b3a3-9ee7-45b6-9580-e3beed6bc27f",
+      "payment_id": "ce38fac7-f4f1-4107-ba1a-700527af8848"
+    },
+    {
+      "fila": 54,
+      "full_name": "ALEJANDRA VELASCO",
+      "status": "inserted",
+      "unregistered_athlete_id": "477510d3-0dc1-4478-8471-311e22e9ade7",
+      "enrollment_id": "99fdc76d-d68a-4d45-abe7-188b2f1c40d4",
+      "payment_id": "f1b5ee4c-78b3-439f-bc9e-f1f6365707ac"
+    },
+    {
+      "fila": 55,
+      "full_name": "IVAN DARIO TRUJILLO OTERO",
+      "status": "inserted",
+      "unregistered_athlete_id": "6139af3b-bc43-4dbd-92ef-923577e86fc8",
+      "enrollment_id": "58f929d4-e80c-4ea6-a4f5-65eeb294e6a5",
+      "payment_id": "cbff21a3-f11c-4ed2-86fb-d2deee09d116"
+    },
+    {
+      "fila": 56,
+      "full_name": "JONATHAN GABRIEL VASQUEZ JIMENEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "d293b45c-019a-4dba-84a1-abdacb8e463a",
+      "enrollment_id": "754c28ee-ce3b-4877-a8cb-e06f4b293e1d",
+      "payment_id": "ca2537f5-b534-4289-bc36-3a17394e4a34"
+    },
+    {
+      "fila": 57,
+      "full_name": "JUAN DAVID CUBEROS GAMBOA",
+      "status": "inserted",
+      "unregistered_athlete_id": "8bc3af8d-79e2-4d1d-9018-deee3ab78aac",
+      "enrollment_id": "dbb8760b-f79f-411b-a4e4-156b7a1f7ebb",
+      "payment_id": "17910c13-c83f-4db6-a78f-b9c760a9cfb3"
+    },
+    {
+      "fila": 58,
+      "full_name": "JOSE ALEJANDRO FORERO GALINDO",
+      "status": "inserted",
+      "unregistered_athlete_id": "8e4a9cb1-420d-49e4-9400-6d264d263fe4",
+      "enrollment_id": "0f7e15d4-99b5-42a1-9c7e-59fc9bc9e7b8",
+      "payment_id": "bcceed91-7d8e-4b2a-959f-0df63080d370"
+    },
+    {
+      "fila": 59,
+      "full_name": "Juan Camilo Rodriguez",
+      "status": "inserted",
+      "unregistered_athlete_id": "85426d17-e4b5-444c-86d5-b2b920000452",
+      "enrollment_id": "cda8d374-1799-4c13-b74e-6105fc679ac9",
+      "payment_id": "7c13188c-2076-40f4-9bc8-d50b8c86061b"
+    },
+    {
+      "fila": 60,
+      "full_name": "ANDRES DAVID MONTAÑA MENDIVELSON",
+      "status": "inserted",
+      "unregistered_athlete_id": "825cd156-0922-4a6b-a7a6-f682b0ea311a",
+      "enrollment_id": "d19d7b32-d720-4178-b1dc-f2ab7cc78375",
+      "payment_id": "a65b6565-7522-4cd3-97da-c25ba5aad343"
+    },
+    {
+      "fila": 61,
+      "full_name": "NICOLAS SANCHEZ ARIAS",
+      "status": "inserted",
+      "unregistered_athlete_id": "03fe7d65-f9d5-404d-be33-13ac196db2fb",
+      "enrollment_id": "367fb3b9-4c37-41f1-8b66-e032e279cada",
+      "payment_id": "4a26e5ac-2ca8-480b-9212-78f87f249ab8"
+    },
+    {
+      "fila": 62,
+      "full_name": "SERGIO ANDRES MARTINEZ CARPIO",
+      "status": "inserted",
+      "unregistered_athlete_id": "2390d45a-de8e-4ce6-ac21-f69c9a3955c9",
+      "enrollment_id": "a6be9639-02ec-495f-b77a-3c701842b819",
+      "payment_id": "ea2473dd-e37d-4f14-bcd5-e66b48251695"
+    },
+    {
+      "fila": 63,
+      "full_name": "SANTIAGO ANDRADE MURCIA",
+      "status": "inserted",
+      "unregistered_athlete_id": "f6f68584-4c8f-42de-8db0-bc4e92ac130f",
+      "enrollment_id": "3a639cba-11da-4a95-900c-fb5e78064b52",
+      "payment_id": "164701cd-bc2e-4654-ad2a-e1feeb47aea4"
+    },
+    {
+      "fila": 64,
+      "full_name": "LUISA FERNANDA MORENO PEÑALOZA",
+      "status": "inserted",
+      "unregistered_athlete_id": "318442e7-fd8b-4354-aa48-5c77195098ce",
+      "enrollment_id": "cf932eea-9f74-48ed-9cfc-5183cd72dfb1",
+      "payment_id": "d1e84d4a-fa3c-454e-abcb-eea869fad320"
+    },
+    {
+      "fila": 65,
+      "full_name": "ANDRES FELIPE FORERO BAUTISTA",
+      "status": "inserted",
+      "unregistered_athlete_id": "52fefa6e-7771-4ae2-9a14-82eefcd30659",
+      "enrollment_id": "5ef085e2-b9eb-4283-bb5f-12f8d5b053ed",
+      "payment_id": "c1361411-e4e9-4171-b315-f50083af6fc2"
+    },
+    {
+      "fila": 66,
+      "full_name": "ANDRES FELIPE SANMIGUEL",
+      "status": "inserted",
+      "unregistered_athlete_id": "c2e2bbd7-b577-4921-bf70-5fb2127ab797",
+      "enrollment_id": "afb71b4c-ca2b-4530-930f-e0a3d47e8cbb",
+      "payment_id": "b6f73eb7-e343-4457-ad50-3d5d68340531"
+    },
+    {
+      "fila": 67,
+      "full_name": "SAMUEL ALEJANDRO RAMIREZ MANJARRES",
+      "status": "inserted",
+      "unregistered_athlete_id": "5c7990f2-ba8f-4c94-9add-eec35aeb3051",
+      "enrollment_id": "17274f3d-24cd-4066-9265-8d1ec37347b4",
+      "payment_id": "faa60024-c7e4-4775-a450-ea789783f93a"
+    },
+    {
+      "fila": 68,
+      "full_name": "MARIA DEL ROSARIO CRUZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "ecdd9f52-0926-4102-8f08-03f081de745d",
+      "enrollment_id": "96bb8b5d-fc1a-4964-b9c8-2a8bf8c192c6",
+      "payment_id": "1dd76a32-c04c-4baf-98a0-ff1e20127ad5"
+    },
+    {
+      "fila": 69,
+      "full_name": "JUAN CARLOS VASQUEZ NAVARRO",
+      "status": "inserted",
+      "unregistered_athlete_id": "9949f74a-8b98-4e59-bef6-b92ff59fbcea",
+      "enrollment_id": "7d5f5dc0-e48f-4f83-83f0-25f77a20760b",
+      "payment_id": "91087470-2e70-4169-b31a-2d9b9d094e86"
+    },
+    {
+      "fila": 70,
+      "full_name": "KEVIN ANDRES GUZMAN LOPEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "ac6b832d-e9f2-429f-b7c1-10bf315bea71",
+      "enrollment_id": "0143b844-e462-4458-a88f-23040433612e",
+      "payment_id": "92a388d6-ca76-4905-8ae4-6770be86e743"
+    },
+    {
+      "fila": 71,
+      "full_name": "JOHAN SEBASTIAN CUBIDES MILLAN",
+      "status": "inserted",
+      "unregistered_athlete_id": "e96ba938-45ae-49f7-9833-d07a74ae1e55",
+      "enrollment_id": "980f842b-d19e-40b9-b88d-ec1743a3ad35",
+      "payment_id": "e8b2d0f5-ce92-4091-9e06-21922cbf6f18"
+    },
+    {
+      "fila": 74,
+      "full_name": "JUAN CAMILO VALDERRAMA ALVAREZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "f9c7202f-a1ed-4cce-9b65-a343b842ceee",
+      "enrollment_id": "39e5b167-d4a1-4341-99b7-6313d120956a",
+      "payment_id": "37c120a1-8a88-4c5d-9d57-1ea6cd032650"
+    },
+    {
+      "fila": 75,
+      "full_name": "JUAN PABLO VARGAS GOMEZ",
+      "status": "inserted",
+      "unregistered_athlete_id": "e38d576e-8e57-41cd-b40a-b1aada0b39f5",
+      "enrollment_id": "53d387c2-3ecd-4326-9a5c-8ab4a8a7a08c",
+      "payment_id": "f9a874b4-6c53-4e47-b6ae-2739fcadff87"
+    },
+    {
+      "fila": 76,
+      "full_name": "JORMAN BRADLY TRUJILLO SANDOVAL",
+      "status": "inserted",
+      "unregistered_athlete_id": "74be2b4e-8009-44a2-9522-897d106692d7",
+      "enrollment_id": "6d5b8fb5-1228-451a-8e25-2fa1c332e634",
+      "payment_id": "02650e75-2ed6-4ff3-9aa7-e817ab879845"
+    },
+    {
+      "fila": 77,
+      "full_name": "JUAN DIEGO BARRERA C",
+      "status": "inserted",
+      "unregistered_athlete_id": "6e318f22-cd55-480b-8bf2-4a9fcf83b6e9",
+      "enrollment_id": "f08ec381-7ec7-4569-a30c-01feab3484a9",
+      "payment_id": "b3ba94a2-6c69-4e83-9617-ef7476f7ca42"
+    },
+    {
+      "fila": 78,
+      "full_name": "JEFFERSON CASTIBLANCO",
+      "status": "inserted",
+      "unregistered_athlete_id": "a1db637b-87df-41ab-aedd-7ed18c160382",
+      "enrollment_id": "e3392083-4d4d-436f-a755-3c622e6e9a58",
+      "payment_id": "a692311b-f12d-43b3-8731-a7a16bef5e3b"
+    },
+    {
+      "fila": 79,
+      "full_name": "JHON HAROLD VERA MORENO",
+      "status": "inserted",
+      "unregistered_athlete_id": "00ae3d5c-9607-490d-b827-022b9356f074",
+      "enrollment_id": "1b40415b-9f29-4c77-aeb6-a6947fc66922",
+      "payment_id": "e31e8c33-c55d-4ccb-bf14-396247c86ccb"
+    },
+    {
+      "fila": 80,
+      "full_name": "LUIS FELIPE VARGAS RICO",
+      "status": "inserted",
+      "unregistered_athlete_id": "9036851c-c1d8-4a9f-8625-a05e441e8a25",
+      "enrollment_id": "cb759605-d2e2-4625-a906-9552568d4c75",
+      "payment_id": "5a274b95-2a1d-46a3-a75c-5f018d769544"
+    },
+    {
+      "fila": 81,
+      "full_name": "NICOLAS SANTIAGO ANDRADE SILVA",
+      "status": "inserted",
+      "unregistered_athlete_id": "124d1f7b-82a6-44df-b689-ea4bc0145e46",
+      "enrollment_id": "980ef085-0c9b-4c2a-9dce-f7c56fc4092b",
+      "payment_id": "5bddc9ea-3e8c-4f33-955e-bf229052dd98"
+    },
+    {
+      "fila": 82,
+      "full_name": "CRISTIANO DAVID SANTANA",
+      "status": "inserted",
+      "unregistered_athlete_id": "9b249fb1-98cd-4c84-be71-34683ed7cc42",
+      "enrollment_id": "3b2a93da-8127-47ac-8de9-dba012a274cf",
+      "payment_id": "82e7fab1-b7ae-4ca0-b989-cccafa8fb0fc"
+    },
+    {
+      "fila": 83,
+      "full_name": "SIMON ACERO SANTOS",
+      "status": "inserted",
+      "unregistered_athlete_id": "1f2285c9-5371-41f8-9833-5c31925457ea",
+      "enrollment_id": "9d48a13f-7307-49df-b0a7-9e7faab5b6c0",
+      "payment_id": "571ddc17-ede5-40e0-9afb-78a27afc6849"
+    }
+  ]
+}

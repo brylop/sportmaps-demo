@@ -367,6 +367,13 @@ export async function getAthleteTrainingToday(): Promise<TrainingTodayResponse> 
   return bffClient.get<TrainingTodayResponse>('/api/v1/athlete/training/today');
 }
 
+export async function getAthleteTrainingHistory(limit = 20): Promise<any[]> {
+  const data = await bffClient.get<any[]>(
+    `/api/v1/athlete/training/history?limit=${limit}`
+  );
+  return data ?? [];
+}
+
 export async function getAthleteUnifiedStats(
   context: 'all' | 'pt' | 'school' | 'free' = 'all',
   sourceId?: string,
@@ -388,8 +395,11 @@ export async function postSessionExerciseResults(
   await bffClient.post(`/api/v1/athlete/training/session/${planId}/exercise-results`, { results });
 }
 
-export async function getBodyMetrics(limit = 30) {
-  return bffClient.get<any[]>(`/api/v1/athlete/training/body-metrics?limit=${limit}`);
+export async function getBodyMetrics(limit = 30, clientId?: string) {
+  const url = clientId 
+    ? `/api/v1/trainer/clients/${clientId}/body-metrics?limit=${limit}`
+    : `/api/v1/athlete/training/body-metrics?limit=${limit}`;
+  return bffClient.get<any[]>(url);
 }
 
 export async function postBodyMetrics(data: {
@@ -404,6 +414,38 @@ export async function postBodyMetrics(data: {
   arm_cm?: number | null;
   thigh_cm?: number | null;
   notes?: string | null;
-}) {
-  return bffClient.post('/api/v1/athlete/training/body-metrics', data);
+}, clientId?: string) {
+  const url = clientId
+    ? `/api/v1/trainer/clients/${clientId}/body-metrics`
+    : '/api/v1/athlete/training/body-metrics';
+  return bffClient.post(url, data);
+}
+
+// ─── Exercise Stats (PRs + evolución por categoría) ──────────────────────
+export interface ExercisePR {
+  stat_type:    string;
+  category:     'strength' | 'cardio' | 'hiit' | 'flexibility' | 'warmup' | 'rpe' | 'other';
+  display_name: string;
+  best_value:   number;
+  unit:         string;
+  pr_date:      string;
+  total_sets:   number;
+}
+
+export interface ExerciseStats {
+  prs:         ExercisePR[];
+  evolution:   Record<string, { date: string; value: number; unit: string }[]>;
+  period_days: number;
+}
+
+export async function getAthleteExerciseStats(days = 90): Promise<ExerciseStats> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  const { data, error } = await (supabase as any).rpc('get_athlete_exercise_stats', {
+    p_athlete_id: user.id,
+    p_days:       days,
+  });
+  if (error) throw error;
+  return data as ExerciseStats;
 }

@@ -152,10 +152,13 @@ import {
   getAthleteTrainingToday,
   getAthleteUnifiedStats,
   getAthleteStatSources,
+  getAthleteTrainingHistory,
+  getAthleteExerciseStats,
   getBodyMetrics,
   type UnifiedStats,
   type StatSource,
   type TrainingTodayResponse,
+  type ExerciseStats,
 } from '@/lib/athlete/queries';
 
 // Sesión de hoy (PT + actividad libre)
@@ -196,11 +199,34 @@ export function useAthleteStatSources() {
 }
 
 // Métricas corporales del atleta
-export function useBodyMetrics(limit = 30) {
+export function useBodyMetrics(limit = 30, clientId?: string) {
+  const { user } = useAuth();
+  const effectiveId = clientId || user?.id;
+  
+  return useQuery({
+    queryKey: ['athlete-body-metrics', effectiveId, limit],
+    queryFn: () => getBodyMetrics(limit, clientId),
+    enabled: !!effectiveId,
+  });
+}
+
+// Historial unificado PT + actividad libre
+export function useAthleteTrainingHistory(limit = 20) {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['athlete-body-metrics', user?.id, limit],
-    queryFn: () => getBodyMetrics(limit),
+    queryKey: ['athlete-training-history', user?.id, limit],
+    queryFn: () => getAthleteTrainingHistory(limit),
     enabled: !!user?.id,
+    staleTime: 60 * 1000,
+  });
+}
+// PRs y evolución por categoría de ejercicio
+export function useAthleteExerciseStats(days = 90) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['athlete-exercise-stats', user?.id, days],
+    queryFn:  () => getAthleteExerciseStats(days),
+    enabled:  !!user?.id,
+    staleTime: 2 * 60 * 1000,
   });
 }

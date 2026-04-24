@@ -255,6 +255,7 @@ router.post('/training/session/:planId/complete', async (req: Request, res: Resp
 
     if (error) throw error;
     res.json(data);
+
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -457,103 +458,100 @@ router.get('/training/pt-availability', async (req: Request, res: Response) => {
       .eq('school_id', enrollment.school_id)
       .maybeSingle();
 
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const startDateStr = date || today;
+    const daysToFetch = date ? 1 : 14;
+
     // Obtener días de la semana con disponibilidad configurada
-    const { data: availabilityDays } = await supabase
+    const { data: availabilityRows } = await supabase
       .from('coach_availability')
-      .select('day_of_week')
+      .select('id, day_of_week, start_time, end_time, available_for_personal_classes, available_for_group_classes, max_group_capacity')
       .eq('coach_id', staffRow?.id ?? school.owner_id)
       .eq('school_id', enrollment.school_id)
-      .or('available_for_personal_classes.eq.true,available_for_group_classes.eq.true');
-
-    const availableDaysSet = new Set((availabilityDays || []).map(d => d.day_of_week));
-    const available_days = Array.from(availableDaysSet).sort();
-
-    // Si no viene fecha, retornamos solo la disponibilidad semanal
-    if (!date) {
-      return res.json({
-        date: null,
-        slots: [],
-        available_days,
-        sessions_left: sessionsLeft,
-        trainer_id: school.owner_id,
-        enrollment_id: enrollmentId,
-      });
-    }
-
-    // Día de semana ISO
-    const dateObj   = new Date(date + 'T12:00:00');
-    const dayOfWeek = dateObj.getDay();
-
-    // Slots disponibles del PT (ahora permitimos ambos tipos para que el filtro frontal funcione)
-    const { data: slots } = await supabase
-      .from('coach_availability')
-      .select('id, start_time, end_time, available_for_personal_classes, available_for_group_classes, max_group_capacity')
-      .eq('coach_id', staffRow?.id ?? school.owner_id)
-      .eq('school_id', enrollment.school_id)
-      .eq('day_of_week', dayOfWeek)
       .or('available_for_personal_classes.eq.true,available_for_group_classes.eq.true')
       .order('start_time');
 
-    // Sesiones ya agendadas ese día
+    const availableDaysSet = new Set((availabilityRows || []).map(d => d.day_of_week));
+    const available_days = Array.from(availableDaysSet).sort();
+
+    // Sesiones ya agendadas en el rango (hoy -> +13 días o solo la fecha pedida)
     const clientId = enrollment.child_id ?? enrollment.user_id;
+    const endDateObj = new Date(startDateStr + 'T12:00:00');
+    if (!date) endDateObj.setDate(endDateObj.getDate() + 13);
+    const endDateStr = endDateObj.toISOString().split('T')[0];
+
     const { data: booked } = await supabase
       .from('trainer_session_plans')
-      .select('id, session_time, status, client_id, session_type')
+      .select('id, session_date, session_time, status, client_id, session_type')
       .eq('trainer_id', school.owner_id)
-      .eq('session_date', date)
+      .gte('session_date', startDateStr)
+      .lte('session_date', endDateStr)
       .neq('status', 'cancelled');
 
-    // Agrupar reservas por horario: { time -> [bookings] }
-    const bookedByTime = new Map<string, typeof booked>();
+    // Agrupar reservas por "fecha_hora": { 'YYYY-MM-DD_HH:MM' -> [bookings] }
+    const bookedByDateTime = new Map<string, typeof booked>();
     for (const b of (booked ?? [])) {
       const t = b.session_time?.substring(0, 5);
-      if (!t) continue;
-      if (!bookedByTime.has(t)) bookedByTime.set(t, []);
-      bookedByTime.get(t)!.push(b);
+      if (!t || !b.session_date) continue;
+      const key = `${b.session_date}_${t}`;
+      if (!bookedByDateTime.has(key)) bookedByDateTime.set(key, []);
+      bookedByDateTime.get(key)!.push(b);
     }
 
-    const enrichedSlots = (slots ?? []).map(slot => {
-      const slotTime    = slot.start_time?.substring(0, 5);
-      const slotBookings = bookedByTime.get(slotTime) ?? [];
-      const myBooking   = slotBookings.find(b => b.client_id === clientId);
+    const allEnrichedSlots = [];
+    const baseDateObj = new Date(startDateStr + 'T12:00:00');
 
-      let is_booked: boolean;
-      if (slot.available_for_group_classes && !slot.available_for_personal_classes) {
-        // Grupal: ocupado solo si alcanzó la capacidad máxima
-        const activeCount = slotBookings.filter(b => b.session_type === 'group').length;
-        is_booked = !myBooking && activeCount >= (slot.max_group_capacity ?? 1);
-      } else {
-        // Personal: 1 reserva activa = ocupado
-        is_booked = slotBookings.length > 0 && !myBooking;
-      }
+    for (let i = 0; i < daysToFetch; i++) {
+      const currentLoopDate = new Date(baseDateObj);
+      currentLoopDate.setDate(baseDateObj.getDate() + i);
+      const loopDateStr = currentLoopDate.toISOString().split('T')[0];
+      const loopDayOfWeek = currentLoopDate.getDay();
 
-      return {
-        availability_id:                slot.id,
-        start_time:                     slot.start_time,
-        end_time:                       slot.end_time,
-        available_for_personal_classes: slot.available_for_personal_classes,
-        available_for_group_classes:    slot.available_for_group_classes,
-        max_group_capacity:             slot.max_group_capacity ?? null,
-        current_group_bookings:         slot.available_for_group_classes
-                                          ? slotBookings.filter(b => b.session_type === 'group').length
-                                          : undefined,
-        is_booked,
-        is_my_booking:                  !!myBooking,
-        session_id:                     myBooking?.id ?? null,
-        coach: {
-          full_name:  trainerProfile?.full_name  || 'Entrenador',
-          avatar_url: trainerProfile?.avatar_url
+      const slotsForDay = (availabilityRows || []).filter(s => s.day_of_week === loopDayOfWeek);
+
+      for (const slot of slotsForDay) {
+        const slotTime = slot.start_time?.substring(0, 5);
+        const dateTimeKey = `${loopDateStr}_${slotTime}`;
+        const slotBookings = bookedByDateTime.get(dateTimeKey) ?? [];
+        const myBooking = slotBookings.find(b => b.client_id === clientId);
+
+        let is_booked: boolean;
+        if (slot.available_for_group_classes && !slot.available_for_personal_classes) {
+          const activeCount = slotBookings.filter(b => b.session_type === 'group').length;
+          is_booked = !myBooking && activeCount >= (slot.max_group_capacity ?? 1);
+        } else {
+          is_booked = slotBookings.length > 0 && !myBooking;
         }
-      };
-    });
+
+        allEnrichedSlots.push({
+          availability_id: slot.id,
+          session_date: loopDateStr,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          available_for_personal_classes: slot.available_for_personal_classes,
+          available_for_group_classes: slot.available_for_group_classes,
+          max_group_capacity: slot.max_group_capacity ?? null,
+          current_group_bookings: slot.available_for_group_classes
+            ? slotBookings.filter(b => b.session_type === 'group').length
+            : undefined,
+          is_booked,
+          is_my_booking: !!myBooking,
+          session_id: myBooking?.id ?? null,
+          coach: {
+            full_name: trainerProfile?.full_name || 'Entrenador',
+            avatar_url: trainerProfile?.avatar_url
+          }
+        });
+      }
+    }
 
     res.json({
-      date,
-      slots:          enrichedSlots,
-      available_days, // Nueva lista para el calendario
-      sessions_left:  sessionsLeft,
-      trainer_id:     school.owner_id,
-      enrollment_id:  enrollmentId,
+      date: date || null,
+      slots: allEnrichedSlots,
+      available_days,
+      sessions_left: sessionsLeft,
+      trainer_id: school.owner_id,
+      enrollment_id: enrollmentId,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

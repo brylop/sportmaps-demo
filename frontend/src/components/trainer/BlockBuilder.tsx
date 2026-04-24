@@ -5,9 +5,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, Trash2, ArrowUp, ArrowDown, Dumbbell, Timer, Zap, Heart, Wind, Coffee } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Plus, Trash2, ArrowUp, ArrowDown, Dumbbell, Timer, Zap, Heart, Wind, Coffee, Flame } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
+import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 
 export type BlockType = 'warmup' | 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'cooldown';
 
@@ -17,6 +17,8 @@ export interface ExerciseBlock {
   sets?: number | null;
   reps?: string | null;
   weight?: string | null;
+  weight_unit?: 'kg' | 'lb' | null;
+  calories?: number | null;
   rest_seconds?: number | null;
   duration_minutes?: number | null;
   notes?: string | null;
@@ -25,6 +27,7 @@ export interface ExerciseBlock {
 interface BlockBuilderProps {
   blocks: ExerciseBlock[];
   onChange: (blocks: ExerciseBlock[]) => void;
+  difficulty?: string;
 }
 
 const BLOCK_TYPES: Record<BlockType, { label: string; icon: any; color: string; fields: string[] }> = {
@@ -66,7 +69,7 @@ const BLOCK_TYPES: Record<BlockType, { label: string; icon: any; color: string; 
   },
 };
 
-export function BlockBuilder({ blocks, onChange }: BlockBuilderProps) {
+export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps) {
   const addBlock = () => {
     const newBlock: ExerciseBlock = {
       type: 'strength',
@@ -85,7 +88,26 @@ export function BlockBuilder({ blocks, onChange }: BlockBuilderProps) {
 
   const updateBlock = (index: number, updates: Partial<ExerciseBlock>) => {
     const newBlocks = [...blocks];
-    newBlocks[index] = { ...newBlocks[index], ...updates };
+    const updatedBlock = { ...newBlocks[index], ...updates };
+    
+    // Auto-recalculate calories if relevant fields changed OR if calories were specifically set to 0 (Auto-trigger)
+    const needsRecalc = updates.type || 
+                       updates.sets !== undefined || 
+                       updates.reps !== undefined || 
+                       updates.duration_minutes !== undefined || 
+                       updates.calories === 0;
+    
+    if (needsRecalc) {
+      updatedBlock.calories = calculateExerciseCalories({
+        type: updatedBlock.type,
+        sets: updatedBlock.sets || 0,
+        reps: updatedBlock.reps || 0,
+        duration_minutes: updatedBlock.duration_minutes || 0,
+        difficulty: difficulty || 'Intermedio'
+      });
+    }
+
+    newBlocks[index] = updatedBlock;
     onChange(newBlocks);
   };
 
@@ -199,14 +221,48 @@ export function BlockBuilder({ blocks, onChange }: BlockBuilderProps) {
                 {Config.fields.includes('weight') && (
                   <div className="space-y-1.5">
                     <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Peso / Carga</Label>
-                    <Input 
-                      placeholder="60kg o Banda roja" 
-                      value={block.weight || ''}
-                      onChange={(e) => updateBlock(index, { weight: e.target.value })}
-                      className="h-9"
-                    />
+                    <div className="flex gap-1">
+                      <NumberStepper 
+                        value={parseFloat(block.weight || '0')}
+                        onChange={(val) => updateBlock(index, { weight: val.toString() })}
+                        min={0}
+                        max={1000}
+                        step={1}
+                        className="h-9 flex-1"
+                      />
+                      <Select 
+                        value={block.weight_unit || 'kg'} 
+                        onValueChange={(val: 'kg' | 'lb') => updateBlock(index, { weight_unit: val })}
+                      >
+                        <SelectTrigger className="w-[65px] h-9 text-[10px] font-bold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="kg" className="text-[10px]">KG</SelectItem>
+                          <SelectItem value="lb" className="text-[10px]">LB</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 )}
+
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1">
+                      <Flame className="h-3 w-3 text-orange-500" /> Calorías Est.
+                    </div>
+                    <span className="text-[8px] font-bold text-orange-500/60">(0 = Auto)</span>
+                  </Label>
+                  <NumberStepper 
+                    value={block.calories || 0}
+                    onChange={(val) => updateBlock(index, { calories: val === '' ? 0 : val })}
+                    min={0}
+                    max={1000}
+                    step={1}
+                    className="h-9 font-bold text-orange-600 bg-orange-500/5 border-orange-500/20"
+                    unit="kcal"
+                  />
+                </div>
 
                 {Config.fields.includes('duration_minutes') && (
                   <div className="space-y-1.5">

@@ -46,11 +46,11 @@ interface Payment {
 }
 
 const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
-  pending:    { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200' },
-  processing: { label: 'Procesando', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  approved:   { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  rejected:   { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200' },
-  refunded:   { label: 'Reembolsado', icon: AlertCircle, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  pending:    { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
+  processing: { label: 'Procesando', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
+  approved:   { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
+  rejected:   { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  refunded:   { label: 'Reembolsado', icon: AlertCircle, color: 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
 };
 
 export default function AthletePaymentsPage() {
@@ -231,7 +231,7 @@ export default function AthletePaymentsPage() {
         onRefresh={fetchPayments}
         isSelected={selectedPayment?.id === payment.id}
         onShowProof={handleShowProof}
-        onSelect={payment.status === 'pending'
+        onSelect={payment.status !== 'approved'
           ? (p) => setSelectedPayment(prev => prev?.id === p.id ? null : p)
           : undefined
         }
@@ -265,38 +265,38 @@ export default function AthletePaymentsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-100 flex items-center justify-center">
-              <Clock className="h-6 w-6 text-amber-600" />
+            <div className="h-12 w-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Clock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pendientes</p>
-              <p className="text-xl font-bold">{pendingPaymentsCount}</p>
+              <p className="text-xl font-bold text-foreground">{pendingPaymentsCount}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-amber-50 flex items-center justify-center">
-              <CreditCard className="h-6 w-6 text-amber-500" />
+            <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+              <CreditCard className="h-6 w-6 text-amber-500 dark:text-amber-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Monto pendiente</p>
-              <p className="text-xl font-bold">${totalPending.toLocaleString('es-CO')}</p>
+              <p className="text-xl font-bold text-foreground">${totalPending.toLocaleString('es-CO')}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-4 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+            <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Pagos realizados</p>
-              <p className="text-xl font-bold">{totalApprovedCount}</p>
+              <p className="text-xl font-bold text-foreground">{totalApprovedCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -357,13 +357,13 @@ export default function AthletePaymentsPage() {
                     key={enrollment.id}
                     onClick={() => handleSelectEnrollment(enrollment)}
                     className="w-full text-left p-4 rounded-xl border hover:border-emerald-500 
-                               hover:bg-emerald-50/10 transition-all group"
+                               hover:bg-emerald-50/10 dark:hover:bg-emerald-900/10 transition-all group bg-background"
                   >
                     <div className="flex items-start gap-3">
                       <div className={`h-11 w-11 rounded-lg flex items-center justify-center shrink-0
                         ${isEquipo 
-                          ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200' 
-                          : 'bg-purple-100 text-purple-600 group-hover:bg-purple-200'
+                          ? 'bg-blue-100 text-blue-600 group-hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-400' 
+                          : 'bg-purple-100 text-purple-600 group-hover:bg-purple-200 dark:bg-purple-900/40 dark:text-purple-400'
                         }`}
                       >
                         {isEquipo 
@@ -467,7 +467,7 @@ export default function AthletePaymentsPage() {
 
       {/* Barra de acción flotante */}
       {selectedPayment && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-slate-900 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 border border-white/10">
           <div className="flex flex-col">
             <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">
               {selectedPayment.child_name 
@@ -475,7 +475,7 @@ export default function AthletePaymentsPage() {
                 : selectedPayment.program_name || selectedPayment.team_name
               }
             </span>
-            <span className="font-bold text-lg">
+            <span className="font-bold text-lg text-emerald-400">
               {formatCurrencyLocal(selectedPayment.amount)}
             </span>
           </div>
@@ -483,13 +483,13 @@ export default function AthletePaymentsPage() {
           <div className="flex items-center gap-3">
             <Button 
               variant="ghost" 
-              className="text-slate-300 hover:text-white hover:bg-slate-800"
+              className="text-slate-300 hover:text-white hover:bg-zinc-800 hidden sm:flex"
               onClick={() => setSelectedPayment(null)}
             >
               Cancelar
             </Button>
             <Button 
-              className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 font-bold shadow-lg shadow-emerald-500/20"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 font-bold shadow-lg shadow-emerald-500/20"
               onClick={() => setShowPayModal(true)}
             >
               Generar pago
@@ -514,7 +514,7 @@ export default function AthletePaymentsPage() {
                 {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(viewingProof.amount)}
               </span>
             </div>
-            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
+            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-[200px] flex items-center justify-center">
               {viewingProof.url ? (
                 <img
                   src={viewingProof.url}

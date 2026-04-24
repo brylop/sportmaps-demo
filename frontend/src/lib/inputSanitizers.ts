@@ -10,11 +10,11 @@
 
 /** General text: letters, digits, spaces, accents, basic punctuation.  Blocks < > { } [ ] = ; to prevent injection. */
 export const sanitizeText = (v: string): string =>
-  v.replace(/[<>{}\[\]=;\\]/g, '');
+  v.replace(/[<>{}[\]=;\\]/g, '');
 
 /** NIT / legal document: digits, dots, dashes only. E.g. 900.123.456-7 */
 export const sanitizeNIT = (v: string): string =>
-  v.replace(/[^0-9.\-]/g, '');
+  v.replace(/[^0-9.-]/g, '');
 
 /** Digits only: account numbers, phone numbers, etc. */
 export const sanitizeDigits = (v: string): string =>
@@ -39,7 +39,7 @@ export const sanitizePercentage = (v: string): string => {
 
 /** Slug: lowercase letters, digits, dashes. Auto-lowercases. */
 export const sanitizeSlug = (v: string): string =>
-  v.toLowerCase().replace(/[^a-z0-9\-]/g, '');
+  v.toLowerCase().replace(/[^a-z0-9-]/g, '');
 
 /** Name fields (persons, banks, org names): letters, spaces, accents, dots, dashes, apostrophes. No digits allowed. */
 export const sanitizeName = (v: string): string =>
@@ -47,7 +47,7 @@ export const sanitizeName = (v: string): string =>
 
 /** City name: letters, spaces, accents, dashes. */
 export const sanitizeCity = (v: string): string =>
-  v.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]/g, '');
+  v.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s-]/g, '');
 
 /** Address: letters, digits, spaces, accents, dashes, dots, #, commas. */
 export const sanitizeAddress = (v: string): string =>

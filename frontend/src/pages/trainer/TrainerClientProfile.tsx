@@ -171,7 +171,7 @@ export default function TrainerClientProfile() {
           />
         </TabsContent>
         <TabsContent value="stats" className="mt-0">
-          <ClientStatsTab clientId={clientId!} onUpdate={refreshAction} stats={stats} />
+          <ClientStatsTab clientId={clientId!} clientName={name} onUpdate={refreshAction} stats={stats} />
         </TabsContent>
         <TabsContent value="goals" className="mt-0">
           <ClientGoalsTab clientId={clientId!} goals={goals} onUpdate={refreshAction} />

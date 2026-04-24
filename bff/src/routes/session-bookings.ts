@@ -229,7 +229,7 @@ router.get('/my-bookings', requireAuth, async (req: Request, res: Response) => {
 router.get('/athlete/available', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { child_id, branch_id } = req.query;
+    const { child_id } = req.query;
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'No autorizado' });
 
@@ -241,26 +241,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);
 
-    const { data: enrsRaw, error: eErr } = await q;
-
-    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
-    // asi que derivamos la sede del team asociado. Si el enrollment no tiene
-    // team, lo dejamos pasar (plan a nivel escuela).
-    let enrs = enrsRaw;
-    if (!eErr && enrsRaw && branch_id) {
-      const teamIds = enrsRaw.map((e: any) => e.team_id).filter(Boolean);
-      const teamBranchMap: Record<string, string | null> = {};
-      if (teamIds.length) {
-        const { data: teamRows } = await supabase
-          .from('teams')
-          .select('id, branch_id')
-          .in('id', teamIds);
-        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
-      }
-      enrs = enrsRaw.filter((e: any) =>
-        !e.team_id || teamBranchMap[e.team_id] === branch_id
-      );
-    }
+    const { data: enrs, error: eErr } = await q;
     if (eErr || !enrs?.length) return res.json({ sessions: [] });
 
     const allSchoolIds = [...new Set(enrs.map((e: any) => e.school_id))];
@@ -347,7 +328,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const { data: availData } = await supabase
       .from('coach_availability')
       .select(`id, school_id, coach_id, day_of_week, start_time, end_time, available_for_group_classes, available_for_personal_classes, max_group_capacity, coach:school_staff!coach_availability_coach_id_fkey(id, full_name, specialty)`)
-      .eq('school_id', req.schoolId);
+      .in('school_id', allSchoolIds);
 
     const coachIds = [...new Set((availData || []).map(a => a.coach_id))];
     const availIds = (availData || []).map(a => a.id);
@@ -358,7 +339,7 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     const { data: existingSessions } = await supabase
       .from('attendance_sessions')
       .select('id, coach_id, session_date, start_time, coach_availability_id, current_bookings, max_capacity')
-      .eq('school_id', req.schoolId)
+      .in('school_id', allSchoolIds)
       .gte('session_date', today);
 
     const busySet = new Set(
@@ -833,34 +814,17 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
 router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { child_id, branch_id } = req.query;
+    const { child_id } = req.query;
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'unauthorized' });
 
-    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
-    // derivamos la sede via teams.branch_id. Primero recolectamos los
-    // enrollment IDs del atleta cuyo team este en la sede solicitada.
-    // Enrollments sin team_id se dejan pasar (plan a nivel escuela).
-    let branchEnrollmentIds: string[] | null = null;
-    if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
-      if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
-      else branchEnrQ = branchEnrQ.eq('user_id', userId);
-      const { data: branchEnrs } = await branchEnrQ;
-
-      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
-      const teamBranchMap: Record<string, string | null> = {};
-      if (teamIds.length) {
-        const { data: teamRows } = await supabase
-          .from('teams')
-          .select('id, branch_id')
-          .in('id', teamIds);
-        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
-      }
-      branchEnrollmentIds = (branchEnrs || [])
-        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
-        .map((e: any) => e.id);
-    }
+    // Resolver todas las escuelas activas del atleta
+    let schoolEnrQ = supabase.from('enrollments').select('school_id').eq('status', 'active');
+    if (child_id) schoolEnrQ = schoolEnrQ.eq('child_id', child_id as string);
+    else schoolEnrQ = schoolEnrQ.eq('user_id', userId);
+    const { data: schoolEnrs } = await schoolEnrQ;
+    const athleteSchoolIds = [...new Set((schoolEnrs || []).map((e: any) => e.school_id).filter(Boolean))];
+    const schoolFilter = athleteSchoolIds.length ? athleteSchoolIds : [req.schoolId];
 
     // ── 1. Fetch de regular bookings (session_bookings) ────────────────────
     let q = supabase.from('session_bookings').select(`
@@ -870,16 +834,12 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
         coach:school_staff!attendance_sessions_coach_id_fkey(id, full_name)
       )
     `)
-      .eq('school_id', req.schoolId)
+      .in('school_id', schoolFilter)
       .neq('status', 'cancelled')
       .order('booked_at', { ascending: false });
 
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);
-
-    if (branchEnrollmentIds) {
-      q = q.in('enrollment_id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
-    }
 
     const { data: bookingsReq } = await q;
     const bookings = bookingsReq || [];
@@ -889,7 +849,6 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
     let enrQ = supabase.from('enrollments').select('id').eq('status', 'active');
     if (child_id) enrQ = enrQ.eq('child_id', child_id);
     else enrQ = enrQ.eq('user_id', userId);
-    if (branchEnrollmentIds) enrQ = enrQ.in('id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
     const { data: activeEnrs } = await enrQ;
     const activeEnrIds = (activeEnrs || []).map(e => e.id);
 
@@ -1115,34 +1074,20 @@ router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Resp
 router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { child_id, branch_id } = req.query;
+    const { child_id } = req.query;
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'unauthorized' });
 
+    // Resolver todas las escuelas e inscripciones activas del atleta
+    let schoolEnrQ = supabase.from('enrollments').select('id, school_id').eq('status', 'active');
+    if (child_id) schoolEnrQ = schoolEnrQ.eq('child_id', child_id as string);
+    else schoolEnrQ = schoolEnrQ.eq('user_id', userId);
+    const { data: schoolEnrs } = await schoolEnrQ;
+    const athleteSchoolIds = [...new Set((schoolEnrs || []).map((e: any) => e.school_id).filter(Boolean))];
+    const activeEnrIds = (schoolEnrs || []).map(e => e.id);
+    const schoolFilter = athleteSchoolIds.length ? athleteSchoolIds : [req.schoolId];
+
     const today = todayInBogota();
-
-    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
-    // asi que derivamos la sede via teams.branch_id.
-    let branchEnrollmentIds: string[] | null = null;
-    if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
-      if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
-      else branchEnrQ = branchEnrQ.eq('user_id', userId);
-      const { data: branchEnrs } = await branchEnrQ;
-
-      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
-      const teamBranchMap: Record<string, string | null> = {};
-      if (teamIds.length) {
-        const { data: teamRows } = await supabase
-          .from('teams')
-          .select('id, branch_id')
-          .in('id', teamIds);
-        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
-      }
-      branchEnrollmentIds = (branchEnrs || [])
-        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
-        .map((e: any) => e.id);
-    }
 
     // ── 1. Fetch de regular bookings futuros ───────────────────────────────
     let q = supabase.from('session_bookings').select(`
@@ -1153,7 +1098,7 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
         coach:school_staff!attendance_sessions_coach_id_fkey(full_name)
       )
     `)
-      .eq('school_id', req.schoolId)
+      .in('school_id', schoolFilter)
       .neq('status', 'cancelled')
       .gte('attendance_sessions.session_date', today)
       .order('session_date', { ascending: true, referencedTable: 'attendance_sessions' })
@@ -1162,18 +1107,13 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);
 
-    if (branchEnrollmentIds) {
-      q = q.in('enrollment_id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
-    }
-
     const { data: regularData } = await q;
 
     // ── 2. Fetch de PT bookings futuros ───────────────────────────────────
     let ptQ = supabase.from('trainer_session_plans').select(`
-      id, session_date, session_time, status, name, trainer_id,
-      enrollment:enrollments!inner(school_id)
+      id, session_date, session_time, status, name, trainer_id
     `)
-      .eq('enrollment.school_id', req.schoolId)
+      .in('enrollment_id', activeEnrIds.length ? activeEnrIds : ['00000000-0000-0000-0000-000000000000'])
       .neq('status', 'cancelled')
       .gte('session_date', today)
       .order('session_date', { ascending: true })
@@ -1181,10 +1121,6 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
 
     if (child_id) ptQ = ptQ.eq('client_id', child_id);
     else ptQ = ptQ.eq('client_id', userId);
-
-    if (branchEnrollmentIds) {
-      ptQ = ptQ.in('enrollment_id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
-    }
 
     const { data: ptData } = await ptQ;
 
@@ -1209,7 +1145,7 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
         end_time: s.session_time,
         team: { 
           name: s.name || 'Sesión PT', 
-          school_id: (s.enrollment as any)?.school_id 
+          school_id: null
         },
         coach: trainer ? { full_name: trainer.full_name } : null,
         _type: 'pt'
@@ -1292,46 +1228,27 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
 router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { child_id, branch_id } = req.query;
+    const { child_id } = req.query;
     if (child_id && !(await validateChildAccess(child_id as string, userId)))
       return res.status(403).json({ error: 'unauthorized' });
 
-    // Multi-tenant branch filter: enrollments no tiene columna branch_id,
-    // asi que derivamos la sede via teams.branch_id.
-    let branchEnrollmentIds: string[] | null = null;
-    if (branch_id) {
-      let branchEnrQ = supabase.from('enrollments').select('id, team_id').eq('status', 'active');
-      if (child_id) branchEnrQ = branchEnrQ.eq('child_id', child_id);
-      else branchEnrQ = branchEnrQ.eq('user_id', userId);
-      const { data: branchEnrs } = await branchEnrQ;
-
-      const teamIds = (branchEnrs || []).map((e: any) => e.team_id).filter(Boolean);
-      const teamBranchMap: Record<string, string | null> = {};
-      if (teamIds.length) {
-        const { data: teamRows } = await supabase
-          .from('teams')
-          .select('id, branch_id')
-          .in('id', teamIds);
-        (teamRows || []).forEach((t: any) => { teamBranchMap[t.id] = t.branch_id; });
-      }
-      branchEnrollmentIds = (branchEnrs || [])
-        .filter((e: any) => !e.team_id || teamBranchMap[e.team_id] === branch_id)
-        .map((e: any) => e.id);
-    }
+    // Resolver todas las escuelas activas del atleta
+    let schoolEnrQ = supabase.from('enrollments').select('school_id').eq('status', 'active');
+    if (child_id) schoolEnrQ = schoolEnrQ.eq('child_id', child_id as string);
+    else schoolEnrQ = schoolEnrQ.eq('user_id', userId);
+    const { data: schoolEnrs } = await schoolEnrQ;
+    const athleteSchoolIds = [...new Set((schoolEnrs || []).map((e: any) => e.school_id).filter(Boolean))];
+    const schoolFilter = athleteSchoolIds.length ? athleteSchoolIds : [req.schoolId];
 
     let q = supabase.from('facility_reservations')
       .select('id, status, reservation_date, start_time, end_time, enrollment_id, facilities(name, id)')
-      .eq('school_id', req.schoolId)
+      .in('school_id', schoolFilter)
       .eq('resv_type', 'secondary_class')
       .neq('status', 'cancelled')
       .order('reservation_date', { ascending: false });
 
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);
-
-    if (branchEnrollmentIds) {
-      q = q.in('enrollment_id', branchEnrollmentIds.length ? branchEnrollmentIds : ['00000000-0000-0000-0000-000000000000']);
-    }
 
     const { data } = await q;
     if (!data?.length) return res.json([]);
@@ -1417,7 +1334,6 @@ router.get('/athlete/facilities', requireAuth, async (req: Request, res: Respons
 
     let q = supabase.from('enrollments')
       .select('school_id')
-      .eq('school_id', req.schoolId)
       .eq('status', 'active');
     if (child_id) q = q.eq('child_id', child_id);
     else q = q.eq('user_id', userId);

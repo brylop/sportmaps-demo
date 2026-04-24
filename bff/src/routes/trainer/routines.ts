@@ -122,6 +122,11 @@ router.put('/routines/:routineId', async (req: Request, res: Response) => {
         delete updates.school_id;
         delete updates.id;
 
+        // ✅ Normalizar category y difficulty a lowercase antes del update
+        // (misma lógica que el POST — el constraint de BD exige valores en minúscula)
+        if (updates.category) updates.category = updates.category.toLowerCase();
+        if (updates.difficulty) updates.difficulty = updates.difficulty.toLowerCase();
+
         const { data, error } = await supabase
             .from('trainer_routines')
             .update({ ...updates, updated_at: new Date().toISOString() })
@@ -199,29 +204,60 @@ router.post('/routines/:routineId/use', async (req: Request, res: Response) => {
 
 /**
  * GET /trainer/session-plans
- * Filtra planes por cliente, status o fechas.
+ * Filtra planes por cliente, status, fechas o routine_id.
+ * Enriquece con el nombre del cliente (profiles o children según client_type).
  */
 router.get('/session-plans', async (req: Request, res: Response) => {
     try {
         const { id: trainerId } = req.user;
         const { schoolId } = req;
-        const { client_id, status, from_date, to_date } = req.query;
+        const { client_id, status, from_date, to_date, routine_id } = req.query;
 
         let query = supabase
             .from('trainer_session_plans')
-            .select('*')
+            .select('id, name, session_date, status, client_id, client_type, blocks, custom_notes, results, routine_id, created_at')
             .eq('school_id', schoolId)
             .eq('trainer_id', trainerId);
 
-        if (client_id) query = query.eq('client_id', client_id);
-        if (status) query = query.eq('status', status);
-        if (from_date) query = query.gte('session_date', from_date);
-        if (to_date) query = query.lte('session_date', to_date);
+        if (client_id)   query = query.eq('client_id', client_id);
+        if (status)      query = query.eq('status', status);
+        if (from_date)   query = query.gte('session_date', from_date);
+        if (to_date)     query = query.lte('session_date', to_date);
+        if (routine_id)  query = query.eq('routine_id', routine_id);
 
         const { data, error } = await query.order('session_date', { ascending: false });
-
         if (error) throw error;
-        res.json(data);
+
+        // Enriquecer con nombre del cliente
+        if (!data || data.length === 0) return res.json([]);
+
+        const adultIds  = [...new Set(data.filter((p: any) => p.client_type === 'adult').map((p: any) => p.client_id))];
+        const childIds  = [...new Set(data.filter((p: any) => p.client_type === 'child').map((p: any) => p.client_id))];
+
+        const [profilesRes, childrenRes] = await Promise.all([
+            adultIds.length > 0
+                ? supabase.from('profiles').select('id, full_name, avatar_url').in('id', adultIds)
+                : Promise.resolve({ data: [] }),
+            childIds.length > 0
+                ? supabase.from('children').select('id, full_name').in('id', childIds)
+                : Promise.resolve({ data: [] }),
+        ]);
+
+        const profileMap = new Map((profilesRes.data || []).map((p: any) => [p.id, { full_name: p.full_name, avatar_url: p.avatar_url }]));
+        const childMap   = new Map((childrenRes.data || []).map((c: any) => [c.id, { full_name: c.full_name, avatar_url: null }]));
+
+        const enriched = data.map((plan: any) => {
+            const info = plan.client_type === 'adult'
+                ? profileMap.get(plan.client_id)
+                : childMap.get(plan.client_id);
+            return {
+                ...plan,
+                client_name:   info?.full_name  ?? 'Cliente',
+                client_avatar: info?.avatar_url ?? null,
+            };
+        });
+
+        res.json(enriched);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching trainer session plans');
         res.status(500).json({ error: 'Error al obtener planes de sesión.' });

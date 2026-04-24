@@ -5,10 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2, Loader2, Trophy, Clock, Dumbbell, History } from 'lucide-react';
+import { CheckCircle2, Loader2, Trophy, Clock, Dumbbell, History, Flame } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useBodyMetrics } from '@/hooks/useAthleteData';
+import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 
 interface CompleteSessionModalProps {
   open: boolean;
@@ -26,25 +29,63 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
     blocks_results: [],
   });
 
+  const { data: metrics } = useBodyMetrics(1, plan?.client_id);
+  const athleteWeight = metrics?.[0]?.weight_kg || 75;
+  const isEstimatedWeight = !metrics?.[0]?.weight_kg;
+
   useEffect(() => {
     if (plan && open) {
       setResults({
         completed: true,
         actual_duration_minutes: plan.results?.actual_duration_minutes || 60,
         performance_note: plan.results?.performance_note || '',
-        blocks_results: (plan.blocks || []).map((block: any, index: number) => ({
-          block_index: index,
-          actual_reps: block.reps || '',
-          actual_weight: block.weight || '',
-          completed: true,
-        })),
+        blocks_results: (plan.blocks || []).map((block: any, index: number) => {
+          const setsCount = parseInt(block.sets) || (block.type === 'strength' ? 3 : 1);
+          const sets = Array.from({ length: setsCount }).map((_, i) => ({
+            set_number: i + 1,
+            reps: block.reps || '',
+            weight: block.weight || '',
+            completed: true
+          }));
+
+          return {
+            block_index: index,
+            completed: true,
+            sets: sets,
+            actual_reps: block.reps || '',
+            actual_weight: block.weight || '',
+            weight_unit: block.weight_unit || 'kg',
+            calories: block.calories || calculateExerciseCalories({
+              type: block.type,
+              sets: setsCount,
+              reps: block.reps || 0,
+              duration_minutes: block.duration_minutes || 0,
+              difficulty: plan.difficulty || 'intermedio',
+              weight_kg: athleteWeight
+            })
+          };
+        }),
       });
     }
-  }, [plan, open]);
+  }, [plan, open, athleteWeight]);
+
+  const totalSessionCalories = results.blocks_results.reduce((sum: number, b: any) => 
+    sum + (b.completed ? (b.calories || 0) : 0), 0
+  );
 
   const updateBlockResult = (index: number, updates: any) => {
     const newBlockResults = [...results.blocks_results];
     newBlockResults[index] = { ...newBlockResults[index], ...updates };
+    setResults({ ...results, blocks_results: newBlockResults });
+  };
+
+  const updateSetResult = (blockIndex: number, setIndex: number, updates: any) => {
+    const newBlockResults = [...results.blocks_results];
+    const blockResult = { ...newBlockResults[blockIndex] };
+    const newSets = [...(blockResult.sets || [])];
+    newSets[setIndex] = { ...newSets[setIndex], ...updates };
+    blockResult.sets = newSets;
+    newBlockResults[blockIndex] = blockResult;
     setResults({ ...results, blocks_results: newBlockResults });
   };
 
@@ -65,7 +106,13 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
             </div>
             <div>
               <DialogTitle className="text-xl">Finalizar Sesión</DialogTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">Registrar resultados para: {plan.name}</p>
+              <div className="flex items-center gap-3 mt-0.5">
+                <p className="text-xs text-muted-foreground">Registro para: {plan.name}</p>
+                <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 rounded-full border border-orange-500/20">
+                  <Flame className="h-3 w-3 text-orange-500" />
+                  <span className="text-[10px] font-black text-orange-600">{totalSessionCalories} Kcal</span>
+                </div>
+              </div>
             </div>
           </div>
         </DialogHeader>
@@ -85,14 +132,17 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
                   step={5}
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 text-muted-foreground">
-                  <History className="h-3 w-3" /> Fecha de Sesión: {new Date(plan.session_date).toLocaleDateString()}
-                </Label>
-                <div className="h-11 flex items-center px-4 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-bold shadow-sm shadow-primary/5">
-                  Sesión Confirmada
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 text-muted-foreground">
+                    <History className="h-3 w-3" /> Fecha de Sesión: {new Date(plan.session_date).toLocaleDateString()}
+                  </Label>
+                  <div className="h-11 flex items-center justify-between px-4 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-bold shadow-sm shadow-primary/5">
+                    <span>Sesión Confirmada</span>
+                    <Badge variant="outline" className={`text-[9px] font-black tracking-tighter ${isEstimatedWeight ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' : 'bg-green-500/10 text-green-600 border-green-500/20'}`}>
+                      {isEstimatedWeight ? 'PESO ESTIMADO (75KG)' : `PESO REAL (${athleteWeight}KG)`}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
             </div>
 
             <div className="space-y-4">
@@ -126,25 +176,77 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
                       </div>
 
                       {block.type === 'strength' && result.completed && (
-                        <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-300">
-                          <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-bold text-muted-foreground">Reps Reales</Label>
-                            <Input 
-                              placeholder={block.reps}
-                              value={result.actual_reps || ''}
-                              onChange={(e) => updateBlockResult(index, { actual_reps: e.target.value })}
-                              className="h-9 text-xs bg-background/50 border-border/40 rounded-lg focus-visible:ring-primary/20 transition-all font-mono"
-                            />
+                        <div className="space-y-3 animate-in fade-in duration-300">
+                          <div className="grid grid-cols-12 gap-2 mb-1 px-1">
+                            <div className="col-span-1 text-[9px] uppercase font-black text-muted-foreground">Set</div>
+                            <div className="col-span-4 text-[9px] uppercase font-black text-muted-foreground">Reps Reales</div>
+                            <div className="col-span-5 text-[9px] uppercase font-black text-muted-foreground">Peso Real</div>
+                            <div className="col-span-2 text-[9px] uppercase font-black text-muted-foreground text-center">OK</div>
                           </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-[10px] uppercase font-bold text-muted-foreground">Peso Real</Label>
-                            <Input 
-                              placeholder={block.weight}
-                              value={result.actual_weight || ''}
-                              onChange={(e) => updateBlockResult(index, { actual_weight: e.target.value })}
-                              className="h-9 text-xs bg-background/50 border-border/40 rounded-lg focus-visible:ring-primary/20 transition-all font-mono"
-                            />
-                          </div>
+                          
+                          {(result.sets || []).map((set: any, sIdx: number) => (
+                            <div key={sIdx} className="grid grid-cols-12 gap-2 items-center bg-background/40 p-1.5 rounded-lg border border-border/20">
+                              <div className="col-span-1 flex justify-center">
+                                <Badge variant="secondary" className="h-5 w-5 p-0 flex items-center justify-center text-[10px] rounded-md bg-primary/10 text-primary border-none">
+                                  {sIdx + 1}
+                                </Badge>
+                              </div>
+                              <div className="col-span-4">
+                                <Input 
+                                  placeholder={block.reps}
+                                  value={set.reps}
+                                  onChange={(e) => updateSetResult(index, sIdx, { reps: e.target.value })}
+                                  className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold"
+                                />
+                              </div>
+                              <div className="col-span-5 flex gap-1">
+                                <Input 
+                                  placeholder={block.weight}
+                                  value={set.weight}
+                                  onChange={(e) => updateSetResult(index, sIdx, { weight: e.target.value })}
+                                  className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold flex-1"
+                                />
+                                <Select 
+                                  value={set.weight_unit || result.weight_unit || 'kg'} 
+                                  onValueChange={(val) => updateSetResult(index, sIdx, { weight_unit: val })}
+                                >
+                                  <SelectTrigger className="w-[50px] h-8 text-[9px] font-black px-1 border-none bg-background/30">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="kg" className="text-[9px]">KG</SelectItem>
+                                    <SelectItem value="lb" className="text-[9px]">LB</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="col-span-2 flex justify-center">
+                                <Checkbox 
+                                  checked={set.completed}
+                                  onCheckedChange={(checked) => updateSetResult(index, sIdx, { completed: !!checked })}
+                                  className="h-4 w-4 rounded-md border-primary/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                          
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="w-full h-7 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-primary hover:bg-primary/5 border-dashed border mt-2"
+                            onClick={() => {
+                              const newSets = [...(result.sets || [])];
+                              const lastSet = newSets[newSets.length - 1] || { reps: block.reps, weight: block.weight };
+                              newSets.push({ 
+                                set_number: newSets.length + 1, 
+                                reps: lastSet.reps, 
+                                weight: lastSet.weight, 
+                                completed: true 
+                              });
+                              updateBlockResult(index, { sets: newSets });
+                            }}
+                          >
+                            + Agregar Serie Extra
+                          </Button>
                         </div>
                       )}
                     </div>

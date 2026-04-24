@@ -1132,7 +1132,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
   const [confirming, setConfirming] = useState<any | null>(null);
   const [classTypeFilter, setClassTypeFilter] = useState<'all' | 'personal' | 'group'>('all');
 
-  const { data, isLoading } = usePTAvailability(enrollment.id, selectedDate || '', childId);
+  const { data, isLoading, isFetching } = usePTAvailability(enrollment.id, childId);
   const availableDays = useMemo(() => new Set(data?.available_days ?? []), [data?.available_days]);
   const { mutate: book, isPending: isBooking } = useBookPTSession(childId);
 
@@ -1154,7 +1154,8 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
 
   const availability = useMemo(() => {
     const raw = data?.slots || [];
-    
+    if (!selectedDate) return [];
+
     // Filtro de Hora Colombiana (UTC-5)
     const todayStr = format(new Date(), 'yyyy-MM-dd');
     const isTodaySelected = selectedDate === todayStr;
@@ -1169,7 +1170,10 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
 
     const processed = [];
     for (const s of raw) {
-      // Validar hora
+      // Validar fecha
+      if (s.session_date !== selectedDate) continue;
+
+      // Validar hora si es hoy
       if (isTodaySelected) {
         const slotTime = s.start_time.substring(0, 5); // HH:mm
         if (slotTime < colombiaTimeStr) continue;
@@ -1177,17 +1181,19 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
 
       // Si permite Personal Y (filtro es 'all' o 'personal')
       if (s.available_for_personal_classes && (classTypeFilter === 'all' || classTypeFilter === 'personal')) {
-        processed.push({ ...s, _displayType: 'personal', _key: `${s.availability_id}-personal` });
+        processed.push({ ...s, _displayType: 'personal', _key: `${s.availability_id}-${s.session_date}-personal` });
       }
 
       // Si permite Grupal Y (filtro es 'all' o 'group')
       if (s.available_for_group_classes && (classTypeFilter === 'all' || classTypeFilter === 'group')) {
-        processed.push({ ...s, _displayType: 'group', _key: `${s.availability_id}-group` });
+        processed.push({ ...s, _displayType: 'group', _key: `${s.availability_id}-${s.session_date}-group` });
       }
     }
 
     return processed;
   }, [data, classTypeFilter, selectedDate]);
+
+  if (isLoading || (isFetching && !data)) return <SkeletonList />;
 
   return (
     <>
@@ -1269,7 +1275,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
               <Calendar className="h-8 w-8 mx-auto mb-2 opacity-20" />
               <p className="text-xs font-medium">Selecciona una fecha para ver disponibilidad</p>
             </div>
-          ) : isLoading ? <SkeletonList /> : availability.length === 0 ? (
+          ) : availability.length === 0 ? (
             <EmptyCenter icon={Calendar} title="Sin disponibilidad" desc="No hay horarios que coincidan con tu filtro para este día." color="amber" />
           ) : (
             <div className="space-y-6">

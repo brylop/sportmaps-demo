@@ -349,12 +349,12 @@ export function ClientTrainingTab({ clientId, clientType, clientName, onUpdate }
               </div>
             ) : (
               pastPlans.map(plan => (
-                <SessionPlanCard 
+                <SessionPlanCard
                   key={plan.id}
                   plan={plan}
                   onComplete={() => {}}
                   onEdit={() => {}}
-                  onDelete={() => {}}
+                  onDelete={handleDeletePlan}
                 />
               ))
             )}

@@ -5,7 +5,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CreditCard, CheckCircle2, XCircle, Clock, Calendar, Download, Plus, AlertTriangle } from 'lucide-react';
+import { 
+  CreditCard, CheckCircle2, XCircle, Clock, Calendar, 
+  Download, Plus, AlertTriangle, Eye, Loader2, Info, 
+  Percent, Zap, User 
+} from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
@@ -13,7 +17,6 @@ import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Eye, Loader2, Info, Percent } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 interface Enrollment {
@@ -50,7 +53,6 @@ interface Transaction {
   transaction_date: string;
   authorization_code?: string;
   receipt_url?: string;
-  // Propiedades adicionales de la vista payments_with_installments
   amount_paid?: number;
   balance_pending?: number;
   pct_paid?: number;
@@ -58,7 +60,17 @@ interface Transaction {
   school_id?: string;
   school_type?: string;
   concept?: string;
+  child_id?: string;
+  child_name?: string;
 }
+
+const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
+  pending:           { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
+  awaiting_approval: { label: 'Por Validar', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
+  approved:          { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
+  rejected:          { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
+};
 
 interface Subscription {
   id: string;
@@ -122,41 +134,7 @@ export default function MyPaymentsPage() {
     try {
       setLoading(true);
 
-      // Fetch enriched payments view from Supabase
-      const { data: payments, error } = await supabase
-        .from('payments_with_installments' as any)
-        .select('*')
-        .eq('parent_id', user?.id || '')
-        .order('created_at', { ascending: false });
-
-        const transactionSchoolIds = [...new Set(payments.map((p: any) => p.school_id).filter(Boolean))];
-        const { data: schoolsData } = await supabase
-          .from('schools')
-          .select('id, school_type')
-          .in('id', transactionSchoolIds);
-        
-        const schoolTypeMap = Object.fromEntries((schoolsData || []).map(s => [s.id, s.school_type]));
-
-        const txns: Transaction[] = payments.map((p: any) => ({
-          id: p.id,
-          school_id: p.school_id,
-          school_type: schoolTypeMap[p.school_id] || 'academy',
-          amount: p.amount,
-          amount_paid: p.amount_paid,
-          balance_pending: p.balance_pending,
-          pct_paid: p.pct_paid,
-          installments_pending: p.installments_pending,
-          concept: p.concept,
-          payment_method: p.payment_type || 'transfer',
-          status: p.status === 'paid' ? 'approved' : p.status,
-          reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
-          transaction_date: p.payment_date || p.created_at,
-          authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
-          receipt_url: p.receipt_url,
-        }));
-        setTransactions(txns);
-
-      // ── Query A: hijos del padre ─────────────────────────────────────────
+      // ── PASO 1: Obtener hijos del padre ──────────────────────────────────
       const { data: childrenData, error: childrenError } = await supabase
         .from('children')
         .select(`
@@ -173,49 +151,99 @@ export default function MyPaymentsPage() {
         `)
         .eq('parent_id', user?.id || '');
 
-      if (childrenError || !childrenData || childrenData.length === 0) {
-        setEnrollments([]);
-        return;
+      if (childrenError) throw childrenError;
+
+      const childIds = (childrenData || []).map((c: any) => c.id);
+
+      // ── PASO 2: Pagos por parent_id O por child_id ────────────────────────
+      let paymentsQuery = supabase
+        .from('payments_with_installments' as any)
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (childIds.length > 0) {
+        // Trae pagos donde soy el padre directamente O donde el child_id
+        // pertenece a uno de mis hijos (pagos creados por admin sin parent_id)
+        paymentsQuery = paymentsQuery.or(
+          `parent_id.eq.${user?.id},child_id.in.(${childIds.join(',')})`
+        );
+      } else {
+        // Sin hijos, solo pagos directos del padre
+        paymentsQuery = paymentsQuery.eq('parent_id', user?.id || '');
       }
 
-      const childIds = childrenData.map((c: any) => c.id);
+      const { data: payments, error: paymentsError } = await paymentsQuery;
+      if (paymentsError) throw paymentsError;
 
-      // ── Query B: enrollments activos con join a teams ────────────────────
-      const { data: enrollData, error: enrollError } = await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          child_id,
-          team_id,
-          team_id: null,
-          school_id,
-          status,
-          team:teams!enrollments_team_id_fkey (
-            name,
-            price_monthly
-          ),
-          schools (
-            name,
-            school_type
-          )
-        `)
-        .in('child_id', childIds)
-        .eq('status', 'active');
+      // ── PASO 3: Enriquecer con school_type ───────────────────────────────
+      const transactionSchoolIds = [...new Set((payments || []).map((p: any) => p.school_id).filter(Boolean))];
+      let schoolTypeMap: Record<string, string> = {};
 
-      const enrollsByChild: Record<string, any[]> = {};
-      if (!enrollError && enrollData) {
-        enrollData.forEach((e: any) => {
-          if (!enrollsByChild[e.child_id]) enrollsByChild[e.child_id] = [];
-          enrollsByChild[e.child_id].push(e);
-        });
+      if (transactionSchoolIds.length > 0) {
+        const { data: schoolsData } = await supabase
+          .from('schools')
+          .select('id, school_type')
+          .in('id', transactionSchoolIds);
+        schoolTypeMap = Object.fromEntries((schoolsData || []).map(s => [s.id, s.school_type]));
       }
 
-      if (!childrenError && childrenData) {
+      const childNameMap = Object.fromEntries((childrenData || []).map(c => [c.id, c.full_name]));
+
+      const txns: Transaction[] = (payments || []).map((p: any) => ({
+        id: p.id,
+        school_id: p.school_id,
+        school_type: schoolTypeMap[p.school_id] || 'academy',
+        amount: p.amount,
+        amount_paid: p.amount_paid,
+        balance_pending: p.balance_pending,
+        pct_paid: p.pct_paid,
+        installments_pending: p.installments_pending,
+        concept: p.concept,
+        child_id: p.child_id,
+        child_name: childNameMap[p.child_id] || 'Estudiante',
+        payment_method: p.payment_type || 'transfer',
+        status: p.status === 'paid' ? 'approved' : p.status,
+        reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
+        transaction_date: p.payment_date || p.created_at,
+        authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
+        receipt_url: p.receipt_url,
+      }));
+      setTransactions(txns);
+
+      // ── PASO 4: Enrollments (usando childrenData ya cargado) ──────────────
+      if (childrenData && childrenData.length > 0) {
+        const { data: enrollData, error: enrollError } = await supabase
+          .from('enrollments')
+          .select(`
+            id,
+            child_id,
+            team_id,
+            school_id,
+            status,
+            team:teams!enrollments_team_id_fkey (
+              name,
+              price_monthly
+            ),
+            schools (
+              name,
+              school_type
+            )
+          `)
+          .in('child_id', childIds)
+          .eq('status', 'active');
+
+        const enrollsByChild: Record<string, any[]> = {};
+        if (!enrollError && enrollData) {
+          enrollData.forEach((e: any) => {
+            if (!enrollsByChild[e.child_id]) enrollsByChild[e.child_id] = [];
+            enrollsByChild[e.child_id].push(e);
+          });
+        }
+
         const flattened: Enrollment[] = [];
         childrenData.forEach((child: any) => {
           const activeEnrollments = enrollsByChild[child.id] || [];
 
-          // 1. Check formal enrollments first
           if (activeEnrollments.length > 0) {
             activeEnrollments.forEach((enroll: any) => {
               flattened.push({
@@ -232,7 +260,6 @@ export default function MyPaymentsPage() {
               });
             });
           }
-          // 2. FIX 2 — Asignación directa por team_id.
           else if (child.teams) {
             flattened.push({
               id: `direct-team-${child.id}`,
@@ -247,7 +274,6 @@ export default function MyPaymentsPage() {
               schools: null,
             });
           }
-          // 3. Fallback a mensualidad directa
           else if (child.monthly_fee > 0) {
             flattened.push({
               id: `child-${child.id}`,
@@ -262,7 +288,6 @@ export default function MyPaymentsPage() {
               schools: null,
             });
           }
-          // 4. Ultimate fallback — sin programa
           else {
             flattened.push({
               id: `empty-${child.id}`,
@@ -279,6 +304,8 @@ export default function MyPaymentsPage() {
           }
         });
         setEnrollments(flattened);
+      } else {
+        setEnrollments([]);
       }
 
       setSubscriptions([]);
@@ -342,47 +369,52 @@ export default function MyPaymentsPage() {
     setSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return <Badge className="bg-green-500"><CheckCircle2 className="h-3 w-3 mr-1" />Aprobado</Badge>;
-      case 'rejected':
-        return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rechazado</Badge>;
-      case 'awaiting_approval':
-        return <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="h-3 w-3 mr-1" />Por Validar</Badge>;
-      case 'partial':
-        return <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200"><Percent className="h-3 w-3 mr-1" />Abono Recibido</Badge>;
-      case 'overdue':
-        return <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Vencido</Badge>;
-      case 'pending':
-        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pendiente</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
+  const summary = {
+    count_pending: transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval' || t.status === 'partial').length,
+    count_approved: transactions.filter(t => t.status === 'approved').length,
+    pending_total: transactions.filter(t => t.status !== 'approved').reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
+    count_total: transactions.length
   };
 
-  const getPaymentMethodIcon = (method: string) => {
-    switch (method.toLowerCase()) {
-      case 'pse':
-        return '🏦';
-      case 'card':
-      case 'tarjeta':
-        return '💳';
-      case 'nequi':
-        return '📱';
-      default:
-        return '💰';
-    }
-  };
+  const renderPaymentList = (list: Transaction[]) => {
+    if (list.length === 0) return (
+      <Card className="border-dashed">
+        <CardContent className="p-8 text-center">
+          <CreditCard className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-30" />
+          <h3 className="font-semibold text-lg">Sin movimientos</h3>
+          <p className="text-muted-foreground mt-1">No hay registros en esta sección.</p>
+        </CardContent>
+      </Card>
+    );
 
-  const getPaymentMethodLabel = (method: string) => {
-    switch (method.toLowerCase()) {
-      case 'pse': return 'PSE';
-      case 'card':
-      case 'tarjeta': return 'Tarjeta';
-      case 'transfer': return 'Transf. / Nequi';
-      default: return method.toUpperCase();
-    }
+    return list.map(txn => (
+      <PaymentCard 
+        key={txn.id}
+        txn={txn}
+        onSelect={(p) => {
+          if (p.status === 'approved') return;
+          setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
+            childId: p.child_id || '',
+            childName: p.child_name || 'Estudiante',
+            teamName: p.concept || 'Mensualidad',
+            amount: p.balance_pending || p.amount,
+            schoolId: p.school_id || '',
+            paymentId: p.id
+          });
+        }}
+        isSelected={selectedPayment?.paymentId === txn.id}
+        onShowProof={handleShowProof}
+        onAbonar={(p) => {
+          setSelectedInstallmentPayment({
+            id: p.id,
+            schoolId: p.school_id || '',
+            balancePending: p.balance_pending || 0,
+            concept: p.concept || ''
+          });
+          setShowInstallment(true);
+        }}
+      />
+    ));
   };
 
   if (loading) {
@@ -394,7 +426,7 @@ export default function MyPaymentsPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 w-full max-w-full overflow-x-hidden">
+    <div className="space-y-6 pb-24 relative">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-3 truncate">
@@ -407,6 +439,44 @@ export default function MyPaymentsPage() {
           <Plus className="h-4 w-4 mr-2" />
           Nuevo Pago
         </Button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Clock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Pendientes</p>
+              <p className="text-xl font-bold text-foreground">{summary.count_pending}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+              <CreditCard className="h-6 w-6 text-amber-500 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Monto pendiente</p>
+              <p className="text-xl font-bold text-foreground">{formatCurrency(summary.pending_total)}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Pagos realizados</p>
+              <p className="text-xl font-bold text-foreground">{summary.count_approved}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Active Subscriptions */}
@@ -455,241 +525,23 @@ export default function MyPaymentsPage() {
         </Card>
       )}
 
-      {/* Transaction History */}
       <Tabs defaultValue="all" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="all">Todas</TabsTrigger>
-          <TabsTrigger value="approved">Aprobadas</TabsTrigger>
-          <TabsTrigger value="pending">Pendientes</TabsTrigger>
+          <TabsTrigger value="all">Todas ({summary.count_total})</TabsTrigger>
+          <TabsTrigger value="approved">Aprobadas ({summary.count_approved})</TabsTrigger>
+          <TabsTrigger value="pending">Pendientes ({summary.count_pending})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Historial de Transacciones</CardTitle>
-                <CardDescription>Todos tus pagos realizados</CardDescription>
-              </div>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto -mx-2 md:mx-0">
-                <div className="inline-block min-w-full align-middle">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="whitespace-nowrap">Fecha</TableHead>
-                        <TableHead className="whitespace-nowrap">Referencia</TableHead>
-                        <TableHead className="whitespace-nowrap">Método</TableHead>
-                        <TableHead className="whitespace-nowrap">Monto</TableHead>
-                        <TableHead className="whitespace-nowrap">Estado</TableHead>
-                        <TableHead className="whitespace-nowrap">Acciones</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactions.map((txn) => (
-                        <TableRow key={txn.id}>
-                          <TableCell className="whitespace-nowrap text-xs md:text-sm">
-                            {new Date(txn.transaction_date).toLocaleDateString('es-CO', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric',
-                            })}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            <div className="flex items-center gap-1.5">
-                              {txn.school_type === 'personal_trainer' && <Zap className="h-3.5 w-3.5 text-indigo-500 fill-indigo-500/10" />}
-                              {txn.reference}
-                            </div>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            <span className="flex items-center gap-1 text-xs md:text-sm">
-                              {getPaymentMethodIcon(txn.payment_method)}
-                              <span className="hidden md:inline">{getPaymentMethodLabel(txn.payment_method)}</span>
-                            </span>
-                          </TableCell>
-                          <TableCell className="font-semibold whitespace-nowrap text-xs md:text-sm">
-                            <div className="flex flex-col gap-1">
-                              <span>{formatCurrency(txn.amount)}</span>
-                              {txn.status === 'partial' && (
-                                <span className="text-[10px] text-muted-foreground font-normal">
-                                  Pendiente: {formatCurrency((txn as any).balance_pending || 0)}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              {txn.status === 'approved' && (
-                                <Button variant="ghost" size="sm" className="text-xs">
-                                  Ver Recibo
-                                </Button>
-                              )}
-                              {txn.receipt_url && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={() => handleShowProof(txn.receipt_url!, (txn as any).concept || '', txn.amount)}
-                                >
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  Comprobante
-                                </Button>
-                              )}
-                              {txn.status === 'partial' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs text-primary hover:text-primary/80"
-                                  onClick={() => {
-                                    setSelectedInstallmentPayment({
-                                      id: txn.id,
-                                      schoolId: (txn as any).school_id || '',
-                                      balancePending: (txn as any).balance_pending || 0,
-                                      concept: (txn as any).concept || ''
-                                    });
-                                    setShowInstallment(true);
-                                  }}
-                                >
-                                  <Plus className="h-4 w-4 mr-1" />
-                                  Abonar
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {renderPaymentList(transactions)}
         </TabsContent>
 
-        <TabsContent value="approved">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pagos Aprobados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Referencia</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Código</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.filter(t => t.status === 'approved').map((txn) => (
-                    <TableRow key={txn.id}>
-                      <TableCell>
-                        {new Date(txn.transaction_date).toLocaleDateString('es-CO')}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
-                      <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {txn.authorization_code}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        <TabsContent value="approved" className="space-y-4">
+          {renderPaymentList(transactions.filter(t => t.status === 'approved'))}
         </TabsContent>
 
-        <TabsContent value="pending">
-          <Card>
-            <CardHeader>
-              <CardTitle>Pagos Pendientes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {transactions.filter(t => {
-                console.log('STATUS EN FILTRO (length checking):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
-                return t.status === 'pending' || t.status === 'awaiting_approval';
-              }).length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Referencia</TableHead>
-                      <TableHead>Monto</TableHead>
-                      <TableHead>Acción</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {transactions.filter(t => {
-                      console.log('STATUS EN FILTRO (mapping):', JSON.stringify(t.status), '| match:', t.status === 'awaiting_approval');
-                      return t.status === 'pending' || t.status === 'awaiting_approval';
-                    }).map((txn) => (
-                      <TableRow key={txn.id}>
-                        <TableCell>
-                          {new Date(txn.transaction_date).toLocaleDateString('es-CO')}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{txn.reference}</TableCell>
-                        <TableCell className="font-semibold">{formatCurrency(txn.amount)}</TableCell>
-                        <TableCell>
-                          {txn.status === 'awaiting_approval' ? (
-                            <Button size="sm" variant="outline" disabled>
-                              En revisión
-                            </Button>
-                          ) : (
-                            <div className="flex gap-2 items-center">
-                              {txn.balance_pending !== undefined && txn.balance_pending > 0 && txn.balance_pending < txn.amount && (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  className="border-primary text-primary hover:bg-primary/10"
-                                  onClick={() => {
-                                    setSelectedInstallmentPayment({
-                                      id: txn.id,
-                                      schoolId: txn.school_id || '',
-                                      balancePending: txn.balance_pending!,
-                                      concept: txn.concept || ''
-                                    });
-                                    setShowInstallment(true);
-                                  }}
-                                >
-                                  Abonar
-                                </Button>
-                              )}
-                              <Button 
-                                size="sm" 
-                                variant="default"
-                                onClick={() => {
-                                  setSelectedPayment({
-                                    childId: '', 
-                                    childName: '',
-                                    teamName: txn.concept || '',
-                                    amount: txn.balance_pending || txn.amount,
-                                    schoolId: txn.school_id || '',
-                                    paymentId: txn.id,
-                                  });
-                                  setShowCheckout(true);
-                                }}
-                              >
-                                {txn.balance_pending && txn.balance_pending < txn.amount ? 'Pagar Resto' : 'Completar Pago'}
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-center text-muted-foreground py-8">
-                  No tienes pagos pendientes
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        <TabsContent value="pending" className="space-y-4">
+          {renderPaymentList(transactions.filter(t => t.status !== 'approved'))}
         </TabsContent>
       </Tabs>
 
@@ -711,7 +563,7 @@ export default function MyPaymentsPage() {
                     key={enroll.id}
                     className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all text-left shadow-sm
                       ${isPT 
-                        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-900/90' 
+                        ? 'bg-zinc-900 border-zinc-800 hover:border-indigo-500/50 hover:bg-zinc-950 dark:bg-zinc-950 dark:hover:bg-black' 
                         : 'bg-background hover:bg-muted/50 hover:border-primary'}`}
                     onClick={() => {
                       setSelectedPayment({
@@ -795,21 +647,53 @@ export default function MyPaymentsPage() {
         />
       )}
 
+      {/* Barra de acción flotante (estilo atleta) */}
+      {selectedPayment && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 text-white p-4 rounded-xl shadow-2xl flex items-center justify-between z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className="flex flex-col min-w-0">
+            <span className="text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider font-bold truncate">
+              {selectedPayment.childName} — {selectedPayment.teamName}
+            </span>
+            <span className="font-bold text-xl text-indigo-400 dark:text-indigo-300">
+              {formatCurrency(selectedPayment.amount)}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="ghost" 
+              className="text-zinc-400 hover:text-white hover:bg-zinc-800 dark:hover:bg-zinc-900 hidden sm:flex"
+              onClick={() => setSelectedPayment(null)}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 font-bold shadow-lg shadow-indigo-600/20"
+              onClick={() => setShowCheckout(true)}
+            >
+              Pagar Ahora
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Proof Viewer Dialog for Parents */}
       <Dialog open={viewingProof.open} onOpenChange={(open) => setViewingProof(prev => ({ ...prev, open }))}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Mi Comprobante</DialogTitle>
             <DialogDescription>
-              Referencia: {viewingProof.concept}
+              {viewingProof.concept}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="bg-muted p-3 rounded-lg flex justify-between items-center">
-              <span className="font-semibold">{viewingProof.concept}</span>
-              <span className="font-bold text-lg">{formatCurrency(viewingProof.amount)}</span>
+              <span className="font-semibold text-sm truncate mr-2">{viewingProof.concept}</span>
+              <span className="font-bold text-lg shrink-0">
+                {formatCurrency(viewingProof.amount)}
+              </span>
             </div>
-            <div className="border rounded-md overflow-hidden bg-slate-50 min-h-[200px] flex items-center justify-center">
+            <div className="border rounded-md overflow-hidden bg-muted/30 min-h-[200px] flex items-center justify-center">
               {viewingProof.url ? (
                 <img
                   src={viewingProof.url}
@@ -818,11 +702,12 @@ export default function MyPaymentsPage() {
                 />
               ) : (
                 <div className="text-center text-muted-foreground p-8">
-                  <p>Cargando imagen...</p>
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                  <p>Cargando comprobante...</p>
                 </div>
               )}
             </div>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2 text-primary">
               <Button variant="secondary" onClick={() => setViewingProof(prev => ({ ...prev, open: false }))}>
                 Cerrar
               </Button>
@@ -831,5 +716,115 @@ export default function MyPaymentsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
+  txn: Transaction;
+  onSelect: (p: Transaction) => void;
+  isSelected: boolean;
+  onShowProof: (url: string, concept: string, amount: number) => void;
+  onAbonar: (p: Transaction) => void;
+}) {
+  const config = statusConfig[txn.status] || statusConfig.pending;
+  const StatusIcon = config.icon;
+  const isBilled = txn.status === 'approved' || txn.status === 'partial';
+
+  return (
+    <Card
+      className={`transition-all overflow-hidden ${txn.status === 'approved' ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
+        isSelected
+          ? 'border-primary bg-primary/5 shadow-md ring-1 ring-primary/20'
+          : 'border-border'
+      }`}
+      onClick={() => onSelect(txn)}
+    >
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start gap-3">
+          <div className={`h-10 w-10 sm:h-12 sm:w-12 rounded-xl flex items-center justify-center shrink-0 ${config.color.split(' ')[0]}`}>
+            <StatusIcon className={`h-5 w-5 sm:h-6 sm:w-6 ${config.color.split(' ')[1]}`} />
+          </div>
+
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+                {txn.child_name || 'Estudiante'}
+              </span>
+              {txn.school_type === 'personal_trainer' && (
+                <Badge variant="outline" className="text-[10px] py-0 px-2 h-5 bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 font-bold">
+                  <Zap className="h-2.5 w-2.5 mr-1 fill-indigo-500/20" />
+                  ENTRENADOR PT
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-bold text-sm sm:text-base text-foreground truncate">
+                {txn.concept || 'Mensualidad'}
+              </h3>
+              <div className="text-right shrink-0">
+                <p className="font-bold text-sm sm:text-base text-foreground">
+                  {formatCurrency(txn.amount)}
+                </p>
+                {txn.status === 'partial' && (
+                  <p className="text-[10px] text-red-500 dark:text-red-400 font-bold">
+                    PENDIENTE: {formatCurrency(txn.balance_pending || 0)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground pt-1">
+              <div className="flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                {new Date(txn.transaction_date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </div>
+              <div className="flex items-center gap-1">
+                <Info className="h-3.5 w-3.5" />
+                REF: <span className="font-mono">{txn.reference}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t mt-3 sm:mt-4">
+              <Badge variant="outline" className={`h-6 text-[10px] font-bold ${config.color}`}>
+                <StatusIcon className="h-3 w-3 mr-1" />
+                {config.label.toUpperCase()}
+              </Badge>
+
+              <div className="flex items-center gap-2">
+                {txn.receipt_url && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShowProof(txn.receipt_url!, txn.concept || '', txn.amount);
+                    }}
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    RECIBO
+                  </Button>
+                )}
+                {txn.status === 'partial' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[11px] font-bold text-primary hover:text-primary hover:bg-primary/10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAbonar(txn);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    ABONAR
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

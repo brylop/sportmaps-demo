@@ -3,13 +3,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { useTrainingLogs, useAthleteUnifiedStats, useAthleteStatSources, useBodyMetrics } from '@/hooks/useAthleteData';
+import { 
+  useAthleteUnifiedStats, 
+  useAthleteStatSources, 
+  useBodyMetrics,
+  useAthleteExerciseStats,
+  useAthleteTrainingHistory 
+} from '@/hooks/useAthleteData';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3, TrendingUp, Trophy, Target, Calendar,
-  Activity, Clock, Flame, Scale, Ruler, HeartPulse, ChevronRight,
+  Activity, Clock, Flame, Scale, Ruler, HeartPulse, ChevronRight, Dumbbell,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { LineChart, Line, XAxis, YAxis, Tooltip as RechartTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function StatsPage() {
   const { data: sources, isLoading: loadingSources } = useAthleteStatSources();
@@ -21,30 +29,59 @@ export default function StatsPage() {
   const sourceId = activeSource === 'all' ? undefined : activeSource;
 
   const { data: stats, isLoading: statsLoading } = useAthleteUnifiedStats(context as any, sourceId);
-  const { data: trainingLogs, isLoading: logsLoading } = useTrainingLogs();
+  const { data: exerciseStats } = useAthleteExerciseStats(90);
+  const { data: history } = useAthleteTrainingHistory(30);
+  const [selectedExercise, setSelectedExercise] = useState<string>('');
 
-  const isLoading = statsLoading || logsLoading;
+  const isLoading = statsLoading;
 
   // Datos de las tarjetas — vienen del BFF unificado
   const totalSessions  = stats?.sessions_total  ?? 0;
   const totalCalories  = stats?.total_calories  ?? 0;
   const totalMinutes   = stats?.total_minutes   ?? 0;
 
-  // Distribución de intensidad (solo de logs libres — los PT no tienen intensity en training_logs)
-  const logs = trainingLogs ?? [];
-  const intensityBreakdown = {
-    max:    logs.filter(l => l.intensity === 'max').length,
-    high:   logs.filter(l => l.intensity === 'high').length,
-    medium: logs.filter(l => l.intensity === 'medium').length,
-    low:    logs.filter(l => l.intensity === 'low').length,
+  // Helpers para categorizar PRs
+  const prsByCategory = (cat: string) =>
+    (exerciseStats?.prs ?? []).filter(p => p.category === cat);
+
+  const categoryConfig = {
+    strength:    { label: '💪 Fuerza',       color: 'text-red-500',    bg: 'bg-red-500/10',    border: 'border-red-500/20',    unit: 'kg',  valueSuffix: 'kg'  },
+    cardio:      { label: '❤️ Cardio',        color: 'text-blue-500',   bg: 'bg-blue-500/10',   border: 'border-blue-500/20',   unit: 'min', valueSuffix: 'min' },
+    hiit:        { label: '⚡ HIIT',          color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20', unit: 'rpe', valueSuffix: '/10' },
+    flexibility: { label: '🧘 Flexibilidad',  color: 'text-green-500',  bg: 'bg-green-500/10',  border: 'border-green-500/20',  unit: 'min', valueSuffix: 'min' },
   };
 
-  // Gráfica de actividad reciente (últimos 7 logs libres)
-  const performanceData = logs.slice(0, 7).reverse().map(log => ({
-    day:   new Date(log.training_date).toLocaleDateString('es', { weekday: 'short' }),
-    value: Math.min(100, Math.round((log.duration_minutes / 90) * 100)),
-    type:  log.exercise_type,
-  }));
+  // Gráfica de actividad: agrupar history por fecha
+  const activityByDate = (history ?? []).reduce((acc: Record<string, { pt: number; free: number }>, item: any) => {
+    const date = item._date;
+    if (!acc[date]) acc[date] = { pt: 0, free: 0 };
+    if (item._type === 'pt_session' && item.status === 'completed') acc[date].pt += 1;
+    if (item._type === 'free_activity') acc[date].free += 1;
+    return acc;
+  }, {});
+
+  const activityChartData = Object.entries(activityByDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-14) // últimos 14 días
+    .map(([date, counts]: [string, any]) => ({
+      day: new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }),
+      PT:  counts.pt,
+      Libre: counts.free,
+    }));
+
+  // Evolución del ejercicio seleccionado
+  const evolutionData = selectedExercise
+    ? (exerciseStats?.evolution[selectedExercise] ?? []).map(e => ({
+        fecha: new Date(e.date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }),
+        valor: e.value,
+        unit:  e.unit,
+      }))
+    : [];
+
+  const activeCats = (['strength', 'cardio', 'hiit', 'flexibility'] as const)
+    .filter(cat => prsByCategory(cat).length > 0);
+
+  const freeHistory = (history ?? []).filter((item: any) => item._type === 'free_activity');
 
   const hasSources = sources && sources.length > 1;
 
@@ -180,79 +217,261 @@ export default function StatsPage() {
         </TabsList>
 
         {/* Rendimiento */}
-        <TabsContent value="performance" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
+        <TabsContent value="performance" className="space-y-6">
+
+          {/* ── 1. Actividad reciente ─────────────────────────────────── */}
+          <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm overflow-hidden">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-xl flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                    Actividad Reciente
+                  </CardTitle>
+                  <CardDescription>Sesiones en los últimos 14 días</CardDescription>
+                </div>
+                <div className="flex gap-4 text-[10px] uppercase font-bold tracking-wider">
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-indigo-500" />
+                    <span className="text-muted-foreground">PT</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-primary" />
+                    <span className="text-muted-foreground">Libre</span>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {activityChartData.length > 0 ? (
+                <div className="h-[200px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={activityChartData} barSize={16} barGap={4}>
+                      <defs>
+                        <linearGradient id="barGradientPrimary" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={1}/>
+                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.6}/>
+                        </linearGradient>
+                        <linearGradient id="barGradientIndigo" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.6}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis 
+                        dataKey="day" 
+                        tick={{ fontSize: 10, fill: 'currentColor', opacity: 0.5 }} 
+                        tickLine={false} 
+                        axisLine={false}
+                        dy={10}
+                      />
+                      <YAxis hide allowDecimals={false} />
+                      <RechartTooltip
+                        cursor={{ fill: 'currentColor', opacity: 0.05 }}
+                        contentStyle={{ 
+                          fontSize: 12, 
+                          borderRadius: '12px', 
+                          border: '1px solid hsl(var(--border))',
+                          backgroundColor: 'hsl(var(--background))',
+                          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'
+                        }}
+                        itemStyle={{ padding: '2px 0' }}
+                      />
+                      <Bar dataKey="PT" fill="url(#barGradientIndigo)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Libre" fill="url(#barGradientPrimary)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-40 flex flex-col items-center justify-center text-muted-foreground bg-accent/20 rounded-xl border border-dashed">
+                  <Calendar className="h-8 w-8 mb-2 opacity-20" />
+                  <p className="text-sm">Sin actividad en las últimas 2 semanas</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── 2. Records personales por categoría ──────────────────── */}
+          {activeCats.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 px-1">
+                <Trophy className="h-5 w-5 text-amber-500" />
+                <h3 className="text-lg font-bold tracking-tight">Records Personales</h3>
+              </div>
+
+              <Tabs defaultValue={activeCats[0]} className="w-full">
+                <TabsList className="w-full justify-start bg-transparent h-auto p-0 gap-2 mb-4 overflow-x-auto no-scrollbar">
+                  {activeCats.map(cat => (
+                    <TabsTrigger 
+                      key={cat} 
+                      value={cat}
+                      className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border rounded-full px-4 py-1.5 h-auto text-xs font-medium transition-all"
+                    >
+                      {categoryConfig[cat].label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {activeCats.map(cat => {
+                  const cfg = categoryConfig[cat];
+                  return (
+                    <TabsContent key={cat} value={cat} className="mt-0 focus-visible:outline-none">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {prsByCategory(cat).map(pr => (
+                          <div 
+                            key={pr.stat_type} 
+                            className={`group relative overflow-hidden rounded-2xl border ${cfg.border} bg-card hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:-translate-y-1`}
+                          >
+                            <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity`}>
+                               {cat === 'strength' && <Dumbbell className="h-8 w-8" />}
+                               {cat === 'cardio' && <HeartPulse className="h-8 w-8" />}
+                               {cat === 'hiit' && <Flame className="h-8 w-8" />}
+                               {cat === 'flexibility' && <Activity className="h-8 w-8" />}
+                            </div>
+                            <div className="p-5">
+                              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${cfg.color} mb-2`}>
+                                {pr.display_name}
+                              </p>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-3xl font-black tabular-nums tracking-tight">{pr.best_value}</span>
+                                <span className="text-sm font-medium text-muted-foreground">{cfg.valueSuffix}</span>
+                              </div>
+                              <div className="mt-4 pt-4 border-t border-border/40 flex items-center justify-between">
+                                <span className="text-[10px] font-medium text-muted-foreground/70">
+                                  {pr.total_sets} {cat === 'strength' ? 'sets' : 'registros'}
+                                </span>
+                                <span className="text-[10px] font-medium bg-accent px-2 py-0.5 rounded-full">
+                                  {new Date(pr.pr_date + 'T12:00:00').toLocaleDateString('es-CO', {
+                                    day: 'numeric', month: 'short'
+                                  })}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </TabsContent>
+                  );
+                })}
+              </Tabs>
+            </div>
+          )}
+
+          {/* ── 3. Progreso de un ejercicio ──────────────────────────── */}
+          {(exerciseStats?.prs ?? []).length > 0 && (
+            <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                  Actividad Reciente
-                </CardTitle>
-                <CardDescription>Tus últimas sesiones de actividad libre</CardDescription>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-primary" />
+                      Análisis de Progreso
+                    </CardTitle>
+                    <CardDescription>Evolución de carga y rendimiento histórico</CardDescription>
+                  </div>
+                  <Select value={selectedExercise} onValueChange={setSelectedExercise}>
+                    <SelectTrigger className="w-full md:w-[240px] bg-background">
+                      <SelectValue placeholder="Busca un ejercicio..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['strength', 'cardio', 'hiit', 'flexibility'] as const)
+                        .flatMap(cat =>
+                          prsByCategory(cat).map(pr => (
+                            <SelectItem key={pr.stat_type} value={pr.stat_type}>
+                              <span className="flex items-center gap-2">
+                                <span className="text-sm">{categoryConfig[cat]?.label.split(' ')[0]}</span>
+                                <span className="font-medium">{pr.display_name}</span>
+                              </span>
+                            </SelectItem>
+                          ))
+                        )}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent>
-                {performanceData.length > 0 ? (
-                  <div className="h-48 flex items-end justify-between gap-2">
-                    {performanceData.map((data, index) => (
-                      <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                        <div
-                          className="w-full bg-gradient-to-t from-primary to-primary/50 rounded-t-lg transition-all hover:scale-105"
-                          style={{ height: `${Math.max(4, data.value)}%` }}
-                        />
-                        <span className="text-xs text-muted-foreground">{data.day}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">
-                    No hay datos de entrenamiento aún
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-primary" />
-                  Distribución de Intensidad
-                </CardTitle>
-                <CardDescription>Actividad libre por nivel de intensidad</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {logs.length > 0 ? (
-                  [
-                    { label: 'Máxima', key: 'max', color: 'bg-red-500' },
-                    { label: 'Alta',   key: 'high', color: 'bg-orange-500' },
-                    { label: 'Media',  key: 'medium', color: 'bg-yellow-500' },
-                    { label: 'Baja',   key: 'low', color: 'bg-green-500' },
-                  ].map(({ label, key, color }) => (
-                    <div key={key}>
-                      <div className="flex justify-between mb-1.5">
-                        <span className="text-sm flex items-center gap-2">
-                          <span className={`w-3 h-3 rounded-full ${color}`} />
-                          {label}
-                        </span>
-                        <span className="text-sm font-medium">
-                          {intensityBreakdown[key as keyof typeof intensityBreakdown]} sesiones
-                        </span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${color} transition-all`}
-                          style={{ width: `${logs.length > 0 ? (intensityBreakdown[key as keyof typeof intensityBreakdown] / logs.length) * 100 : 0}%` }}
-                        />
-                      </div>
+                <div className="bg-accent/10 rounded-2xl p-6 border border-border/20">
+                  {evolutionData.length >= 2 ? (
+                    <div className="h-[220px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={evolutionData} margin={{ left: -20, right: 10, top: 10, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="lineGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <XAxis 
+                            dataKey="fecha" 
+                            tick={{ fontSize: 10, opacity: 0.5 }} 
+                            tickLine={false} 
+                            axisLine={false}
+                            dy={10}
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 10, opacity: 0.5 }} 
+                            tickLine={false} 
+                            axisLine={false} 
+                          />
+                          <RechartTooltip
+                            contentStyle={{ 
+                              fontSize: 12, 
+                              borderRadius: '12px', 
+                              border: '1px solid hsl(var(--border))',
+                              backgroundColor: 'hsl(var(--background))',
+                              boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'
+                            }}
+                            formatter={(val) => [
+                              <span className="font-bold text-primary">{val} {evolutionData[0]?.unit ?? ''}</span>,
+                              exerciseStats?.prs.find(p => p.stat_type === selectedExercise)?.display_name
+                            ]}
+                          />
+                          <Line
+                            type="monotone" 
+                            dataKey="valor"
+                            stroke="hsl(var(--primary))" 
+                            strokeWidth={3}
+                            dot={{ r: 4, fill: 'hsl(var(--background))', stroke: 'hsl(var(--primary))', strokeWidth: 2 }}
+                            activeDot={{ r: 6, fill: 'hsl(var(--primary))' }}
+                            animationDuration={1500}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
                     </div>
-                  ))
-                ) : (
-                  <div className="py-8 text-center text-muted-foreground text-sm">
-                    No hay datos de intensidad aún
-                  </div>
-                )}
+                  ) : selectedExercise ? (
+                    <div className="h-[220px] flex flex-col items-center justify-center text-muted-foreground text-center px-8">
+                       <TrendingUp className="h-10 w-10 mb-2 opacity-10" />
+                       <p className="text-sm font-medium">Datos insuficientes</p>
+                       <p className="text-xs opacity-60">Registra al menos 2 sesiones con este ejercicio para ver la tendencia.</p>
+                    </div>
+                  ) : (
+                    <div className="h-[220px] flex flex-col items-center justify-center text-muted-foreground text-center">
+                       <BarChart3 className="h-10 w-10 mb-2 opacity-10" />
+                       <p className="text-sm">Selecciona un ejercicio del menú anterior</p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
-          </div>
+          )}
+
+          {/* Empty state general */}
+          {activeCats.length === 0 && activityChartData.length === 0 && (
+            <Card className="border-dashed py-16">
+              <CardContent className="flex flex-col items-center text-center">
+                <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-6">
+                  <BarChart3 className="h-8 w-8 text-muted-foreground opacity-30" />
+                </div>
+                <h3 className="text-lg font-bold">Sin datos de rendimiento</h3>
+                <p className="text-sm text-muted-foreground max-w-[280px] mt-2">
+                  Completa sesiones con tu entrenador o registra actividad libre para empezar a ver tus métricas.
+                </p>
+                <Button className="mt-8 rounded-full" asChild>
+                   <Link to="/training">Ir a Entrenar</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
         </TabsContent>
 
         {/* Físico — Métricas corporales reales */}
@@ -381,9 +600,9 @@ export default function StatsPage() {
               <CardDescription>Actividad libre registrada</CardDescription>
             </CardHeader>
             <CardContent>
-              {logs.length > 0 ? (
+              {freeHistory.length > 0 ? (
                 <div className="space-y-3">
-                  {logs.map(log => (
+                  {freeHistory.map((log: any) => (
                     <div key={log.id} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
                       <div>
                         <p className="font-medium">{log.exercise_type}</p>

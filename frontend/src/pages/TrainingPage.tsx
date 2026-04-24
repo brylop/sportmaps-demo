@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import {
-  useAthleteTrainingToday,
-  useTrainingLogs,
-  useTrainingAggregates,
+import { 
+  useAthleteTrainingToday, 
+  useAthleteUnifiedStats,
+  useAthleteTrainingHistory 
 } from '@/hooks/useAthleteData';
 import { createTrainingLog, deleteTrainingLog } from '@/lib/athlete/queries';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -47,8 +47,8 @@ export default function TrainingPage() {
 
   // ── Data ────────────────────────────────────────────────────
   const { data: today, isLoading: loadingToday } = useAthleteTrainingToday();
-  const aggregates = useTrainingAggregates();
-  const { data: trainings, isLoading: loadingLogs } = useTrainingLogs();
+  const { data: stats, isLoading: statsLoading } = useAthleteUnifiedStats('all');
+  const { data: history, isLoading: historyLoading } = useAthleteTrainingHistory(20);
 
   // ── Session execution modal ──────────────────────────────────
   const [executingSession, setExecutingSession] = useState<any | null>(null);
@@ -84,7 +84,7 @@ export default function TrainingPage() {
         calories_burned: form.calories_burned ? parseInt(form.calories_burned, 10) : null,
         notes: form.notes || null,
       });
-      queryClient.invalidateQueries({ queryKey: ['training-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-training-history'] });
       queryClient.invalidateQueries({ queryKey: ['athlete-training-today'] });
       toast({ title: 'Actividad registrada', description: 'Tu sesión ha sido guardada.' });
       resetForm();
@@ -100,7 +100,7 @@ export default function TrainingPage() {
     try {
       setDeletingId(id);
       await deleteTrainingLog(id);
-      queryClient.invalidateQueries({ queryKey: ['training-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-training-history'] });
       toast({ title: 'Eliminado' });
     } catch {
       toast({ title: 'Error', description: 'No se pudo eliminar.', variant: 'destructive' });
@@ -109,11 +109,10 @@ export default function TrainingPage() {
     }
   };
 
-  if (loadingToday && loadingLogs) {
+  if (loadingToday && historyLoading) {
     return <LoadingSpinner fullScreen text="Cargando entrenamientos..." />;
   }
 
-  const logs = trainings ?? [];
   const ptSessions = today?.pt_sessions ?? [];
 
   return (
@@ -213,7 +212,7 @@ export default function TrainingPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Sesiones</p>
                 <p className="text-2xl font-bold">
-                  {aggregates.isLoading ? '—' : aggregates.totalSessions}
+                  {statsLoading ? '—' : (stats?.sessions_total ?? 0)}
                 </p>
               </div>
             </div>
@@ -228,7 +227,7 @@ export default function TrainingPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Calorías</p>
                 <p className="text-2xl font-bold">
-                  {aggregates.isLoading ? '—' : `${aggregates.totalCalories} kcal`}
+                  {statsLoading ? '—' : `${stats?.total_calories ?? 0} kcal`}
                 </p>
               </div>
             </div>
@@ -243,7 +242,7 @@ export default function TrainingPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Tiempo total</p>
                 <p className="text-2xl font-bold">
-                  {aggregates.isLoading ? '—' : `${aggregates.totalMinutes} min`}
+                  {statsLoading ? '—' : `${stats?.total_minutes ?? 0} min`}
                 </p>
               </div>
             </div>
@@ -310,77 +309,103 @@ export default function TrainingPage() {
         </div>
       )}
 
-      {/* ── Historial libre ── */}
+      {/* ── Historial PT + Actividad libre ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
-            Actividad libre
+            Historial de entrenamientos
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {logs.map(log => (
-            <div
-              key={log.id}
-              className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
-            >
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-                  <Dumbbell className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-semibold truncate">{log.exercise_type}</h3>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
-                    <span>{new Date(log.training_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</span>
-                    <span>•</span>
-                    <span>{log.duration_minutes} min</span>
-                    {log.calories_burned && (
-                      <><span>•</span><span>{log.calories_burned} kcal</span></>
-                    )}
-                  </div>
-                  {log.notes && (
-                    <p className="text-xs text-muted-foreground mt-1 italic">"{log.notes}"</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <Badge variant="outline" className={intensityConfig[log.intensity].color}>
-                  {intensityConfig[log.intensity].label}
-                </Badge>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive">
-                      {deletingId === log.id
-                        ? <Loader2 className="h-4 w-4 animate-spin" />
-                        : <Trash2 className="h-4 w-4" />}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>¿Eliminar actividad?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Se eliminará "{log.exercise_type}" del {new Date(log.training_date).toLocaleDateString('es-CO')}.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDelete(log.id)}>Eliminar</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
+        <CardContent className="space-y-3">
+          {historyLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ))}
-
-          {logs.length === 0 && (
+          ) : (history ?? []).length === 0 ? (
             <div className="text-center py-8">
               <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No hay actividad libre registrada</p>
+              <p className="text-muted-foreground">No hay entrenamientos registrados</p>
               <Button className="mt-4 gap-2" onClick={() => setDialogOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Registrar actividad
               </Button>
             </div>
+          ) : (
+            (history ?? []).map((item: any) => {
+              const isPT = item._type === 'pt_session';
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className={`p-2 rounded-lg shrink-0 ${isPT ? 'bg-indigo-500/10' : 'bg-primary/10'}`}>
+                      {isPT
+                        ? <User className="h-5 w-5 text-indigo-500" />
+                        : <Dumbbell className="h-5 w-5 text-primary" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold truncate">
+                          {isPT ? item.name : item.exercise_type}
+                        </h3>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${isPT 
+                            ? 'border-indigo-500/40 text-indigo-500' 
+                            : 'border-primary/40 text-primary'}`}
+                        >
+                          {isPT ? '💪 Sesión PT' : '🏃 Libre'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        {new Date(item._date).toLocaleDateString('es-CO', {
+                          day: 'numeric', month: 'short', year: 'numeric'
+                        })}
+                        {isPT && item.status === 'completed' && (
+                          <span className="ml-2 text-green-600 font-medium">✅ Completada</span>
+                        )}
+                        {!isPT && item.duration_minutes && (
+                          <span className="ml-2">· {item.duration_minutes} min</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Lado derecho */}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {!isPT && item.intensity && (
+                      <Badge variant="outline" className={intensityConfig[item.intensity as keyof typeof intensityConfig]?.color}>
+                        {intensityConfig[item.intensity as keyof typeof intensityConfig]?.label}
+                      </Badge>
+                    )}
+                    {/* Botón eliminar solo para actividad libre */}
+                    {!isPT && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive">
+                            {deletingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>¿Eliminar actividad?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Se eliminará "{item.exercise_type}" del {new Date(item._date).toLocaleDateString('es-CO')}.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDelete(item.id)}>Eliminar</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </CardContent>
       </Card>

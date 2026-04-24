@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 import { Switch } from '@/components/ui/switch';
 import { BlockBuilder, ExerciseBlock } from './BlockBuilder';
-import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info } from 'lucide-react';
+import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NumberStepper } from '@/components/ui/number-stepper';
@@ -40,6 +41,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
     blocks: [],
     cooldown: '',
     estimated_minutes: 60,
+    estimated_calories: 0,
     tags: [],
     is_template: true,
   });
@@ -48,9 +50,46 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
 
   useEffect(() => {
     if (routine) {
+      // Normalizar category/difficulty: la BD guarda lowercase ('fuerza','hiit')
+      // pero el <Select> usa valores con capitalización exacta ('Fuerza','HIIT').
+      // Buscamos case-insensitive para garantizar coincidencia.
+      const matchedCategory   = CATEGORIES.find(
+        c => c.toLowerCase() === (routine.category  || '').toLowerCase()
+      ) ?? 'Fuerza';
+      const matchedDifficulty = DIFFICULTIES.find(
+        d => d.toLowerCase() === (routine.difficulty || '').toLowerCase()
+      ) ?? 'Intermedio';
+
+      // Calcular calorías de bloques si no las tienen guardadas
+      const initialBlocks = (routine.blocks || []).map((b: any) => ({
+        ...b,
+        calories: b.calories || calculateExerciseCalories({
+          type: b.type,
+          sets: b.sets || 0,
+          reps: b.reps || 0,
+          duration_minutes: b.duration_minutes || 0,
+          difficulty: matchedDifficulty,
+        }),
+      }));
+
+      const initialTotalCals =
+        routine.estimated_calories ||
+        initialBlocks.reduce((sum: number, b: any) => sum + (b.calories || 0), 0);
+
       setFormData({
         ...routine,
-        tags: routine.tags || [],
+        // Campos normalizados — deben ir DESPUÉS del spread para sobrescribir
+        name:               routine.name               ?? '',
+        description:        routine.description        ?? '',
+        warmup:             routine.warmup             ?? '',
+        cooldown:           routine.cooldown           ?? '',
+        estimated_minutes:  routine.estimated_minutes  ?? 60,
+        is_template:        routine.is_template        ?? true,
+        category:           matchedCategory,
+        difficulty:         matchedDifficulty,
+        blocks:             initialBlocks,
+        estimated_calories: initialTotalCals,
+        tags:               routine.tags               ?? [],
       });
     } else {
       setFormData({
@@ -62,12 +101,14 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
         blocks: [],
         cooldown: '',
         estimated_minutes: 60,
+        estimated_calories: 0,
         tags: [],
         is_template: true,
       });
     }
     setStep(1);
   }, [routine, open]);
+
 
   const handleAddTag = () => {
     if (!tagInput.trim()) return;
@@ -138,6 +179,17 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
+                    <Label htmlFor="minutes" className="text-xs font-bold uppercase tracking-wider">Tiempo Estimado (min)</Label>
+                    <NumberStepper 
+                      value={formData.estimated_minutes}
+                      onChange={(val) => setFormData({ ...formData, estimated_minutes: val === '' ? 0 : val })}
+                      min={1}
+                      max={480}
+                      step={5}
+                      unit="min"
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-wider">Dificultad</Label>
                     <Select 
                       value={formData.difficulty} 
@@ -150,16 +202,6 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                         {DIFFICULTIES.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="minutes" className="text-xs font-bold uppercase tracking-wider">Tiempo Estimado (min)</Label>
-                    <NumberStepper 
-                      value={formData.estimated_minutes}
-                      onChange={(val) => setFormData({ ...formData, estimated_minutes: val === '' ? 0 : val })}
-                      min={1}
-                      max={480}
-                      step={5}
-                    />
                   </div>
                 </div>
 
@@ -243,7 +285,15 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                   </div>
                   <BlockBuilder 
                     blocks={formData.blocks} 
-                    onChange={(blocks) => setFormData({ ...formData, blocks })}
+                    difficulty={formData.difficulty}
+                    onChange={(blocks) => {
+                      const totalCals = blocks.reduce((sum: number, b: any) => sum + (b.calories || 0), 0);
+                      setFormData({ 
+                        ...formData, 
+                        blocks,
+                        estimated_calories: totalCals > 0 ? totalCals : formData.estimated_calories 
+                      });
+                    }}
                   />
                 </div>
 
@@ -258,6 +308,33 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                     value={formData.cooldown}
                     onChange={(e) => setFormData({ ...formData, cooldown: e.target.value })}
                   />
+                </div>
+
+                <div className="p-6 bg-gradient-to-br from-orange-500/10 to-orange-500/5 rounded-2xl border border-orange-500/20 space-y-4 shadow-sm">
+                   <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-3">
+                       <div className="p-3 bg-orange-500/20 rounded-xl">
+                         <Flame className="h-6 w-6 text-orange-600 animate-pulse" />
+                       </div>
+                       <div>
+                         <h4 className="text-sm font-black uppercase tracking-widest text-orange-700">Resumen de Quema Calórica</h4>
+                         <p className="text-[10px] font-bold text-orange-600/70">Calculado en base a los bloques superiores</p>
+                       </div>
+                     </div>
+                   </div>
+
+                   <div className="space-y-2">
+                     <Label className="text-[10px] font-black uppercase tracking-widest text-orange-800 ml-1">Total Estimado de la Rutina</Label>
+                     <NumberStepper 
+                       value={formData.estimated_calories}
+                       onChange={(val) => setFormData({ ...formData, estimated_calories: val === '' ? 0 : val })}
+                       min={0}
+                       max={5000}
+                       step={10}
+                       unit="KCAL"
+                       className="bg-white/50 border-orange-500/20 focus-within:border-orange-500/50"
+                     />
+                   </div>
                 </div>
               </div>
             )}

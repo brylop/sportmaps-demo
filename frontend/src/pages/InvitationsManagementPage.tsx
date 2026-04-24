@@ -66,6 +66,7 @@ export default function InvitationsManagementPage() {
     offeringPlanId: '',  // → p_offering_plan_id (plan de sesiones)
     monthlyFee: defaultMonthlyFee,
     role: 'parent' as 'parent' | 'coach' | 'athlete' | 'referral' | 'school_admin' | 'reporter',
+    unregisteredAthleteId: '',  // ← PATCH: ID del unregistered_athlete del bulk upload
   });
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -128,13 +129,17 @@ export default function InvitationsManagementPage() {
     const child = searchParams.get('child');
     const program = searchParams.get('program');
     const phone = searchParams.get('phone');
-    if (email || child || program || phone) {
+    const unregisteredId = searchParams.get('unregisteredId');   // ← PATCH
+    const roleParam = searchParams.get('role');                  // ← PATCH
+    if (email || child || program || phone || unregisteredId) {
       setFormData(prev => ({
         ...prev,
         parentEmail: email || prev.parentEmail,
         childName: child || prev.childName,
         teamId: program || prev.teamId,
         parentPhone: phone || prev.parentPhone,
+        unregisteredAthleteId: unregisteredId || prev.unregisteredAthleteId,   // ← PATCH
+        role: (roleParam as typeof prev.role) || prev.role,                    // ← PATCH
       }));
       setDialogOpen(true);
     }
@@ -419,6 +424,7 @@ export default function InvitationsManagementPage() {
         p_parent_phone: data.parentPhone || null,
         p_branch_id: (formData as any).selectedBranchId || activeBranchId || null,
         p_offering_plan_id: data.offeringPlanId || null,
+        p_unregistered_athlete_id: data.unregisteredAthleteId || null,  // ← PATCH
       });
       if (error) throw error;
 
@@ -447,7 +453,7 @@ export default function InvitationsManagementPage() {
       const phone = formData.parentPhone.replace(/\D/g, '');
       const role = formData.role;
 
-      setFormData({ parentEmail: '', parentPhone: '+57', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent' });
+      setFormData({ parentEmail: '', parentPhone: '+57', childName: '', teamId: '', offeringPlanId: '', monthlyFee: defaultMonthlyFee, role: 'parent', unregisteredAthleteId: '' });
       (formData as any).selectedBranchId = activeBranchId || '';
 
       toast({

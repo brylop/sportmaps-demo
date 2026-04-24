@@ -304,18 +304,18 @@ export default function AttendanceSupervisionPage() {
 
   // ── 4. Roster del modal (BFF) ─────────────────────────────────────────────
   const { data: rosterData, isLoading: loadingRoster } = useQuery<{ athletes: RosterItem[] }>({
-    queryKey: ['supervision-roster', modalCtx?.type, modalCtx?.id],
+    queryKey: ['supervision-roster', modalCtx?.type, modalCtx?.id, schoolId],
     queryFn: async () => {
       if (!modalCtx) return { athletes: [] };
       const token = await getBearerToken();
       const res = await fetch(
         `${BFF_URL}/api/v1/attendance/roster/${modalCtx.type}/${modalCtx.id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' } }
       );
       if (!res.ok) throw new Error('Error cargando roster');
       return res.json();
     },
-    enabled: !!modalCtx,
+    enabled: !!modalCtx && !!schoolId,
   });
 
   // ── 5. Sesión activa ──────────────────────────────────────────────────────
@@ -327,7 +327,7 @@ export default function AttendanceSupervisionPage() {
       if (modalCtx.type === 'team') {
         const token = await getBearerToken();
         const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${modalCtx.id}`,
-          { headers: { Authorization: `Bearer ${token}` } });
+          { headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' } });
         if (!res.ok) return { session: null, records: [] };
         const data = await res.json();
         if (data.records?.length) {
@@ -417,7 +417,7 @@ export default function AttendanceSupervisionPage() {
 
         const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
@@ -447,7 +447,7 @@ export default function AttendanceSupervisionPage() {
           });
           const res = await fetch(`${BFF_URL}/api/v1/attendance/session`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
             body: JSON.stringify({ teamId: modalCtx.id, records }),
           });
           if (!res.ok) { const b = await res.json(); throw new Error(b.error); }
@@ -469,7 +469,7 @@ export default function AttendanceSupervisionPage() {
 
             const res = await fetch(`${BFF_URL}/api/v1/attendance/walk-in`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
               body: JSON.stringify(payload),
             });
             // Ignorar errores de plan en estados no-present
@@ -499,7 +499,7 @@ export default function AttendanceSupervisionPage() {
       if (!session?.id) throw new Error('Sin sesión activa');
       const token = await getBearerToken();
       const res = await fetch(`${BFF_URL}/api/v1/attendance/session/${session.id}/finalize`,
-        { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+        { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' } });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error);
       return body;
@@ -537,7 +537,7 @@ export default function AttendanceSupervisionPage() {
       }];
       await fetch(`${BFF_URL}/api/v1/attendance/session`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'x-school-id': schoolId ?? '' },
         body: JSON.stringify({ sessionId: booking.session_id, records }),
       });
     } catch {
