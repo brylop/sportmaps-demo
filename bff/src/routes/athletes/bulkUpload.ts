@@ -34,6 +34,7 @@ interface BulkAthleteInput {
   doc_type: DocType | null;
   doc_number: string | null;
   phone: string;
+  branch_id?: string | null;          // opcional — si null se usa la sede principal
   offering_plan_id: string;
   start_date: string;          // YYYY-MM-DD
   end_date: string;            // YYYY-MM-DD
@@ -82,6 +83,16 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
   if (!body.school_id || !Array.isArray(body.athletes) || body.athletes.length === 0) {
     return res.status(400).json({ error: 'Se requieren school_id y athletes[].' });
   }
+
+  // ── 0. Resolver sede principal de la escuela ─────────────────────────────────
+  const { data: mainBranch } = await supabase
+    .from('school_branches')
+    .select('id')
+    .eq('school_id', body.school_id)
+    .eq('is_main', true)
+    .single();
+
+  const defaultBranchId: string | null = mainBranch?.id ?? null;
 
   // ── 1. Verificar que los offering_plan_id existen y pertenecen a la escuela ─
   const planIds = [...new Set(body.athletes.map(a => a.offering_plan_id))];
@@ -156,6 +167,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
           doc_type:    athlete.doc_type,
           doc_number:  athlete.doc_number,
           phone:       athlete.phone,
+          branch_id:   athlete.branch_id ?? defaultBranchId,  // ← sede principal por defecto
           is_active:   true,
         })
         .select('id')
