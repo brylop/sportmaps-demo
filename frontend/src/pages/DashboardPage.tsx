@@ -31,6 +31,11 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // Super-admins de plataforma usan /admin, NO el dashboard de escuela
+  if (profile?.role === 'admin' || (profile?.role as string) === 'super_admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
 
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
