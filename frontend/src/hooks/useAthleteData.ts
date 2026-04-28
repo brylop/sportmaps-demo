@@ -155,6 +155,7 @@ import {
   getAthleteTrainingHistory,
   getAthleteExerciseStats,
   getBodyMetrics,
+  getChildExerciseStats,
   type UnifiedStats,
   type StatSource,
   type TrainingTodayResponse,
@@ -221,12 +222,22 @@ export function useAthleteTrainingHistory(limit = 20) {
   });
 }
 // PRs y evolución por categoría de ejercicio
-export function useAthleteExerciseStats(days = 90) {
+export function useAthleteExerciseStats(days = 90, schoolId?: string) {
   const { user } = useAuth();
   return useQuery({
-    queryKey: ['athlete-exercise-stats', user?.id, days],
-    queryFn:  () => getAthleteExerciseStats(days),
+    queryKey: ['athlete-exercise-stats', user?.id, days, schoolId],
+    queryFn:  () => getAthleteExerciseStats(days, schoolId),
     enabled:  !!user?.id,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+// PRs y evolución por categoría para hijos (children_stats)
+export function useChildExerciseStats(childId?: string, days = 90, schoolId?: string) {
+  return useQuery({
+    queryKey: ['child-exercise-stats', childId, days, schoolId],
+    queryFn:  () => getChildExerciseStats(childId!, days, schoolId),
+    enabled:  !!childId,
     staleTime: 2 * 60 * 1000,
   });
 }

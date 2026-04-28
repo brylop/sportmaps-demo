@@ -14,10 +14,15 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3, TrendingUp, Trophy, Target, Calendar,
   Activity, Clock, Flame, Scale, Ruler, HeartPulse, ChevronRight, Dumbbell,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  groupPRsByMuscle, getDisplayName,
+  MUSCLE_GROUP_CONFIG, type MuscleGroup,
+} from '@/lib/trainer/muscleGroups';
 
 export default function StatsPage() {
   const { data: sources, isLoading: loadingSources } = useAthleteStatSources();
@@ -29,9 +34,25 @@ export default function StatsPage() {
   const sourceId = activeSource === 'all' ? undefined : activeSource;
 
   const { data: stats, isLoading: statsLoading } = useAthleteUnifiedStats(context as any, sourceId);
-  const { data: exerciseStats } = useAthleteExerciseStats(90);
+  const { data: exerciseStats } = useAthleteExerciseStats(90, sourceId);
   const { data: history } = useAthleteTrainingHistory(30);
   const [selectedExercise, setSelectedExercise] = useState<string>('');
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+  // Abrir el grupo con más datos por defecto
+  const groupedPRs = groupPRsByMuscle(exerciseStats?.prs ?? []);
+  if (openGroups.size === 0 && groupedPRs.size > 0) {
+    const first = groupedPRs.keys().next().value;
+    if (first) setOpenGroups(new Set([first]));
+  }
+
+  const toggleGroup = (group: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      next.has(group) ? next.delete(group) : next.add(group);
+      return next;
+    });
+  };
 
   const isLoading = statsLoading;
 
@@ -290,69 +311,92 @@ export default function StatsPage() {
             </CardContent>
           </Card>
 
-          {/* ── 2. Records personales por categoría ──────────────────── */}
-          {activeCats.length > 0 && (
+          {/* ── 2. Records Personales por grupo muscular ────────────────── */}
+          {(exerciseStats?.prs ?? []).length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 px-1">
                 <Trophy className="h-5 w-5 text-amber-500" />
                 <h3 className="text-lg font-bold tracking-tight">Records Personales</h3>
+                <span className="text-xs text-muted-foreground ml-1">
+                  · Toca un ejercicio para ver su progresión
+                </span>
               </div>
 
-              <Tabs defaultValue={activeCats[0]} className="w-full">
-                <TabsList className="w-full justify-start bg-transparent h-auto p-0 gap-2 mb-4 overflow-x-auto no-scrollbar">
-                  {activeCats.map(cat => (
-                    <TabsTrigger 
-                      key={cat} 
-                      value={cat}
-                      className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border rounded-full px-4 py-1.5 h-auto text-xs font-medium transition-all"
-                    >
-                      {categoryConfig[cat].label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+              <div className="space-y-2">
+                {[...groupedPRs.entries()].map(([group, groupPrs]) => {
+                  const cfg    = MUSCLE_GROUP_CONFIG[group as MuscleGroup];
+                  const isOpen = openGroups.has(group);
 
-                {activeCats.map(cat => {
-                  const cfg = categoryConfig[cat];
+                  const unitSuffix: Record<string, string> = {
+                    kg: 'kg', min: 'min', rpe: '/10', rep: 'reps',
+                  };
+
                   return (
-                    <TabsContent key={cat} value={cat} className="mt-0 focus-visible:outline-none">
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {prsByCategory(cat).map(pr => (
-                          <div 
-                            key={pr.stat_type} 
-                            className={`group relative overflow-hidden rounded-2xl border ${cfg.border} bg-card hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:-translate-y-1`}
+                    <div key={group} className={`rounded-xl border border-border/40 overflow-hidden ${cfg.border}`}>
+                      {/* Header acordeón */}
+                      <button
+                        className={`w-full flex items-center justify-between px-4 py-3
+                                    ${cfg.bg} hover:opacity-90 transition-opacity text-left`}
+                        onClick={() => toggleGroup(group)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{cfg.emoji}</span>
+                          <span className={`text-sm font-black ${cfg.color}`}>{cfg.label}</span>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] h-4 px-1.5 border-0 ${cfg.bg} ${cfg.color}`}
                           >
-                            <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity`}>
-                               {cat === 'strength' && <Dumbbell className="h-8 w-8" />}
-                               {cat === 'cardio' && <HeartPulse className="h-8 w-8" />}
-                               {cat === 'hiit' && <Flame className="h-8 w-8" />}
-                               {cat === 'flexibility' && <Activity className="h-8 w-8" />}
-                            </div>
-                            <div className="p-5">
-                              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${cfg.color} mb-2`}>
-                                {pr.display_name}
-                              </p>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-3xl font-black tabular-nums tracking-tight">{pr.best_value}</span>
-                                <span className="text-sm font-medium text-muted-foreground">{cfg.valueSuffix}</span>
+                            {groupPrs.length}
+                          </Badge>
+                        </div>
+                        {isOpen
+                          ? <ChevronDown  className={`h-4 w-4 ${cfg.color}`} />
+                          : <ChevronRight className={`h-4 w-4 ${cfg.color}`} />}
+                      </button>
+
+                      {/* Ejercicios del grupo */}
+                      {isOpen && (
+                        <div className="divide-y divide-border/30 bg-card">
+                          {groupPrs.map(pr => (
+                            <button
+                              key={pr.stat_type}
+                              className={`w-full flex items-center justify-between px-4 py-3
+                                          text-left hover:bg-accent/30 transition-colors
+                                          ${selectedExercise === pr.stat_type ? 'bg-accent/50' : ''}`}
+                              onClick={() =>
+                                setSelectedExercise(
+                                  selectedExercise === pr.stat_type ? '' : pr.stat_type
+                                )
+                              }
+                            >
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm truncate">
+                                  {getDisplayName(pr.stat_type)}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">
+                                  {pr.total_sets} registros
+                                  {pr.pr_date && ` · PR: ${new Date(pr.pr_date + 'T12:00:00')
+                                    .toLocaleDateString('es-CO', {
+                                      day: 'numeric', month: 'short',
+                                    })}`}
+                                </p>
                               </div>
-                              <div className="mt-4 pt-4 border-t border-border/40 flex items-center justify-between">
-                                <span className="text-[10px] font-medium text-muted-foreground/70">
-                                  {pr.total_sets} {cat === 'strength' ? 'sets' : 'registros'}
-                                </span>
-                                <span className="text-[10px] font-medium bg-accent px-2 py-0.5 rounded-full">
-                                  {new Date(pr.pr_date + 'T12:00:00').toLocaleDateString('es-CO', {
-                                    day: 'numeric', month: 'short'
-                                  })}
-                                </span>
+                              <div className="text-right shrink-0 ml-3">
+                                <p className={`text-lg font-black ${cfg.color}`}>
+                                  {pr.best_value}
+                                  <span className="text-xs font-normal text-muted-foreground ml-0.5">
+                                    {unitSuffix[pr.unit] ?? pr.unit}
+                                  </span>
+                                </p>
                               </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </TabsContent>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-              </Tabs>
+              </div>
             </div>
           )}
 
@@ -368,24 +412,35 @@ export default function StatsPage() {
                     </CardTitle>
                     <CardDescription>Evolución de carga y rendimiento histórico</CardDescription>
                   </div>
-                  <Select value={selectedExercise} onValueChange={setSelectedExercise}>
-                    <SelectTrigger className="w-full md:w-[240px] bg-background">
-                      <SelectValue placeholder="Busca un ejercicio..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(['strength', 'cardio', 'hiit', 'flexibility'] as const)
-                        .flatMap(cat =>
-                          prsByCategory(cat).map(pr => (
-                            <SelectItem key={pr.stat_type} value={pr.stat_type}>
-                              <span className="flex items-center gap-2">
-                                <span className="text-sm">{categoryConfig[cat]?.label.split(' ')[0]}</span>
-                                <span className="font-medium">{pr.display_name}</span>
-                              </span>
-                            </SelectItem>
-                          ))
-                        )}
-                    </SelectContent>
-                  </Select>
+                    {!selectedExercise && (
+                      <Select value={selectedExercise} onValueChange={setSelectedExercise}>
+                        <SelectTrigger className="w-full md:w-[240px] bg-background">
+                          <SelectValue placeholder="O busca un ejercicio..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[...groupedPRs.entries()].flatMap(([group, prs]) =>
+                            prs.map(pr => (
+                              <SelectItem key={pr.stat_type} value={pr.stat_type}>
+                                <span className="flex items-center gap-2">
+                                  <span>{MUSCLE_GROUP_CONFIG[group as MuscleGroup]?.emoji}</span>
+                                  <span className="font-medium">{getDisplayName(pr.stat_type)}</span>
+                                </span>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {selectedExercise && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground"
+                        onClick={() => setSelectedExercise('')}
+                      >
+                        × Limpiar selección
+                      </Button>
+                    )}
                 </div>
               </CardHeader>
               <CardContent>

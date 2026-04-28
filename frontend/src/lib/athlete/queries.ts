@@ -413,7 +413,8 @@ export async function postBodyMetrics(data: {
   chest_cm?: number | null;
   arm_cm?: number | null;
   thigh_cm?: number | null;
-  notes?: string | null;
+  back_cm?:  number | null;
+  notes?:    string | null;
 }, clientId?: string) {
   const url = clientId
     ? `/api/v1/trainer/clients/${clientId}/body-metrics`
@@ -438,13 +439,32 @@ export interface ExerciseStats {
   period_days: number;
 }
 
-export async function getAthleteExerciseStats(days = 90): Promise<ExerciseStats> {
+export async function getAthleteExerciseStats(
+  days = 90,
+  schoolId?: string
+): Promise<ExerciseStats> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('No autenticado');
 
   const { data, error } = await (supabase as any).rpc('get_athlete_exercise_stats', {
     p_athlete_id: user.id,
     p_days:       days,
+    p_school_id:  schoolId ?? null,
+  });
+  if (error) throw error;
+  return data as ExerciseStats;
+}
+
+// ─── Child Exercise Stats (PRs + evolución para hijos) ───────────────────
+export async function getChildExerciseStats(
+  childId: string,
+  days = 90,
+  schoolId?: string
+): Promise<ExerciseStats> {
+  const { data, error } = await (supabase as any).rpc('get_child_exercise_stats', {
+    p_child_id:  childId,
+    p_days:      days,
+    p_school_id: schoolId ?? null,
   });
   if (error) throw error;
   return data as ExerciseStats;

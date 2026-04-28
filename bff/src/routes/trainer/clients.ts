@@ -3,46 +3,8 @@ import { supabase } from '../../config/supabase';
 
 const router = Router();
 
-// ==========================================
-//  GET /api/v1/trainer/search-profile
-// ==========================================
-router.get('/search-profile', async (req: Request, res: Response) => {
-  try {
-    const q = (req.query.q as string)?.trim();
-    if (!q) return res.status(400).json({ error: 'Parámetro q requerido.' });
-
-    const isEmail = q.includes('@');
-
-    // Solo email o teléfono — sin documento
-    if (!isEmail && !/^\+?\d{7,15}$/.test(q.replace(/\s/g, ''))) {
-      return res.status(400).json({ 
-        error: 'Ingresa un email o número de teléfono válido.' 
-      });
-    }
-
-    const cleanPhone = q.replace(/\s/g, '').replace(/^\+57/, '');
-
-    const { data, error } = isEmail
-      ? await supabase
-          .from('profiles')
-          .select('id, full_name, email, phone')
-          .eq('email', q.toLowerCase())
-          .eq('role', 'athlete')
-          .maybeSingle()
-      : await supabase
-          .from('profiles')
-          .select('id, full_name, email, phone')
-          .or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`)
-          .eq('role', 'athlete')
-          .maybeSingle();
-
-    if (error) throw error;
-    res.json(data ?? null);
-  } catch (err) {
-    (req as any).log?.error({ err }, 'Error searching profile');
-    res.status(500).json({ error: 'Error al buscar atleta.' });
-  }
-});
+// NOTE: search-profile was moved to trainer/profile.ts 
+// to be accessible by school admins without requireTrainerAuth.
 
 // ==========================================
 //  GET /api/v1/trainer/clients
@@ -469,7 +431,7 @@ router.post('/clients/:clientId/body-metrics', async (req: Request, res: Respons
     const { clientId } = req.params;
     const { 
       client_type, weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
-      waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, notes, measured_at 
+      waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, back_cm, notes, measured_at 
     } = req.body;
 
     const { data, error } = await supabase
@@ -478,7 +440,7 @@ router.post('/clients/:clientId/body-metrics', async (req: Request, res: Respons
         client_id: clientId,
         client_type,
         weight_kg, height_cm, body_fat_pct, muscle_mass_kg, 
-        waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm,
+        waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, back_cm,
         notes,
         measured_at: measured_at || new Date().toISOString(),
         recorded_by: req.user.id,

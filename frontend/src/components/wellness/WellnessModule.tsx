@@ -40,6 +40,7 @@ export interface BodyMetric {
   chest_cm: number | null;
   arm_cm: number | null;
   thigh_cm: number | null;
+  back_cm: number | null;
   source: 'trainer' | 'self';
   notes: string | null;
 }
@@ -64,7 +65,9 @@ const emptyForm = {
   measured_at: new Date().toISOString().split('T')[0],
   weight_kg: '', height_cm: '', body_fat_pct: '',
   muscle_mass_kg: '', waist_cm: '', hip_cm: '',
-  chest_cm: '', arm_cm: '', thigh_cm: '', notes: '',
+  chest_cm: '', arm_cm: '', thigh_cm: '',
+  back_cm: '',
+  notes: '',
 };
 
 // ── Components ───────────────────────────────────────────────
@@ -156,6 +159,7 @@ export function WellnessModule({ clientId, clientName, isTrainer = false }: Well
         chest_cm:       f(form.chest_cm),
         arm_cm:         f(form.arm_cm),
         thigh_cm:       f(form.thigh_cm),
+        back_cm:        f(form.back_cm),
         notes:          form.notes || null,
       }, clientId);
       
@@ -304,6 +308,9 @@ export function WellnessModule({ clientId, clientName, isTrainer = false }: Well
                   />
                   <StepperInput
                     label="Muslo" value={form.thigh_cm} onChange={v => setForm({ ...form, thigh_cm: v })} step={0.5}
+                  />
+                  <StepperInput
+                    label="Espalda" value={form.back_cm} onChange={v => setForm({ ...form, back_cm: v })} step={0.5}
                   />
                 </div>
               </div>
@@ -511,6 +518,7 @@ export function WellnessModule({ clientId, clientName, isTrainer = false }: Well
                     { label: 'Pecho',   value: last?.chest_cm,    unit: 'cm', icon: Ruler },
                     { label: 'Brazo',   value: last?.arm_cm,      unit: 'cm', icon: Ruler },
                     { label: 'Muslo',   value: last?.thigh_cm,    unit: 'cm', icon: Ruler },
+                    { label: 'Espalda', value: (last as any)?.back_cm, unit: 'cm', icon: Ruler },
                     { label: 'Talla',   value: last?.height_cm,   unit: 'cm', icon: Ruler },
                   ].map(({ label, value, unit, icon: Icon }) => (
                     <div key={label} className="p-4 rounded-xl border bg-card/50 shadow-sm hover:shadow-md transition-all group">

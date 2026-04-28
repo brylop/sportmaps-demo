@@ -66,7 +66,7 @@ router.get('/training/history', async (req: Request, res: Response) => {
 
     let sessionsQuery = supabase
       .from('trainer_session_plans')
-      .select('id, name, status, session_date, completed_at, blocks, trainer_id')
+      .select('id, name, status, session_date, completed_at, blocks, results, trainer_id')
       .eq('client_id', athleteId)
       .in('status', ['completed', 'assigned']);
 
@@ -92,8 +92,23 @@ router.get('/training/history', async (req: Request, res: Response) => {
     if (sessionsRes.error) throw sessionsRes.error;
     if (logsRes.error)     throw logsRes.error;
 
+    // ✅ Resolver trainer_profiles para las sesiones del historial
+    let sessions = sessionsRes.data ?? [];
+    if (sessions.length > 0) {
+      const trainerIds = [...new Set(sessions.map((s: any) => s.trainer_id).filter(Boolean))];
+      const { data: profiles } = await supabase
+        .from('trainer_profiles')
+        .select('user_id, display_name')
+        .in('user_id', trainerIds);
+      const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p.display_name]));
+      sessions = sessions.map((s: any) => ({
+        ...s,
+        trainer_name: profileMap.get(s.trainer_id) ?? 'Entrenador',
+      }));
+    }
+
     const merged = [
-      ...(sessionsRes.data ?? []).map((s: any) => ({ ...s, _type: 'pt_session',    _date: s.session_date })),
+      ...(sessions).map((s: any) => ({ ...s, _type: 'pt_session',    _date: s.session_date })),
       ...(logsRes.data    ?? []).map((l: any) => ({ ...l, _type: 'free_activity',  _date: l.training_date })),
     ]
       .sort((a, b) => new Date(b._date).getTime() - new Date(a._date).getTime())
@@ -308,7 +323,7 @@ router.post('/training/body-metrics', async (req: Request, res: Response) => {
     const athleteId = req.user.id;
     const {
       measured_at, weight_kg, height_cm, body_fat_pct,
-      muscle_mass_kg, waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, notes,
+      muscle_mass_kg, waist_cm, hip_cm, chest_cm, arm_cm, thigh_cm, back_cm, notes,
     } = req.body;
 
     if (!measured_at) return res.status(400).json({ error: 'measured_at es requerido.' });
@@ -325,6 +340,7 @@ router.post('/training/body-metrics', async (req: Request, res: Response) => {
         weight_kg,      height_cm,    body_fat_pct,
         muscle_mass_kg, waist_cm,     hip_cm,
         chest_cm,       arm_cm,       thigh_cm,
+        back_cm,
         notes,
       })
       .select()

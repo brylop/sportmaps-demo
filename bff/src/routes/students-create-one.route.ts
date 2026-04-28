@@ -40,6 +40,7 @@ const EnrollmentBase = z.object({
   offering_id:      z.string().uuid().nullable().optional(),
   start_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   monthly_fee:      z.number().min(10000).nullable().optional(),
+  discount_pct:     z.number().min(0).max(100).optional(),
 });
 
 const ChildSchema = EnrollmentBase.extend({
@@ -301,14 +302,18 @@ router.post(
         let paymentCreated = false;
         // Pago del equipo
         if (data.team_id && data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+          const effectiveFee = data.discount_pct
+            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+            : data.monthly_fee;
+
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
           const { error: payErr } = await supabase.from('payments').insert({
             child_id:     childId,
             school_id:    schoolId,
             branch_id:    data.branch_id || null,
             team_id:      data.team_id,
             amount:       payCalc.amount,
-            concept:      `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}`,
+            concept:      `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date:     payCalc.dueDate,
             status:       'pending',
             payment_type: 'subscription',
@@ -326,14 +331,18 @@ router.post(
             .single();
 
           if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
+            const effectiveFee = data.discount_pct
+              ? Math.round(Number(plan.price) * (1 - data.discount_pct / 100))
+              : Number(plan.price);
+
+            const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
             const { error: payErr } = await supabase.from('payments').insert({
               child_id:     childId,
               school_id:    schoolId,
               branch_id:    data.branch_id || null,
               offering_plan_id: data.offering_plan_id,
               amount:       payCalc.amount,
-              concept:      `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}`,
+              concept:      `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
               due_date:     payCalc.dueDate,
               status:       'pending',
               payment_type: 'subscription',
@@ -346,6 +355,7 @@ router.post(
 
         // 5. Invitación al acudiente
         let invitationSent = false;
+        let invite: any = null;
         const { data: existingInvite } = await supabase
           .from('invitations')
           .select('id')
@@ -355,7 +365,7 @@ router.post(
           .maybeSingle();
 
         if (!existingInvite) {
-          const { data: invite, error: invErr } = await supabase
+          const { data: inviteData, error: invErr } = await supabase
             .from('invitations')
             .insert({
               email:          data.parent_email,
@@ -369,7 +379,8 @@ router.post(
             .select('id')
             .single();
 
-          if (!invErr && invite) {
+          if (!invErr && inviteData) {
+            invite = inviteData;
             invitationSent = true;
             const { emailClient } = await import('../utils/emailClient');
             const { EmailTemplates } = await import('../utils/emailTemplates');
@@ -382,12 +393,18 @@ router.post(
           }
         }
 
+        const registrationLink = invitationSent
+          ? `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite?.id ?? ''}`
+          : null;
+
         return res.status(201).json({
           success: true,
           child_id: childId,
           enrollments_created: enrollmentsCreated,
           payment_created: paymentCreated,
           invitation_sent: invitationSent,
+          registration_link: registrationLink,
+          parent_phone: data.parent_phone ?? null,
           message: `Menor registrado. ${enrollmentsCreated} inscripción(es) creada(s).${invitationSent ? ` Invitación enviada a ${data.parent_email}.` : ''}`,
         });
       }
@@ -467,14 +484,18 @@ router.post(
         let paymentCreated = false;
         // Pago del equipo
         if (data.team_id && data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+          const effectiveFee = data.discount_pct
+            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+            : data.monthly_fee;
+
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
           const { error: payErr } = await supabase.from('payments').insert({
             user_id:      userId,
             school_id:    schoolId,
             branch_id:    data.branch_id || null,
             team_id:      data.team_id,
             amount:       payCalc.amount,
-            concept:      `Equipo ${teamName} — ${payCalc.description} — ${profile.full_name}`,
+            concept:      `Equipo ${teamName} — ${payCalc.description} — ${profile.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date:     payCalc.dueDate,
             status:       'pending',
             payment_type: 'subscription',
@@ -492,14 +513,18 @@ router.post(
             .single();
 
           if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
+            const effectiveFee = data.discount_pct
+              ? Math.round(Number(plan.price) * (1 - data.discount_pct / 100))
+              : Number(plan.price);
+
+            const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
             const { error: payErr } = await supabase.from('payments').insert({
               user_id:      userId,
               school_id:    schoolId,
               branch_id:    data.branch_id || null,
               offering_plan_id: data.offering_plan_id,
               amount:       payCalc.amount,
-              concept:      `Plan ${plan.name} — ${payCalc.description} — ${profile.full_name}`,
+              concept:      `Plan ${plan.name} — ${payCalc.description} — ${profile.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
               due_date:     payCalc.dueDate,
               status:       'pending',
               payment_type: 'subscription',
@@ -569,7 +594,11 @@ router.post(
         // 4. Pagos proporcionales
         let paymentCreated = false;
         if (data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+          const effectiveFee = data.discount_pct
+            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+            : data.monthly_fee;
+
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
           const { error: payErr } = await supabase.from('payments').insert({
             child_id:     child_id,
             school_id:    schoolId,
@@ -577,7 +606,7 @@ router.post(
             team_id:      data.team_id || null,
             offering_plan_id: data.offering_plan_id || null,
             amount:       payCalc.amount,
-            concept:      `Suscripción — ${payCalc.description} — ${child.full_name}`,
+            concept:      `Suscripción — ${payCalc.description} — ${child.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date:     payCalc.dueDate,
             status:       'pending',
             payment_type: 'subscription',
@@ -642,6 +671,7 @@ router.post(
         return res.status(201).json({
           success: true,
           invitation_id: invite.id,
+          registration_link: link,
           message: `Invitación enviada a ${data.email}. Una vez se registre podrás inscribirlo.`,
         });
       }
@@ -680,7 +710,8 @@ router.post(
           const eid = await createEnrollment({
             unregisteredAthleteId: uaId, schoolId,
             status: 'active',
-            startDate: data.start_date, teamId: data.team_id, log: req.log,
+            startDate: data.start_date, teamId: data.team_id, 
+            log: req.log,
           });
           if (eid) enrollmentsCreated++;
         }
@@ -691,20 +722,25 @@ router.post(
             status: 'active',
             startDate: data.start_date,
             offeringPlanId: data.offering_plan_id,
-            offeringId: data.offering_id, log: req.log,
+            offeringId: data.offering_id, 
+            log: req.log,
           });
           if (eid) enrollmentsCreated++;
         }
 
         // Pago proporcional
         if (data.monthly_fee && data.monthly_fee >= 10000) {
-          const payCalc = calcFirstPayment(data.start_date, data.monthly_fee, cycleType, cutoffDay);
+          const effectiveFee = data.discount_pct
+            ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+            : data.monthly_fee;
+
+          const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
           await supabase.from('payments').insert({
             school_id: schoolId, branch_id: data.branch_id || null,
             unregistered_athlete_id: uaId,
             team_id: data.team_id || null,
             amount: payCalc.amount,
-            concept: `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}`,
+            concept: `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
           });
         }
@@ -732,20 +768,22 @@ router.post(
 
 
         let invitationSent = false;
+        let invite: any = null;
         if (data.send_invite && data.email) {
           const { data: existingInv } = await supabase.from('invitations').select('id')
             .eq('school_id', schoolId).eq('email', data.email)
             .in('status', ['pending', 'accepted']).maybeSingle();
 
           if (!existingInv) {
-            const { data: invite } = await supabase.from('invitations')
+            const { data: inviteData } = await supabase.from('invitations')
               .insert({
                 email: data.email, school_id: schoolId,
                 role_to_assign: 'athlete', invited_by: req.user?.id || null, status: 'pending',
               })
               .select('id').single();
 
-            if (invite) {
+            if (inviteData) {
+              invite = inviteData;
               // Vincular invitación al registro
               await supabase.from('unregistered_athletes')
                 .update({ invitation_id: invite.id }).eq('id', uaId);
@@ -767,6 +805,10 @@ router.post(
           unregistered_athlete_id: uaId,
           enrollments_created: enrollmentsCreated,
           invitation_sent: invitationSent,
+          registration_link: invitationSent && data.email
+            ? `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite?.id ?? ''}`
+            : null,
+          phone: data.phone ?? null,
           message: `${data.full_name} registrado.${invitationSent ? ` Invitación enviada a ${data.email}.` : ''}`,
         });
       }

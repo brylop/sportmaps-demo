@@ -125,25 +125,71 @@ export default function InvitationsManagementPage() {
 
   // ── Leer URL params al abrir ─────────────────────────────────────────────────
   useEffect(() => {
-    const email = searchParams.get('email');
-    const child = searchParams.get('child');
-    const program = searchParams.get('program');
-    const phone = searchParams.get('phone');
-    const unregisteredId = searchParams.get('unregisteredId');   // ← PATCH
-    const roleParam = searchParams.get('role');                  // ← PATCH
+    const email          = searchParams.get('email');
+    const child          = searchParams.get('child');
+    const program        = searchParams.get('program');
+    const phone          = searchParams.get('phone');
+    const unregisteredId = searchParams.get('unregisteredId');
+    const roleParam      = searchParams.get('role');
+    const branchParam    = searchParams.get('branch');
+    const planIdParam    = searchParams.get('planId');
+
     if (email || child || program || phone || unregisteredId) {
       setFormData(prev => ({
         ...prev,
-        parentEmail: email || prev.parentEmail,
-        childName: child || prev.childName,
-        teamId: program || prev.teamId,
-        parentPhone: phone || prev.parentPhone,
-        unregisteredAthleteId: unregisteredId || prev.unregisteredAthleteId,   // ← PATCH
-        role: (roleParam as typeof prev.role) || prev.role,                    // ← PATCH
+        parentEmail:           email          || prev.parentEmail,
+        childName:             child          || prev.childName,
+        teamId:                program        || prev.teamId,
+        parentPhone:           phone          || prev.parentPhone,
+        unregisteredAthleteId: unregisteredId || prev.unregisteredAthleteId,
+        role:                  (roleParam as typeof prev.role) || prev.role,
+        offeringPlanId:        planIdParam    || prev.offeringPlanId,
       }));
+
+      // Pre-seleccionar sede si viene en el param
+      if (branchParam) {
+        (setFormData as any)(prev => ({ ...prev, selectedBranchId: branchParam }));
+      }
+
       setDialogOpen(true);
     }
   }, [searchParams]);
+
+  // ── Ajustar precio real (con descuento) si hay plan y atleta ───────────────
+  useEffect(() => {
+    const planIdParam = searchParams.get('planId');
+    const unregisteredId = searchParams.get('unregisteredId');
+
+    if (unregisteredId && planIdParam) {
+      // Buscar el pago real del atleta para este plan
+      supabase
+        .from('payments')
+        .select('amount, concept')
+        .eq('unregistered_athlete_id', unregisteredId)
+        .eq('offering_plan_id', planIdParam)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data: payment }) => {
+          if (payment?.amount) {
+            setFormData(prev => ({
+              ...prev,
+              monthlyFee: payment.amount,
+            }));
+          } else {
+            const plan = offeringPlans.find(p => p.id === planIdParam);
+            if (plan) {
+              setFormData(prev => ({ ...prev, monthlyFee: plan.price }));
+            }
+          }
+        });
+    } else if (planIdParam) {
+      const plan = offeringPlans.find(p => p.id === planIdParam);
+      if (plan) {
+        setFormData(prev => ({ ...prev, monthlyFee: plan.price }));
+      }
+    }
+  }, [searchParams, offeringPlans]);
 
   // Al abrir el dialog, preseleccionar la sede activa
   useEffect(() => {

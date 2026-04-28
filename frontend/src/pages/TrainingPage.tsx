@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Dumbbell, Calendar, Clock, Flame, Plus, Play, Trash2,
-  Loader2, User, ChevronRight,
+  Loader2, User, ChevronRight, Timer, CheckCircle2,
 } from 'lucide-react';
 
 const intensityConfig = {
@@ -52,6 +52,7 @@ export default function TrainingPage() {
 
   // ── Session execution modal ──────────────────────────────────
   const [executingSession, setExecutingSession] = useState<any | null>(null);
+  const [viewingSession, setViewingSession] = useState<any | null>(null);
 
   // ── Free activity form ───────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -334,10 +335,15 @@ export default function TrainingPage() {
           ) : (
             (history ?? []).map((item: any) => {
               const isPT = item._type === 'pt_session';
+              const isClickable = isPT && item.status === 'completed';
+              const Wrapper = isClickable ? 'button' : ('div' as any);
+
               return (
-                <div
+                <Wrapper
                   key={item.id}
-                  className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                  className={`w-full flex items-center justify-between p-4 rounded-lg border bg-card transition-colors text-left
+                    ${isClickable ? 'hover:bg-accent/50 cursor-pointer group' : 'hover:bg-accent/50'}`}
+                  {...(isClickable ? { onClick: () => setViewingSession(item) } : {})}
                 >
                   <div className="flex items-center gap-4 min-w-0">
                     <div className={`p-2 rounded-lg shrink-0 ${isPT ? 'bg-indigo-500/10' : 'bg-primary/10'}`}>
@@ -360,7 +366,7 @@ export default function TrainingPage() {
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mt-0.5">
-                        {new Date(item._date).toLocaleDateString('es-CO', {
+                        {new Date(item._date + 'T12:00:00').toLocaleDateString('es-CO', {
                           day: 'numeric', month: 'short', year: 'numeric'
                         })}
                         {isPT && item.status === 'completed' && (
@@ -397,18 +403,141 @@ export default function TrainingPage() {
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDelete(item.id)}>Eliminar</AlertDialogAction>
+                            <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}>Eliminar</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+                    {isPT && item.status === 'completed' && (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    )}
                   </div>
-                </div>
+                </Wrapper>
               );
             })
           )}
         </CardContent>
       </Card>
+
+      {/* ── Modal detalle de sesión completada ── */}
+      {viewingSession && (
+        <Dialog open={!!viewingSession} onOpenChange={() => setViewingSession(null)}>
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-black">{viewingSession.name}</DialogTitle>
+              <DialogDescription className="flex flex-wrap gap-3 mt-1">
+                <span className="flex items-center gap-1 text-xs">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(viewingSession._date + 'T12:00:00').toLocaleDateString('es-CO', {
+                    weekday: 'long', day: 'numeric', month: 'long',
+                  })}
+                </span>
+                {viewingSession.trainer_name && (
+                  <span className="text-xs">💪 {viewingSession.trainer_name}</span>
+                )}
+                {viewingSession.results?.actual_duration_minutes && (
+                  <span className="flex items-center gap-1 text-xs">
+                    <Timer className="h-3 w-3" />
+                    {viewingSession.results.actual_duration_minutes} min
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 pt-2">
+
+              {/* Nota del entrenador */}
+              {viewingSession.results?.performance_note && (
+                <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">
+                    📝 Feedback del entrenador
+                  </p>
+                  <p className="text-sm text-muted-foreground italic">
+                    "{viewingSession.results.performance_note}"
+                  </p>
+                </div>
+              )}
+
+              {/* Bloques con resultados */}
+              {(viewingSession.blocks ?? []).length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    Ejercicios realizados
+                  </p>
+                  {(viewingSession.blocks ?? []).map((block: any, idx: number) => {
+                    const result = (viewingSession.results?.blocks_results ?? [])
+                      .find((r: any) => r.block_index === idx);
+                    const completed = result?.completed ?? false;
+
+                    const typeLabel: Record<string, string> = {
+                      strength: '💪 Fuerza', cardio: '❤️ Cardio',
+                      hiit: '⚡ HIIT', flexibility: '🧘 Flexibilidad',
+                      warmup: '🌡️ Calentamiento', cooldown: '☕ Vuelta calma',
+                    };
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-4 rounded-xl border ${
+                          completed
+                            ? 'bg-green-500/5 border-green-500/20'
+                            : 'bg-muted/20 border-border/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <div>
+                            <p className="font-bold text-sm">{block.name}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">
+                              {typeLabel[block.type] ?? block.type}
+                              {block.sets && ` · ${block.sets} sets`}
+                              {block.reps && ` × ${block.reps} reps`}
+                              {block.duration_minutes && ` · ${block.duration_minutes} min`}
+                            </p>
+                          </div>
+                          {completed
+                            ? <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                            : <Clock       className="h-5 w-5 text-muted-foreground shrink-0" />}
+                        </div>
+
+                        {/* Resultado real */}
+                        {result && block.type === 'strength' && (
+                          <div className="flex gap-4 mt-2 pt-2 border-t border-border/20">
+                            {result.actual_weight && (
+                              <div>
+                                <p className="text-[10px] text-muted-foreground uppercase font-bold">Peso</p>
+                                <p className="text-base font-black text-primary">{result.actual_weight}</p>
+                              </div>
+                            )}
+                            {result.actual_reps && (
+                              <div>
+                                <p className="text-[10px] text-muted-foreground uppercase font-bold">Reps</p>
+                                <p className="text-base font-black">{result.actual_reps}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {result?.actual_rpe && block.type === 'hiit' && (
+                          <div className="mt-2 pt-2 border-t border-border/20">
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold">RPE</p>
+                            <p className="text-base font-black text-purple-500">
+                              {result.actual_rpe}<span className="text-xs font-normal">/10</span>
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Dumbbell className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">Sesión sin bloques definidos</p>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ── Session execution modal ── */}
       {executingSession && (
@@ -418,6 +547,7 @@ export default function TrainingPage() {
           onCompleted={() => {
             setExecutingSession(null);
             queryClient.invalidateQueries({ queryKey: ['athlete-training-today'] });
+            queryClient.invalidateQueries({ queryKey: ['athlete-training-history'] });
           }}
         />
       )}

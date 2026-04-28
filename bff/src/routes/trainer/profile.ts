@@ -130,4 +130,77 @@ router.get('/public/:userId', async (req: Request, res: Response) => {
     }
 });
 
+// ── Search profile (accessible to school admins and trainers) ──
+router.get('/search-profile', async (req: Request, res: Response) => {
+  const q = (req.query.q as string)?.trim();
+  if (!q) return res.status(400).json({ error: 'Parámetro q requerido.' });
+
+  const isEmail = q.includes('@');
+  if (!isEmail && !/^\+?\d{7,15}$/.test(q.replace(/\s/g, ''))) {
+    return res.status(400).json({ error: 'Ingresa un email o número de teléfono válido.' });
+  }
+
+  const cleanPhone = q.replace(/\s/g, '').replace(/^\+57/, '');
+
+  const { data, error } = isEmail
+    ? await supabase
+        .from('profiles')
+        .select('id, full_name, email, phone, role')
+        .eq('email', q.toLowerCase())
+        .maybeSingle()
+    : await supabase
+        .from('profiles')
+        .select('id, full_name, email, phone, role')
+        .or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`)
+        .maybeSingle();
+
+  if (error) return res.status(500).json({ error: 'Error al buscar perfil.' });
+  res.json(data ?? null);
+});
+
+// GET /api/v1/trainer/search-parent-children?q=email_o_telefono
+router.get('/search-parent-children', async (req: Request, res: Response) => {
+  const q = (req.query.q as string)?.trim();
+  const schoolId = req.headers['x-school-id'] as string;
+  if (!q || !schoolId) return res.status(400).json({ error: 'q y x-school-id requeridos.' });
+
+  const isEmail = q.includes('@');
+  const cleanPhone = q.replace(/\s/g, '').replace(/^\+57/, '');
+
+  // 1. Buscar perfil del padre
+  const { data: profile } = isEmail
+    ? await supabase.from('profiles').select('id, full_name, email, phone, role').eq('email', q.toLowerCase()).maybeSingle()
+    : await supabase.from('profiles').select('id, full_name, email, phone, role').or(`phone.eq.${cleanPhone},phone.eq.+57${cleanPhone}`).maybeSingle();
+
+  // 2. Buscar hijos — construir filtro seguro
+  if (profile?.id) {
+    // Buscar por parent_id o parent_email_temp por separado y unir resultados (más seguro que .or complejo)
+    const [byParentId, byEmail] = await Promise.all([
+      supabase.from('children').select('id, full_name, doc_type, doc_number, date_of_birth, gender, grade, medical_info, parent_name_temp, parent_email_temp, parent_phone_temp')
+        .eq('parent_id', profile.id),
+      supabase.from('children').select('id, full_name, doc_type, doc_number, date_of_birth, gender, grade, medical_info, parent_name_temp, parent_email_temp, parent_phone_temp')
+        .eq('parent_email_temp', profile.email),
+    ]);
+    
+    // Deduplicar por id
+    const all = [...(byParentId.data ?? []), ...(byEmail.data ?? [])];
+    const unique = Array.from(new Map(all.map(c => [c.id, c])).values());
+    return res.json({ profile, children: unique });
+  }
+
+  // Sin perfil — buscar por email_temp o phone_temp
+  let childrenQuery = supabase
+    .from('children')
+    .select('id, full_name, doc_type, doc_number, date_of_birth, gender, grade, medical_info, parent_name_temp, parent_email_temp, parent_phone_temp');
+
+  if (isEmail) {
+    childrenQuery = childrenQuery.eq('parent_email_temp', q.toLowerCase());
+  } else {
+    childrenQuery = childrenQuery.or(`parent_phone_temp.eq.${cleanPhone},parent_phone_temp.eq.+57${cleanPhone}`);
+  }
+
+  const { data: children } = await childrenQuery;
+  res.json({ profile: null, children: children ?? [] });
+});
+
 export default router;

@@ -466,10 +466,12 @@ export default function SchoolStudentsManagementPage() {
   const buildInviteParams = (student: any) => {
     const athleteType = getAthleteType(student);
     const params = new URLSearchParams({
-      email: student.parent_email || '',
-      child: student.full_name || '',
-      team: student.team_id || '',
-      phone: student.parent_phone || '',
+      email:      student.parent_email    || '',
+      child:      student.full_name       || '',
+      team:       student.team_id         || '',
+      phone:      student.parent_phone    || '',
+      branch:     student.branch_id       || '',
+      planId:     student.offering_plan_id || '',
     });
     if (athleteType === 'unregistered') {
       params.set('role', 'athlete');

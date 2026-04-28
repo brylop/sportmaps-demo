@@ -8,20 +8,33 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Trash2, ArrowUp, ArrowDown, Dumbbell, Timer, Zap, Heart, Wind, Coffee, Flame } from 'lucide-react';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
+import { ExerciseSearchInput, categoryToBlockType } from './ExerciseSearchInput';
+import type { WgerBlockData } from '@/lib/trainer/wgerTypes';
 
 export type BlockType = 'warmup' | 'strength' | 'cardio' | 'hiit' | 'flexibility' | 'cooldown';
 
 export interface ExerciseBlock {
-  type: BlockType;
-  name: string;
-  sets?: number | null;
-  reps?: string | null;
-  weight?: string | null;
-  weight_unit?: 'kg' | 'lb' | null;
-  calories?: number | null;
-  rest_seconds?: number | null;
+  type:             BlockType;
+  name:             string;
+  sets?:            number | null;
+  reps?:            string | null;
+  weight?:          string | null;
+  weight_unit?:     'kg' | 'lb' | null;
+  calories?:        number | null;
+  rest_seconds?:    number | null;
   duration_minutes?: number | null;
-  notes?: string | null;
+  notes?:           string | null;
+  // ✅ Campos wger — opcionales, no rompen rutinas existentes
+  wger_id?:          number | null;
+  wger_name_es?:     string | null;
+  wger_name_en?:     string | null;
+  wger_description?: string | null;
+  wger_images?:      string[];
+  muscle_ids?:       number[];
+  muscle_names?:     string[];
+  equipment_id?:     number | null;
+  equipment_name?:   string | null;
+  is_compound?:      boolean;
 }
 
 interface BlockBuilderProps {
@@ -87,23 +100,29 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
   };
 
   const updateBlock = (index: number, updates: Partial<ExerciseBlock>) => {
-    const newBlocks = [...blocks];
+    const newBlocks   = [...blocks];
     const updatedBlock = { ...newBlocks[index], ...updates };
-    
-    // Auto-recalculate calories if relevant fields changed OR if calories were specifically set to 0 (Auto-trigger)
-    const needsRecalc = updates.type || 
-                       updates.sets !== undefined || 
-                       updates.reps !== undefined || 
-                       updates.duration_minutes !== undefined || 
-                       updates.calories === 0;
-    
+
+    const needsRecalc =
+      updates.type              !== undefined ||
+      updates.sets              !== undefined ||
+      updates.reps              !== undefined ||
+      updates.duration_minutes  !== undefined ||
+      updates.calories          === 0         ||
+      updates.muscle_ids        !== undefined ||  // ✅ recalcular si cambian músculos
+      updates.equipment_id      !== undefined;    // ✅ recalcular si cambia equipo
+
     if (needsRecalc) {
       updatedBlock.calories = calculateExerciseCalories({
-        type: updatedBlock.type,
-        sets: updatedBlock.sets || 0,
-        reps: updatedBlock.reps || 0,
+        type:             updatedBlock.type,
+        sets:             updatedBlock.sets             || 0,
+        reps:             updatedBlock.reps             || 0,
         duration_minutes: updatedBlock.duration_minutes || 0,
-        difficulty: difficulty || 'Intermedio'
+        difficulty:       difficulty                    || 'Intermedio',
+        // ✅ Pasar factores de wger si están disponibles
+        muscle_count:     updatedBlock.muscle_ids?.length ?? 1,
+        is_compound:      updatedBlock.is_compound      ?? false,
+        equipment_id:     updatedBlock.equipment_id     ?? undefined,
       });
     }
 
@@ -185,12 +204,56 @@ export function BlockBuilder({ blocks, onChange, difficulty }: BlockBuilderProps
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="space-y-1.5 md:col-span-2 lg:col-span-1">
-                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nombre del ejercicio</Label>
-                  <Input 
-                    placeholder="Ej: Sentadillas con barra" 
+                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Nombre del ejercicio
+                  </Label>
+                  <ExerciseSearchInput
                     value={block.name}
-                    onChange={(e) => updateBlock(index, { name: e.target.value })}
-                    className="h-9"
+                    wgerData={block.wger_id ? {
+                      wger_id:          block.wger_id,
+                      wger_name_es:     block.wger_name_es ?? null,
+                      wger_name_en:     block.wger_name_en ?? '',
+                      wger_description: block.wger_description ?? null,
+                      wger_images:      block.wger_images ?? [],
+                      muscle_ids:       block.muscle_ids ?? [],
+                      muscle_names:     block.muscle_names ?? [],
+                      equipment_id:     block.equipment_id ?? null,
+                      equipment_name:   block.equipment_name ?? null,
+                      is_compound:      block.is_compound ?? false,
+                    } : null}
+                    onChange={(name, wgerData?: WgerBlockData | null) => {
+                      const wgerFields: Partial<ExerciseBlock> = wgerData ? {
+                        wger_id:          wgerData.wger_id,
+                        wger_name_es:     wgerData.wger_name_es,
+                        wger_name_en:     wgerData.wger_name_en,
+                        wger_description: wgerData.wger_description,
+                        wger_images:      wgerData.wger_images,
+                        muscle_ids:       wgerData.muscle_ids,
+                        muscle_names:     wgerData.muscle_names,
+                        equipment_id:     wgerData.equipment_id,
+                        equipment_name:   wgerData.equipment_name,
+                        is_compound:      wgerData.is_compound,
+                        // Auto-asignar tipo de bloque según categoría de wger
+                        type: categoryToBlockType(
+                          blocks[index].type === 'strength' || !blocks[index].wger_id
+                            ? (wgerData.muscle_ids.length > 0 ? 'strength' : blocks[index].type)
+                            : blocks[index].type
+                        ) as BlockType,
+                      } : {
+                        // Al desvincular: limpiar todos los campos wger
+                        wger_id:          null,
+                        wger_name_es:     null,
+                        wger_name_en:     null,
+                        wger_description: null,
+                        wger_images:      [],
+                        muscle_ids:       [],
+                        muscle_names:     [],
+                        equipment_id:     null,
+                        equipment_name:   null,
+                        is_compound:      false,
+                      };
+                      updateBlock(index, { name, ...wgerFields });
+                    }}
                   />
                 </div>
 

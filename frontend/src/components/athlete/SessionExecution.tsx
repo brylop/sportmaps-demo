@@ -11,22 +11,34 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import {
   Loader2, CheckCircle2, Dumbbell, ChevronDown, ChevronUp,
-  Wind, Heart, Zap, Timer, Coffee, FileText,
+  Wind, Heart, Zap, Timer, Coffee, FileText, Flame, BookOpen,
 } from 'lucide-react';
+import { useBodyMetrics } from '@/hooks/useAthleteData';
+import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 interface Block {
-  name: string;
-  type?: string;
-  sets?: number;
-  reps?: string;
-  weight?: string;
-  weight_unit?: string;
+  name:              string;
+  type?:             string;
+  sets?:             number;
+  reps?:             string;
+  weight?:           string;
+  weight_unit?:      string;
   duration_minutes?: number;
-  rest_seconds?: number;
-  duration?: string;
-  rest?: string;
-  notes?: string;
+  rest_seconds?:     number;
+  duration?:         string;
+  rest?:             string;
+  notes?:            string;
+  // ✅ Datos wger/free-db — presentes si el trainer vinculó el ejercicio
+  wger_id?:          number | null;
+  free_db_id?:       string | null;
+  wger_images?:      string[];
+  wger_description?: string | null;
+  muscle_names?:     string[];
+  equipment_name?:   string | null;
+  is_compound?:      boolean;
+  level?:            string | null;
+  mechanic?:         string | null;
 }
 
 interface SessionExecutionProps {
@@ -93,6 +105,11 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
   const { toast } = useToast();
   const blocks = normalizeBlocks(session.blocks);
 
+  // Peso real del atleta para cálculo de calorías
+  const { data: bodyMetricsData } = useBodyMetrics(1);
+  const athleteWeightKg = (bodyMetricsData?.[0] as any)?.weight_kg ?? 70;
+  const isEstimatedWeight = !bodyMetricsData?.[0]?.weight_kg;
+
   // Pre-poblar con los valores por defecto del bloque
   const [setResults, setSetResults] = useState<Record<number, SetResult[]>>(
     () => Object.fromEntries(
@@ -122,6 +139,8 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
   const [expandedBlock, setExpandedBlock] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted]   = useState(false);
+  // Índice de imagen activa por bloque (para el carrusel)
+  const [activeImageIndex, setActiveImageIndex] = useState<Record<number, number>>({});
 
   const updateSet = (blockIdx: number, setIdx: number, field: keyof SetResult, value: number | '') => {
     setSetResults(prev => {
@@ -154,6 +173,19 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
         await postSessionExerciseResults(session.id, resultsArray);
       }
 
+      // Calcular calorías reales con el peso del atleta
+      const actualCalories = blocks.reduce((total, block, blockIdx) => {
+        const sets = setResults[blockIdx] ?? [];
+        return total + calculateExerciseCalories({
+          type:             block.type ?? 'strength',
+          sets:             block.sets ?? sets.length,
+          reps:             block.reps ?? 0,
+          duration_minutes: block.duration_minutes ?? 0,
+          difficulty:       'intermedio',
+          weight_kg:        athleteWeightKg,
+        });
+      }, 0);
+
       await bffClient.post(`/api/v1/athlete/training/session/${session.id}/complete`, {
         results: {
           blocks_results: blocks.map((block, blockIdx) => {
@@ -181,6 +213,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
               duration_minutes: block.duration_minutes ?? null,
             };
           }),
+          actual_calories: actualCalories,  // ✅ nuevo
         },
       });
 
@@ -220,6 +253,22 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
               <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary bg-primary/5">
                   {blocks.length} ejercicios
+                </Badge>
+                {/* ✅ nuevo — calorías estimadas en tiempo real */}
+                <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-orange-500/20 text-orange-500 bg-orange-500/5 flex items-center gap-1">
+                  <Flame className="h-3 w-3" />
+                  {blocks.reduce((total, block, blockIdx) => {
+                    const sets = setResults[blockIdx] ?? [];
+                    return total + calculateExerciseCalories({
+                      type:             block.type ?? 'strength',
+                      sets:             block.sets ?? sets.length,
+                      reps:             block.reps ?? 0,
+                      duration_minutes: block.duration_minutes ?? 0,
+                      difficulty:       'intermedio',
+                      weight_kg:        athleteWeightKg,
+                    });
+                  }, 0)} kcal
+                  {isEstimatedWeight && <span className="text-[8px] opacity-60 ml-0.5">est.</span>}
                 </Badge>
               </div>
             </div>
@@ -314,6 +363,124 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                     {/* Detalle expandido */}
                     {isOpen && (
                       <div className="px-5 pb-5 space-y-4 bg-accent/10 border-t border-border/30">
+                        {/* ── Demo visual wger + free-exercise-db ──────────────────── */}
+                        {(block.wger_images?.length || block.wger_description) && (
+                          <div className="pt-3 space-y-3 animate-in fade-in duration-300">
+
+                            {/* Carrusel de imágenes */}
+                            {(block.wger_images?.length ?? 0) > 0 && (
+                              <div className="space-y-1.5">
+                                <div className="relative rounded-xl overflow-hidden bg-muted/30 border border-border/30">
+                                  <img
+                                    src={block.wger_images![activeImageIndex[blockIdx] ?? 0]}
+                                    alt={`Ejecución — ${block.name}`}
+                                    className="w-full h-40 object-contain"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).closest('div')!.style.display = 'none';
+                                    }}
+                                  />
+
+                                  {/* Puntos de navegación si hay más de una imagen */}
+                                  {block.wger_images!.length > 1 && (
+                                    <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
+                                      {block.wger_images!.map((_, imgIdx) => (
+                                        <button
+                                          key={imgIdx}
+                                          type="button"
+                                          className={`rounded-full transition-all ${
+                                            (activeImageIndex[blockIdx] ?? 0) === imgIdx
+                                              ? 'w-4 h-1.5 bg-primary'
+                                              : 'w-1.5 h-1.5 bg-white/50 hover:bg-white/80'
+                                          }`}
+                                          onClick={() =>
+                                            setActiveImageIndex(prev => ({ ...prev, [blockIdx]: imgIdx }))
+                                          }
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* Créditos */}
+                                  <span className="absolute top-2 right-2 text-[8px] bg-black/50 text-white/80 px-1.5 py-0.5 rounded font-medium">
+                                    CC-BY-SA
+                                  </span>
+                                </div>
+
+                                {/* Tap para cambiar imagen */}
+                                {block.wger_images!.length > 1 && (
+                                  <button
+                                    type="button"
+                                    className="w-full text-center text-[10px] text-muted-foreground hover:text-primary transition-colors"
+                                    onClick={() =>
+                                      setActiveImageIndex(prev => ({
+                                        ...prev,
+                                        [blockIdx]: ((prev[blockIdx] ?? 0) + 1) % block.wger_images!.length,
+                                      }))
+                                    }
+                                  >
+                                    {(activeImageIndex[blockIdx] ?? 0) + 1}/{block.wger_images!.length} · Toca para ver siguiente
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Badges — músculos + equipamiento + nivel */}
+                            {(block.muscle_names?.length || block.equipment_name || block.level) && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {block.muscle_names?.slice(0, 3).map((muscle) => (
+                                  <span
+                                    key={muscle}
+                                    className="text-[9px] bg-red-500/10 text-red-500 border border-red-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
+                                  >
+                                    {muscle}
+                                  </span>
+                                ))}
+                                {block.equipment_name && (
+                                  <span className="text-[9px] bg-blue-500/10 text-blue-500 border border-blue-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                                    {block.equipment_name}
+                                  </span>
+                                )}
+                                {block.is_compound && (
+                                  <span className="text-[9px] bg-orange-500/10 text-orange-500 border border-orange-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                                    Compound
+                                  </span>
+                                )}
+                                {block.level && (
+                                  <span className="text-[9px] bg-green-500/10 text-green-600 border border-green-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                                    {block.level}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Instrucciones de ejecución */}
+                            {block.wger_description && (
+                              <div className="p-3 bg-muted/20 rounded-xl border border-border/30 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <BookOpen className="h-3 w-3 text-primary shrink-0" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-primary">
+                                      Cómo ejecutar
+                                    </span>
+                                  </div>
+                                  {/* Badge de idioma — solo si no tiene wger_id (solo free-db) */}
+                                  {!block.wger_id && (
+                                    <span className="text-[8px] text-muted-foreground border border-border/40 px-1.5 py-0.5 rounded font-medium">
+                                      🇬🇧 EN
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-line">
+                                  {block.wger_description}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Separador antes de las notas del entrenador */}
+                            <div className="border-t border-border/20" />
+                          </div>
+                        )}
+
                         {/* Notas del bloque */}
                         {block.notes && (
                           <p className="text-xs text-muted-foreground italic pt-3 px-1">

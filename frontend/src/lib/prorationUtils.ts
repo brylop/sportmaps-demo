@@ -109,6 +109,11 @@ export function calcProration(date: Date, monthlyFee: number, cutoffDay: number 
   };
 }
 
+export function applyDiscount(amount: number, discountPct: number): number {
+  if (!discountPct || discountPct <= 0 || discountPct > 100) return amount;
+  return Math.round(amount * (1 - discountPct / 100));
+}
+
 export function formatCOP(amount: number): string {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',

@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { NumberStepper } from '@/components/ui/number-stepper';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -32,7 +33,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
-import { calcFirstPayment, formatCOP } from '@/lib/prorationUtils';
+import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
+import { PhoneInput } from '@/components/ui/phone-input';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,55 +75,139 @@ interface CreateAdultAthleteModalProps {
   schoolId: string;
 }
 
-// ─── Proration Card ───────────────────────────────────────────────────────────
-
-function ProrationCard({ startDate, monthlyFee, billing }: { 
-  startDate: string; 
+interface ProrationCardProps {
+  startDate: string;
   monthlyFee: number;
   billing: BillingSettings;
-}) {
+  discountPct: number;
+  onDiscountChange: (pct: number) => void;
+}
+
+// ─── Proration Card ───────────────────────────────────────────────────────────
+
+function ProrationCard({ startDate, monthlyFee, billing, discountPct, onDiscountChange }: ProrationCardProps) {
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+
   if (!startDate || !monthlyFee) return null;
 
-  const { 
-    amount, 
-    remainingDays, 
-    totalDaysInMonth, 
-    isFullMonth, 
-    dueDate 
-  } = calcFirstPayment(
+  const calc = calcFirstPayment(
     startDate,
     monthlyFee,
     billing.billing_cycle_type,
     billing.payment_cutoff_day
   );
 
-  const dueDateObj = new Date(dueDate + 'T12:00:00');
+  const finalAmount = applyDiscount(calc.amount, discountEnabled ? discountPct : 0);
+  const dueDateObj  = new Date(calc.dueDate + 'T12:00:00');
+  const dueDateStr  = dueDateObj.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const handleDiscountToggle = (checked: boolean) => {
+    setDiscountEnabled(checked);
+    onDiscountChange(checked ? discountPct : 0);
+  };
+
+  const handleDiscountPctChange = (val: string) => {
+    const n = Math.min(100, Math.max(0, Number(val)));
+    onDiscountChange(discountEnabled ? n : 0);
+  };
 
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-4 space-y-2 text-sm">
-      <div className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-200">
-        <CalendarDays className="h-4 w-4" />
-        Cálculo del primer cobro
+    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 text-sm">
+      <div className="flex items-center gap-2 font-semibold text-foreground">
+        <CalendarDays className="h-4 w-4 text-primary" />
+        Primer cobro
       </div>
-      {isFullMonth ? (
-        <p className="text-blue-700 dark:text-blue-300">Inscripción el 1° del mes — se cobra el mes completo.</p>
-      ) : (
-        <div className="space-y-1 text-blue-700 dark:text-blue-300">
-          <div className="flex justify-between">
-            <span>Días restantes del mes:</span>
-            <span className="font-medium">{remainingDays} de {totalDaysInMonth}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Primer cobro proporcional:</span>
-            <span className="font-bold text-blue-900 dark:text-blue-100">{formatCOP(amount)}</span>
-          </div>
+
+      {/* ── Prorated ── */}
+      {billing.billing_cycle_type === 'prorated' && (
+        <div className="space-y-1 text-muted-foreground">
+          {calc.isFullMonth ? (
+            <p>Inscripción el 1° del mes — mes completo.</p>
+          ) : (
+            <>
+              <div className="flex justify-between">
+                <span>Días restantes:</span>
+                <span className="font-medium text-foreground">{calc.remainingDays} de {calc.totalDaysInMonth}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Monto proporcional:</span>
+                <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between text-xs">
-            <span>Vence:</span>
-            <span>{dueDateObj.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            <span>Vence:</span><span>{dueDateStr}</span>
           </div>
         </div>
       )}
-      <div className="flex justify-between text-xs text-blue-600 dark:text-blue-400 border-t border-blue-200 dark:border-blue-700 pt-2 mt-2">
+
+      {/* ── Fixed calendar ── */}
+      {billing.billing_cycle_type === 'fixed_calendar' && (
+        <div className="space-y-1 text-muted-foreground">
+          <div className="flex justify-between">
+            <span>Monto:</span>
+            <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span>Vence el día {billing.payment_cutoff_day} del próximo mes:</span>
+            <span>{dueDateStr}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rolling 30 ── */}
+      {billing.billing_cycle_type === 'rolling_30' && (
+        <div className="space-y-1 text-muted-foreground">
+          <div className="flex justify-between">
+            <span>Monto:</span>
+            <span className="font-bold text-foreground">{formatCOP(calc.amount)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span>Ciclo de 30 días — vence:</span>
+            <span>{dueDateStr}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Descuento primer mes ── */}
+      <div className="border-t border-border pt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="discount-toggle-adult"
+            checked={discountEnabled}
+            onChange={e => handleDiscountToggle(e.target.checked)}
+            className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+          />
+          <label htmlFor="discount-toggle-adult" className="text-xs font-medium text-foreground cursor-pointer">
+            Aplicar descuento solo este mes
+          </label>
+        </div>
+
+        {discountEnabled && (
+          <div className="flex items-center gap-4">
+            <div className="flex-1 max-w-[160px]">
+              <NumberStepper
+                value={discountPct || ""}
+                onChange={(val) => handleDiscountPctChange(String(val))}
+                min={0}
+                max={100}
+                unit="%"
+                className="h-9"
+              />
+            </div>
+            {discountPct > 0 && (
+              <div className="text-right flex-1">
+                <p className="text-xs text-muted-foreground line-through">{formatCOP(calc.amount)}</p>
+                <p className="text-sm font-bold text-green-600 dark:text-green-400">{formatCOP(finalAmount)}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Mensualidades siguientes ── */}
+      <div className="flex justify-between text-xs text-muted-foreground border-t border-border pt-2">
         <span>Mensualidades siguientes:</span>
         <span className="font-medium">{formatCOP(monthlyFee)} / mes</span>
       </div>
@@ -183,6 +269,27 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
   const [selectedPlanPrice, setSelectedPlanPrice] = useState(0);
   const [startDate, setStartDate]             = useState(() => new Date().toISOString().split('T')[0]);
   const [monthlyFee, setMonthlyFee]           = useState('');
+  const [discountPct, setDiscountPct]         = useState(0);
+ 
+  const handlePostSuccess = (result: any, name: string, phone?: string | null) => {
+    toast({ title: '✅ Listo', description: `${name} fue registrado correctamente.` });
+
+    if (result?.registration_link && (phone || result?.phone)) {
+      const phoneClean = (phone || result.phone || '').replace(/\D/g, '');
+      const msg = `¡Hola! Te invitamos a unirte a la plataforma deportiva. Completa tu registro aquí: ${result.registration_link}`;
+      toast({
+        title: 'Enviar invitación por WhatsApp',
+        description: (
+          <button
+            className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white text-xs py-2 px-3 rounded-md"
+            onClick={() => window.open(`https://wa.me/${phoneClean}?text=${encodeURIComponent(msg)}`, '_blank')}
+          >
+            📱 Abrir WhatsApp
+          </button>
+        ) as any,
+      });
+    }
+  };
 
   // ── Load lookup data ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -247,10 +354,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     setSelectedPlanPrice(0);
     setStartDate(new Date().toISOString().split('T')[0]);
     setMonthlyFee('');
+    setDiscountPct(0);
 
     setShowUnregisteredForm(false);
-    setUDocType('CC'); setUDocNumber(''); setUFullName('');
-    setUPhone(''); setUDob(''); setUGender(''); setSendInvite(true);
+    setUDocType('CC'); setUDocNumber(''); setUFullName(''); setUPhone('+57'); setUDob(''); setUGender(''); setSendInvite(true);
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -284,6 +391,16 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       });
 
       if (data) {
+        const BLOCKED_ROLES = ['school', 'school_admin', 'super_admin', 'organizer', 'admin'];
+        if (BLOCKED_ROLES.includes((data as any).role)) {
+          toast({
+            title: 'Perfil no disponible',
+            description: 'Este usuario tiene un rol administrativo y no puede ser inscrito como atleta.',
+            variant: 'destructive',
+          });
+          setSearchDone(true);
+          return;
+        }
         setFoundProfile(data as FoundProfile);
       } else {
         // No existe — guardar email para poder enviar invitación
@@ -327,9 +444,13 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
       if (!uFullName.trim()) {
         toast({ title: 'Nombre requerido', variant: 'destructive' }); return;
       }
+      if (!branchId || branchId === 'none') {
+        toast({ title: 'Sede requerida', description: 'Debes seleccionar una sede para inscribir al atleta.', variant: 'destructive' });
+        return;
+      }
       setSubmitting(true);
       try {
-        await bffClient.post('/api/v1/students/create-one', {
+        const result = await bffClient.post('/api/v1/students/create-one', {
           type: 'unregistered_adult',
           doc_type:         uDocType,
           doc_number:       uDocNumber.trim() || null,
@@ -344,10 +465,11 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           offering_id:      selectedOfferingId || null,
           start_date:       startDate,
           monthly_fee:      monthlyFee ? Number(monthlyFee) : null,
+          discount_pct:     discountPct > 0 ? discountPct : undefined,
           send_invite:      sendInvite,
         }, { 'x-school-id': schoolId });
 
-        toast({ title: '¡Atleta registrado!', description: `${uFullName} fue guardado correctamente.` });
+        handlePostSuccess(result, uFullName, uPhone);
         reset();
         onSuccess();
       } catch (e: any) {
@@ -359,6 +481,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
     }
 
     if (!foundProfile) return;
+    if (!branchId || branchId === 'none') {
+      toast({ title: 'Sede requerida', description: 'Debes seleccionar una sede para inscribir al atleta.', variant: 'destructive' });
+      return;
+    }
     if (!startDate) {
       toast({ title: 'Falta fecha de inscripción', variant: 'destructive' }); return;
     }
@@ -369,7 +495,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
 
     try {
       setSubmitting(true);
-      await bffClient.post('/api/v1/students/create-one', {
+      const result = await bffClient.post('/api/v1/students/create-one', {
         type: 'adult_existing',
         user_id:          foundProfile.id,     // profiles.id → enrollments.user_id
         branch_id:        (branchId && branchId !== 'none') ? branchId : null,
@@ -378,12 +504,10 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
         offering_id:      selectedOfferingId || null,
         start_date:  startDate,
         monthly_fee: monthlyFee ? fee : null,
+        discount_pct: discountPct > 0 ? discountPct : undefined,
       }, { 'x-school-id': schoolId });
 
-      toast({
-        title: '¡Atleta inscrito!',
-        description: `${foundProfile.full_name} fue inscrito correctamente.`,
-      });
+      handlePostSuccess(result, foundProfile.full_name, foundProfile.phone);
       reset();
       onSuccess();
     } catch (e: any) {
@@ -527,7 +651,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Teléfono</Label>
-                    <Input value={uPhone} onChange={e => setUPhone(e.target.value)} placeholder="3001234567" />
+                    <PhoneInput value={uPhone} onChange={setUPhone} />
                   </div>
                   <div>
                     <Label>Fecha de Nacimiento</Label>
@@ -565,9 +689,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   <div>
                     <Label>Sede</Label>
                     <Select value={branchId} onValueChange={setBranchId}>
-                      <SelectTrigger><SelectValue placeholder="Sin sede específica" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Selecciona una sede *" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Sin sede específica</SelectItem>
                         {branches.map(b => (
                           <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                         ))}
@@ -645,6 +768,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   startDate={startDate} 
                   monthlyFee={Number(monthlyFee) || 0} 
                   billing={billing} 
+                  discountPct={discountPct}
+                  onDiscountChange={setDiscountPct}
                 />
               </div>
             )}
@@ -667,9 +792,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   <div>
                     <Label>Sede</Label>
                     <Select value={branchId} onValueChange={setBranchId}>
-                      <SelectTrigger><SelectValue placeholder="Seleccionar sede (opcional)" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Selecciona una sede *" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Sin sede específica</SelectItem>
                         {branches.map(b => (
                           <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                         ))}
@@ -747,6 +871,8 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                   startDate={startDate} 
                   monthlyFee={Number(monthlyFee) || 0} 
                   billing={billing} 
+                  discountPct={discountPct}
+                  onDiscountChange={setDiscountPct}
                 />
               </Section>
             </>

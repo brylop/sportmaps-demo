@@ -45,6 +45,7 @@ import trainerClientsRouter from './routes/trainer/clients';
 import trainerAvailabilityRouter from './routes/trainer/availability';
 import trainerRoutinesRouter from './routes/trainer/routines';
 import trainerTrainingPlansRouter from './routes/trainer/training-plans';
+import trainerWgerRouter from './routes/trainer/wger';
 
 import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
@@ -173,6 +174,7 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRou
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerAvailabilityRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPlansRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWgerRouter);
 
 // Rutas autenticadas del atleta: usa requireAthleteAuth
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);
