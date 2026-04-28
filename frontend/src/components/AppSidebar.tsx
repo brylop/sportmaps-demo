@@ -43,9 +43,14 @@ export function AppSidebar() {
   const isCollapsed = !isMobile && state === 'collapsed';
 
   // Normalize role for navigation mapping
-  const effectiveRole = profile?.role === 'personal_trainer' 
-    ? 'personal_trainer' 
-    : (currentUserRole || profile?.role);
+  // Profile-level platform roles (admin/super_admin/personal_trainer) win over
+  // any per-school context role (currentUserRole) — un super-admin que ademas
+  // sea miembro de una escuela debe verse SIEMPRE como super-admin.
+  const isPlatformAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+  const effectiveRole =
+    isPlatformAdmin || profile?.role === 'personal_trainer'
+      ? profile?.role
+      : (currentUserRole || profile?.role);
   let navigationRole: UserRole = 'athlete';
 
   if (effectiveRole) {
@@ -93,16 +98,20 @@ export function AppSidebar() {
   };
 
   const getRoleBadge = () => {
+    // Platform-level admins SIEMPRE son Super Admin, sin importar contextos
+    if (profile?.role === 'admin' || profile?.role === 'super_admin') {
+      return 'Super Admin';
+    }
     const roleToShow = effectiveRole;
     if (roleToShow === 'owner') return 'Propietario';
     if (roleToShow === 'reporter') return 'Auditoría';
-    if (roleToShow === 'school_admin' || roleToShow === 'admin') {
+    if (roleToShow === 'school_admin') {
       return isGlobalAdmin ? 'Admin General' : 'Admin Sede';
     }
     const roleLabels: Record<string, string> = {
       athlete: 'Deportista', parent: 'Padre', coach: 'Entrenador',
       school: 'Escuela', staff: 'Staff', wellness_professional: 'Bienestar',
-      store_owner: 'Tienda', super_admin: 'Super Admin', viewer: 'Visitante',
+      store_owner: 'Tienda', viewer: 'Visitante',
       personal_trainer: 'Entrenador Personal',
     };
     return roleLabels[roleToShow as string] || roleToShow;

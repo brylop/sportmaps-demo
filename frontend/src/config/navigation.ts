@@ -24,7 +24,10 @@ import {
   GraduationCap,
   Dumbbell,
   User,
-  ClipboardList
+  ClipboardList,
+  IdCard,
+  FileCheck2,
+  QrCode
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -86,6 +89,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
+          { title: 'Mis Carnets', href: '/my-cards', icon: IdCard },
+          { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
           { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
           { title: 'Bienestar', href: '/wellness', icon: Heart },
           { title: 'Configuración', href: '/settings', icon: Settings }
@@ -123,6 +128,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
+          { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
+          { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -198,14 +205,16 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
         ]
       },
+      {
+        title: 'Identidad y Documentos',
+        items: [
+          { title: 'Carnets digitales',  href: '/cards',                          icon: IdCard },
+          { title: 'Constancias',        href: '/certificates',                   icon: FileCheck2 },
+          { title: 'Plantillas',         href: '/cards/templates/certificates',   icon: FileText },
+          { title: 'QR de inscripción',  href: '/qr-signup',                      icon: QrCode },
+        ]
+      },
       // Explorar se oculta en rol school: solo visible para athlete y parent.
-      // {
-      //   title: 'Tienda',
-      //   items: [
-      //     { title: 'Productos de la Escuela', href: '/products', icon: ShoppingBag },
-      //     { title: 'Pedidos', href: '/orders', icon: ShoppingBag }
-      //   ]
-      // },
       {
         title: 'Administración',
         items: [
@@ -303,96 +312,53 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
 
     admin: [
       {
-        title: 'Principal',
+        title: 'Plataforma',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Dashboard',           href: '/admin',                icon: Home },
+          { title: 'Logs y actividad',    href: '/admin/activity-logs',  icon: BarChart3 },
+          { title: 'Analítica',           href: '/admin/analytics',      icon: BarChart3 }
         ]
       },
       {
-        title: 'Gestión Deportiva',
+        title: 'Gestión Global',
         items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          {
-            title: 'Asistencias',
-            icon: BarChart3,
-            submenu: [
-              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
-              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
-            ],
-          },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Escuelas',  href: '/admin/clubs',   icon: Building },
+          { title: 'Usuarios',  href: '/admin/users',   icon: Users },
+          { title: 'Reportes',  href: '/admin/reports', icon: FileText }
         ]
       },
       {
-        title: 'Administración',
+        title: 'Sistema',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Configuración',     href: '/admin/config',  icon: Settings },
+          { title: 'Notificaciones',    href: '/notifications', icon: Bell },
+          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare }
         ]
       }
     ],
 
     super_admin: [
       {
-        title: 'Principal',
+        title: 'Plataforma',
         items: [
-          { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Dashboard', href: '/admin', icon: Home },
+          { title: 'Logs y actividad', href: '/admin/activity-logs', icon: BarChart3 },
+          { title: 'Analítica', href: '/admin/analytics', icon: BarChart3 }
         ]
       },
       {
-        title: 'Gestión Deportiva',
+        title: 'Gestión Global',
         items: [
-          {
-            title: 'Equipos y Planes',
-            icon: Users,
-            submenu: [
-              { title: 'Mis Equipos', href: '/teams', icon: Users },
-              { title: 'Mis Planes', href: '/offerings', icon: FileText }
-            ]
-          },
-          { title: 'Calendario', href: '/calendar', icon: Calendar },
-          {
-            title: 'Asistencias',
-            icon: BarChart3,
-            submenu: [
-              { title: 'Supervisión', href: '/attendance-supervision', icon: BarChart3 },
-              { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
-            ],
-          },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Escuelas', href: '/admin/clubs', icon: Building },
+          { title: 'Usuarios', href: '/admin/users', icon: Users },
+          { title: 'Reportes', href: '/admin/reports', icon: FileText }
         ]
       },
       {
-        title: 'Administración',
+        title: 'Sistema',
         items: [
-          { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
-          { title: 'Finanzas', href: '/finances', icon: DollarSign },
-          { title: 'Reportes', href: '/school-reports', icon: FileText },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Notificaciones', href: '/notifications', icon: Bell }
         ]
       }
     ],
@@ -428,6 +394,15 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ],
           },
           { title: 'Resultados', href: '/results-overview', icon: Trophy }
+        ]
+      },
+      {
+        title: 'Identidad y Documentos',
+        items: [
+          { title: 'Carnets digitales',  href: '/cards',                          icon: IdCard },
+          { title: 'Constancias',        href: '/certificates',                   icon: FileCheck2 },
+          { title: 'Plantillas',         href: '/cards/templates/certificates',   icon: FileText },
+          { title: 'QR de inscripción',  href: '/qr-signup',                      icon: QrCode },
         ]
       },
       {

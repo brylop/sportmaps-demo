@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal } from 'lucide-react';
+import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal, FileText } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
@@ -59,59 +60,55 @@ export default function AdminPanelPage() {
     try {
       setLoading(true);
 
-      // 1. Fetch Users (Profiles)
-      // Nota: En un sistema real, esto debería ser una Edge Function segura o una View protegida
-      const { data: profilesData, error: usersError } = await supabase
-        .from('profiles')
-        .select('id, full_name, role, created_at')
-        .order('created_at', { ascending: false })
-        .limit(50);
+      // Disparamos los 3 RPCs en paralelo. Todos usan SECURITY DEFINER y validan
+      // is_super_admin() server-side, asi no chocamos con la RLS de profiles/schools.
+      const [usersRes, schoolsRes, countsRes] = await Promise.all([
+        supabase.rpc('admin_list_users' as any, {
+          p_search: null, p_role: null, p_limit: 50, p_offset: 0,
+        }),
+        supabase.rpc('admin_list_schools_global' as any, {
+          p_search: null, p_verified: null, p_limit: 20, p_offset: 0,
+        }),
+        supabase.rpc('admin_global_counts' as any),
+      ]);
 
-      if (usersError) throw usersError;
+      if (usersRes.error)   throw usersRes.error;
+      if (schoolsRes.error) throw schoolsRes.error;
+      if (countsRes.error)  throw countsRes.error;
 
-      // Mapear usuarios (simulando email ya que profiles no suele tenerlo público por defecto)
-      const mappedUsers: AdminUser[] = (profilesData || []).map((p: any) => ({
+      const userRows = ((usersRes.data as any)?.rows ?? []) as Array<any>;
+      setUsers(userRows.map((p) => ({
         id: p.id,
         full_name: p.full_name || 'Sin Nombre',
-        email: 'user@sportmaps.com', // Placeholder por privacidad/seguridad
+        email: p.email || '—',
         role: p.role,
-        created_at: p.created_at
-      }));
+        created_at: p.created_at,
+      })));
 
-      setUsers(mappedUsers);
+      const schoolRows = ((schoolsRes.data as any)?.rows ?? []) as Array<any>;
+      setSchools(schoolRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        city: s.city,
+        verified: s.verified,
+        owner_email: s.owner_email,
+      })));
 
-      // 2. Fetch Schools
-      const { data: schoolsData, error: schoolsError } = await supabase
-        .from('schools')
-        .select('id, name, city, verified')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (schoolsError) throw schoolsError;
-      setSchools(schoolsData || []);
-
-      // 3. Calculate Stats (Conteos simples)
-      try {
-        const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-        const { count: schoolsCount } = await supabase.from('schools').select('*', { count: 'exact', head: true });
-
-        setStats({
-          totalUsers: usersCount || 0,
-          activeSchools: schoolsCount || 0,
-          activityToday: Math.floor(Math.random() * 50) + 10, // Simulado
-          systemStatus: 'Online'
-        });
-      } catch (statsError) {
-        console.warn('Error fetching counts, using placeholders:', statsError);
-        setStats(prev => ({ ...prev, systemStatus: 'Partial' }));
-      }
-
-    } catch (error) {
+      const counts = (countsRes.data as any) || {};
+      setStats({
+        totalUsers:    counts.total_users ?? 0,
+        activeSchools: counts.total_schools ?? 0,
+        activityToday: counts.payments_paid_30d ?? 0,
+        systemStatus:  'Online',
+      });
+    } catch (error: any) {
       console.error('Error fetching admin data:', error);
       toast({
         title: 'Error de carga',
-        description: 'No se pudieron cargar los datos del panel administrativo.',
-        variant: 'destructive'
+        description: error?.message?.includes('Forbidden')
+          ? 'Tu cuenta no es super-admin de plataforma.'
+          : 'No se pudieron cargar los datos del panel administrativo.',
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -129,11 +126,19 @@ export default function AdminPanelPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Panel de Administración</h1>
-        <p className="text-muted-foreground mt-1">
-          Gestión completa del sistema SportMaps
-        </p>
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Panel de Administración</h1>
+          <p className="text-muted-foreground mt-1">
+            Gestión completa del sistema SportMaps
+          </p>
+        </div>
+        <Link to="/admin/activity-logs">
+          <Button variant="outline" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Logs y actividad global
+          </Button>
+        </Link>
       </div>
 
       {/* Stats Cards */}

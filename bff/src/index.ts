@@ -37,6 +37,8 @@ import vendorProductsRouter from './routes/vendor-products.routes';
 import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
+import certificatesRouter from './routes/certificates';
+import joinQrRouter from './routes/join-qr';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -159,6 +161,8 @@ app.use('/api/v1/vendor', generalLimiter, vendorRouter);
 app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);
 app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
+app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
+app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);

@@ -129,9 +129,20 @@ const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
+const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
+const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
+const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
+const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
+const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
+const CertificateTemplatesPage = lazy(() => import("./pages/CertificateTemplatesPage"));
+const MyCertificatesPage = lazy(() => import("./pages/MyCertificatesPage"));
+const MyAthleteCardsPage = lazy(() => import("./pages/MyAthleteCardsPage"));
+const CertificateVerifyPublicPage = lazy(() => import("./pages/CertificateVerifyPublicPage"));
+const JoinSchoolPublicPage = lazy(() => import("./pages/JoinSchoolPublicPage"));
+const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
 
 // ─── Vendor/Marketplace pages (lazy) ─────────────────────────────────────────
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
@@ -241,6 +252,9 @@ const App = () => (
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
+                    <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
+                    <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
+                    <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />
                     <Route path="/terminos-y-condiciones" element={<TermsPage />} />
                     <Route path="/terms" element={<Navigate to="/terminos-y-condiciones" replace />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPage />} />
@@ -405,6 +419,36 @@ const App = () => (
                       <Route path="payments-automation" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <PaymentsAutomationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="cards" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolCardsAdminPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="certificates" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolCertificatesAdminPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="cards/templates/certificates" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <CertificateTemplatesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="my-certificates" element={
+                        <ProtectedRoute>
+                          <MyCertificatesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="my-cards" element={
+                        <ProtectedRoute>
+                          <MyAthleteCardsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="qr-signup" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <SchoolJoinQRsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payment-reminders" element={
@@ -583,6 +627,11 @@ const App = () => (
 
 
                       {/* Admin routes */}
+                      <Route path="admin" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminPanelPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="admin/users" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminUsersPage />
@@ -611,6 +660,11 @@ const App = () => (
                       <Route path="admin/logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <NotificationsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/activity-logs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminActivityLogsPage />
                         </ProtectedRoute>
                       } />
                     </Route>

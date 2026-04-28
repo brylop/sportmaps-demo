@@ -1,0 +1,393 @@
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Plus, QrCode, Save, Trash2, Download, ExternalLink, BarChart3 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
+
+type QrRow = {
+  id: string;
+  slug: string;
+  name: string;
+  target_type: 'open' | 'team' | 'program' | 'branch';
+  target_id: string | null;
+  target_name?: string | null;
+  intro_text: string | null;
+  cta_text: string;
+  accept_payments: boolean;
+  require_first_payment: boolean;
+  active: boolean;
+  expires_at: string | null;
+  scan_count: number;
+  signup_count: number;
+  paid_count: number;
+  created_at: string;
+  updated_at: string;
+  branch_id: string | null;
+  branch_name?: string | null;
+};
+
+type Team = { id: string; name: string };
+type Branch = { id: string; name: string };
+
+const FORM_DEFAULT = {
+  name: '',
+  target_type: 'open' as QrRow['target_type'],
+  target_id: '',
+  branch_id: '',
+  intro_text: '',
+  cta_text: 'Inscribirme',
+  accept_payments: true,
+  require_first_payment: true,
+  expires_at: '',
+  slug: '',
+};
+
+export default function SchoolJoinQRsPage() {
+  const { schoolId } = useSchoolContext();
+  const { toast } = useToast();
+
+  const [rows, setRows] = useState<QrRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(FORM_DEFAULT);
+  const [saving, setSaving] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [previewQr, setPreviewQr] = useState<QrRow | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!schoolId) return;
+    void load();
+    void loadOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolId]);
+
+  async function load() {
+    if (!schoolId) return;
+    setLoading(true);
+    const { data, error } = await supabase.rpc('list_school_join_qrs' as any, {
+      p_school_id: schoolId,
+      p_active: null,
+      p_search: null,
+    });
+    setLoading(false);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+    setRows((data as QrRow[]) || []);
+  }
+
+  async function loadOptions() {
+    if (!schoolId) return;
+    const [{ data: t }, { data: b }] = await Promise.all([
+      supabase.from('teams').select('id, name').eq('school_id', schoolId).order('name'),
+      supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
+    ]);
+    setTeams((t as Team[]) || []);
+    setBranches((b as Branch[]) || []);
+  }
+
+  function startNew() {
+    setForm(FORM_DEFAULT);
+    setOpen(true);
+  }
+
+  async function save() {
+    if (!schoolId || !form.name) return;
+    setSaving(true);
+    const { error } = await supabase.rpc('create_school_join_qr' as any, {
+      p_school_id:   schoolId,
+      p_name:        form.name,
+      p_target_type: form.target_type,
+      p_target_id:   form.target_id || null,
+      p_branch_id:   form.branch_id || null,
+      p_intro_text:  form.intro_text || null,
+      p_cta_text:    form.cta_text || 'Inscribirme',
+      p_accept_payments: form.accept_payments,
+      p_require_first_payment: form.require_first_payment,
+      p_expires_at:  form.expires_at ? new Date(form.expires_at).toISOString() : null,
+      p_slug:        form.slug || null,
+    });
+    setSaving(false);
+    if (error) return toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    toast({ title: 'QR creado' });
+    setOpen(false);
+    await load();
+  }
+
+  async function toggleActive(qr: QrRow) {
+    const { error } = await supabase
+      .from('school_join_qr_codes' as any)
+      .update({ active: !qr.active })
+      .eq('id', qr.id);
+    if (error) return toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    toast({ title: !qr.active ? 'QR activado' : 'QR desactivado' });
+    await load();
+  }
+
+  async function remove(qr: QrRow) {
+    if (!window.confirm(`¿Eliminar el QR "${qr.name}"?`)) return;
+    const { error } = await supabase.from('school_join_qr_codes' as any).delete().eq('id', qr.id);
+    if (error) return toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    toast({ title: 'QR eliminado' });
+    await load();
+  }
+
+  async function downloadPoster(qr: QrRow) {
+    try {
+      // BffClient.get retorna parsed JSON; el endpoint devuelve PDF binario.
+      // Hacemos fetch directo via JWT del usuario.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('No session');
+      const url = (import.meta.env.VITE_BFF_URL || 'https://sportmaps-bff.onrender.com') + `/api/v1/join-qr/${qr.slug}/poster.pdf`;
+      const r = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, 'x-school-id': schoolId || '' },
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${qr.slug}-poster.pdf`;
+      a.click();
+    } catch (e: any) {
+      toast({ title: 'No se pudo descargar', description: e?.message || 'Error', variant: 'destructive' });
+    }
+  }
+
+  function publicUrl(qr: QrRow): string {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/join/${qr.slug}`;
+  }
+
+  return (
+    <div className="container mx-auto p-6 space-y-6">
+      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <QrCode className="h-7 w-7 text-primary" />
+            Códigos QR de inscripción
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Genera códigos para imprimir en flyers/posters. Cada escaneo lleva al usuario
+            a tu landing branded para inscribirse y pagar el primer mes.
+          </p>
+        </div>
+        <Button onClick={startNew} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nuevo QR
+        </Button>
+      </header>
+
+      <Card>
+        <CardHeader><CardTitle>Mis códigos</CardTitle></CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          ) : rows.length === 0 ? (
+            <p className="py-8 text-center text-muted-foreground">Aún no creas códigos.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {rows.map((qr) => (
+                <Card key={qr.id} className="border-2">
+                  <CardContent className="pt-4 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-bold">{qr.name}</p>
+                        <p className="text-xs text-muted-foreground">{qr.slug}</p>
+                      </div>
+                      <div className="flex flex-col gap-1 items-end">
+                        {qr.active ? <Badge className="bg-green-100 text-green-700">Activo</Badge> : <Badge variant="outline">Pausado</Badge>}
+                        {qr.expires_at && new Date(qr.expires_at) < new Date() && (
+                          <Badge variant="destructive">Expirado</Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-muted-foreground space-y-0.5">
+                      <p>Target: <span className="capitalize">{qr.target_type}</span>{qr.target_name ? ` · ${qr.target_name}` : ''}</p>
+                      {qr.branch_name && <p>Sede: {qr.branch_name}</p>}
+                      <p>Pago primer mes: {qr.require_first_payment ? 'Sí' : 'No'}</p>
+                    </div>
+
+                    <div className="flex justify-around text-center border-t border-b py-2">
+                      <div>
+                        <p className="text-lg font-bold">{qr.scan_count}</p>
+                        <p className="text-[10px] uppercase text-muted-foreground">Scans</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold">{qr.signup_count}</p>
+                        <p className="text-[10px] uppercase text-muted-foreground">Inscritos</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold text-green-600">{qr.paid_count}</p>
+                        <p className="text-[10px] uppercase text-muted-foreground">Pagaron</p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap">
+                      <Button size="sm" variant="outline" onClick={() => setPreviewQr(qr)} className="gap-1">
+                        <QrCode className="h-3.5 w-3.5" />
+                        Ver QR
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => downloadPoster(qr)} className="gap-1">
+                        <Download className="h-3.5 w-3.5" />
+                        Poster PDF
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => window.open(publicUrl(qr), '_blank')} className="gap-1">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => toggleActive(qr)}>
+                        {qr.active ? 'Pausar' : 'Activar'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => remove(qr)} className="text-red-600 ml-auto">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* New QR dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nuevo código QR</DialogTitle>
+            <DialogDescription>Crea un código para una campaña, equipo o sede específica.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Nombre interno *</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Ej: Flyer Plaza Mayor"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Tipo</Label>
+                <Select value={form.target_type} onValueChange={(v) => setForm({ ...form, target_type: v as any, target_id: '' })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Abierto (cualquier equipo)</SelectItem>
+                    <SelectItem value="team">Equipo específico</SelectItem>
+                    <SelectItem value="branch">Sede específica</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.target_type === 'team' && (
+                <div>
+                  <Label>Equipo</Label>
+                  <Select value={form.target_id} onValueChange={(v) => setForm({ ...form, target_id: v })}>
+                    <SelectTrigger><SelectValue placeholder="Elige" /></SelectTrigger>
+                    <SelectContent>
+                      {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {form.target_type === 'branch' && (
+                <div>
+                  <Label>Sede</Label>
+                  <Select value={form.target_id} onValueChange={(v) => setForm({ ...form, target_id: v, branch_id: v })}>
+                    <SelectTrigger><SelectValue placeholder="Elige" /></SelectTrigger>
+                    <SelectContent>
+                      {branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div>
+              <Label>Texto introductorio</Label>
+              <Textarea
+                value={form.intro_text}
+                onChange={(e) => setForm({ ...form, intro_text: e.target.value })}
+                placeholder="Bienvenido a nuestra escuela…"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Texto del botón</Label>
+                <Input value={form.cta_text} onChange={(e) => setForm({ ...form, cta_text: e.target.value })} />
+              </div>
+              <div>
+                <Label>Slug personalizado</Label>
+                <Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="(auto)" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Switch checked={form.require_first_payment} onCheckedChange={(v) => setForm({ ...form, require_first_payment: v })} />
+                <Label>Exigir primer pago al inscribirse</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.accept_payments} onCheckedChange={(v) => setForm({ ...form, accept_payments: v })} />
+                <Label>Aceptar pagos online</Label>
+              </div>
+            </div>
+            <div>
+              <Label>Vence el (opcional)</Label>
+              <Input type="date" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button onClick={save} disabled={saving || !form.name} className="gap-2">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Crear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview QR */}
+      <Dialog open={!!previewQr} onOpenChange={(o) => !o && setPreviewQr(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{previewQr?.name}</DialogTitle>
+            <DialogDescription>{previewQr ? publicUrl(previewQr) : ''}</DialogDescription>
+          </DialogHeader>
+          {previewQr && (
+            <div ref={previewRef} className="flex flex-col items-center gap-3 bg-white p-4 rounded">
+              <QRCodeSVG value={publicUrl(previewQr)} size={240} level="M" />
+              <p className="text-xs text-center text-muted-foreground">{publicUrl(previewQr)}</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => previewQr && window.open(publicUrl(previewQr), '_blank')} className="gap-1">
+              <ExternalLink className="h-4 w-4" />
+              Abrir
+            </Button>
+            <Button onClick={() => previewQr && downloadPoster(previewQr)} className="gap-1">
+              <Download className="h-4 w-4" />
+              Poster PDF
+            </Button>
+          </DialogFooter>
+          <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-center">
+            <BarChart3 className="h-3 w-3" />
+            {previewQr?.scan_count} scans · {previewQr?.signup_count} inscritos · {previewQr?.paid_count} pagaron
+          </p>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
