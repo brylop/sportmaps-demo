@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -1092,11 +1093,10 @@ export default function InvitationsManagementPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="parentPhone" className="text-sm font-medium">Teléfono / WhatsApp</Label>
-                  <Input
-                    id="parentPhone" type="tel" placeholder="300..."
-                    value={formData.parentPhone} className="h-10"
-                    onChange={e => setFormData({ ...formData, parentPhone: e.target.value })}
+                  <Label className="text-sm font-medium">WhatsApp</Label>
+                  <PhoneInput
+                    value={formData.parentPhone}
+                    onChange={(v) => setFormData({ ...formData, parentPhone: v })}
                   />
                 </div>
 

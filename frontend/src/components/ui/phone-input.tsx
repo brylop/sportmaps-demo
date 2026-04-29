@@ -34,9 +34,11 @@ interface PhoneInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
+  id?: string;
 }
 
-export function PhoneInput({ value, onChange, placeholder, className }: PhoneInputProps) {
+export function PhoneInput({ value, onChange, placeholder, className, disabled, id }: PhoneInputProps) {
   const [open, setOpen] = React.useState(false);
 
   // Parse value to find country and number
@@ -64,12 +66,13 @@ export function PhoneInput({ value, onChange, placeholder, className }: PhoneInp
 
   return (
     <div className={cn("flex gap-0 group h-11 bg-background/50 border border-border/40 rounded-xl overflow-hidden focus-within:border-primary/50 transition-colors", className)}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={(o) => { if (!disabled) setOpen(o); }}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
             role="combobox"
             aria-expanded={open}
+            disabled={disabled}
             className="w-[90px] h-full rounded-none border-r border-border/40 px-3 hover:bg-primary/10 transition-colors"
           >
             <span className="text-lg mr-1.5">{selectedCountry.flag}</span>
@@ -106,10 +109,12 @@ export function PhoneInput({ value, onChange, placeholder, className }: PhoneInp
         </PopoverContent>
       </Popover>
       <Input
+        id={id}
         type="tel"
         value={rawNumber}
         onChange={(e) => handleNumberChange(e.target.value)}
         placeholder={placeholder || "Número"}
+        disabled={disabled}
         className="flex-1 h-full border-0 bg-transparent rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 px-4 text-base font-medium"
       />
     </div>

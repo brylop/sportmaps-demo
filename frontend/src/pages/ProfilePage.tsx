@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -21,6 +22,7 @@ import {
   Calendar,
   Shield,
   Edit2,
+  IdCard,
   Save,
   X,
   Camera,
@@ -28,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useStorage } from '@/hooks/useStorage';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function ProfilePage() {
   const { user, profile, updateProfile } = useAuth();
@@ -54,6 +57,32 @@ export default function ProfilePage() {
       });
     }
   }, [profile]);
+
+  type DocRow = { id: string; full_name: string; doc_type: string | null; doc_number: string | null };
+  const [docRows, setDocRows] = useState<DocRow[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const showDocs = profile?.role === 'athlete' || profile?.role === 'parent';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!profile?.id || !showDocs) {
+      setDocRows([]);
+      return;
+    }
+    setLoadingDocs(true);
+    (async () => {
+      const { data: rows } = await (supabase as any)
+        .from('children')
+        .select('id, full_name, doc_type, doc_number')
+        .eq('parent_id', profile.id)
+        .order('full_name', { ascending: true });
+      if (!cancelled) {
+        setDocRows((rows as DocRow[]) || []);
+        setLoadingDocs(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.id, showDocs]);
 
   const handleSave = async () => {
     try {
@@ -243,15 +272,11 @@ export default function ProfilePage() {
                 <Phone className="h-4 w-4" />
                 Teléfono
               </Label>
-              <Input
+              <PhoneInput
                 id="phone"
-                type="tel"
                 value={formData.phone || ''}
-                onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
-                }
+                onChange={(v) => setFormData({ ...formData, phone: v })}
                 disabled={!isEditing}
-                placeholder="+57 300 123 4567"
               />
             </div>
 
@@ -288,6 +313,53 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Document Card (read-only) */}
+      {showDocs && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <IdCard className="h-5 w-5 text-primary" />
+              {profile.role === 'athlete' ? 'Mi Documento' : 'Documentos de mis hijos'}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Información solo de lectura. Para cambios contacta a la escuela.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingDocs ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+              </div>
+            ) : docRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {profile.role === 'athlete'
+                  ? 'Aún no hay un documento registrado para tu cuenta.'
+                  : 'Aún no tienes hijos vinculados a tu cuenta.'}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {docRows.map((row) => (
+                  <div key={row.id} className="grid gap-3 md:grid-cols-3 rounded-md border bg-muted/20 p-3">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Nombre</Label>
+                      <Input value={row.full_name || ''} readOnly disabled className="bg-muted" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Tipo</Label>
+                      <Input value={row.doc_type || '—'} readOnly disabled className="bg-muted uppercase" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Número</Label>
+                      <Input value={row.doc_number || '—'} readOnly disabled className="bg-muted font-mono" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Card */}
       <Card>

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -560,8 +561,8 @@ export default function SchoolPublicProfilePage() {
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" /> Teléfono</Label>
-                  <Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+57 300 1234567" />
+                  <Label className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" /> WhatsApp</Label>
+                  <PhoneInput value={form.phone} onChange={(v) => set('phone', v)} />
                 </div>
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" /> Email</Label>

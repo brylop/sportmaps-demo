@@ -1,11 +1,12 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Camera, Check, ChevronsUpDown, Loader2, Save, User as UserIcon, X } from 'lucide-react';
+import { Camera, Check, ChevronsUpDown, IdCard, Loader2, Save, User as UserIcon, X } from 'lucide-react';
 import { useStorage } from '@/hooks/useStorage';
 import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
+import { supabase } from '@/integrations/supabase/client';
 
 const sportsList = SPORTS_LIST;
 
@@ -40,6 +42,32 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
     date_of_birth: data?.profile?.date_of_birth || '' as string | null,
     sports_interests: data?.profile?.sports_interests || [] as string[] | null,
   });
+
+  type DocRow = { id: string; full_name: string; doc_type: string | null; doc_number: string | null };
+  const [docRows, setDocRows] = useState<DocRow[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const showDocs = profile?.role === 'athlete' || profile?.role === 'parent';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!profile?.id || !showDocs) {
+      setDocRows([]);
+      return;
+    }
+    setLoadingDocs(true);
+    (async () => {
+      const { data: rows } = await (supabase as any)
+        .from('children')
+        .select('id, full_name, doc_type, doc_number')
+        .eq('parent_id', profile.id)
+        .order('full_name', { ascending: true });
+      if (!cancelled) {
+        setDocRows((rows as DocRow[]) || []);
+        setLoadingDocs(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.id, showDocs]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,12 +145,10 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Teléfono de Contacto</Label>
-              <Input
-                id="phone"
+              <Label>WhatsApp</Label>
+              <PhoneInput
                 value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+57 300 123 4567"
+                onChange={(v) => setFormData(prev => ({ ...prev, phone: v }))}
               />
             </div>
             <div className="space-y-2">
@@ -232,6 +258,52 @@ export function ProfileSection({ data, saving, onSave }: ProfileSectionProps) {
           </Button>
         </CardFooter>
       </Card>
+
+      {showDocs && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <IdCard className="h-5 w-5 text-primary" />
+              {profile?.role === 'athlete' ? 'Mi Documento' : 'Documentos de mis hijos'}
+            </CardTitle>
+            <CardDescription>
+              Información solo de lectura. Para cambios contacta a la escuela.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingDocs ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+              </div>
+            ) : docRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {profile?.role === 'athlete'
+                  ? 'Aún no hay un documento registrado para tu cuenta.'
+                  : 'Aún no tienes hijos vinculados a tu cuenta.'}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {docRows.map((row) => (
+                  <div key={row.id} className="grid gap-3 sm:grid-cols-3 rounded-md border bg-muted/5 p-3">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Nombre</Label>
+                      <Input value={row.full_name || ''} readOnly disabled className="bg-muted/30" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Tipo</Label>
+                      <Input value={row.doc_type || '—'} readOnly disabled className="bg-muted/30 uppercase" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Número</Label>
+                      <Input value={row.doc_number || '—'} readOnly disabled className="bg-muted/30 font-mono" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </form>
   );
 }
