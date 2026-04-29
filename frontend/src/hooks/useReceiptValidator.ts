@@ -32,6 +32,17 @@ const MONTH_ABBREV_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
 const WEEKDAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const WEEKDAY_ABBREV_ES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 
+// Mapa nombre/abreviatura → numero de mes (1-12). Cubre español + abreviado inglés
+// común en comprobantes (Nequi, Daviplata, bancos a veces lo usan).
+const MONTH_TO_NUMBER: Record<string, number> = {
+    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+    julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+    ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
+    jul: 7, ago: 8, sep: 9, sept: 9, set: 9, oct: 10, nov: 11, dic: 12,
+    jan: 1, apr: 4, aug: 8, dec: 12,
+};
+const ALL_MONTH_TOKENS = Object.keys(MONTH_TO_NUMBER).join('|');
+
 // ── Helpers de fecha ──────────────────────────────────────────────────────────
 
 const getDayOfYear = (date: Date): number => {
@@ -114,10 +125,13 @@ const getTodayVariants = () => {
 
 // ── Extracción con regex ──────────────────────────────────────────────────────
 
+const normalizeYear = (raw: number): number => raw < 100 ? 2000 + raw : raw;
+
 const extractDate = (text: string): { found: string | null; isToday: boolean } => {
     const today = getTodayVariants();
     const lower = text.toLowerCase();
 
+    // 1) Match exacto con cualquier formato de hoy
     const patterns = [
         today.humanWeekday, today.humanWeekdayAbbr,
         today.human, today.humanComma, today.humanShort,
@@ -137,6 +151,7 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
+    // 2) Unix timestamp dentro de las 24h de hoy
     const unixMatch = /@(\d{9,10})\b|\b(\d{10})\b/.exec(text);
     if (unixMatch) {
         const ts = parseInt(unixMatch[1] || unixMatch[2], 10);
@@ -145,12 +160,49 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
-    const dateRegex = /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}[/-]\d{2}[/-]\d{2})\b/g;
-    const matches = text.match(dateRegex);
-    const humanDateRegex = /\b(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\s+(?:de\s+)?(\d{4})\b/gi;
-    const humanMatch = humanDateRegex.exec(text);
+    // 3) Fuzzy numérico: parsear todas las fechas con separador y comparar contra hoy.
+    //    Tolera variantes como "28 / 04 / 2026" o "28-4-26" que los patterns exactos no cubren.
+    const numericIso = /\b(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})\b/g;
+    const numericDmy = /\b(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{2,4})\b/g;
+    let firstNumeric: string | null = null;
 
-    const found = humanMatch ? humanMatch[0] : (matches ? matches[0] : null);
+    for (let m = numericIso.exec(text); m !== null; m = numericIso.exec(text)) {
+        const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+        if (firstNumeric === null) firstNumeric = m[0];
+        if (d === today.day && mo === today.month && y === today.year) {
+            return { found: m[0], isToday: true };
+        }
+    }
+    for (let m = numericDmy.exec(text); m !== null; m = numericDmy.exec(text)) {
+        const d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = normalizeYear(parseInt(m[3], 10));
+        if (firstNumeric === null) firstNumeric = m[0];
+        if (d === today.day && mo === today.month && y === today.year) {
+            return { found: m[0], isToday: true };
+        }
+        // d/m/yy con orden invertido (m/d/y estilo US)
+        if (d === today.month && mo === today.day && y === today.year) {
+            return { found: m[0], isToday: true };
+        }
+    }
+
+    // 4) Fuzzy humano: requiere un nombre de mes REAL (no acepta "de" como mes).
+    //    Acepta "de" o "del" como conector y year de 2 o 4 dígitos.
+    const humanRegex = new RegExp(
+        `\\b(\\d{1,2})\\s+(?:de(?:l)?\\s+)?(${ALL_MONTH_TOKENS})\\.?\\s+(?:de(?:l)?\\s+)?(\\d{2,4})\\b`,
+        'gi',
+    );
+    let firstHuman: string | null = null;
+    for (let m = humanRegex.exec(lower); m !== null; m = humanRegex.exec(lower)) {
+        const d = parseInt(m[1], 10);
+        const mo = MONTH_TO_NUMBER[m[2].toLowerCase()];
+        const y = normalizeYear(parseInt(m[3], 10));
+        if (firstHuman === null) firstHuman = m[0];
+        if (d === today.day && mo === today.month && y === today.year) {
+            return { found: m[0], isToday: true };
+        }
+    }
+
+    const found = firstHuman ?? firstNumeric;
     return { found, isToday: false };
 };
 
