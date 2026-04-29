@@ -21,7 +21,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { EnrollPlanStudentModal } from '@/components/enrollment/EnrollPlanStudentModal';
 import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
-import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight } from 'lucide-react';
+import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
 
 const MIN_SEARCH_CHARS = 1;
@@ -643,6 +643,18 @@ export function OfferingsManagement() {
                             onEnroll={handleOpenEnroll}
                             onDeleteOffering={() => setOfferingToDelete(offering.id)}
                             onDeletePlan={(planId) => setPlanToDelete({ offeringId: offering.id, planId })}
+                            onCopyJoinLink={async (planId, planName) => {
+                                const link = `${window.location.origin}/join-plan/${planId}`;
+                                try {
+                                    await navigator.clipboard.writeText(link);
+                                    toast({
+                                        title: '🔗 Link copiado',
+                                        description: `Comparte con los inscritos en ${planName}: ${link}`,
+                                    });
+                                } catch {
+                                    toast({ title: 'Link de invitacion al plan', description: link });
+                                }
+                            }}
                         />
                     ))}
                 </div>
@@ -1002,6 +1014,7 @@ function OfferingCard({
     onEnroll,
     onDeleteOffering,
     onDeletePlan,
+    onCopyJoinLink,
 }: {
     offering: Offering;
     onEditOffering: () => void;
@@ -1010,6 +1023,7 @@ function OfferingCard({
     onEnroll?: (offering: Offering, plan: any) => void;
     onDeleteOffering?: () => void;
     onDeletePlan?: (planId: string) => void;
+    onCopyJoinLink?: (planId: string, planName: string) => void;
 }) {
     const plans = offering.offering_plans ?? [];
     const sportVisual = offering.sport ? getSportVisual(offering.sport.toLowerCase()) : null;
@@ -1132,6 +1146,18 @@ function OfferingCard({
                                             >
                                                 <UserPlus className="h-3.5 w-3.5" />
                                                 <span className="hidden sm:inline text-[10px]">Inscribir</span>
+                                            </Button>
+                                        )}
+                                        {onCopyJoinLink && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => onCopyJoinLink(plan.id, plan.name)}
+                                                className="shrink-0 h-8 px-2 hover:bg-blue-50 hover:text-blue-600 border border-transparent hover:border-blue-100 transition-all gap-1.5"
+                                                title="Copiar link de invitacion al plan"
+                                            >
+                                                <Copy className="h-3.5 w-3.5" />
+                                                <span className="hidden sm:inline text-[10px]">Invitar</span>
                                             </Button>
                                         )}
                                         {onEditPlan && (
