@@ -350,6 +350,10 @@ export function useReceiptValidator() {
             const text = data.text || '';
             const textLower = text.toLowerCase();
 
+            if (import.meta.env.DEV) {
+                console.log('[OCR raw text]\n' + text);
+            }
+
             // ── Validación 1: ¿es un comprobante? ────────────────────────────────
             const receiptKeywords = [
                 'transferencia', 'transacción', 'transaccion',

@@ -93,20 +93,17 @@ export function FileUpload({
       setValidation(result);
       onValidationResult?.(result);
 
-      if (result.valid) {
-        // FIX: solo subir si aun no se ha subido (evita doble upload y 409)
-        if (!uploaded && uploadedUrl == null) {
-          const url = await uploadFile(toUse[0], bucket, path);
-          // FIX: verificar que url no sea null antes de llamar onUploadComplete
-          if (url != null) {
-            setUploadedUrl(url);
-            setUploaded(true);
-            onUploadComplete?.(url);
-          }
-        } else if (uploadedUrl != null) {
-          // Ya fue subido antes — notificar con la URL existente sin re-subir
-          onUploadComplete?.(uploadedUrl);
+      // OCR es advisory: subimos el comprobante incluso si la validacion no paso.
+      // El admin lo revisa manualmente antes de aprobar el pago.
+      if (!uploaded && uploadedUrl == null) {
+        const url = await uploadFile(toUse[0], bucket, path);
+        if (url != null) {
+          setUploadedUrl(url);
+          setUploaded(true);
+          onUploadComplete?.(url);
         }
+      } else if (uploadedUrl != null) {
+        onUploadComplete?.(uploadedUrl);
       }
     } finally {
       clearInterval(progressInterval);
@@ -211,16 +208,16 @@ export function FileUpload({
       {validation && !validating && (
         <div className="animate-in fade-in slide-in-from-top-1 duration-300">
 
-          {/* Rechazado */}
+          {/* OCR no logro verificar — advisory (no bloquea, admin revisa) */}
           {!validation.valid && (
-            <Alert className="border-red-300 bg-red-50 dark:bg-red-950/30">
-              <AlertTriangle className="h-4 w-4 text-red-500" />
+            <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/30">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
               <AlertDescription>
-                <p className="font-semibold text-red-700 dark:text-red-400 mb-1">
-                  Comprobante no valido
+                <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                  No pudimos verificar la fecha automaticamente
                 </p>
-                <p className="text-sm text-red-600 dark:text-red-300">
-                  {validation.rejectionReason}
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Tu comprobante fue recibido y sera revisado manualmente por la administracion.
                 </p>
               </AlertDescription>
             </Alert>
