@@ -185,16 +185,31 @@ const extractDate = (text: string): { found: string | null; isToday: boolean } =
         }
     }
 
-    // 4) Fuzzy humano: requiere un nombre de mes REAL (no acepta "de" como mes).
-    //    Acepta "de" o "del" como conector y year de 2 o 4 dígitos.
-    const humanRegex = new RegExp(
+    // 4) Fuzzy humano DÍA MES AÑO: "28 de abril de 2026", "28 abr 26", "28 de abril del 2026".
+    //    Requiere un nombre de mes REAL (no acepta "de" como mes).
+    const humanRegexDmy = new RegExp(
         `\\b(\\d{1,2})\\s+(?:de(?:l)?\\s+)?(${ALL_MONTH_TOKENS})\\.?\\s+(?:de(?:l)?\\s+)?(\\d{2,4})\\b`,
         'gi',
     );
     let firstHuman: string | null = null;
-    for (let m = humanRegex.exec(lower); m !== null; m = humanRegex.exec(lower)) {
+    for (let m = humanRegexDmy.exec(lower); m !== null; m = humanRegexDmy.exec(lower)) {
         const d = parseInt(m[1], 10);
         const mo = MONTH_TO_NUMBER[m[2].toLowerCase()];
+        const y = normalizeYear(parseInt(m[3], 10));
+        if (firstHuman === null) firstHuman = m[0];
+        if (d === today.day && mo === today.month && y === today.year) {
+            return { found: m[0], isToday: true };
+        }
+    }
+
+    // 5) Fuzzy humano MES DÍA AÑO: formato Daviplata "Abril 28 de 2026", también "Apr 28, 2026".
+    const humanRegexMdy = new RegExp(
+        `\\b(${ALL_MONTH_TOKENS})\\.?\\s+(\\d{1,2})(?:\\s*[,.\\-])?\\s+(?:de(?:l)?\\s+)?(\\d{2,4})\\b`,
+        'gi',
+    );
+    for (let m = humanRegexMdy.exec(lower); m !== null; m = humanRegexMdy.exec(lower)) {
+        const mo = MONTH_TO_NUMBER[m[1].toLowerCase()];
+        const d = parseInt(m[2], 10);
         const y = normalizeYear(parseInt(m[3], 10));
         if (firstHuman === null) firstHuman = m[0];
         if (d === today.day && mo === today.month && y === today.year) {
