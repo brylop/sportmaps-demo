@@ -6,6 +6,7 @@ import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -571,18 +572,17 @@ export default function RegisterPage() {
 
               {/* Phone */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">Teléfono</label>
-                <div className="relative group">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Phone className="w-4 h-4 text-[#4a5246] group-focus-within:text-[#2ea82d] transition-colors" />
-                  </div>
-                  <input
-                    {...register('phone')}
-                    type="tel"
-                    placeholder="+57..."
-                    className="w-full bg-[#0f2614] border border-white/5 rounded-xl py-3.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#248223] focus:ring-4 focus:ring-[#248223]/10 transition-all placeholder:text-[#4a5246]"
-                  />
-                </div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[#d4d8d0]">WhatsApp</label>
+                <Controller
+                  name="phone"
+                  control={control}
+                  render={({ field }) => (
+                    <PhoneInput
+                      value={field.value || ''}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
               </div>
 
               {/* Role Selection */}

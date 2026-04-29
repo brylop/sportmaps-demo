@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -226,10 +227,10 @@ export function AthleteProfileTabs() {
                 />
               </div>
               <div>
-                <Label>Teléfono</Label>
-                <Input
+                <Label>WhatsApp</Label>
+                <PhoneInput
                   value={formData.phone}
-                  onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(v) => setFormData({ ...formData, phone: v })}
                 />
               </div>
               <div>

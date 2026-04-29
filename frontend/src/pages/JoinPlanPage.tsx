@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,23 +11,27 @@ import { Loader2, CheckCircle2, AlertCircle, UserPlus, Shield } from 'lucide-rea
 import { useToast } from '@/hooks/use-toast';
 
 /**
- * Pagina publica de auto-registro por equipo.
- * URL: /join-team/:teamId
+ * Pagina publica de auto-registro por plan (offering_plan).
+ * URL: /join-plan/:planId
  *
- * Flujo:
- * 1. Carga info del equipo/escuela/sede via get_team_join_info
- * 2. Padre ingresa: email, password, nombre, telefono, documento del hijo
- * 3. Validamos el doc via validate_child_for_team_join (pre-registro)
- * 4. Si OK -> supabase.auth.signUp -> claim_child_for_parent -> dashboard
+ * Espejo de JoinTeamPage pero usando offering_plans + enrollments.offering_plan_id.
+ * Sirve para atletas (adultos) y padres: ambos ingresan el CC del atleta y,
+ * si ese atleta tiene un enrollment activo a este plan, se vinculan.
  */
 
-interface TeamInfo {
-  team_id: string;
-  team_name: string;
+interface PlanInfo {
+  plan_id: string;
+  plan_name: string;
+  offering_id: string;
+  offering_name: string;
   school_id: string;
   school_name: string;
   branch_id: string | null;
   branch_name: string | null;
+  plan_price: number | null;
+  plan_currency: string | null;
+  duration_days: number | null;
+  max_sessions: number | null;
   athletes_count: number;
 }
 
@@ -37,42 +41,44 @@ interface ValidationResult {
   already_linked: boolean;
 }
 
-export default function JoinTeamPage() {
-  const { teamId } = useParams<{ teamId: string }>();
-  const navigate = useNavigate();
+type RegistrantKind = 'parent' | 'athlete';
+
+export default function JoinPlanPage() {
+  const { planId } = useParams<{ planId: string }>();
   const { toast } = useToast();
 
+  const [registrantKind, setRegistrantKind] = useState<RegistrantKind>('parent');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('+57');
-  const [childDoc, setChildDoc] = useState('');
+  const [docNumber, setDocNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // ── Cargar info del equipo ───────────────────────────────────────────────
-  const { data: teamInfo, isLoading: loadingTeam, error: teamError } = useQuery<TeamInfo | null>({
-    queryKey: ['team-join-info', teamId],
+  // ── Cargar info del plan ──────────────────────────────────────────────────
+  const { data: planInfo, isLoading: loadingPlan, error: planError } = useQuery<PlanInfo | null>({
+    queryKey: ['plan-join-info', planId],
     queryFn: async () => {
-      if (!teamId) return null;
-      const { data, error } = await (supabase.rpc as any)('get_team_join_info', { p_team_id: teamId });
+      if (!planId) return null;
+      const { data, error } = await (supabase.rpc as any)('get_plan_join_info', { p_plan_id: planId });
       if (error) throw error;
       return (data && data.length > 0) ? data[0] : null;
     },
-    enabled: !!teamId,
+    enabled: !!planId,
   });
 
-  // ── Validar documento cuando cambia ──────────────────────────────────────
+  // ── Validar documento cuando cambia ───────────────────────────────────────
   useEffect(() => {
     setValidation(null);
-    if (!childDoc || !teamId || childDoc.replace(/\D/g, '').length < 5) return;
+    if (!docNumber || !planId || docNumber.replace(/\D/g, '').length < 5) return;
     const timer = setTimeout(async () => {
       setValidating(true);
-      const { data, error } = await (supabase.rpc as any)('validate_child_for_team_join', {
-        p_team_id: teamId,
-        p_doc_number: childDoc,
+      const { data, error } = await (supabase.rpc as any)('validate_doc_for_plan_join', {
+        p_plan_id: planId,
+        p_doc_number: docNumber,
       });
       setValidating(false);
       if (!error && data && data.length > 0) {
@@ -80,17 +86,17 @@ export default function JoinTeamPage() {
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [childDoc, teamId]);
+  }, [docNumber, planId]);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validation) {
-      toast({ title: 'Documento invalido', description: 'El atleta no existe en este equipo', variant: 'destructive' });
+      toast({ title: 'Documento invalido', description: 'No encontramos un atleta con ese CC inscrito en este plan.', variant: 'destructive' });
       return;
     }
     if (validation.already_linked) {
-      toast({ title: 'Ya vinculado', description: 'Este atleta ya tiene un acudiente asociado', variant: 'destructive' });
+      toast({ title: 'Ya vinculado', description: 'Este atleta ya tiene una cuenta asociada. Inicia sesion.', variant: 'destructive' });
       return;
     }
     if (password.length < 8) {
@@ -100,76 +106,49 @@ export default function JoinTeamPage() {
 
     setSubmitting(true);
     try {
-      // 1. Registrar en auth
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { full_name: fullName, phone, role: 'parent' },
+          data: { full_name: fullName, phone, role: registrantKind },
           emailRedirectTo: `${window.location.origin}/dashboard`,
         },
       });
 
-      if (signUpError) {
-        throw new Error(signUpError.message);
-      }
-      if (!signUpData.user) {
-        throw new Error('No se pudo crear el usuario');
-      }
+      if (signUpError) throw new Error(signUpError.message);
+      if (!signUpData.user) throw new Error('No se pudo crear el usuario');
 
-      // Si requiere confirmar email, igual dejamos el claim para cuando haga login
-      // Pero si ya esta autenticado (auto-confirm), seguimos con el claim
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
         toast({
           title: 'Revisa tu correo',
-          description: 'Te enviamos un enlace para confirmar tu cuenta. Despues de confirmar, haz login e ingresa el documento de tu hijo/a.',
+          description: 'Te enviamos un enlace para confirmar tu cuenta. Despues de confirmar, haz login.',
         });
         setSuccess(true);
         return;
       }
 
-      // 2. Reclamar al hijo
-      const { data: claimData, error: claimError } = await (supabase.rpc as any)('claim_child_for_parent', {
+      const { data: claimData, error: claimError } = await (supabase.rpc as any)('claim_member_for_plan', {
         p_child_id:  validation.child_id,
+        p_plan_id:   planId,
+        p_role:      registrantKind,
         p_full_name: fullName,
         p_phone:     phone,
       });
+      if (claimError) throw new Error(claimError.message);
 
-      if (claimError) {
-        throw new Error(claimError.message);
-      }
-
-      // La RPC devuelve status_code: 'ok' | 'already_linked' | 'not_found' | 'no_auth'
       const status = Array.isArray(claimData) && claimData.length > 0 ? claimData[0].status_code : null;
-      if (status === 'already_linked') {
-        throw new Error('Este atleta ya esta vinculado a otro acudiente. Contacta a la escuela.');
-      }
-      if (status === 'not_found') {
-        throw new Error('Atleta no encontrado');
-      }
-      if (status === 'no_auth') {
-        throw new Error('Sesion no valida. Vuelve a iniciar sesion.');
-      }
-      if (status !== 'ok') {
-        throw new Error('No se pudo completar la vinculacion');
-      }
+      if (status === 'already_linked') throw new Error('Este atleta ya esta vinculado a otra cuenta. Contacta a la escuela.');
+      if (status === 'not_found')      throw new Error('Atleta no encontrado o sin enrollment al plan.');
+      if (status === 'no_auth')        throw new Error('Sesion no valida. Vuelve a iniciar sesion.');
+      if (status === 'invalid_role')   throw new Error('Rol no valido.');
+      if (status !== 'ok')             throw new Error('No se pudo completar la vinculacion.');
 
-      // Refrescar la sesion para que el profile.role='parent' se cargue
-      // (el trigger handle_new_user puede haber puesto otro role por default)
-      try {
-        await supabase.auth.refreshSession();
-      } catch {
-        // Si falla el refresh no es critico — lo reintentara al navegar
-      }
-
-      // Limpiar localStorage para forzar que el dashboard use el nuevo role
+      try { await supabase.auth.refreshSession(); } catch { /* no-op */ }
       localStorage.removeItem('sportmaps_active_school_id');
 
       setSuccess(true);
-      toast({ title: '✅ Registro completado', description: `${validation.full_name} vinculado a tu cuenta` });
-
-      // Usar window.location para forzar reload completo (no solo navigate SPA)
+      toast({ title: '✅ Registro completado', description: `${validation.full_name} vinculado a tu cuenta.` });
       setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message || 'No se pudo completar el registro', variant: 'destructive' });
@@ -179,7 +158,7 @@ export default function JoinTeamPage() {
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (loadingTeam) {
+  if (loadingPlan) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -187,16 +166,16 @@ export default function JoinTeamPage() {
     );
   }
 
-  if (teamError || !teamInfo) {
+  if (planError || !planInfo) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="h-5 w-5" /> Equipo no encontrado
+              <AlertCircle className="h-5 w-5" /> Plan no encontrado
             </CardTitle>
             <CardDescription>
-              El link que usaste no corresponde a un equipo valido. Contacta a la escuela.
+              El link que usaste no corresponde a un plan valido o el plan ya no esta activo. Contacta a la escuela.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -213,14 +192,24 @@ export default function JoinTeamPage() {
               <CheckCircle2 className="h-5 w-5" /> ¡Listo!
             </CardTitle>
             <CardDescription>
-              {validation ? `${validation.full_name} quedo vinculado a tu cuenta.` : 'Te enviamos un correo para confirmar.'}
-              Te redirigimos al dashboard.
+              {validation
+                ? `${validation.full_name} quedo vinculado a tu cuenta. Te redirigimos al dashboard.`
+                : 'Te enviamos un correo para confirmar tu cuenta.'}
             </CardDescription>
           </CardHeader>
         </Card>
       </div>
     );
   }
+
+  const formatPrice = (val: number | null, ccy: string | null) => {
+    if (val == null) return '';
+    try {
+      return new Intl.NumberFormat('es-CO', { style: 'currency', currency: ccy || 'COP', minimumFractionDigits: 0 }).format(val);
+    } catch {
+      return `${val} ${ccy || ''}`;
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/5 to-background">
@@ -231,19 +220,68 @@ export default function JoinTeamPage() {
               <UserPlus className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">Registro de Acudientes</CardTitle>
+              <CardTitle className="text-lg">Registro al plan</CardTitle>
               <CardDescription className="text-xs">
-                {teamInfo.school_name}
-                {teamInfo.branch_name ? ` · ${teamInfo.branch_name}` : ''}
+                {planInfo.school_name}
+                {planInfo.branch_name ? ` · ${planInfo.branch_name}` : ''}
                 {' · '}
-                <span className="font-semibold text-primary">{teamInfo.team_name}</span>
+                <span className="font-semibold text-primary">{planInfo.plan_name}</span>
               </CardDescription>
             </div>
+          </div>
+
+          <div className="rounded-md bg-muted/50 px-3 py-2 text-xs space-y-0.5">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Servicio:</span>
+              <span className="font-medium">{planInfo.offering_name}</span>
+            </div>
+            {planInfo.plan_price != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Precio:</span>
+                <span className="font-medium">{formatPrice(planInfo.plan_price, planInfo.plan_currency)}</span>
+              </div>
+            )}
+            {planInfo.max_sessions != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Sesiones:</span>
+                <span className="font-medium">{planInfo.max_sessions}</span>
+              </div>
+            )}
+            {planInfo.duration_days != null && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Duracion:</span>
+                <span className="font-medium">{planInfo.duration_days} dias</span>
+              </div>
+            )}
           </div>
         </CardHeader>
 
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">¿Quien se registra?</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={registrantKind === 'parent' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRegistrantKind('parent')}
+                  className="text-xs"
+                >
+                  Padre / Madre
+                </Button>
+                <Button
+                  type="button"
+                  variant={registrantKind === 'athlete' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRegistrantKind('athlete')}
+                  className="text-xs"
+                >
+                  Soy el deportista
+                </Button>
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="email">Correo electronico *</Label>
               <Input id="email" type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@correo.com" />
@@ -256,7 +294,7 @@ export default function JoinTeamPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="fullName">Tu nombre completo *</Label>
-              <Input id="fullName" required value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nombre del acudiente" />
+              <Input id="fullName" required value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Nombre completo" />
             </div>
 
             <div className="space-y-1.5">
@@ -265,15 +303,16 @@ export default function JoinTeamPage() {
             </div>
 
             <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/20">
-              <Label htmlFor="childDoc" className="flex items-center gap-1.5 font-semibold">
-                <Shield className="h-3.5 w-3.5" /> Documento del hijo/a *
+              <Label htmlFor="docNumber" className="flex items-center gap-1.5 font-semibold">
+                <Shield className="h-3.5 w-3.5" />
+                {registrantKind === 'parent' ? 'Documento del hijo/a *' : 'Tu documento *'}
               </Label>
               <Input
-                id="childDoc"
+                id="docNumber"
                 required
-                value={childDoc}
-                onChange={e => setChildDoc(e.target.value)}
-                placeholder="Numero de documento (TI, RC o CC)"
+                value={docNumber}
+                onChange={e => setDocNumber(e.target.value)}
+                placeholder="Numero de documento (CC, TI o RC)"
                 className={validation ? (validation.already_linked ? 'border-destructive' : 'border-green-500') : ''}
               />
               {validating && (
@@ -288,12 +327,12 @@ export default function JoinTeamPage() {
               )}
               {validation && validation.already_linked && (
                 <p className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> Este atleta ya tiene acudiente vinculado
+                  <AlertCircle className="h-3 w-3" /> Este atleta ya tiene una cuenta vinculada
                 </p>
               )}
-              {childDoc.length >= 5 && !validating && !validation && (
+              {docNumber.length >= 5 && !validating && !validation && (
                 <p className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" /> Documento no encontrado en este equipo
+                  <AlertCircle className="h-3 w-3" /> No encontramos un atleta con ese CC en este plan
                 </p>
               )}
             </div>

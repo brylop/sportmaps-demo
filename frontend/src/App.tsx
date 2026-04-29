@@ -35,6 +35,7 @@ const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
+const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const SchoolDetailPage = lazy(() => import("./pages/SchoolDetailPage"));
@@ -252,6 +253,7 @@ const App = () => (
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
+                    <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
                     <Route path="/cert/:folio" element={<CertificateVerifyPublicPage />} />
                     <Route path="/join/:slug" element={<JoinSchoolPublicPage />} />

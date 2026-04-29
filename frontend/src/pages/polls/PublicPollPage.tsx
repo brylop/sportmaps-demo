@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Clock, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -286,13 +287,8 @@ export default function PublicPollPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-sm">Teléfono (WhatsApp)</Label>
-                <Input
-                  type="tel"
-                  value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
-                  placeholder="+57 300 000 0000"
-                />
+                <Label className="text-sm">WhatsApp</Label>
+                <PhoneInput value={guestPhone} onChange={setGuestPhone} />
               </div>
             </div>
           </div>

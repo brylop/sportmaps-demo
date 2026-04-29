@@ -14,6 +14,7 @@ import {
     DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -378,13 +379,8 @@ export function CoachProfileWizard({ open, onOpenChange, onSuccess, initialStep 
                                 {/* Contact */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-2">
-                                        <Label>Teléfono Celular *</Label>
-                                        <Input
-                                            type="tel"
-                                            value={phone}
-                                            onChange={(e) => setPhone(e.target.value)}
-                                            placeholder="+57 300 000 0000"
-                                        />
+                                        <Label>WhatsApp *</Label>
+                                        <PhoneInput value={phone} onChange={setPhone} />
                                         {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
                                     </div>
                                     <div className="space-y-2">
