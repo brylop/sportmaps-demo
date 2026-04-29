@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PhoneInput } from '@/components/ui/phone-input';
 import { Loader2, CheckCircle2, AlertCircle, UserPlus, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -297,8 +298,8 @@ export default function JoinPlanPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="phone">Telefono / WhatsApp *</Label>
-              <Input id="phone" type="tel" required value={phone} onChange={e => setPhone(e.target.value)} />
+              <Label>WhatsApp *</Label>
+              <PhoneInput value={phone} onChange={setPhone} />
             </div>
 
             <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/20">
