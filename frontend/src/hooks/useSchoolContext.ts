@@ -111,6 +111,7 @@ function useSchoolContextManager(): SchoolContext {
     const [isGlobalAdmin, setIsGlobalAdmin] = useState(false);
     const [totalBranchesCount, setTotalBranchesCount] = useState(0);
     const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
+    const [resolveCounter, setResolveCounter] = useState(0);
 
     const queryClient = useQueryClient();
 
@@ -268,7 +269,7 @@ function useSchoolContextManager(): SchoolContext {
 
         resolveUserContext();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [resolveCounter]);
 
     // 1b. Listen for auth changes to reset state on sign-out / re-resolve on new sign-in
     useEffect(() => {
@@ -279,8 +280,9 @@ function useSchoolContextManager(): SchoolContext {
                 // Only re-resolve if the user actually changed
                 if (currentUserIdRef.current !== session.user.id) {
                     currentUserIdRef.current = session.user.id;
-                    // Reset first, then the initial effect will handle re-resolving
-                    // via a full page navigation (signOut redirects to login)
+                    // Mostrar spinner y re-resolver contexto para el nuevo usuario
+                    setLoading(true);
+                    setResolveCounter(c => c + 1);
                 }
             }
         });
