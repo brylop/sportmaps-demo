@@ -31,13 +31,21 @@ import { normalizeSchoolName } from '../utils/brandingUtils';
 
 const router = Router();
 
+// ─── Helpers de schema ─────────────────────────────────────────────────────
+// Convierte string vacío o "none" a null antes de validar el UUID
+const uuid_or_null = z
+  .union([z.string().uuid(), z.literal(''), z.literal('none')])
+  .nullable()
+  .optional()
+  .transform(v => (!v || v === '' || v === 'none') ? null : v);
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const EnrollmentBase = z.object({
-  branch_id:        z.string().uuid().nullable().optional(),
-  team_id:          z.string().uuid().nullable().optional(),
-  offering_plan_id: z.string().uuid().nullable().optional(),
-  offering_id:      z.string().uuid().nullable().optional(),
+  branch_id:        uuid_or_null,
+  team_id:          uuid_or_null,
+  offering_plan_id: uuid_or_null,
+  offering_id:      uuid_or_null,
   start_date:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   monthly_fee:      z.number().min(10000).nullable().optional(),
   discount_pct:     z.number().min(0).max(100).optional(),
@@ -729,7 +737,7 @@ router.post(
         }
 
         // Pago proporcional
-        if (data.monthly_fee && data.monthly_fee >= 10000) {
+        if (data.team_id != null && data.monthly_fee && data.monthly_fee >= 10000) {
           const effectiveFee = data.discount_pct
             ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
             : data.monthly_fee;
@@ -738,7 +746,7 @@ router.post(
           await supabase.from('payments').insert({
             school_id: schoolId, branch_id: data.branch_id || null,
             unregistered_athlete_id: uaId,
-            team_id: data.team_id || null,
+            team_id: data.team_id,
             amount: payCalc.amount,
             concept: `Equipo ${teamName} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
             due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
@@ -754,13 +762,17 @@ router.post(
             .single();
 
           if (plan && plan.price >= 10000) {
-            const payCalc = calcFirstPayment(data.start_date, Number(plan.price), cycleType, cutoffDay);
+            const effectiveFee = data.discount_pct
+              ? Math.round(Number(plan.price) * (1 - data.discount_pct / 100))
+              : Number(plan.price);
+
+            const payCalc = calcFirstPayment(data.start_date, effectiveFee, cycleType, cutoffDay);
             await supabase.from('payments').insert({
               school_id: schoolId, branch_id: data.branch_id || null,
               unregistered_athlete_id: uaId,
               offering_plan_id: data.offering_plan_id,
               amount: payCalc.amount,
-              concept: `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}`,
+              concept: `Plan ${plan.name} — ${payCalc.description} — ${data.full_name}${data.discount_pct ? ` (Desc. ${data.discount_pct}%)` : ''}`,
               due_date: payCalc.dueDate, status: 'pending', payment_type: 'subscription',
             });
           }
@@ -779,6 +791,9 @@ router.post(
               .insert({
                 email: data.email, school_id: schoolId,
                 role_to_assign: 'athlete', invited_by: req.user?.id || null, status: 'pending',
+                offering_plan_id: data.offering_plan_id || null,
+                team_id: data.team_id || null,
+                monthly_fee: data.monthly_fee || null,
               })
               .select('id').single();
 
