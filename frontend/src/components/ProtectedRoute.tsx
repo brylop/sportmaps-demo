@@ -28,7 +28,7 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
   }
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Allow access even without profile - it will be created automatically
