@@ -44,7 +44,7 @@ export function useTrainerContext() {
 
     setLoadingProfile(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('trainer_profiles')
         .select('*')
         .eq('school_id', trainerSchoolId)

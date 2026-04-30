@@ -415,6 +415,15 @@ export default function InvitationsManagementPage() {
     const role = invitation.role_to_assign || formData.role;
     const phone = (invitation.parent_phone || formData.parentPhone).replace(/\D/g, '');
 
+    if (phone.length < 8) {
+      toast({ 
+        title: 'Sin número', 
+        description: 'No hay teléfono registrado para esta invitación.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     const messages: Record<string, string> = {
       parent: `¡Hola! Te invitamos a inscribir a ${invitation.child_name || formData.childName} en ${schoolName}. Completa el registro aquí: ${link}`,
       coach: `¡Hola! Te invitamos a unirte como entrenador en ${schoolName}. Completa tu registro aquí: ${link}`,
@@ -468,7 +477,7 @@ export default function InvitationsManagementPage() {
         p_child_name: data.role === 'parent' ? data.childName : null,
         p_team_id: ['parent', 'athlete', 'coach'].includes(data.role) ? (data.teamId || null) : null,
         p_monthly_fee: ['parent', 'athlete'].includes(data.role) ? fee : null,
-        p_parent_phone: data.parentPhone || null,
+        p_parent_phone: data.parentPhone.replace(/\D/g, '').length >= 8 ? data.parentPhone : null,
         p_branch_id: (formData as any).selectedBranchId || activeBranchId || null,
         p_offering_plan_id: data.offeringPlanId || null,
         p_unregistered_athlete_id: data.unregisteredAthleteId || null,  // ← PATCH
@@ -513,7 +522,7 @@ export default function InvitationsManagementPage() {
         toast({ title: '📋 Link copiado automáticamente', description: 'Compártelo por WhatsApp o email.' });
 
         // Si hay teléfono, abrir WhatsApp automáticamente con el link real
-        if (phone.length >= 7) {
+        if (phone.length >= 8) {
           const messages: Record<string, string> = {
             parent: `¡Hola! Te invitamos a inscribir a ${formData.childName} en ${schoolName}. Regístrate aquí: ${result.registration_link}`,
             coach: `¡Hola! Te invitamos como entrenador en ${schoolName}: ${result.registration_link}`,
