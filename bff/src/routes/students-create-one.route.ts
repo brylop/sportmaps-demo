@@ -376,13 +376,15 @@ router.post(
           const { data: inviteData, error: invErr } = await supabase
             .from('invitations')
             .insert({
-              email:          data.parent_email,
-              school_id:      schoolId,
-              role_to_assign: 'parent',
-              invited_by:     req.user?.id || null,
-              status:         'pending',
-              child_name:     data.full_name,
-              monthly_fee:    data.monthly_fee || null,
+              email:            data.parent_email,
+              school_id:        schoolId,
+              role_to_assign:   'parent',
+              invited_by:       req.user?.id || null,
+              status:           'pending',
+              child_name:       data.full_name,
+              team_id:          data.team_id          || null,
+              offering_plan_id: data.offering_plan_id || null,
+              monthly_fee:      data.monthly_fee      || null,
             })
             .select('id')
             .single();
@@ -787,13 +789,30 @@ router.post(
             .in('status', ['pending', 'accepted']).maybeSingle();
 
           if (!existingInv) {
+            // Calcular el monto efectivo descontado para guardarlo en la invitación
+            let invMonthlyFee: number | null = null;
+            if (data.offering_plan_id && data.offering_id) {
+              const { data: plan } = await supabase
+                .from('offering_plans').select('price').eq('id', data.offering_plan_id).single();
+              if (plan) {
+                invMonthlyFee = data.discount_pct
+                  ? Math.round(Number(plan.price) * (1 - data.discount_pct / 100))
+                  : Number(plan.price);
+              }
+            } else if (data.monthly_fee) {
+              invMonthlyFee = data.discount_pct
+                ? Math.round(data.monthly_fee * (1 - data.discount_pct / 100))
+                : data.monthly_fee;
+            }
+
             const { data: inviteData } = await supabase.from('invitations')
               .insert({
                 email: data.email, school_id: schoolId,
                 role_to_assign: 'athlete', invited_by: req.user?.id || null, status: 'pending',
                 offering_plan_id: data.offering_plan_id || null,
                 team_id: data.team_id || null,
-                monthly_fee: data.monthly_fee || null,
+                monthly_fee: invMonthlyFee,
+                parent_phone: data.phone || null,
               })
               .select('id').single();
 
