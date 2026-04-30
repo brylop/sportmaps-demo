@@ -47,7 +47,7 @@ export default function LoginPage() {
     }
   }, [inviteId]);
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  const from = '/dashboard';
 
   const {
     register,
@@ -62,7 +62,7 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   if (user) {
-    return <Navigate to={from} replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   const onSubmit = async (data: LoginFormData) => {
