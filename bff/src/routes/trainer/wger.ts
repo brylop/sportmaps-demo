@@ -18,6 +18,7 @@ const DEEPL_URL     = 'https://api-free.deepl.com/v2/translate';
 export interface WgerMuscle {
   id:       number;
   name_en:  string;
+  name_es:  string | null;
   is_front: boolean;
 }
 
@@ -110,6 +111,30 @@ function buildImageUrls(images: string[]): string[] {
   return images.map((img: string) => `${FREE_DB_IMG_BASE}${img}`);
 }
 
+// Mapa de ID de músculo → nombre en español
+let muscleNamesEs: Map<number, string> = new Map();
+
+async function loadMuscleNames(): Promise<void> {
+  try {
+    const res = await fetch(`${WGER_BASE_URL}/muscle/?format=json`, {
+      signal:  AbortSignal.timeout(FETCH_TIMEOUT),
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) return;
+    const data: any = await res.json();
+
+    for (const m of (data.results ?? [])) {
+      if (!m?.id) continue;
+      // wger devuelve name_es directo en el objeto muscle
+      const nameEs: string | null = m.name_es ?? m.name ?? null;
+      if (nameEs) muscleNamesEs.set(m.id, nameEs);
+    }
+    console.log(`[wger] ${muscleNamesEs.size} nombres de músculos en español cargados`);
+  } catch (err: any) {
+    console.warn('[wger] No se pudieron cargar nombres de músculos en español:', err.message);
+  }
+}
+
 // ── Carga de datasets ─────────────────────────────────────────────────────────
 
 async function loadWgerExercises(): Promise<WgerExercise[]> {
@@ -143,9 +168,19 @@ async function loadWgerExercises(): Promise<WgerExercise[]> {
         name_en,
         description:       stripHtml(esTrans?.description ?? enTrans?.description),
         muscles:           (raw.muscles ?? []).filter((m: any) => m?.id && m?.name_en)
-                             .map((m: any) => ({ id: m.id, name_en: m.name_en, is_front: !!m.is_front })),
+                             .map((m: any) => ({
+                               id:       m.id,
+                               name_en:  m.name_en,
+                               name_es:  muscleNamesEs.get(m.id) ?? null,
+                               is_front: !!m.is_front,
+                             })),
         muscles_secondary: (raw.muscles_secondary ?? []).filter((m: any) => m?.id && m?.name_en)
-                             .map((m: any) => ({ id: m.id, name_en: m.name_en, is_front: !!m.is_front })),
+                             .map((m: any) => ({
+                               id:       m.id,
+                               name_en:  m.name_en,
+                               name_es:  muscleNamesEs.get(m.id) ?? null,
+                               is_front: !!m.is_front,
+                             })),
         equipment:         (raw.equipment ?? []).filter((e: any) => e?.id && e?.name)
                              .map((e: any) => ({ id: e.id, name: e.name })),
         images:            (raw.images ?? []).filter((i: any) => i?.image)
@@ -291,6 +326,9 @@ async function translateNames(exercises: WgerExercise[]): Promise<WgerExercise[]
 
 async function loadAllExercises(): Promise<WgerExercise[]> {
   console.log('[exercises] Cargando catálogos en paralelo...');
+
+  // Cargar nombres de músculos en español primero
+  await loadMuscleNames();
 
   const [wgerList, freeList] = await Promise.all([
     loadWgerExercises().catch((err: any) => {
