@@ -13,6 +13,7 @@
 export interface WgerMuscle {
   id:       number;   // ID de wger (1=Bíceps, 2=Hombros, 6=Abs, etc.)
   name_en:  string;   // "Biceps", "Chest", "Abs", "Hamstrings"...
+  name_es:  string | null;
   is_front: boolean;  // true = músculo anterior, false = posterior
 }
 
@@ -81,7 +82,7 @@ export function wgerExerciseToBlockData(ex: WgerExercise): WgerBlockData {
     wger_description: ex.description,
     wger_images:      ex.images,
     muscle_ids:       ex.muscles.map((m) => m.id),
-    muscle_names:     ex.muscles.map((m) => m.name_en),
+    muscle_names:     ex.muscles.map((m) => m.name_es ?? m.name_en),
     equipment_id:     ex.equipment[0]?.id ?? null,
     equipment_name:   ex.equipment[0]?.name ?? null,
     is_compound:      ex.is_compound,
