@@ -10,6 +10,8 @@ const FREE_DB_IMG_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercis
 const CACHE_TTL_MS     = 24 * 60 * 60 * 1000;
 const PAGE_SIZE        = 100;
 const FETCH_TIMEOUT    = 10_000;
+const DEEPL_API_KEY = process.env.DEEPL_API_KEY ?? '';
+const DEEPL_URL     = 'https://api-free.deepl.com/v2/translate';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -116,7 +118,7 @@ async function loadWgerExercises(): Promise<WgerExercise[]> {
   let total  = Infinity;
 
   while (offset < total) {
-    const url = `${WGER_BASE_URL}/exerciseinfo/?format=json&language=4&limit=${PAGE_SIZE}&offset=${offset}`;
+    const url = `${WGER_BASE_URL}/exerciseinfo/?format=json&language=2&limit=${PAGE_SIZE}&offset=${offset}`;
     const response = await fetch(url, {
       signal:  AbortSignal.timeout(FETCH_TIMEOUT),
       headers: { 'Accept': 'application/json' },
@@ -234,6 +236,59 @@ function mergeDatasets(wgerList: WgerExercise[], freeList: FreeDbExercise[]): Wg
 
 // ── Carga combinada ───────────────────────────────────────────────────────────
 
+async function translateNames(exercises: WgerExercise[]): Promise<WgerExercise[]> {
+  if (!DEEPL_API_KEY) {
+    console.warn('[deepl] DEEPL_API_KEY no configurada — nombres sin traducir');
+    return exercises;
+  }
+
+  const needsTranslation = exercises.filter(ex => !ex.name_es && ex.name_en);
+  if (needsTranslation.length === 0) return exercises;
+
+  console.log(`[deepl] Traduciendo ${needsTranslation.length} nombres sin español...`);
+
+  const BATCH = 50;
+  const translated = new Map<string, string>();
+
+  for (let i = 0; i < needsTranslation.length; i += BATCH) {
+    const batch = needsTranslation.slice(i, i + BATCH);
+    try {
+      const body = new URLSearchParams();
+      body.append('auth_key', DEEPL_API_KEY);
+      body.append('target_lang', 'ES');
+      body.append('source_lang', 'EN');
+      batch.forEach(ex => body.append('text', ex.name_en));
+
+      const res = await fetch(DEEPL_URL, {
+        method: 'POST',
+        body,
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (!res.ok) {
+        console.error(`[deepl] Error ${res.status} en batch ${i / BATCH + 1}`);
+        break;
+      }
+
+      const data: any = await res.json();
+      data.translations?.forEach((t: any, idx: number) => {
+        translated.set(batch[idx].name_en, t.text);
+      });
+    } catch (err: any) {
+      console.error(`[deepl] Timeout/error en batch ${i / BATCH + 1}:`, err.message);
+      break;
+    }
+  }
+
+  const result = exercises.map(ex => ({
+    ...ex,
+    name_es: ex.name_es ?? translated.get(ex.name_en) ?? null,
+  }));
+
+  console.log(`[deepl] ${translated.size} nombres traducidos`);
+  return result;
+}
+
 async function loadAllExercises(): Promise<WgerExercise[]> {
   console.log('[exercises] Cargando catálogos en paralelo...');
 
@@ -271,7 +326,8 @@ async function loadAllExercises(): Promise<WgerExercise[]> {
     return wgerList;
   }
 
-  return mergeDatasets(wgerList, freeList);
+  const merged = mergeDatasets(wgerList, freeList);
+  return translateNames(merged);
 }
 
 async function getExercises(): Promise<WgerExercise[]> {
