@@ -1,8 +1,8 @@
 /**
- * PaymentConfirmModal — Modal de desglose y confirmación antes de pagar con ePayco
+ * PaymentConfirmModal — Modal de desglose y confirmación antes de pagar con Wompi
  *
  * Este modal aparece DESPUÉS de que el padre seleccione "Pagar online"
- * y ANTES de que se abra el checkout de ePayco.
+ * y ANTES de que se abra el checkout de Wompi.
  *
  * Objetivo: transparencia total sobre el fee de procesamiento.
  */
@@ -112,7 +112,7 @@ export function PaymentConfirmModal({
                     {/* ── Info de seguridad ──────────────────────────────────── */}
                     <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-4 w-4 text-green-600" />
-                        <span>Pago seguro procesado por ePayco</span>
+                        <span>Pago seguro procesado por Wompi</span>
                     </div>
 
                     {/* ── Nota sobre el fee ──────────────────────────────────── */}
@@ -132,7 +132,7 @@ export function PaymentConfirmModal({
                             {loading ? (
                                 <>
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Conectando con ePayco...
+                                    Conectando con Wompi...
                                 </>
                             ) : (
                                 `Confirmar y pagar ${formatCurrency(grossAmount)}`

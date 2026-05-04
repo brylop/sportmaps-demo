@@ -16,7 +16,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const PAYMENT_METHODS = [
   { id: 'bank_transfer', label: 'Transferencia Bancaria' },
   { id: 'wompi', label: 'Wompi Gateway' },
-  { id: 'epayco', label: 'ePayco Gateway' },
   { id: 'cash', label: 'Efectivo / Presencial' },
 ];
 

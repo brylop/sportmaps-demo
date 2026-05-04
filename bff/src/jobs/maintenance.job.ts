@@ -1,5 +1,10 @@
 import cron from 'node-cron';
 import { supabase } from '../config/supabase';
+import {
+    createTransactionWithToken,
+    generateReference,
+    copToCents,
+} from '../services/wompi.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -44,4 +49,118 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Trabajos de mantenimiento registrados para las 23:55 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Auto-cobro de suscripciones recurrentes con token Wompi
+    //
+    // Frecuencia: 02:00 COT cada día. Recorre `subscriptions_due_for_billing`
+    // (vista que filtra suscripciones con auto_renew=true y next_billing_date
+    // vencida) y crea una transaccion server-to-server contra Wompi usando el
+    // token guardado. Al exito, marca paid + avanza next_billing_date un mes;
+    // al fallo, registra last_billing_error y marca para review del negocio.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('0 2 * * *', async () => {
+        console.log('[CRON] Iniciando auto-cobro de suscripciones...');
+        try {
+            const { data: dueSubs, error } = await supabase
+                .from('subscriptions_due_for_billing')
+                .select('*');
+
+            if (error) {
+                console.error('[CRON] Error consultando subscriptions_due_for_billing:', error.message);
+                return;
+            }
+
+            if (!dueSubs || dueSubs.length === 0) {
+                console.log('[CRON] No hay suscripciones por cobrar hoy.');
+                return;
+            }
+
+            console.log(`[CRON] Procesando ${dueSubs.length} cobros de suscripcion...`);
+
+            for (const sub of dueSubs) {
+                if (!sub.wompi_token || !sub.price) continue;
+
+                const { data: userInfo } = await supabase
+                    .from('profiles')
+                    .select('email, full_name')
+                    .eq('id', sub.user_id)
+                    .single();
+
+                if (!userInfo?.email) {
+                    await supabase
+                        .from('subscriptions')
+                        .update({
+                            last_billing_attempt_at: new Date().toISOString(),
+                            last_billing_error: 'no_user_email',
+                        })
+                        .eq('id', sub.subscription_id);
+                    continue;
+                }
+
+                const reference = generateReference('subscription');
+                const amountInCents = copToCents(Number(sub.price));
+
+                // Crear marketplace_transaction antes de cobrar (para que webhook reconcilie)
+                const { data: tx } = await supabase
+                    .from('marketplace_transactions')
+                    .insert({
+                        user_id: sub.user_id,
+                        checkout_type: 'subscription',
+                        subscription_id: sub.subscription_id,
+                        gross_amount: Number(sub.price),
+                        wompi_reference: reference,
+                        status: 'pending',
+                        description: `Renovacion auto: ${sub.plan_name || 'plan'}`,
+                    })
+                    .select('id')
+                    .single();
+
+                const result = await createTransactionWithToken({
+                    paymentToken: sub.wompi_token,
+                    amountInCents,
+                    reference,
+                    customerEmail: userInfo.email,
+                });
+
+                if (!result.ok) {
+                    console.warn(`[CRON] Cobro fallido sub=${sub.subscription_id}: ${result.error}`);
+                    await supabase
+                        .from('subscriptions')
+                        .update({
+                            last_billing_attempt_at: new Date().toISOString(),
+                            last_billing_error: result.error,
+                        })
+                        .eq('id', sub.subscription_id);
+
+                    if (tx?.id) {
+                        await supabase.rpc('flag_payment_for_review', {
+                            p_kind: 'marketplace_transaction',
+                            p_id: tx.id,
+                            p_reason: `autopay_failed: ${result.error}`,
+                        });
+                    }
+                    continue;
+                }
+
+                // Wompi crea la tx pero el resultado real llega via webhook.
+                // Marcar el intento; cuando llegue APPROVED, el webhook actualiza next_billing_date.
+                await supabase
+                    .from('subscriptions')
+                    .update({
+                        last_billing_attempt_at: new Date().toISOString(),
+                        last_billing_error: null,
+                    })
+                    .eq('id', sub.subscription_id);
+
+                console.log(`[CRON] Cobro iniciado sub=${sub.subscription_id} txWompi=${result.transactionId} status=${result.status}`);
+            }
+
+            console.log('[CRON] Auto-cobro de suscripciones completado.');
+        } catch (err: any) {
+            console.error('[CRON] Error inesperado en auto-cobro:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Auto-cobro de suscripciones registrado para las 02:00 COT.');
 }

@@ -167,20 +167,21 @@ export default function ParentCheckoutPage() {
     }
 
     const { error: insertError } = await supabase.from('payments').insert({
-      parent_id: user?.id, 
+      parent_id: user?.id,
       child_id: childId || null,
       team_id: teamId || null,
-      amount, 
-      concept, 
-      status: 'paid',
+      amount,
+      concept,
+      // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
+      status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
       payment_date: new Date().toISOString().split('T')[0],
       due_date: new Date().toISOString().split('T')[0],
-      receipt_number: reference, 
+      receipt_number: reference,
       payment_type: 'one_time',
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       school_id: schoolId,
-      receipt_url: manualReceiptUrl
-    });
+      receipt_url: manualReceiptUrl,
+    } as any);
 
     if (insertError) {
       console.error('Error inserting payment:', insertError);

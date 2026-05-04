@@ -2,7 +2,7 @@
  * SportMapsPaySettings — Configuración de pagos online para owners/admins
  *
  * Lee y actualiza school_settings para controlar:
- * - Activación/desactivación de ePayco
+ * - Activación/desactivación de Wompi
  * - Porcentaje de fee
  * - Quién paga el fee (parent/school/split)
  * - Día de transferencia a la escuela
@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PaySettings {
-    epayco_enabled: boolean;
+    wompi_enabled: boolean;
     online_fee_pct: number;
     fee_payer: 'parent' | 'school' | 'split';
     transfer_day: string;
@@ -72,7 +72,7 @@ export function SportMapsPaySettings() {
             setLoading(true);
             const { data, error } = await supabase
                 .from('school_settings')
-                .select('epayco_enabled, online_fee_pct, fee_payer, transfer_day, sportmaps_pay_terms_accepted_at, sportmaps_pay_terms_accepted_by')
+                .select('wompi_enabled, online_fee_pct, fee_payer, transfer_day, sportmaps_pay_terms_accepted_at, sportmaps_pay_terms_accepted_by')
                 .eq('school_id', schoolId)
                 .single();
 
@@ -80,7 +80,7 @@ export function SportMapsPaySettings() {
 
             const s = data as any;
             setSettings({
-                epayco_enabled: s?.epayco_enabled ?? false,
+                wompi_enabled: s?.wompi_enabled ?? false,
                 online_fee_pct: Number(s?.online_fee_pct ?? 3),
                 fee_payer: s?.fee_payer ?? 'parent',
                 transfer_day: s?.transfer_day ?? 'monday',
@@ -103,14 +103,14 @@ export function SportMapsPaySettings() {
             setSaving(true);
 
             const updateData: Record<string, any> = {
-                epayco_enabled: settings.epayco_enabled,
+                wompi_enabled: settings.wompi_enabled,
                 online_fee_pct: settings.online_fee_pct,
                 fee_payer: settings.fee_payer,
                 transfer_day: settings.transfer_day,
             };
 
             // Si es la primera vez que activa y acepta términos
-            if (settings.epayco_enabled && !settings.sportmaps_pay_terms_accepted_at && termsAccepted) {
+            if (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && termsAccepted) {
                 updateData.sportmaps_pay_terms_accepted_at = new Date().toISOString();
                 updateData.sportmaps_pay_terms_accepted_by = user?.id;
             }
@@ -155,7 +155,7 @@ export function SportMapsPaySettings() {
                 <CardTitle className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-primary" />
                     SportMaps Pay
-                    {settings.epayco_enabled ? (
+                    {settings.wompi_enabled ? (
                         <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs">
                             Activo
                         </Badge>
@@ -164,7 +164,7 @@ export function SportMapsPaySettings() {
                     )}
                 </CardTitle>
                 <CardDescription>
-                    Permite a tus padres y atletas pagar online con tarjeta, PSE o Nequi a través de ePayco.
+                    Permite a tus padres y atletas pagar online con tarjeta, PSE o Nequi a través de Wompi.
                 </CardDescription>
             </CardHeader>
 
@@ -172,7 +172,7 @@ export function SportMapsPaySettings() {
                 {/* ── Toggle principal ──────────────────────────────────── */}
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                        <Label htmlFor="epayco-toggle" className="text-base font-medium">
+                        <Label htmlFor="wompi-toggle" className="text-base font-medium">
                             Activar pagos online
                         </Label>
                         <p className="text-sm text-muted-foreground">
@@ -180,16 +180,16 @@ export function SportMapsPaySettings() {
                         </p>
                     </div>
                     <Switch
-                        id="epayco-toggle"
-                        checked={settings.epayco_enabled}
-                        onCheckedChange={(checked) => setSettings({ ...settings, epayco_enabled: checked })}
+                        id="wompi-toggle"
+                        checked={settings.wompi_enabled}
+                        onCheckedChange={(checked) => setSettings({ ...settings, wompi_enabled: checked })}
                     />
                 </div>
 
                 <Separator />
 
                 {/* ── Configuración (solo si está activo o se va a activar) ── */}
-                {(settings.epayco_enabled || settings.sportmaps_pay_terms_accepted_at) && (
+                {(settings.wompi_enabled || settings.sportmaps_pay_terms_accepted_at) && (
                     <>
                         {/* Fee */}
                         <div className="space-y-3">
@@ -287,7 +287,7 @@ export function SportMapsPaySettings() {
                                     {new Date(settings.sportmaps_pay_terms_accepted_at).toLocaleDateString('es-CO')}
                                 </span>
                             </div>
-                        ) : settings.epayco_enabled ? (
+                        ) : settings.wompi_enabled ? (
                             <Alert>
                                 <AlertTriangle className="h-4 w-4" />
                                 <AlertDescription className="text-sm">
@@ -310,7 +310,7 @@ export function SportMapsPaySettings() {
                         {/* ── Seguridad ─────────────────────────────────────── */}
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Shield className="h-4 w-4 text-green-600" />
-                            <span>Pagos procesados de forma segura por ePayco. SportMaps nunca ve los datos de tarjeta.</span>
+                            <span>Pagos procesados de forma segura por Wompi (Bancolombia). SportMaps nunca ve los datos de tarjeta.</span>
                         </div>
                     </>
                 )}
@@ -318,7 +318,7 @@ export function SportMapsPaySettings() {
                 {/* ── Botón guardar ─────────────────────────────────────── */}
                 <Button
                     onClick={handleSave}
-                    disabled={saving || (settings.epayco_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)}
+                    disabled={saving || (settings.wompi_enabled && !settings.sportmaps_pay_terms_accepted_at && !termsAccepted)}
                     className="w-full"
                 >
                     {saving ? (

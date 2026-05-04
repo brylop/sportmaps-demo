@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '@/contexts/CartContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, CreditCard } from 'lucide-react';
+import { CartCheckoutModal } from '@/components/shop/CartCheckoutModal';
 
 export default function CartPage() {
   const navigate = useNavigate();
   const { items, removeItem, updateQuantity, total, clearCart } = useCart();
+  const [showCheckout, setShowCheckout] = useState(false);
 
   if (items.length === 0) {
     return (
@@ -133,7 +136,7 @@ export default function CartPage() {
                 </div>
               </CardContent>
               <CardFooter className="flex-col gap-2">
-                <Button size="lg" className="w-full" onClick={() => navigate('/checkout')}>
+                <Button size="lg" className="w-full" onClick={() => setShowCheckout(true)}>
                   <CreditCard className="h-5 w-5 mr-2" />
                   Proceder al Pago
                 </Button>
@@ -145,6 +148,21 @@ export default function CartPage() {
           </div>
         </div>
       </div>
+
+      <CartCheckoutModal
+        open={showCheckout}
+        onOpenChange={setShowCheckout}
+        items={items.map((i) => ({
+          productId: i.id,
+          name: i.name,
+          quantity: i.quantity,
+          unitPrice: i.discount ? i.price * (1 - i.discount / 100) : i.price,
+        }))}
+        onSuccess={() => {
+          clearCart();
+          navigate('/my-orders');
+        }}
+      />
     </div>
   );
 }

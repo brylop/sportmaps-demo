@@ -31,9 +31,8 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWompiCheckout } from '@/hooks/useWompiCheckout';
 import type { ExploreItem } from '@/hooks/useExplorarGlobal';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 interface ServiceBookingModalProps {
   open: boolean;
@@ -168,44 +167,35 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
         return { type: 'courtesy', appointmentId: appointment.id };
       }
 
-      // 3. Create checkout via BFF
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`${API_URL}/api/v1/marketplace/checkout/service`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          appointmentId: appointment.id,
-          serviceListingId: service.id,
-        }),
-      });
-
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || 'Error en checkout');
-
-      return { type: 'paid', ...json.data };
+      // 3. Open Wompi checkout via unified hook (BFF + Widget)
+      return { type: 'paid', appointmentId: appointment.id };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       if (result.type === 'courtesy') {
         toast.success('Sesion de cortesia confirmada');
         onOpenChange(false);
         navigate('/wellness/appointments');
-      } else if (result.sessionId) {
-        // Open ePayco checkout
-        toast.success('Redirigiendo a pago...');
+        return;
+      }
+      // Disparar Wompi widget — el hook habla con el BFF y abre el widget
+      toast.success('Abriendo pago seguro...');
+      const tx = await startServiceCheckout({
+        appointmentId: result.appointmentId,
+        serviceListingId: service.id,
+      });
+      if (tx?.status === 'APPROVED') {
         onOpenChange(false);
-        // ePayco checkout dialog — handled by frontend ePayco SDK
-        window.open(
-          `https://checkout.epayco.co/session/${result.sessionId}`,
-          '_blank',
-        );
+        navigate('/wellness/appointments');
       }
     },
     onError: (err: any) => {
       toast.error(err.message || 'Error al reservar');
     },
+  });
+
+  // Hook unificado de Wompi
+  const { startServiceCheckout } = useWompiCheckout({
+    onError: (err) => toast.error(err.message),
   });
 
   const selectedChild = children.find(c => c.id === selectedChildId);
@@ -434,7 +424,7 @@ export function ServiceBookingModal({ open, onOpenChange, service, isParent }: S
 
             {service.price > 0 && (
               <p className="text-xs text-muted-foreground text-center">
-                Seras redirigido a ePayco para completar el pago de forma segura.
+                Se abrira el checkout seguro de Wompi para completar el pago.
               </p>
             )}
           </div>

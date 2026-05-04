@@ -62,7 +62,17 @@ interface Transaction {
   concept?: string;
   child_id?: string;
   child_name?: string;
+  period_year?: number | null;
+  period_month?: number | null;
+  period_label?: string | null;
 }
+
+const MONTH_NAMES_ES = [
+  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
+];
+const formatPeriodLabel = (year?: number | null, month?: number | null): string | null =>
+  year && month && month >= 1 && month <= 12 ? `${MONTH_NAMES_ES[month - 1]} ${year}` : null;
 
 const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
   pending:           { label: 'Pendiente',   icon: Clock,       color: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800' },
@@ -207,6 +217,9 @@ export default function MyPaymentsPage() {
         transaction_date: p.payment_date || p.created_at,
         authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
         receipt_url: p.receipt_url,
+        period_year:  p.period_year ?? null,
+        period_month: p.period_month ?? null,
+        period_label: formatPeriodLabel(p.period_year, p.period_month),
       }));
       setTransactions(txns);
 
@@ -760,7 +773,9 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
 
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-bold text-sm sm:text-base text-foreground truncate">
-                {txn.concept || 'Mensualidad'}
+                {txn.period_label
+                  ? `Mensualidad ${txn.period_label}`
+                  : (txn.concept || 'Mensualidad')}
               </h3>
               <div className="text-right shrink-0">
                 <p className="font-bold text-sm sm:text-base text-foreground">

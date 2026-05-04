@@ -14,13 +14,29 @@ const formatCurrency = (amount: number) =>
 
 import { FileUpload } from '@/components/common/FileUpload';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
-import { useEPaycoCheckout } from '@/hooks/useEPaycoCheckout';
+import { useWompiCheckout } from '@/hooks/useWompiCheckout';
+import {
+  useNextUnpaidPeriod,
+  fetchPeriodStatus,
+  isPeriodActive,
+  type PeriodStatus,
+} from '@/hooks/usePaymentPeriod';
 
 interface PaymentCheckoutModalProps {
   open: boolean;
@@ -43,7 +59,7 @@ export function PaymentCheckoutModal({
 }: PaymentCheckoutModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | null>(null);
   const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
-  const [epaycoEnabled, setEpaycoEnabled] = useState(false);
+  const [wompiEnabled, setWompiEnabled] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -63,32 +79,46 @@ export function PaymentCheckoutModal({
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
   const [bankDetails, setBankDetails] = useState<any>(null);
 
+  // ── Periodo (mes/año) que cubre este pago ────────────────────────────────
+  // Calculado por la RPC `next_unpaid_period`. Se usa para marcar el pago
+  // con period_year/period_month y para preguntar al padre si quiere
+  // adelantar cuando el mes sugerido ya esta cubierto.
+  const { period: nextPeriod } = useNextUnpaidPeriod(
+    open && conceptType === 'mensualidad' ? childId ?? null : null,
+  );
+  const [advancedPeriod, setAdvancedPeriod] = useState<{ year: number; month: number; label: string } | null>(null);
+  const [confirmAdvanceOpen, setConfirmAdvanceOpen] = useState(false);
+
+  // Periodo efectivo que se va a cobrar (posiblemente adelantado).
+  const effectivePeriod = advancedPeriod ?? (nextPeriod
+    ? { year: nextPeriod.year, month: nextPeriod.month, label: nextPeriod.label }
+    : null);
+
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, epayco_enabled, online_fee_pct')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct')
         .eq('school_id', schoolId).single()
         .then(({ data }) => {
           setBankDetails(data);
-          setEpaycoEnabled(!!(data as any)?.epayco_enabled);
+          setWompiEnabled(!!(data as any)?.wompi_enabled);
           setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
         });
     }
   }, [open, schoolId]);
 
-  // ── ePayco checkout hook ──────────────────────────────────────────────────
+  // ── Wompi checkout hook ──────────────────────────────────────────────────
   const finalAmount = mode === 'create' && !['mensualidad', 'inscripcion_fija'].includes(conceptType) ? (parseFloat(customAmount) || 0) : amount;
-  const finalConcept = mode === 'create' && conceptType !== 'mensualidad' 
-    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono') 
-    : concept;
+  const finalConcept = mode === 'create' && conceptType !== 'mensualidad'
+    ? (conceptType.startsWith('inscripcion') ? 'Inscripción Anual' : customConcept || 'Pago / Abono')
+    : (effectivePeriod ? `Mensualidad ${effectivePeriod.label}` : concept);
 
   const sportmapsFee = Math.round(finalAmount * (onlineFeePct / 100));
   const grossAmount = finalAmount + sportmapsFee;
 
-  const { openCheckout, loading: epaycoLoading } = useEPaycoCheckout({
-    paymentId: paymentId || '',
+  const { startSchoolPayment, loading: wompiLoading } = useWompiCheckout({
     onSuccess: () => {
-      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con ePayco.' });
+      toast({ title: '¡Pago iniciado!', description: 'Estamos verificando tu pago con Wompi.' });
       onSuccess?.();
       onOpenChange(false);
     },
@@ -99,6 +129,15 @@ export function PaymentCheckoutModal({
       setShowOnlineConfirm(false);
     },
   });
+
+  const openCheckout = () => {
+    if (!paymentId) return;
+    return startSchoolPayment({
+      paymentId,
+      schoolId,
+      studentName: childName,
+    });
+  };
 
   useEffect(() => {
     if (open && user?.id) {
@@ -151,12 +190,14 @@ export function PaymentCheckoutModal({
       setProofUrl(null);
       setPendingPaymentDate(null);
       setShowOnlineConfirm(false);
+      setAdvancedPeriod(null);
+      setConfirmAdvanceOpen(false);
     }
   }, [open]);
 
   const paymentMethods = [
     // ── Pago online (solo si la escuela lo tiene habilitado) ──────────────
-    ...(epaycoEnabled ? [{
+    ...(wompiEnabled ? [{
       id: 'online' as const,
       name: 'Pagar online',
       description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
@@ -166,7 +207,7 @@ export function PaymentCheckoutModal({
       badge: `+${formatCurrency(sportmapsFee)} fee`,
     }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !epaycoEnabled, enabled: true },
+    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled, enabled: true },
     { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
     { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
   ];
@@ -202,38 +243,83 @@ export function PaymentCheckoutModal({
         if (existingPayment.status === 'paid') throw new Error('Este pago ya fue procesado.');
       }
 
+      // Periodo a registrar cuando es mensualidad (NULL en otros conceptos
+      // como inscripcion / abono libre).
+      const periodYear  = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year  : null;
+      const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
         if (mode === 'update' && paymentId) {
-          const { error: updateError } = await supabase.from('payments').update({ 
-            status: 'awaiting_approval', 
-            payment_method: 'transfer', 
-            payment_date: new Date().toISOString().split('T')[0], 
-            receipt_url: proofUrl, 
-            updated_at: new Date().toISOString() 
+          const { error: updateError } = await supabase.from('payments').update({
+            status: 'awaiting_approval',
+            payment_method: 'transfer',
+            payment_date: new Date().toISOString().split('T')[0],
+            receipt_url: proofUrl,
+            period_year:  periodYear,
+            period_month: periodMonth,
+            updated_at: new Date().toISOString()
           }).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
-          const { error: insertError } = await supabase.from('payments').insert({ 
-            parent_id: user?.id, 
-            child_id: payloadChildId, 
+          const { error: insertError } = await supabase.from('payments').insert({
+            parent_id: user?.id,
+            child_id: payloadChildId,
             team_id: (teamId && teamId !== '') ? teamId : null,
-            school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-            branch_id: payloadBranchId, 
-            amount: finalAmount, 
-            concept: finalConcept, 
-            status: 'awaiting_approval', 
-            payment_method: 'transfer', 
+            school_id: (schoolId && schoolId !== '') ? schoolId : null,
+            branch_id: payloadBranchId,
+            amount: finalAmount,
+            concept: finalConcept,
+            status: 'awaiting_approval',
+            payment_method: 'transfer',
             payment_type: 'one_time',
-            payment_date: new Date().toISOString().split('T')[0], 
-            due_date: new Date().toISOString().split('T')[0], 
+            payment_date: new Date().toISOString().split('T')[0],
+            due_date: new Date().toISOString().split('T')[0],
             receipt_url: proofUrl,
+            period_year:  periodYear,
+            period_month: periodMonth,
             reference: `TRF-${Date.now().toString(36).toUpperCase()}`
           });
           if (insertError) throw insertError;
         }
+        // Notificar al owner de la escuela con el mes especifico
+        // (fire-and-forget; un fallo aqui no debe romper el flujo del padre).
+        if (schoolId) {
+          void (async () => {
+            try {
+              const { data: schoolRow } = await supabase
+                .from('schools')
+                .select('owner_id')
+                .eq('id', schoolId)
+                .maybeSingle();
+              const ownerId = schoolRow?.owner_id;
+              if (!ownerId) return;
+              const periodLabel = effectivePeriod?.label;
+              const studentLabel = childName ?? 'un estudiante';
+              await supabase.rpc('notify_user', {
+                p_user_id: ownerId,
+                p_title:   periodLabel
+                  ? `Comprobante por validar — ${periodLabel}`
+                  : 'Comprobante por validar',
+                p_message: periodLabel
+                  ? `${studentLabel} envió comprobante de ${formatCurrency(finalAmount)} para ${periodLabel}.`
+                  : `${studentLabel} envió un comprobante de ${formatCurrency(finalAmount)}.`,
+                p_type: 'payment',
+                p_link: '/finances',
+              });
+            } catch {
+              /* silencio: notificacion no debe interrumpir flujo */
+            }
+          })();
+        }
+
         setPaymentStatus('awaiting_approval');
-        toast({ title: "Pago registrado", description: "Tu cupo ha sido reservado. Validaremos tu comprobante pronto." });
+        toast({
+          title: "Pago registrado",
+          description: effectivePeriod
+            ? `Comprobante de ${effectivePeriod.label} enviado. La escuela lo validará pronto.`
+            : "Tu cupo ha sido reservado. Validaremos tu comprobante pronto.",
+        });
         setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 3000);
         return;
       }
@@ -241,29 +327,33 @@ export function PaymentCheckoutModal({
       const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let error = null;
       if (mode === 'update' && paymentId) {
-        const { error: updateError } = await supabase.from('payments').update({ 
-          status: 'paid', 
-          payment_method: selectedMethod, 
-          payment_date: new Date().toISOString().split('T')[0], 
-          receipt_number: receiptNumber, 
-          updated_at: new Date().toISOString() 
+        const { error: updateError } = await supabase.from('payments').update({
+          status: 'paid',
+          payment_method: selectedMethod,
+          payment_date: new Date().toISOString().split('T')[0],
+          receipt_number: receiptNumber,
+          period_year:  periodYear,
+          period_month: periodMonth,
+          updated_at: new Date().toISOString()
         }).eq('id', paymentId);
         error = updateError;
       } else {
-        const { error: insertError } = await supabase.from('payments').insert({ 
-          parent_id: user?.id, 
-          child_id: payloadChildId, 
-          team_id: (teamId && teamId !== '') ? teamId : null, 
-          school_id: (schoolId && schoolId !== '') ? schoolId : null, 
-          branch_id: payloadBranchId, 
-          amount: finalAmount, 
-          concept: finalConcept, 
-          status: 'paid', 
-          payment_method: selectedMethod, 
+        const { error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: payloadChildId,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: payloadBranchId,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: 'paid',
+          payment_method: selectedMethod,
           payment_type: 'one_time',
-          payment_date: new Date().toISOString().split('T')[0], 
-          due_date: new Date().toISOString().split('T')[0], 
-          receipt_number: receiptNumber 
+          payment_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          receipt_number: receiptNumber,
+          period_year:  periodYear,
+          period_month: periodMonth
         });
         error = insertError;
       }
@@ -299,6 +389,65 @@ export function PaymentCheckoutModal({
 
   const handleClose = () => { if (!processing) onOpenChange(false); };
 
+  // ── Handler que decide si abre el AlertDialog "¿adelantar siguiente mes?"
+  // antes de procesar el pago. Solo aplica al concepto 'mensualidad'.
+  const handlePayClick = () => {
+    if (processing) return;
+    if (!selectedMethod) return;
+
+    // No-mensualidad o sin info de periodo → flujo directo
+    if (conceptType !== 'mensualidad' || !nextPeriod || !childId) {
+      void processPayment();
+      return;
+    }
+
+    // El mes sugerido todavia esta libre → cobramos ese mes
+    if (!isPeriodActive(nextPeriod.current_status as PeriodStatus)) {
+      void processPayment();
+      return;
+    }
+
+    // El mes sugerido ya tiene un pago activo → preguntamos si adelantar
+    setConfirmAdvanceOpen(true);
+  };
+
+  // Calcula el mes siguiente al sugerido y verifica que tampoco este pagado.
+  // Si tambien esta pagado, salta al siguiente y asi sucesivamente (max 12
+  // saltos para evitar loops). Setea advancedPeriod y dispara processPayment.
+  const handleConfirmAdvance = async () => {
+    if (!nextPeriod || !childId) {
+      setConfirmAdvanceOpen(false);
+      return;
+    }
+    let y = nextPeriod.year;
+    let m = nextPeriod.month + 1;
+    if (m > 12) { m = 1; y += 1; }
+
+    // Saltar meses que ya esten cubiertos (si el padre adelanto varios)
+    for (let i = 0; i < 12; i++) {
+      try {
+        const result = await fetchPeriodStatus(childId, y, m);
+        if (!isPeriodActive(result.status)) break;
+      } catch {
+        break;
+      }
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+
+    setAdvancedPeriod({
+      year: y,
+      month: m,
+      label: `${[
+        'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+        'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
+      ][m - 1]} ${y}`,
+    });
+    setConfirmAdvanceOpen(false);
+    // Defer al siguiente tick para que finalConcept use el nuevo periodo
+    setTimeout(() => { void processPayment(); }, 0);
+  };
+
   return (
     <>
     <Dialog open={open} onOpenChange={handleClose}>
@@ -313,8 +462,16 @@ export function PaymentCheckoutModal({
         sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg sm:p-6
       ">
         <DialogHeader className="text-left">
-          <DialogTitle className="text-xl sm:text-2xl">Realizar Pago</DialogTitle>
-          <DialogDescription>Selecciona tu método de pago preferido</DialogDescription>
+          <DialogTitle className="text-xl sm:text-2xl">
+            {conceptType === 'mensualidad' && effectivePeriod
+              ? `Mensualidad ${effectivePeriod.label}`
+              : 'Realizar Pago'}
+          </DialogTitle>
+          <DialogDescription>
+            {conceptType === 'mensualidad' && effectivePeriod && childName
+              ? `Pago para ${childName} — ${effectivePeriod.label}`
+              : 'Selecciona tu método de pago preferido'}
+          </DialogDescription>
         </DialogHeader>
 
         {/* Estado 1: Verificando */}
@@ -482,7 +639,7 @@ export function PaymentCheckoutModal({
             {/* Botones acción */}
             {hasCompleteDianData && selectedMethod !== 'online' && (
               <div className="space-y-2 pt-2">
-                <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={processPayment}>
+                <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={handlePayClick}>
                   {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(finalAmount)}`}
                 </Button>
                 <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
@@ -495,10 +652,10 @@ export function PaymentCheckoutModal({
                 <Button
                   className="w-full bg-green-600 hover:bg-green-700"
                   size="lg"
-                  disabled={epaycoLoading}
+                  disabled={wompiLoading}
                   onClick={() => setShowOnlineConfirm(true)}
                 >
-                  {epaycoLoading ? (
+                  {wompiLoading ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Conectando...</>
                   ) : (
                     `Pagar online ${formatCurrency(grossAmount)}`
@@ -574,7 +731,7 @@ export function PaymentCheckoutModal({
       </DialogContent>
     </Dialog>
 
-    {/* ── Modal de confirmación de pago online (ePayco) ────────────────────── */}
+    {/* ── Modal de confirmación de pago online (Wompi) ────────────────────── */}
     <PaymentConfirmModal
       open={showOnlineConfirm}
       onOpenChange={setShowOnlineConfirm}
@@ -584,10 +741,37 @@ export function PaymentCheckoutModal({
       feePct={onlineFeePct}
       concept={finalConcept}
       childName={childName}
-      loading={epaycoLoading}
+      loading={wompiLoading}
       onConfirm={openCheckout}
       onBack={() => setShowOnlineConfirm(false)}
     />
+
+    {/* ── Confirmacion: ¿adelantar el siguiente mes? ──────────────────────── */}
+    <AlertDialog open={confirmAdvanceOpen} onOpenChange={setConfirmAdvanceOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {nextPeriod && `${nextPeriod.label} ya tiene un pago activo`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {nextPeriod?.current_status === 'paid' || nextPeriod?.current_status === 'approved'
+              ? `Ya pagaste ${nextPeriod.label} para ${childName ?? 'este estudiante'}.`
+              : nextPeriod?.current_status === 'awaiting_approval'
+                ? `Hay un comprobante de ${nextPeriod?.label} esperando validacion de la escuela.`
+                : `Ya hay un cobro registrado para ${nextPeriod?.label}.`}
+            {' '}¿Deseas adelantar el siguiente mes?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>
+            Cancelar
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={() => { void handleConfirmAdvance(); }}>
+            Sí, adelantar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
