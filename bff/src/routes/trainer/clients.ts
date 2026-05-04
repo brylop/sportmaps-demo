@@ -164,11 +164,11 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
     // Resolve profile/child/plan separately
     const [profileRes, planRes] = await Promise.all([
       enrollment?.user_id
-        ? supabase.from('profiles').select('full_name, email, phone, avatar_url, date_of_birth').eq('id', enrollment.user_id).maybeSingle()
+        ? supabase.from('profiles').select('full_name, email, phone, avatar_url, date_of_birth, gender').eq('id', enrollment.user_id).maybeSingle()
         : enrollment?.child_id
-          ? supabase.from('children').select('full_name, date_of_birth, avatar_url').eq('id', enrollment.child_id).maybeSingle()
+          ? supabase.from('children').select('full_name, date_of_birth, avatar_url, gender, doc_type, doc_number, grade').eq('id', enrollment.child_id).maybeSingle()
           : enrollment?.unregistered_athlete_id
-            ? supabase.from('unregistered_athletes').select('full_name, email, phone, date_of_birth').eq('id', enrollment.unregistered_athlete_id).maybeSingle()
+            ? supabase.from('unregistered_athletes').select('full_name, email, phone, date_of_birth, gender, doc_type, doc_number').eq('id', enrollment.unregistered_athlete_id).maybeSingle()
             : Promise.resolve({ data: null }),
       enrollment?.offering_plan_id
         ? supabase.from('offering_plans').select('name, duration_days, price, max_sessions, metadata, currency').eq('id', enrollment.offering_plan_id).maybeSingle()
@@ -191,6 +191,86 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ==========================================
+//  PUT /api/v1/trainer/clients/:clientId
+//  Editar datos básicos del cliente
+// ==========================================
+router.put('/clients/:clientId', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.params;
+    const type = req.query.type as string; // 'adult' | 'child' | 'unregistered'
+    const schoolId = req.schoolId;
+
+    if (!type || !['adult', 'child', 'unregistered'].includes(type)) {
+      return res.status(400).json({ error: 'Parámetro type requerido (adult/child/unregistered)' });
+    }
+
+    // Verificar que el cliente tiene enrollment activo en esta escuela (autorización)
+    let enrollmentQuery = supabase
+      .from('enrollments')
+      .select('id')
+      .eq('school_id', schoolId)
+      .eq('status', 'active');
+
+    if (type === 'adult')        enrollmentQuery = enrollmentQuery.eq('user_id', clientId).is('child_id', null);
+    if (type === 'child')        enrollmentQuery = enrollmentQuery.eq('child_id', clientId);
+    if (type === 'unregistered') enrollmentQuery = enrollmentQuery.eq('unregistered_athlete_id', clientId);
+
+    const { data: enrollment } = await enrollmentQuery.maybeSingle();
+    if (!enrollment) {
+      return res.status(403).json({ error: 'Cliente no encontrado en tu academia.' });
+    }
+
+    const { full_name, phone, date_of_birth, gender, doc_type, doc_number, grade, email } = req.body;
+
+    let updateData: Record<string, any> = {};
+    let table = '';
+
+    if (type === 'unregistered') {
+      table = 'unregistered_athletes';
+      if (full_name)     updateData.full_name     = full_name.trim();
+      if (email !== undefined) updateData.email    = email?.trim() || null;
+      if (phone !== undefined) updateData.phone    = phone?.trim() || null;
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+      if (doc_type)      updateData.doc_type       = doc_type;
+      if (doc_number !== undefined) updateData.doc_number = doc_number?.trim() || null;
+    } else if (type === 'child') {
+      table = 'children';
+      if (full_name)     updateData.full_name      = full_name.trim();
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+      if (doc_type)      updateData.doc_type       = doc_type;
+      if (doc_number !== undefined) updateData.doc_number = doc_number?.trim() || null;
+      if (grade !== undefined)    updateData.grade = grade?.trim() || null;
+    } else if (type === 'adult') {
+      // profiles: solo campos seguros (no email — eso es de auth)
+      table = 'profiles';
+      if (full_name)     updateData.full_name      = full_name.trim();
+      if (phone !== undefined) updateData.phone    = phone?.trim() || null;
+      if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth || null;
+      if (gender !== undefined) updateData.gender  = gender || null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: 'No se enviaron campos a actualizar.' });
+    }
+
+    const { data, error } = await supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', clientId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

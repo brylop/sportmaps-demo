@@ -184,12 +184,13 @@ router.post('/routines/:routineId/use', async (req: Request, res: Response) => {
         }
 
         const { data, error } = await supabase.rpc('fn_create_plan_from_routine', {
-            p_routine_id:   routineId,
-            p_client_id:    client_id,
-            p_client_type:  client_type,
-            p_session_date: session_date,
-            p_trainer_id:   trainerId,
-            p_school_id:    schoolId,
+            p_routine_id:    routineId,
+            p_client_id:     client_id,
+            p_client_type:   client_type,
+            p_session_date:  session_date,
+            p_trainer_id:    trainerId,
+            p_school_id:     schoolId,
+            p_enrollment_id: req.body.enrollment_id ?? null,
         });
 
         if (error) throw error;
@@ -299,24 +300,73 @@ router.post('/session-plans', async (req: Request, res: Response) => {
     try {
         const { id: trainerId } = req.user;
         const { schoolId } = req;
-        const { client_id, client_type, session_date, name, blocks, custom_notes } = req.body;
+        const {
+            client_id, client_type, session_date, session_time,
+            name, blocks, custom_notes,
+            enrollment_id: enrollmentIdFromBody,
+        } = req.body;
 
         if (!client_id || !client_type || !session_date) {
             return res.status(400).json({ error: 'client_id, client_type y session_date son requeridos.' });
         }
 
+        // Prevención de duplicados: mismo trainer + cliente + fecha (+ hora si aplica)
+        let dupQuery = supabase
+            .from('trainer_session_plans')
+            .select('id')
+            .eq('trainer_id', trainerId)
+            .eq('client_id', client_id)
+            .eq('session_date', session_date)
+            .not('status', 'in', '("cancelled","completed")');
+        if (session_time) dupQuery = dupQuery.eq('session_time', session_time);
+
+        const { data: existing } = await dupQuery.maybeSingle();
+        if (existing) {
+            return res.status(409).json({
+                error: 'Ya existe una sesión activa para este cliente en esa fecha.',
+                existing_plan_id: existing.id,
+            });
+        }
+
+        // Auto-resolver enrollment_id para que fn_complete_session_plan descuente créditos
+        let resolvedEnrollmentId: string | null = enrollmentIdFromBody ?? null;
+        if (!resolvedEnrollmentId) {
+            const enrollQuery = supabase
+                .from('enrollments')
+                .select('id')
+                .eq('school_id', schoolId)
+                .eq('status', 'active')
+                .not('offering_plan_id', 'is', null);
+
+            if (client_type === 'child') {
+                enrollQuery.eq('child_id', client_id);
+            } else if (client_type === 'unregistered') {
+                enrollQuery.eq('unregistered_athlete_id', client_id);
+            } else {
+                enrollQuery.eq('user_id', client_id).is('child_id', null);
+            }
+
+            const { data: autoEnroll } = await enrollQuery
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (autoEnroll) resolvedEnrollmentId = autoEnroll.id;
+        }
+
         const { data, error } = await supabase
             .from('trainer_session_plans')
             .insert({
-                school_id: schoolId,
-                trainer_id: trainerId,
+                school_id:     schoolId,
+                trainer_id:    trainerId,
                 client_id,
                 client_type,
                 session_date,
-                name: name ?? 'Sesión sin nombre',
-                blocks: blocks ?? [],
+                session_time:  session_time        ?? null,
+                enrollment_id: resolvedEnrollmentId,
+                name:          name                ?? 'Sesión sin nombre',
+                blocks:        blocks              ?? [],
                 custom_notes,
-                status: 'assigned' // Por defecto asignado si se crea desde cero
+                status: 'assigned',
             })
             .select()
             .single();

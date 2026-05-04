@@ -32,7 +32,12 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
 import { calcFirstPayment, applyDiscount, formatCOP } from '@/lib/prorationUtils';
-import { Search, CheckCircle2 } from 'lucide-react';
+import { Search, CheckCircle2, Calendar as CalendarIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 import { PhoneInput } from '@/components/ui/phone-input';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -771,9 +776,48 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Fecha de Nacimiento *</Label>
-                    <Input type="date" value={dob} onChange={e => setDob(e.target.value)} max={new Date().toISOString().split('T')[0]} />
+                  <div className="flex flex-col">
+                    <Label className="mb-2">Fecha de Nacimiento *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={"outline"}
+                          className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !dob && "text-muted-foreground"
+                          )}
+                        >
+                          {dob ? (
+                            format(new Date(dob + 'T12:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dob ? new Date(dob + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              setDob(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={1920}
+                          toYear={new Date().getFullYear()}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1900-01-01")
+                          }
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div>
                     <Label>Género</Label>
@@ -871,9 +915,42 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Fecha de Inscripción *</Label>
-                    <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                  <div className="flex flex-col">
+                    <Label className="mb-2">Fecha de Inscripción *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={"outline"}
+                          className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !startDate && "text-muted-foreground"
+                          )}
+                        >
+                          {startDate ? (
+                            format(new Date(startDate + 'T12:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={startDate ? new Date(startDate + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              setStartDate(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div>
                     <Label>Mensualidad (COP) *</Label>

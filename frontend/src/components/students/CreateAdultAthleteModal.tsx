@@ -28,8 +28,13 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import {
   UserCheck, Search, ClipboardList, Loader2, CheckCircle2, AlertCircle,
-  Info, CalendarDays, Send, UserPlus,
+  Info, CalendarDays, Send, UserPlus, Calendar as CalendarIcon,
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -653,10 +658,48 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                     <Label>Teléfono</Label>
                     <PhoneInput value={uPhone} onChange={setUPhone} />
                   </div>
-                  <div>
-                    <Label>Fecha de Nacimiento</Label>
-                    <Input type="date" value={uDob} onChange={e => setUDob(e.target.value)}
-                      max={new Date().toISOString().split('T')[0]} />
+                  <div className="flex flex-col">
+                    <Label className="mb-2">Fecha de Nacimiento</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={"outline"}
+                          className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !uDob && "text-muted-foreground"
+                          )}
+                        >
+                          {uDob ? (
+                            format(new Date(uDob + 'T12:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={uDob ? new Date(uDob + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              setUDob(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={1920}
+                          toYear={new Date().getFullYear()}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1900-01-01")
+                          }
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
 
@@ -736,12 +779,41 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                 {/* Fecha y mensualidad */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Fecha de Inscripción *</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={e => setStartDate(e.target.value)}
-                    />
+                    <Label className="mb-2">Fecha de Inscripción *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={"outline"}
+                          className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !startDate && "text-muted-foreground"
+                          )}
+                        >
+                          {startDate ? (
+                            format(new Date(startDate + 'T12:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={startDate ? new Date(startDate + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              setStartDate(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div>
                     <Label>Mensualidad (COP)</Label>
@@ -840,12 +912,41 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
                 {/* Fecha y mensualidad */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Fecha de Inscripción *</Label>
-                    <Input
-                      type="date"
-                      value={startDate}
-                      onChange={e => setStartDate(e.target.value)}
-                    />
+                    <Label className="mb-2">Fecha de Inscripción *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant={"outline"}
+                          className={cn(
+                            "w-full pl-3 text-left font-normal",
+                            !startDate && "text-muted-foreground"
+                          )}
+                        >
+                          {startDate ? (
+                            format(new Date(startDate + 'T12:00:00'), "PPP", { locale: es })
+                          ) : (
+                            <span>Seleccionar fecha</span>
+                          )}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={startDate ? new Date(startDate + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const day = String(date.getDate()).padStart(2, '0');
+                              setStartDate(`${year}-${month}-${day}`);
+                            }
+                          }}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div>
                     <Label>Mensualidad (COP)</Label>
