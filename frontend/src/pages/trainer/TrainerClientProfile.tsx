@@ -5,7 +5,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, User, Activity, ListTodo, Presentation, Dumbbell, ShieldCheck, Calendar } from "lucide-react";
+import { ChevronLeft, User, Activity, ListTodo, Presentation, Dumbbell, ShieldCheck, Calendar, Pencil } from "lucide-react";
+import { EditClientModal } from '@/components/trainer/EditClientModal';
 
 import { ClientResumenTab } from '@/pages/trainer/tabs/ClientResumenTab';
 import { ClientStatsTab } from '@/pages/trainer/tabs/ClientStatsTab';
@@ -28,6 +29,7 @@ export default function TrainerClientProfile() {
   const [clientData, setClientData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('resume');
   const [todaySession, setTodaySession] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     if (!clientId || clientId === 'null' || !type || !['adult', 'child', 'unregistered'].includes(type) || !session?.access_token) return;
@@ -120,7 +122,18 @@ export default function TrainerClientProfile() {
               {avatar ? <img src={avatar} alt={name} className="h-full w-full object-cover" /> : <User className="h-8 w-8 text-primary" />}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight">{name}</h1>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowEditModal(true)}
+                  title="Editar datos del cliente"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </div>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant="outline" className="bg-primary/5">{planName}</Badge>
                 {enrollment.status === 'active' ? (
@@ -191,6 +204,25 @@ export default function TrainerClientProfile() {
           <ClientPlanTab enrollment={enrollment} payments={payments} />
         </TabsContent>
       </Tabs>
+
+      {/* Modal de edición */}
+      <EditClientModal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        onSuccess={refreshAction}
+        clientId={clientId!}
+        clientType={type as 'adult' | 'child' | 'unregistered'}
+        initialData={{
+          full_name:     person?.full_name,
+          email:         isAdultLike ? person?.email : undefined,
+          phone:         isAdultLike ? person?.phone : undefined,
+          date_of_birth: person?.date_of_birth,
+          gender:        person?.gender,
+          doc_type:      person?.doc_type,
+          doc_number:    person?.doc_number,
+          grade:         !isAdultLike ? person?.grade : undefined,
+        }}
+      />
     </div>
   );
 }
