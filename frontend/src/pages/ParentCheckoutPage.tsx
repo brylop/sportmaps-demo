@@ -17,6 +17,7 @@ import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { FileUpload } from '@/components/common/FileUpload';
+import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export default function ParentCheckoutPage() {
   const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
   const [showSensitive, setShowSensitive] = useState(false);
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
+  const [manualOcrResult, setManualOcrResult] = useState<ReceiptValidationResult | null>(null);
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
@@ -46,6 +48,11 @@ export default function ParentCheckoutPage() {
   const schoolIdParam = searchParams.get('school_id');
 
   const formatPrice = (price: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
+
+  // Concept fijo (bloquea OCR si el monto no coincide) vs lenient (advisory).
+  // Por ahora solo mensualidad es 'fixed'; inscripcion/abono pasan como 'lenient'
+  // mientras validamos bien esos flujos.
+  const conceptKind: ConceptKind = /mensual/i.test(concept) ? 'fixed' : 'lenient';
 
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
@@ -181,6 +188,13 @@ export default function ParentCheckoutPage() {
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       school_id: schoolId,
       receipt_url: manualReceiptUrl,
+      // Persistir OCR del comprobante (solo manual). Admin lo usa para detectar discrepancias.
+      ocr_amount:    manualOcrResult?.extractedAmount    ?? null,
+      ocr_currency:  manualOcrResult?.extractedCurrency  ?? null,
+      ocr_date:      manualOcrResult?.extractedDate      ?? null,
+      ocr_bank:      manualOcrResult?.extractedBank      ?? null,
+      ocr_reference: manualOcrResult?.extractedReference ?? null,
+      ocr_provider:  manualOcrResult?.provider           ?? null,
     } as any);
 
     if (insertError) {
@@ -483,7 +497,10 @@ export default function ParentCheckoutPage() {
                               path={`manual-payments/${user?.id}`}
                               accept="image/*,application/pdf"
                               onUploadComplete={(url) => setManualReceiptUrl(url)}
+                              onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
+                              expectedAmount={amount}
+                              conceptKind={conceptKind}
                             />
                           </div>
                         </div>

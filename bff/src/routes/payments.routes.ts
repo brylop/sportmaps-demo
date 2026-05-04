@@ -16,6 +16,7 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError } from '../services/wompi.service';
+import { extractReceipt } from '../services/ocr.service';
 
 const router = Router();
 
@@ -242,5 +243,64 @@ router.get('/link/:token', async (req: AuthenticatedRequest, res: Response) => {
         return res.status(500).json({ error: 'Error al obtener informacion del pago.' });
     }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /extract-receipt — Extrae monto/fecha/banco de un comprobante via LLM Vision
+// ─────────────────────────────────────────────────────────────────────────────
+// Usado por el frontend al subir un comprobante manual. El cliente envia la
+// imagen en base64 y recibe JSON estructurado que se persiste en payments.ocr_*.
+const ExtractSchema = z.object({
+    imageBase64: z.string().min(100, 'Imagen demasiado pequena'),
+    mimeType: z.string().optional(),
+});
+
+// Cliente liviano con ANON key, solo para validar JWTs en endpoints userspace
+// (evita depender del SUPABASE_SERVICE_ROLE_KEY que puede estar como placeholder
+// en local). El SERVICE_ROLE_KEY es necesario para acceder a tablas con RLS,
+// pero no para hacer auth.getUser() que solo decodea el JWT contra /auth/v1/user.
+import { createClient } from '@supabase/supabase-js';
+const supabaseAnonClient = createClient(
+    process.env.SUPABASE_URL || '',
+    process.env.SUPABASE_ANON_KEY || '',
+    { auth: { autoRefreshToken: false, persistSession: false } },
+);
+
+router.post(
+    '/extract-receipt',
+    // Auth ligera: solo valida el JWT (no consulta school_members). Es suficiente
+    // porque este endpoint solo procesa una imagen — no toca data de la escuela.
+    async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const authHeader = req.headers.authorization;
+            if (!authHeader?.startsWith('Bearer ')) {
+                return res.status(401).json({ error: 'Token de autorizacion requerido.' });
+            }
+            const token = authHeader.split(' ')[1];
+            const { data: { user }, error: authError } = await supabaseAnonClient.auth.getUser(token);
+            if (authError || !user) {
+                req.log?.warn({ err: authError }, '[OCR] JWT validation failed');
+                return res.status(401).json({ error: 'Token invalido o expirado.' });
+            }
+
+            const parsed = ExtractSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({
+                    error: 'Datos invalidos',
+                    details: parsed.error.issues,
+                });
+            }
+            const { imageBase64, mimeType } = parsed.data;
+
+            const result = await extractReceipt(imageBase64, mimeType || 'image/png');
+            return res.json(result);
+        } catch (err: any) {
+            req.log?.error({ err }, 'Error extracting receipt with LLM Vision');
+            return res.status(502).json({
+                error: 'No se pudo procesar el comprobante con OCR.',
+                detail: err.message,
+            });
+        }
+    },
+);
 
 export default router;
