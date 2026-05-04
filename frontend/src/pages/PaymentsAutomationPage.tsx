@@ -76,6 +76,39 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
 };
 
 
+// ── Helper de OCR badge (mostrar match/no-match al admin) ────────────────────
+type OcrStatus = 'match' | 'mismatch' | 'no_ocr';
+function getOcrStatus(p: { amount: number; ocr_amount?: number | null }): OcrStatus {
+  if (p.ocr_amount == null) return 'no_ocr';
+  const diffPct = Math.abs(p.ocr_amount - p.amount) / Math.max(p.amount, 1) * 100;
+  return diffPct <= 0.5 ? 'match' : 'mismatch';
+}
+
+function OcrMatchBadge({ payment }: { payment: { amount: number; ocr_amount?: number | null; ocr_bank?: string | null } }) {
+  const status = getOcrStatus(payment);
+  if (status === 'no_ocr') {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-600 border-gray-200 py-0 h-5">
+        Sin OCR
+      </Badge>
+    );
+  }
+  if (status === 'match') {
+    return (
+      <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-300 py-0 h-5">
+        <CheckCircle2 className="h-2.5 w-2.5 mr-1" /> OCR ok {payment.ocr_bank ? `· ${payment.ocr_bank}` : ''}
+      </Badge>
+    );
+  }
+  // mismatch
+  return (
+    <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-300 py-0 h-5 font-semibold">
+      <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+      OCR: {formatCurrency(payment.ocr_amount as number)} ≠ esperado
+    </Badge>
+  );
+}
+
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
   rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-700 border-red-200' },
@@ -107,6 +140,13 @@ interface PaymentTransaction {
   athlete_name?: string | null;
   parent_responsible?: string | null;
   plan?: { name: string } | null;
+  // OCR del comprobante manual (LLM Vision). Null si no se logro leer o si es Wompi.
+  ocr_amount?: number | null;
+  ocr_currency?: string | null;
+  ocr_date?: string | null;
+  ocr_bank?: string | null;
+  ocr_reference?: string | null;
+  ocr_provider?: string | null;
 }
 
 interface TeamSubscription {
@@ -229,6 +269,7 @@ export default function PaymentsAutomationPage() {
           id, amount, status, created_at, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id,
+          ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
@@ -264,6 +305,9 @@ export default function PaymentsAutomationPage() {
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
         unregistered_athlete_id: p.unregistered_athlete_id,
+        ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
+        ocr_date: p.ocr_date, ocr_bank: p.ocr_bank,
+        ocr_reference: p.ocr_reference, ocr_provider: p.ocr_provider,
         // Nombre del atleta resuelto por tipo
         athlete_name:
           p.child?.full_name ||
@@ -652,6 +696,7 @@ export default function PaymentsAutomationPage() {
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                            <div className="mt-1"><OcrMatchBadge payment={payment} /></div>
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -681,6 +726,7 @@ export default function PaymentsAutomationPage() {
                           <TableHead>Estudiante / Programa</TableHead>
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
+                          <TableHead>OCR</TableHead>
                           <TableHead>Comprobante</TableHead>
                           <TableHead className="text-right">Acciones</TableHead>
                         </TableRow>
@@ -711,6 +757,9 @@ export default function PaymentsAutomationPage() {
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
+                            <TableCell>
+                              <OcrMatchBadge payment={payment} />
+                            </TableCell>
                             <TableCell>
                               {payment.receipt_url ? (
                                 <Button variant="outline" size="sm" className="h-8 gap-1 text-blue-600 border-blue-200 bg-blue-50" onClick={() => handleShowProof(payment)}>

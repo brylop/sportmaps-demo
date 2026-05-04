@@ -626,7 +626,20 @@ export function PaymentCheckoutModal({
                 </Alert>
                 <div className="space-y-2">
                   <p className="font-medium text-sm">Sube tu comprobante:</p>
-                  <FileUpload bucket="payment-receipts" accept="image/*,application/pdf" validateReceipt={true} onUploadComplete={(url) => setProofUrl(url)} />
+                  <FileUpload
+                    bucket="payment-receipts"
+                    accept="image/*,application/pdf"
+                    validateReceipt={true}
+                    onUploadComplete={(url) => setProofUrl(url)}
+                    expectedAmount={finalAmount}
+                    // Bloqueo estricto solo en concept fijo (mensualidad/inscripcion fija).
+                    // Para abono / inscripcion variable / otros, OCR es advisory.
+                    conceptKind={
+                      conceptType === 'mensualidad' || conceptType === 'inscripcion_fija'
+                        ? 'fixed'
+                        : 'lenient'
+                    }
+                  />
                   {proofUrl && (
                     <p className="text-xs text-green-600 flex items-center gap-1">
                       <CheckCircle2 className="h-3 w-3" /> Comprobante cargado correctamente

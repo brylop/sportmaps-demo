@@ -6,7 +6,7 @@ import {
   Calendar, Hash, DollarSign, ScanLine,
 } from 'lucide-react';
 import { useStorage, BucketName } from '@/hooks/useStorage';
-import { useReceiptValidator, ReceiptValidationResult } from '@/hooks/useReceiptValidator';
+import { useReceiptValidator, ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,10 @@ interface FileUploadProps {
   multiple?: boolean;
   validateReceipt?: boolean;
   onValidationResult?: (result: ReceiptValidationResult) => void;
+  /** Monto esperado (del plan/payment) para validar contra el OCR. Solo aplica si conceptKind='fixed'. */
+  expectedAmount?: number;
+  /** 'fixed' = bloquea si OCR no match (mensualidad/inscripcion fija). 'lenient' = advisory (default). */
+  conceptKind?: ConceptKind;
 }
 
 export function FileUpload({
@@ -32,6 +36,8 @@ export function FileUpload({
   multiple = false,
   validateReceipt = false,
   onValidationResult,
+  expectedAmount,
+  conceptKind = 'lenient',
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -88,13 +94,18 @@ export function FileUpload({
     }, 300);
 
     try {
-      const result = await validate(toUse[0]);
+      const result = await validate(toUse[0], { expectedAmount, conceptKind });
       setOcrProgress(100);
       setValidation(result);
       onValidationResult?.(result);
 
-      // OCR es advisory: subimos el comprobante incluso si la validacion no paso.
-      // El admin lo revisa manualmente antes de aprobar el pago.
+      // Bloqueo solo cuando concept es FIXED y el OCR detecto conflicto duro
+      // (monto distinto al esperado o fecha distinta a hoy). En todos los demas
+      // casos (advisory, lenient, OCR no detecto) el archivo se sube.
+      if (!result.valid) {
+        return;
+      }
+
       if (!uploaded && uploadedUrl == null) {
         const url = await uploadFile(toUse[0], bucket, path);
         if (url != null) {
@@ -121,6 +132,8 @@ export function FileUpload({
       extractedDate: null,
       extractedAmount: null,
       extractedReference: null,
+      extractedBank: null,
+      extractedCurrency: null,
       rejectionReason: null,
     });
   };
@@ -208,16 +221,16 @@ export function FileUpload({
       {validation && !validating && (
         <div className="animate-in fade-in slide-in-from-top-1 duration-300">
 
-          {/* OCR no logro verificar — advisory (no bloquea, admin revisa) */}
+          {/* Bloqueo duro: concept fixed con monto/fecha en conflicto -> NO sube */}
           {!validation.valid && (
-            <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/30">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <Alert className="border-red-300 bg-red-50 dark:bg-red-950/30">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
               <AlertDescription>
-                <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
-                  No pudimos verificar la fecha automaticamente
+                <p className="font-semibold text-red-700 dark:text-red-400 mb-1">
+                  Comprobante no valido
                 </p>
-                <p className="text-sm text-amber-700 dark:text-amber-300">
-                  Tu comprobante fue recibido y sera revisado manualmente por la administracion.
+                <p className="text-sm text-red-600 dark:text-red-300">
+                  {validation.rejectionReason || 'No pudimos verificar el comprobante.'}
                 </p>
               </AlertDescription>
             </Alert>
@@ -244,10 +257,10 @@ export function FileUpload({
                     </div>
                   )}
 
-                  {validation.extractedAmount ? (
+                  {validation.extractedAmount != null ? (
                     <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
                       <DollarSign className="h-3 w-3 shrink-0" />
-                      <span><strong>Monto:</strong> {validation.extractedAmount}</span>
+                      <span><strong>Monto:</strong> {new Intl.NumberFormat('es-CO', { style: 'currency', currency: validation.extractedCurrency || 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(validation.extractedAmount)}</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">

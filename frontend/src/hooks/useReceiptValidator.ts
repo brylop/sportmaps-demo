@@ -1,268 +1,74 @@
 /**
  * useReceiptValidator.ts
  *
- * Validador de comprobantes de pago usando OCR en el navegador.
- * Usa Tesseract.js para extraer texto de imágenes y pdfjs-dist para PDFs.
- * 100% gratuito, sin llamadas a APIs externas.
+ * Validador de comprobantes de pago via LLM Vision en el BFF.
+ * Reemplaza el Tesseract.js anterior — el LLM lee fuentes raras de
+ * cualquier banco colombiano (DaviPlata, Nequi, Bancolombia, BBVA, etc.)
+ * con mucha mayor precision.
  *
- * FIX: usa createWorker con workerPath/corePath via CDN para que Vite no
- * minifique los workers internos de Tesseract (evita error "g is not a function").
+ * Flujo:
+ *   1. Si es PDF, render la primera pagina a imagen via pdfjs-dist + canvas
+ *   2. Convertir blob a base64
+ *   3. Llamar POST /api/v1/payments/extract-receipt
+ *   4. Validar resultado:
+ *      - Fecha debe ser hoy
+ *      - Si conceptKind === 'fixed' y monto no match con expectedAmount -> bloquea
+ *      - Si conceptKind === 'lenient' -> advisory (no bloquea)
+ *      - Si LLM no detecto monto/fecha -> advisory (admin valida visualmente)
  */
 
 import { useState } from 'react';
-import Tesseract from 'tesseract.js';
+import { bffClient } from '@/lib/api/bffClient';
 
 export interface ReceiptValidationResult {
     valid: boolean;
-    extractedDate: string | null;
-    extractedAmount: string | null;
+    extractedDate: string | null;        // ISO yyyy-mm-dd
+    extractedAmount: number | null;      // numero, sin formato
     extractedReference: string | null;
+    extractedBank: string | null;
+    extractedCurrency: string | null;
     rejectionReason: string | null;
-    rawText?: string;
+    /** Provider que respondio (groq/openai/gemini), util para debug */
+    provider?: string;
 }
 
-// ── Tablas de nombres ─────────────────────────────────────────────────────────
+export type ConceptKind = 'fixed' | 'lenient';
 
-const MONTH_NAMES_ES = [
-    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-];
-const MONTH_ABBREV_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const MONTH_ABBREV_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const WEEKDAY_ABBREV_ES = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+export interface ValidationOptions {
+    expectedAmount?: number;
+    conceptKind?: ConceptKind;
+}
 
-// Mapa nombre/abreviatura → numero de mes (1-12). Cubre español + abreviado inglés
-// común en comprobantes (Nequi, Daviplata, bancos a veces lo usan).
-const MONTH_TO_NUMBER: Record<string, number> = {
-    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
-    julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
-    ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
-    jul: 7, ago: 8, sep: 9, sept: 9, set: 9, oct: 10, nov: 11, dic: 12,
-    jan: 1, apr: 4, aug: 8, dec: 12,
-};
-const ALL_MONTH_TOKENS = Object.keys(MONTH_TO_NUMBER).join('|');
+interface OcrResponse {
+    amount: number | null;
+    currency: string | null;
+    date: string | null;
+    bank: string | null;
+    reference: string | null;
+    provider?: string;
+}
 
-// ── Helpers de fecha ──────────────────────────────────────────────────────────
+// Tolerancia: monto OCR puede diferir del esperado en hasta esto y se considera match.
+// Util para variantes de redondeo o cuando el comprobante incluye un peso adicional.
+const AMOUNT_TOLERANCE_PCT = 0.5; // 0.5%
 
-const getDayOfYear = (date: Date): number => {
-    const start = new Date(Date.UTC(date.getFullYear(), 0, 1));
-    const current = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    return Math.floor((current.getTime() - start.getTime()) / 86_400_000) + 1;
-};
-
-const getISOWeek = (date: Date): { week: number; day: number } => {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const isoDow = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - isoDow);
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
-    const day = date.getDay() === 0 ? 7 : date.getDay();
-    return { week, day };
+const todayIsoBogota = (): string => {
+    const now = new Date();
+    // Bogota es UTC-5 sin DST. Calculo manual evita depender de Intl.
+    const offsetMs = -5 * 60 * 60 * 1000;
+    const bogota = new Date(now.getTime() + offsetMs - now.getTimezoneOffset() * 60 * 1000);
+    const y = bogota.getUTCFullYear();
+    const m = String(bogota.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(bogota.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 };
 
-const getTodayVariants = () => {
-    const today = new Date();
-    const day   = today.getDate();
-    const month = today.getMonth() + 1;
-    const year  = today.getFullYear();
-    const dd    = String(day).padStart(2, '0');
-    const mm    = String(month).padStart(2, '0');
-    const yy    = String(year).slice(2);
+const formatCop = (n: number): string =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
 
-    const monthName    = MONTH_NAMES_ES[today.getMonth()];
-    const mAbbES       = MONTH_ABBREV_ES[today.getMonth()];
-    const mAbbEN       = MONTH_ABBREV_EN[today.getMonth()];
-    const weekdayName  = WEEKDAY_NAMES_ES[today.getDay()];
-    const weekdayAbbr  = WEEKDAY_ABBREV_ES[today.getDay()];
-
-    const dayOfYear = getDayOfYear(today);
-    const ddd = String(dayOfYear).padStart(3, '0');
-    const { week, day: isoDay } = getISOWeek(today);
-    const ww = String(week).padStart(2, '0');
-
-    const unixStart = Math.floor(Date.UTC(year, today.getMonth(), day,  0,  0,  0) / 1000);
-    const unixEnd   = Math.floor(Date.UTC(year, today.getMonth(), day, 23, 59, 59) / 1000);
-
-    return {
-        iso:              `${year}-${mm}-${dd}`,
-        slash:            `${dd}/${mm}/${year}`,
-        slashShort:       `${dd}/${mm}/${yy}`,
-        dash:             `${dd}-${mm}-${year}`,
-        dot:              `${dd}.${mm}.${year}`,
-        human:            `${day} de ${monthName} de ${year}`,
-        humanShort:       `${day} ${monthName} ${year}`,
-        dayMonth:         `${dd}/${mm}`,
-        dayMonthDash:     `${dd}-${mm}`,
-        compact:          `${year}${mm}${dd}`,
-        slashISO:         `${year}/${mm}/${dd}`,
-        julian:           `${year}-${ddd}`,
-        isoWeek:          `${year}-W${ww}-${isoDay}`,
-        slashUS:          `${mm}/${dd}/${year}`,
-        mSlashDSlashYY:   `${month}/${day}/${yy}`,
-        dashMMMes:        `${dd}-${mAbbES}-${year}`,
-        dashMMMesShort:   `${dd}-${mAbbES}-${yy}`,
-        noSepMMes:        `${dd}${mAbbES}${year}`,
-        humanAbbr:        `${day} ${mAbbES} ${year}`,
-        humanAbbrDot:     `${day} ${mAbbES}. ${year}`,
-        dashMMMen:        `${dd}-${mAbbEN}-${year}`,
-        dashMMMenuShort:  `${dd}-${mAbbEN}-${yy}`,
-        noSepMMen:        `${dd}${mAbbEN}${year}`,
-        humanAbbrEN:      `${day} ${mAbbEN} ${year}`,
-        humanComma:       `${day} de ${monthName}, ${year}`,
-        humanWeekday:     `${weekdayName}, ${day} de ${monthName} de ${year}`,
-        humanWeekdayAbbr: `${weekdayAbbr}, ${day} ${mAbbES} ${year}`,
-        ddmmyy:           `${dd}${mm}${yy}`,
-        ddmmyydash:       `${dd}-${mm}-${yy}`,
-        mmddyy:           `${mm}${dd}${yy}`,
-        mmddyydash:       `${mm}-${dd}-${yy}`,
-        yymmdd:           `${yy}${mm}${dd}`,
-        unixStart,
-        unixEnd,
-        day, month, year, monthName, yy,
-    };
-};
-
-// ── Extracción con regex ──────────────────────────────────────────────────────
-
-const normalizeYear = (raw: number): number => raw < 100 ? 2000 + raw : raw;
-
-const extractDate = (text: string): { found: string | null; isToday: boolean } => {
-    const today = getTodayVariants();
-    const lower = text.toLowerCase();
-
-    // 1) Match exacto con cualquier formato de hoy
-    const patterns = [
-        today.humanWeekday, today.humanWeekdayAbbr,
-        today.human, today.humanComma, today.humanShort,
-        today.humanAbbr, today.humanAbbrDot, today.humanAbbrEN,
-        today.iso, today.slashISO, today.compact, today.julian, today.isoWeek,
-        today.slash, today.slashUS, today.dash, today.dot,
-        today.dashMMMes, today.dashMMMen, today.noSepMMes, today.noSepMMen,
-        today.slashShort, today.dashMMMesShort, today.dashMMMenuShort,
-        today.ddmmyydash, today.mmddyydash, today.mSlashDSlashYY,
-        today.ddmmyy, today.mmddyy, today.yymmdd,
-        today.dayMonth, today.dayMonthDash,
-    ];
-
-    for (const pattern of patterns) {
-        if (lower.includes(pattern.toLowerCase())) {
-            return { found: pattern, isToday: true };
-        }
-    }
-
-    // 2) Unix timestamp dentro de las 24h de hoy
-    const unixMatch = /@(\d{9,10})\b|\b(\d{10})\b/.exec(text);
-    if (unixMatch) {
-        const ts = parseInt(unixMatch[1] || unixMatch[2], 10);
-        if (ts >= today.unixStart && ts <= today.unixEnd) {
-            return { found: `@${ts}`, isToday: true };
-        }
-    }
-
-    // 3) Fuzzy numérico: parsear todas las fechas con separador y comparar contra hoy.
-    //    Tolera variantes como "28 / 04 / 2026" o "28-4-26" que los patterns exactos no cubren.
-    const numericIso = /\b(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})\b/g;
-    const numericDmy = /\b(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{2,4})\b/g;
-    let firstNumeric: string | null = null;
-
-    for (let m = numericIso.exec(text); m !== null; m = numericIso.exec(text)) {
-        const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
-        if (firstNumeric === null) firstNumeric = m[0];
-        if (d === today.day && mo === today.month && y === today.year) {
-            return { found: m[0], isToday: true };
-        }
-    }
-    for (let m = numericDmy.exec(text); m !== null; m = numericDmy.exec(text)) {
-        const d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = normalizeYear(parseInt(m[3], 10));
-        if (firstNumeric === null) firstNumeric = m[0];
-        if (d === today.day && mo === today.month && y === today.year) {
-            return { found: m[0], isToday: true };
-        }
-        // d/m/yy con orden invertido (m/d/y estilo US)
-        if (d === today.month && mo === today.day && y === today.year) {
-            return { found: m[0], isToday: true };
-        }
-    }
-
-    // 4) Fuzzy humano DÍA MES AÑO: "28 de abril de 2026", "28 abr 26", "28 de abril del 2026".
-    //    Requiere un nombre de mes REAL (no acepta "de" como mes).
-    const humanRegexDmy = new RegExp(
-        `\\b(\\d{1,2})\\s+(?:de(?:l)?\\s+)?(${ALL_MONTH_TOKENS})\\.?\\s+(?:de(?:l)?\\s+)?(\\d{2,4})\\b`,
-        'gi',
-    );
-    let firstHuman: string | null = null;
-    for (let m = humanRegexDmy.exec(lower); m !== null; m = humanRegexDmy.exec(lower)) {
-        const d = parseInt(m[1], 10);
-        const mo = MONTH_TO_NUMBER[m[2].toLowerCase()];
-        const y = normalizeYear(parseInt(m[3], 10));
-        if (firstHuman === null) firstHuman = m[0];
-        if (d === today.day && mo === today.month && y === today.year) {
-            return { found: m[0], isToday: true };
-        }
-    }
-
-    // 5) Fuzzy humano MES DÍA AÑO: formato Daviplata "Abril 28 de 2026", también "Apr 28, 2026".
-    const humanRegexMdy = new RegExp(
-        `\\b(${ALL_MONTH_TOKENS})\\.?\\s+(\\d{1,2})(?:\\s*[,.\\-])?\\s+(?:de(?:l)?\\s+)?(\\d{2,4})\\b`,
-        'gi',
-    );
-    for (let m = humanRegexMdy.exec(lower); m !== null; m = humanRegexMdy.exec(lower)) {
-        const mo = MONTH_TO_NUMBER[m[1].toLowerCase()];
-        const d = parseInt(m[2], 10);
-        const y = normalizeYear(parseInt(m[3], 10));
-        if (firstHuman === null) firstHuman = m[0];
-        if (d === today.day && mo === today.month && y === today.year) {
-            return { found: m[0], isToday: true };
-        }
-    }
-
-    const found = firstHuman ?? firstNumeric;
-    return { found, isToday: false };
-};
-
-const extractAmount = (text: string): string | null => {
-    const patterns = [
-        /(?:valor|monto|total|transferencia|pago|enviaste?|recibiste?|cobrado)[:\s]*\$?\s*([\d.,]+)/gi,
-        /\$\s*([\d.,]+(?:\.\d{2})?)/g,
-        /COP\s*([\d.,]+)/gi,
-        /\b(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?)\b/g,
-    ];
-
-    for (const pattern of patterns) {
-        const match = pattern.exec(text);
-        if (match) {
-            const raw = match[1] || match[0];
-            const numeric = parseFloat(raw.replace(/[.,]/g, ''));
-            if (numeric > 1000) return raw.trim();
-        }
-    }
-    return null;
-};
-
-const extractReference = (text: string): string | null => {
-    const patterns = [
-        /(?:n[uú]mero\s+de\s+operaci[oó]n|no\.?\s*operaci[oó]n)[:\s#]*([A-Z0-9-]{4,20})/gi,
-        /(?:referencia|ref\.?)[:\s#]*([A-Z0-9-]{4,20})/gi,
-        /(?:transacci[oó]n|transacci[oó]n\s+n[uú]mero?)[:\s#]*([A-Z0-9-]{4,20})/gi,
-        /(?:comprobante|n[uú]mero\s+de\s+comprobante)[:\s#]*([A-Z0-9-]{4,20})/gi,
-        /(?:aprobaci[oó]n|c[oó]digo)[:\s#]*([A-Z0-9-]{4,20})/gi,
-        /(?:id\s+transacci[oó]n|id)[:\s#]*([A-Z0-9-]{6,20})/gi,
-    ];
-
-    for (const pattern of patterns) {
-        const match = pattern.exec(text);
-        if (match?.[1]) return match[1].trim();
-    }
-
-    const longNumber = /\b(\d{8,20})\b/.exec(text);
-    if (longNumber) return longNumber[1];
-
-    return null;
-};
-
-// ── Convertir primera página de PDF a imagen via canvas ──────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF -> primera pagina como blob de imagen
+// ─────────────────────────────────────────────────────────────────────────────
 const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
     const pdfjs = await import('pdfjs-dist');
     pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -284,144 +90,143 @@ const pdfPageToImageBlob = async (file: File): Promise<Blob> => {
     return new Promise(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'));
 };
 
-// ── Worker CDN paths (evita que Vite minifique los internals de Tesseract) ────
+// ─────────────────────────────────────────────────────────────────────────────
+// Blob -> base64 (sin prefijo data:)
+// ─────────────────────────────────────────────────────────────────────────────
+const blobToBase64 = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const result = reader.result as string;
+            // dataUrl: "data:image/png;base64,XXXX..."
+            const base64 = result.includes(',') ? result.split(',')[1] : result;
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
 
-const TESSERACT_CDN = {
-  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
-  langPath:   'https://cdn.jsdelivr.net/npm/@tesseract.js-data/spa/4.0.0_best_int',
-  corePath:   'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/',
-} as const;
-
-// ── Hook principal ────────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Hook principal
+// ─────────────────────────────────────────────────────────────────────────────
 export function useReceiptValidator() {
     const [validating, setValidating] = useState(false);
 
-    const validate = async (file: File): Promise<ReceiptValidationResult> => {
+    const validate = async (
+        file: File,
+        opts: ValidationOptions = {},
+    ): Promise<ReceiptValidationResult> => {
         setValidating(true);
-        let worker: any | null = null;
 
         try {
-            let imageSource: File | Blob = file;
+            // 1) Preparar imagen (PDFs -> rasterizar primera pagina)
+            let imageBlob: Blob = file;
+            let mimeType: string = file.type || 'image/png';
 
             if (file.type === 'application/pdf') {
                 try {
-                    imageSource = await pdfPageToImageBlob(file);
-                } catch (err) {
+                    imageBlob = await pdfPageToImageBlob(file);
+                    mimeType = 'image/png';
+                } catch {
+                    return advisory(
+                        'No se pudo procesar el PDF. Conviertelo a imagen (JPG/PNG) e intentalo de nuevo.',
+                    );
+                }
+            }
+
+            const base64 = await blobToBase64(imageBlob);
+
+            // 2) Llamar al BFF (LLM Vision)
+            let ocr: OcrResponse;
+            try {
+                ocr = await bffClient.post<OcrResponse>('/api/v1/payments/extract-receipt', {
+                    imageBase64: base64,
+                    mimeType,
+                });
+            } catch (err: any) {
+                console.error('[OCR] error llamando al BFF:', err);
+                return advisory(
+                    'No pudimos verificar el comprobante automaticamente. Sera revisado manualmente por la administracion.',
+                );
+            }
+
+            const { amount, date, reference, bank, currency, provider } = ocr;
+
+            // 3) Validacion de fecha (hoy en Bogota)
+            const today = todayIsoBogota();
+            const dateMatchesToday = date === today;
+
+            // 4) Validacion de monto (solo aplica si conceptKind === 'fixed')
+            const conceptKind: ConceptKind = opts.conceptKind ?? 'lenient';
+            const expected = opts.expectedAmount;
+            let amountMatches: boolean | null = null;
+            if (typeof amount === 'number' && typeof expected === 'number' && expected > 0) {
+                const diffPct = Math.abs(amount - expected) / expected * 100;
+                amountMatches = diffPct <= AMOUNT_TOLERANCE_PCT;
+            }
+
+            // 5) Bloqueo duro en concept fixed: acumula TODOS los conflictos detectados
+            //    (monto incorrecto + fecha distinta a hoy) en un solo mensaje.
+            if (conceptKind === 'fixed') {
+                const errors: string[] = [];
+                if (typeof amount === 'number' && expected && amountMatches === false) {
+                    errors.push(
+                        `El comprobante es por ${formatCop(amount)} pero el plan cuesta ${formatCop(expected)}.`,
+                    );
+                }
+                if (date && !dateMatchesToday) {
+                    errors.push(
+                        `El comprobante es del ${date}, pero debe ser de hoy (${today}).`,
+                    );
+                }
+                if (errors.length > 0) {
                     return {
                         valid: false,
-                        extractedDate: null,
-                        extractedAmount: null,
-                        extractedReference: null,
-                        rejectionReason: 'No se pudo procesar el PDF. Conviértelo a imagen (JPG/PNG) e inténtalo de nuevo.',
+                        extractedDate: date,
+                        extractedAmount: amount,
+                        extractedReference: reference,
+                        extractedBank: bank,
+                        extractedCurrency: currency,
+                        provider,
+                        rejectionReason: errors.join(' ') + ' Sube el comprobante correcto.',
                     };
                 }
             }
 
-            // ✅ Timeout de 25s — si CDN falla, pedir reintento (NO pasar silenciosamente)
-            const workerPromise = Tesseract.createWorker('spa', 1, {
-                ...TESSERACT_CDN,
-                logger: import.meta.env.DEV
-                    ? (msg: { status: string; progress?: number }) =>
-                        console.log('[OCR]', msg.status, Math.round((msg.progress ?? 0) * 100) + '%')
-                    : () => { },
-            });
-
-            const timeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('TIMEOUT')), 25000)
-            );
-
-            try {
-                worker = await Promise.race([workerPromise, timeoutPromise]);
-            } catch (err: any) {
-                // ✅ Timeout o fallo de CDN → pedir reintento, NO dejar pasar
-                return {
-                    valid: false,
-                    extractedDate: null,
-                    extractedAmount: null,
-                    extractedReference: null,
-                    rejectionReason:
-                        'El análisis tardó demasiado. Verifica tu conexión e inténtalo de nuevo. ' +
-                        'Si el problema persiste, asegúrate de que la imagen sea nítida.',
-                };
-            }
-
-            const { data } = await worker.recognize(imageSource);
-            const text = data.text || '';
-            const textLower = text.toLowerCase();
-
-            if (import.meta.env.DEV) {
-                console.log('[OCR raw text]\n' + text);
-            }
-
-            // ── Validación 1: ¿es un comprobante? ────────────────────────────────
-            const receiptKeywords = [
-                'transferencia', 'transacción', 'transaccion',
-                'comprobante', 'recibo', 'pago', 'operación', 'operacion',
-                'nequi', 'daviplata', 'bancolombia', 'banco', 'enviaste',
-                'enviado', 'recibiste', 'valor', 'aprobado', 'exitoso',
-                'exitosa', 'realizada', 'confirmado',
-            ];
-
-            const isReceipt = receiptKeywords.some(keyword => textLower.includes(keyword));
-
-            if (!isReceipt && text.length < 50) {
-                return {
-                    valid: false,
-                    extractedDate: null,
-                    extractedAmount: null,
-                    extractedReference: null,
-                    rejectionReason:
-                        'No pudimos leer el comprobante o no parece ser un soporte válido. ' +
-                        'Asegúrate de que la imagen sea nítida y que sea un comprobante de pago.',
-                    rawText: text,
-                };
-            }
-
-            // ── Validación 2: fecha de hoy obligatoria ────────────────────────────
-            const { found: dateFound, isToday } = extractDate(text);
-
-            if (!isToday) {
-                const today = getTodayVariants();
-                const dateMsg = dateFound
-                    ? `La fecha encontrada es "${dateFound}"`
-                    : 'No se encontró ninguna fecha en el comprobante';
-                return {
-                    valid: false,
-                    extractedDate: dateFound,
-                    extractedAmount: extractAmount(text),
-                    extractedReference: extractReference(text),
-                    rejectionReason:
-                        `${dateMsg}, pero el comprobante debe ser del día de hoy (${today.slash}). ` +
-                        'Verifica que estés subiendo el comprobante correcto.',
-                    rawText: text,
-                };
-            }
-
-            // ── Validación OK ─────────────────────────────────────────────────────
+            // 6) Si llegamos aqui: o todo coincide, o concept es lenient, o el LLM no detecto algun campo.
+            //    Marcamos valid=true (permite subir). El admin valida visualmente.
             return {
                 valid: true,
-                extractedDate: dateFound,
-                extractedAmount: extractAmount(text),
-                extractedReference: extractReference(text),
+                extractedDate: date,
+                extractedAmount: amount,
+                extractedReference: reference,
+                extractedBank: bank,
+                extractedCurrency: currency,
+                provider,
                 rejectionReason: null,
-                rawText: text,
             };
-
         } catch (err) {
             console.error('Error en OCR:', err);
-            return {
-                valid: false,
-                extractedDate: null,
-                extractedAmount: null,
-                extractedReference: null,
-                rejectionReason: 'Error al analizar el archivo. Intenta de nuevo con una imagen más nítida.',
-            };
+            return advisory('Error al analizar el archivo. Intenta de nuevo con una imagen mas nitida.');
         } finally {
-            if (worker) await worker.terminate();
             setValidating(false);
         }
     };
 
     return { validate, validating };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: resultado advisory (no bloquea, marca valid=true)
+// ─────────────────────────────────────────────────────────────────────────────
+function advisory(reason: string): ReceiptValidationResult {
+    return {
+        valid: true,
+        extractedDate: null,
+        extractedAmount: null,
+        extractedReference: null,
+        extractedBank: null,
+        extractedCurrency: null,
+        rejectionReason: reason,
+    };
 }
