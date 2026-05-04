@@ -309,7 +309,7 @@ export default function PrivacyPage() {
             <div className="bg-muted/30 rounded-lg p-3">
               <p className="font-medium text-foreground">Proveedores de servicio externos (Encargados del Tratamiento):</p>
               <ul className="list-disc list-inside mt-1 space-y-1">
-                <li><strong className="text-foreground">Wompi / ePayco:</strong> pasarelas de pago para procesar transacciones financieras.</li>
+                <li><strong className="text-foreground">Wompi (Bancolombia):</strong> pasarela de pago para procesar transacciones financieras.</li>
                 <li><strong className="text-foreground">Supabase:</strong> proveedor de base de datos, autenticación e infraestructura en la nube.</li>
                 <li><strong className="text-foreground">Resend:</strong> servicio de envío de correos electrónicos transaccionales (confirmaciones, recordatorios).</li>
                 <li><strong className="text-foreground">Vercel:</strong> plataforma de hosting y despliegue de la aplicación web.</li>

@@ -31,8 +31,7 @@ const AVAILABLE_SPORTS = [
 
 const PAYMENT_METHODS = [
   { id: 'bank_transfer', label: 'Transferencia Bancaria' },
-  { id: 'wompi', label: 'WompiGateway' },
-  { id: 'epayco', label: 'ePayco Gateway' },
+  { id: 'wompi', label: 'Wompi Gateway' },
   { id: 'cash', label: 'Efectivo / Presencial' }
 ];
 

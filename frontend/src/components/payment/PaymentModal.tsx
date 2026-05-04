@@ -88,7 +88,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
     fetchBank();
   }, [item.schoolId]);
 
-  const hasGateway = !!(bankSettings?.sportmaps_pay_enabled || bankSettings?.epayco_enabled);
+  const hasGateway = !!(bankSettings?.sportmaps_pay_enabled || bankSettings?.wompi_enabled);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-CO', {
@@ -308,7 +308,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                     {paymentMethod === 'manual' && <CheckCircle2 className="h-5 w-5 text-primary" />}
                   </label>
 
-                  {/* SportMaps Pay / ePayco - solo si la escuela lo habilito */}
+                  {/* SportMaps Pay / Wompi - solo si la escuela lo habilito */}
                   {hasGateway ? (
                     <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:bg-muted/50 ${paymentMethod === 'card' ? 'border-primary bg-primary/5' : 'border-border'}`}>
                       <div className="flex items-center gap-3">
@@ -321,7 +321,7 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
                             <p className="font-semibold text-sm">Tarjeta / PSE</p>
                             <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-700">SportMaps Pay</Badge>
                           </div>
-                          <p className="text-xs text-muted-foreground">Procesamiento inmediato via ePayco</p>
+                          <p className="text-xs text-muted-foreground">Procesamiento inmediato via Wompi</p>
                         </div>
                       </div>
                       {paymentMethod === 'card' && <CheckCircle2 className="h-5 w-5 text-primary" />}

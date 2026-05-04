@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { PaymentModal } from '@/components/payment/PaymentModal';
+import { CartCheckoutModal } from '@/components/shop/CartCheckoutModal';
 import {
   ShoppingCart,
   Search,
@@ -360,17 +360,16 @@ export default function ShopPage() {
         )}
       </div>
 
-      {/* Payment Modal */}
-      <PaymentModal
+      {/* Cart Checkout Modal — Wompi */}
+      <CartCheckoutModal
         open={showPayment}
         onOpenChange={setShowPayment}
-        item={{
-          type: 'product',
-          id: 'cart',
-          name: `Carrito (${cartItemCount} productos)`,
-          description: cart.map((i) => i.name).join(', '),
-          amount: cartTotal,
-        }}
+        items={cart.map((i) => ({
+          productId: i.id,
+          name: i.name,
+          quantity: i.quantity,
+          unitPrice: i.price,
+        }))}
         onSuccess={handlePaymentSuccess}
       />
     </div>

@@ -34,16 +34,6 @@ export interface WompiTransactionResult {
 }
 
 /**
- * Genera una referencia de pago única.
- * Format: SPM-<timestamp>-<random>
- */
-export function generatePaymentReference(): string {
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `SPM-${timestamp}-${random}`;
-}
-
-/**
  * Obtiene la firma de integridad DESDE EL SERVIDOR.
  * La Edge Function usa el WOMPI_INTEGRITY_SECRET que nunca sale del servidor.
  *

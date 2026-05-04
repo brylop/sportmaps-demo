@@ -1,43 +1,52 @@
+/**
+ * marketplace-checkout — Checkouts del marketplace via Wompi.
+ *
+ * Endpoints:
+ *  - POST /checkout/service       — Cita de servicio (fisio, coach, etc)
+ *  - POST /checkout/event         — Inscripcion individual a evento
+ *  - POST /checkout/subscription  — Suscripcion (plan)
+ *  - POST /checkout/cart          — Compra de productos del shop (NUEVO)
+ *  - POST /checkout/pay           — Pagar marketplace_transaction existente
+ *  - POST /refund                 — Solicitar reembolso
+ *  - GET  /transactions           — Mis transacciones
+ *  - GET  /subscriptions          — Mis suscripciones
+ *  - PATCH /subscriptions/:id/cancel
+ *
+ * Flujo Wompi:
+ *  1. BFF crea la marketplace_transaction (o order para cart) con un wompi_reference unico
+ *  2. BFF responde { reference, amountInCents }
+ *  3. Frontend abre el Widget Wompi con esos datos + signature de Edge Function
+ *  4. Wompi llama a /api/v1/webhooks/wompi cuando la tx cambia de estado
+ *  5. Webhook reconcilia y descuenta stock / activa suscripcion / etc
+ */
+
 import { Router, Request, Response } from 'express';
-import crypto from 'crypto';
 import { z } from 'zod';
 import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
+import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError, voidTransaction } from '../services/wompi.service';
 
 const router = Router();
 
 router.use(requireMarketplaceAuth);
 
-const EPAYCO_APIFY_URL = 'https://apify.epayco.co';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getEpaycoToken(): Promise<string> {
-    const publicKey = process.env.EPAYCO_PUBLIC_KEY;
-    const privateKey = process.env.EPAYCO_PRIVATE_KEY;
-
-    if (!publicKey || !privateKey) {
-        throw new Error('Credenciales de ePayco no configuradas.');
+// Middleware comun para todos los endpoints de checkout: bloquea si el usuario
+// tiene pagos pendientes de revision por el negocio.
+async function ensureUserNotBlocked(req: Request, res: Response, next: () => void) {
+    try {
+        await assertUserNotBlocked(req.user.id);
+        next();
+    } catch (err) {
+        if (err instanceof UserPaymentBlockedError) {
+            return res.status(409).json({
+                ok: false,
+                error: err.message,
+                code: err.code,
+                details: err.details,
+            });
+        }
+        return res.status(500).json({ ok: false, error: 'Error verificando estado de pagos.' });
     }
-
-    const credentials = Buffer.from(`${publicKey}:${privateKey}`).toString('base64');
-
-    const res = await fetch(`${EPAYCO_APIFY_URL}/login`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Basic ${credentials}`,
-        },
-    });
-
-    if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`ePayco login failed (${res.status}): ${body}`);
-    }
-
-    const data = await res.json();
-    if (!data.token) throw new Error('ePayco login response missing token');
-    return data.token;
 }
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
@@ -60,22 +69,45 @@ const GenericPaySchema = z.object({
     transactionId: z.string().uuid(),
 });
 
+const SessionBookingCheckoutSchema = z.object({
+    bookingId: z.string().uuid(),
+});
+
+const CartCheckoutSchema = z.object({
+    items: z.array(
+        z.object({
+            productId: z.string().uuid(),
+            variantId: z.string().uuid().optional(),
+            quantity: z.number().int().positive(),
+        }),
+    ).min(1),
+    shippingAddress: z.object({
+        line1: z.string().min(1),
+        line2: z.string().optional(),
+        city: z.string().min(1),
+        department: z.string().min(1),
+        postalCode: z.string().optional(),
+    }),
+    contactPhone: z.string().min(7),
+    contactEmail: z.string().email(),
+    customerName: z.string().min(2),
+    customerDocument: z.string().optional(),
+    notes: z.string().optional(),
+});
+
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /checkout/service — Checkout para citas de servicio (fisio, coach, etc)
-// Paso 1: Crea transaccion en BD via RPC
-// Paso 2: Crea sesion ePayco y retorna sessionId al frontend
+// POST /checkout/service
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/service', async (req: Request, res: Response) => {
+router.post('/checkout/service', ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = ServiceCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Datos inválidos', details: parsed.error.issues });
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
         const { appointmentId, serviceListingId, serviceVariationId } = parsed.data;
 
-        // Llamar RPC que calcula comisiones y crea transaccion
         const { data: result, error } = await supabase.rpc('create_service_checkout', {
             p_appointment_id: appointmentId,
             p_service_listing_id: serviceListingId || null,
@@ -91,30 +123,29 @@ router.post('/checkout/service', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: result?.error || 'Error desconocido' });
         }
 
-        // Cortesia — no necesita ePayco
+        // Cortesia — sin cobro
         if (result.is_courtesy) {
             await auditLog(req, 'service_courtesy', 'marketplace_transactions', result.transaction_id);
             return res.status(200).json({ ok: true, data: result });
         }
 
-        // Crear sesion ePayco para cobro
-        const sessionData = await createEpaycoSession({
-            transactionId: result.transaction_id,
-            amount: result.amount,
-            description: `Cita de servicio — SportMaps`,
-            userId: req.user.id,
-        });
+        const reference = generateReference('service');
+        await supabase
+            .from('marketplace_transactions')
+            .update({ wompi_reference: reference })
+            .eq('id', result.transaction_id);
 
         await auditLog(req, 'service_checkout', 'marketplace_transactions', result.transaction_id, null, {
             amount: result.amount,
+            reference,
         });
 
         return res.status(201).json({
             ok: true,
             data: {
                 ...result,
-                sessionId: sessionData.sessionId,
-                token: sessionData.token,
+                reference,
+                amountInCents: copToCents(Number(result.amount)),
             },
         });
     } catch (err: any) {
@@ -125,13 +156,13 @@ router.post('/checkout/service', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /checkout/event — Checkout para inscripcion individual a evento
+// POST /checkout/event
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/event', async (req: Request, res: Response) => {
+router.post('/checkout/event', ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = EventCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Datos inválidos', details: parsed.error.issues });
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
         const { eventRegistrationId } = parsed.data;
@@ -149,29 +180,28 @@ router.post('/checkout/event', async (req: Request, res: Response) => {
             return res.status(400).json({ ok: false, error: result?.error || 'Error desconocido' });
         }
 
-        // Evento gratuito
         if (result.is_free) {
             await auditLog(req, 'event_free_registration', 'marketplace_transactions', result.transaction_id);
             return res.status(200).json({ ok: true, data: result });
         }
 
-        const sessionData = await createEpaycoSession({
-            transactionId: result.transaction_id,
-            amount: result.amount,
-            description: `Inscripción evento — SportMaps`,
-            userId: req.user.id,
-        });
+        const reference = generateReference('event');
+        await supabase
+            .from('marketplace_transactions')
+            .update({ wompi_reference: reference })
+            .eq('id', result.transaction_id);
 
         await auditLog(req, 'event_checkout', 'marketplace_transactions', result.transaction_id, null, {
             amount: result.amount,
+            reference,
         });
 
         return res.status(201).json({
             ok: true,
             data: {
                 ...result,
-                sessionId: sessionData.sessionId,
-                token: sessionData.token,
+                reference,
+                amountInCents: copToCents(Number(result.amount)),
             },
         });
     } catch (err: any) {
@@ -182,13 +212,13 @@ router.post('/checkout/event', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /checkout/subscription — Checkout para suscripcion (escuela, paquete)
+// POST /checkout/subscription
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/subscription', async (req: Request, res: Response) => {
+router.post('/checkout/subscription', ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = SubscriptionCheckoutSchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Datos inválidos', details: parsed.error.issues });
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
         const { planId } = parsed.data;
@@ -199,37 +229,37 @@ router.post('/checkout/subscription', async (req: Request, res: Response) => {
 
         if (error) {
             req.log?.error({ err: error }, 'create_subscription RPC failed');
-            return res.status(500).json({ ok: false, error: 'Error creando suscripción.' });
+            return res.status(500).json({ ok: false, error: 'Error creando suscripcion.' });
         }
 
         if (!result?.ok) {
             return res.status(400).json({ ok: false, error: result?.error || 'Error desconocido' });
         }
 
-        // Trial — no cobrar ahora
+        // Trial — no cobrar
         if (result.is_trial) {
             await auditLog(req, 'subscription_trial', 'subscriptions', result.subscription_id);
             return res.status(200).json({ ok: true, data: result });
         }
 
-        const sessionData = await createEpaycoSession({
-            transactionId: result.transaction_id,
-            amount: result.amount,
-            description: `Suscripción — SportMaps`,
-            userId: req.user.id,
-        });
+        const reference = generateReference('subscription');
+        await supabase
+            .from('marketplace_transactions')
+            .update({ wompi_reference: reference })
+            .eq('id', result.transaction_id);
 
         await auditLog(req, 'subscription_checkout', 'marketplace_transactions', result.transaction_id, null, {
             amount: result.amount,
             subscription_id: result.subscription_id,
+            reference,
         });
 
         return res.status(201).json({
             ok: true,
             data: {
                 ...result,
-                sessionId: sessionData.sessionId,
-                token: sessionData.token,
+                reference,
+                amountInCents: copToCents(Number(result.amount)),
             },
         });
     } catch (err: any) {
@@ -240,45 +270,300 @@ router.post('/checkout/subscription', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /checkout/pay — Pagar transaccion existente (ej: renovacion de sub)
-// Para cuando ya existe la marketplace_transaction pero no se ha pagado.
+// POST /checkout/session-booking — Reserva de cancha/sesion con cobro
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/checkout/pay', async (req: Request, res: Response) => {
+router.post('/checkout/session-booking', ensureUserNotBlocked, async (req: Request, res: Response) => {
+    try {
+        const parsed = SessionBookingCheckoutSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
+        }
+
+        const { bookingId } = parsed.data;
+
+        // Booking debe existir, pertenecer al user y tener precio > 0
+        const { data: booking, error: bookErr } = await supabase
+            .from('session_bookings')
+            .select('id, user_id, price, payment_status, requires_review')
+            .eq('id', bookingId)
+            .eq('user_id', req.user.id)
+            .single();
+
+        if (bookErr || !booking) {
+            return res.status(404).json({ ok: false, error: 'Reserva no encontrada.' });
+        }
+
+        if ((booking as any).requires_review) {
+            return res.status(409).json({ ok: false, error: 'Reserva bloqueada pendiente de revision.', code: 'BOOKING_REQUIRES_REVIEW' });
+        }
+
+        if (booking.payment_status === 'paid') {
+            return res.status(400).json({ ok: false, error: 'Reserva ya pagada.' });
+        }
+
+        const price = Number(booking.price ?? 0);
+        if (price <= 0) {
+            // Reserva gratis: marcar como free y retornar
+            await supabase.from('session_bookings').update({ payment_status: 'free' }).eq('id', booking.id);
+            return res.json({ ok: true, data: { is_free: true, bookingId } });
+        }
+
+        const reference = generateReference('session_booking');
+        await supabase
+            .from('session_bookings')
+            .update({ wompi_reference: reference, payment_status: 'pending' })
+            .eq('id', booking.id);
+
+        await auditLog(req, 'session_booking_checkout', 'session_bookings', booking.id, null, {
+            amount: price,
+            reference,
+        });
+
+        return res.status(201).json({
+            ok: true,
+            data: {
+                bookingId,
+                reference,
+                amount: price,
+                amountInCents: copToCents(price),
+            },
+        });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error in session-booking checkout');
+        return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
+    }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /checkout/cart — Carrito de productos del shop
+// ─────────────────────────────────────────────────────────────────────────────
+// Crea la order + order_items, calcula totales en server (incluye envio e IVA),
+// y devuelve la reference Wompi para abrir el Widget en el frontend.
+router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Response) => {
+    try {
+        const parsed = CartCheckoutSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
+        }
+
+        const { items, shippingAddress, contactPhone, contactEmail, customerName, customerDocument, notes } = parsed.data;
+
+        // 1. Obtener productos (precio + stock + vendor_id) desde la BD — NUNCA confiar en el cliente
+        const productIds = items.map(i => i.productId);
+        const { data: products, error: productsErr } = await supabase
+            .from('products')
+            .select('id, name, price, stock, vendor_id, status, product_variants(id, sku, price_override, stock, is_active)')
+            .in('id', productIds);
+
+        if (productsErr || !products || products.length === 0) {
+            return res.status(400).json({ ok: false, error: 'Productos no encontrados.' });
+        }
+
+        // 2. Validar disponibilidad y construir line items
+        type LineItem = {
+            productId: string;
+            variantId: string | null;
+            quantity: number;
+            unitPrice: number;
+            subtotal: number;
+            taxAmount: number;
+            vendorId: string | null;
+            name: string;
+        };
+        const lineItems: LineItem[] = [];
+        const TAX_RATE = 0.19; // IVA Colombia — calcular en server
+
+        for (const requested of items) {
+            const product: any = products.find(p => p.id === requested.productId);
+            if (!product) {
+                return res.status(400).json({ ok: false, error: `Producto ${requested.productId} no existe.` });
+            }
+            if (product.status && product.status !== 'active') {
+                return res.status(400).json({ ok: false, error: `${product.name}: producto inactivo.` });
+            }
+
+            let unitPrice = Number(product.price);
+            let availableStock = Number(product.stock);
+            let variantId: string | null = null;
+
+            if (requested.variantId) {
+                const variant = product.product_variants?.find((v: any) => v.id === requested.variantId);
+                if (!variant) {
+                    return res.status(400).json({ ok: false, error: `${product.name}: variante no encontrada.` });
+                }
+                if (!variant.is_active) {
+                    return res.status(400).json({ ok: false, error: `${product.name}: variante inactiva.` });
+                }
+                if (variant.price_override !== null && variant.price_override !== undefined) {
+                    unitPrice = Number(variant.price_override);
+                }
+                availableStock = Number(variant.stock);
+                variantId = variant.id;
+            }
+
+            if (availableStock < requested.quantity) {
+                return res.status(400).json({
+                    ok: false,
+                    error: `${product.name}: solo quedan ${availableStock} unidades.`,
+                });
+            }
+
+            const subtotal = unitPrice * requested.quantity;
+            const taxAmount = Math.round(subtotal * TAX_RATE);
+
+            lineItems.push({
+                productId: product.id,
+                variantId,
+                quantity: requested.quantity,
+                unitPrice,
+                subtotal,
+                taxAmount,
+                vendorId: product.vendor_id || null,
+                name: product.name,
+            });
+        }
+
+        // 3. Calcular envio en server (tabla shipping_zones)
+        const { data: zone } = await supabase
+            .from('shipping_zones')
+            .select('costo_base')
+            .eq('departamento', shippingAddress.department)
+            .maybeSingle();
+
+        const shippingCost = zone?.costo_base ? Number(zone.costo_base) : 18000; // fallback regional
+
+        // 4. Totales
+        const subtotalSum = lineItems.reduce((a, l) => a + l.subtotal, 0);
+        const taxTotal = lineItems.reduce((a, l) => a + l.taxAmount, 0);
+        const grossAmount = subtotalSum + taxTotal + shippingCost;
+
+        // 5. Generar reference Wompi unica
+        const reference = generateReference('cart');
+
+        // 6. Crear order (vendor_id = primer vendor; multi-vendor split se hace en webhook)
+        const primaryVendorId = lineItems[0]?.vendorId || null;
+        const { data: order, error: orderErr } = await supabase
+            .from('orders')
+            .insert({
+                user_id: req.user.id,
+                vendor_id: primaryVendorId,
+                total_amount: grossAmount,
+                tax_total: taxTotal,
+                shipping_cost: shippingCost,
+                status: 'pending',
+                payment_method: 'wompi',
+                wompi_reference: reference,
+                shipping_address: shippingAddress,
+                contact_phone: contactPhone,
+                contact_email: contactEmail,
+                customer_name: customerName,
+                customer_document: customerDocument || null,
+                notes: notes || null,
+            })
+            .select('id')
+            .single();
+
+        if (orderErr || !order) {
+            req.log?.error({ err: orderErr }, 'Error inserting order');
+            return res.status(500).json({ ok: false, error: 'Error creando la orden.' });
+        }
+
+        // 7. Crear order_items
+        const orderItems = lineItems.map(l => ({
+            order_id: order.id,
+            product_id: l.productId,
+            variant_id: l.variantId,
+            vendor_id: l.vendorId,
+            quantity: l.quantity,
+            unit_price: l.unitPrice,
+            subtotal: l.subtotal,
+            tax_amount: l.taxAmount,
+        }));
+
+        const { error: itemsErr } = await supabase.from('order_items').insert(orderItems);
+
+        if (itemsErr) {
+            req.log?.error({ err: itemsErr }, 'Error inserting order_items');
+            // Rollback de la orden para evitar zombies
+            await supabase.from('orders').delete().eq('id', order.id);
+            return res.status(500).json({ ok: false, error: 'Error guardando los productos.' });
+        }
+
+        await auditLog(req, 'cart_checkout', 'orders', order.id, null, {
+            amount: grossAmount,
+            items: lineItems.length,
+            reference,
+        });
+
+        return res.status(201).json({
+            ok: true,
+            data: {
+                orderId: order.id,
+                reference,
+                amountInCents: copToCents(grossAmount),
+                grossAmount,
+                subtotal: subtotalSum,
+                taxTotal,
+                shippingCost,
+                items: lineItems.map(l => ({
+                    productId: l.productId,
+                    variantId: l.variantId,
+                    name: l.name,
+                    quantity: l.quantity,
+                    unitPrice: l.unitPrice,
+                    subtotal: l.subtotal,
+                })),
+            },
+        });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error in cart checkout');
+        return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
+    }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /checkout/pay — Pagar marketplace_transaction existente
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/checkout/pay', ensureUserNotBlocked, async (req: Request, res: Response) => {
     try {
         const parsed = GenericPaySchema.safeParse(req.body);
         if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            return res.status(400).json({ ok: false, error: 'Datos invalidos' });
         }
 
         const { transactionId } = parsed.data;
 
-        // Verificar que la transaccion pertenece al usuario y esta pendiente
         const { data: tx, error: txErr } = await supabase
             .from('marketplace_transactions')
-            .select('id, gross_amount, status, description')
+            .select('id, gross_amount, status, description, wompi_reference')
             .eq('id', transactionId)
             .eq('user_id', req.user.id)
             .eq('status', 'pending')
             .single();
 
         if (txErr || !tx) {
-            return res.status(404).json({ ok: false, error: 'Transacción no encontrada o ya procesada.' });
+            return res.status(404).json({ ok: false, error: 'Transaccion no encontrada o ya procesada.' });
         }
 
-        const sessionData = await createEpaycoSession({
-            transactionId: tx.id,
-            amount: tx.gross_amount,
-            description: tx.description || 'Pago SportMaps',
-            userId: req.user.id,
-        });
+        // Reusar reference si existe, generar uno nuevo si no
+        let reference = tx.wompi_reference;
+        if (!reference) {
+            reference = generateReference('marketplace_pay');
+            await supabase
+                .from('marketplace_transactions')
+                .update({ wompi_reference: reference })
+                .eq('id', tx.id);
+        }
 
         return res.status(201).json({
             ok: true,
             data: {
                 transaction_id: tx.id,
+                reference,
                 amount: tx.gross_amount,
-                sessionId: sessionData.sessionId,
-                token: sessionData.token,
+                amountInCents: copToCents(Number(tx.gross_amount)),
             },
         });
     } catch (err: any) {
@@ -289,18 +574,31 @@ router.post('/checkout/pay', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /refund — Solicitar reembolso
+// POST /refund — Cliente solicita reembolso (orden | tx | payment)
 // ─────────────────────────────────────────────────────────────────────────────
+const RefundRequestSchema = z.object({
+    orderId: z.string().uuid().optional(),
+    transactionId: z.string().uuid().optional(),
+    paymentId: z.string().uuid().optional(),
+    reason: z.string().min(5),
+}).refine(
+    (d) => [d.orderId, d.transactionId, d.paymentId].filter(Boolean).length === 1,
+    { message: 'Debes especificar exactamente uno: orderId, transactionId o paymentId' },
+);
+
 router.post('/refund', async (req: Request, res: Response) => {
     try {
-        const { transactionId, reason } = req.body;
-
-        if (!transactionId || !reason) {
-            return res.status(400).json({ ok: false, error: 'transactionId y reason son requeridos.' });
+        const parsed = RefundRequestSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
+        const { orderId, transactionId, paymentId, reason } = parsed.data;
+
         const { data: result, error } = await supabase.rpc('request_refund', {
-            p_transaction_id: transactionId,
+            p_order_id: orderId || null,
+            p_transaction_id: transactionId || null,
+            p_payment_id: paymentId || null,
             p_reason: reason,
         });
 
@@ -325,9 +623,105 @@ router.post('/refund', async (req: Request, res: Response) => {
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /refund/:id/process — Vendor/admin/owner aprueba y ejecuta void en Wompi
+// ─────────────────────────────────────────────────────────────────────────────
+// Flujo:
+//  1. RPC approve_refund verifica permisos del actor
+//  2. Buscar el wompi_transaction_id del origen (order/tx/payment)
+//  3. Llamar voidTransaction(wompi_tx_id) en Wompi
+//  4. RPC complete_refund marca refunded + restituye stock si era cart
+router.post('/refund/:id/process', async (req: Request, res: Response) => {
+    try {
+        const refundId = req.params.id;
+
+        // 1. Aprobar (verifica permisos via SECURITY DEFINER + auth.uid())
+        const { data: approval, error: approveErr } = await supabase.rpc('approve_refund', {
+            p_refund_id: refundId,
+        });
+
+        if (approveErr) {
+            req.log?.error({ err: approveErr }, 'approve_refund RPC failed');
+            return res.status(500).json({ ok: false, error: 'Error aprobando reembolso.' });
+        }
+
+        if (!approval?.ok) {
+            const code = approval?.error || 'unknown';
+            const status = code === 'forbidden' ? 403 : code === 'unauthenticated' ? 401 : 400;
+            return res.status(status).json({ ok: false, error: code });
+        }
+
+        // 2. Resolver wompi_transaction_id
+        const { data: refund } = await supabase
+            .from('refunds')
+            .select('id, order_id, transaction_id, payment_id')
+            .eq('id', refundId)
+            .single();
+
+        if (!refund) {
+            return res.status(404).json({ ok: false, error: 'Reembolso no encontrado.' });
+        }
+
+        let wompiTxId: string | null = null;
+        if (refund.order_id) {
+            const { data } = await supabase
+                .from('orders')
+                .select('wompi_transaction_id')
+                .eq('id', refund.order_id)
+                .single();
+            wompiTxId = data?.wompi_transaction_id || null;
+        } else if (refund.transaction_id) {
+            const { data } = await supabase
+                .from('marketplace_transactions')
+                .select('wompi_transaction_id')
+                .eq('id', refund.transaction_id)
+                .single();
+            wompiTxId = data?.wompi_transaction_id || null;
+        } else if (refund.payment_id) {
+            const { data } = await supabase
+                .from('payments')
+                .select('wompi_transaction_id')
+                .eq('id', refund.payment_id)
+                .single();
+            wompiTxId = data?.wompi_transaction_id || null;
+        }
+
+        if (!wompiTxId) {
+            await supabase.from('refunds').update({ status: 'failed', rejection_reason: 'no_wompi_tx_id' }).eq('id', refundId);
+            return res.status(400).json({ ok: false, error: 'No hay transaccion Wompi asociada para reembolsar.' });
+        }
+
+        // 3. Llamar void en Wompi
+        const voidRes = await voidTransaction(wompiTxId);
+        if (!voidRes.ok) {
+            await supabase.from('refunds').update({ status: 'failed', rejection_reason: voidRes.error }).eq('id', refundId);
+            req.log?.error({ refundId, err: voidRes.error }, 'voidTransaction failed');
+            return res.status(502).json({ ok: false, error: voidRes.error });
+        }
+
+        // 4. Completar (restitucion de stock atomica si aplica)
+        const { data: completion, error: compErr } = await supabase.rpc('complete_refund', {
+            p_refund_id: refundId,
+            p_wompi_void_id: wompiTxId,  // Wompi reusa el id en void
+        });
+
+        if (compErr) {
+            req.log?.error({ err: compErr, refundId }, 'complete_refund RPC failed');
+            return res.status(500).json({ ok: false, error: 'Error finalizando reembolso.' });
+        }
+
+        await auditLog(req, 'refund_processed', 'refunds', refundId as string, null, { wompi_void_id: wompiTxId });
+
+        return res.json({ ok: true, data: { refundId, completion } });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error processing refund');
+        return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
+    }
+});
+
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /transactions — Mis transacciones del marketplace
+// GET /transactions
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/transactions', async (req: Request, res: Response) => {
     try {
@@ -358,7 +752,7 @@ router.get('/transactions', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /subscriptions — Mis suscripciones activas
+// GET /subscriptions
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/subscriptions', async (req: Request, res: Response) => {
     try {
@@ -383,7 +777,7 @@ router.get('/subscriptions', async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATCH /subscriptions/:id/cancel — Cancelar suscripcion
+// PATCH /subscriptions/:id/cancel
 // ─────────────────────────────────────────────────────────────────────────────
 router.patch('/subscriptions/:id/cancel', async (req: Request, res: Response) => {
     try {
@@ -398,11 +792,11 @@ router.patch('/subscriptions/:id/cancel', async (req: Request, res: Response) =>
             .single();
 
         if (subErr || !sub) {
-            return res.status(404).json({ ok: false, error: 'Suscripción no encontrada.' });
+            return res.status(404).json({ ok: false, error: 'Suscripcion no encontrada.' });
         }
 
         if (sub.status === 'cancelled') {
-            return res.status(400).json({ ok: false, error: 'Suscripción ya está cancelada.' });
+            return res.status(400).json({ ok: false, error: 'Suscripcion ya esta cancelada.' });
         }
 
         const updates: Record<string, unknown> = {
@@ -424,7 +818,7 @@ router.patch('/subscriptions/:id/cancel', async (req: Request, res: Response) =>
             .single();
 
         if (error) {
-            return res.status(500).json({ ok: false, error: 'Error cancelando suscripción.' });
+            return res.status(500).json({ ok: false, error: 'Error cancelando suscripcion.' });
         }
 
         await auditLog(req, 'subscription_cancel', 'subscriptions', id as string, null, {
@@ -435,75 +829,12 @@ router.patch('/subscriptions/:id/cancel', async (req: Request, res: Response) =>
             ok: true,
             data,
             message: cancelImmediately
-                ? 'Suscripción cancelada inmediatamente.'
-                : 'La suscripción se cancelará al final del periodo actual.',
+                ? 'Suscripcion cancelada inmediatamente.'
+                : 'La suscripcion se cancelara al final del periodo actual.',
         });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
     }
 });
-
-
-// ── Internal: createEpaycoSession ────────────────────────────────────────────
-// Crea sesion de checkout en ePayco para cualquier tipo de marketplace_transaction.
-
-async function createEpaycoSession(params: {
-    transactionId: string;
-    amount: number;
-    description: string;
-    userId: string;
-}): Promise<{ sessionId: string; token: string }> {
-    const epaycoToken = await getEpaycoToken();
-
-    const bffUrl = process.env.BFF_URL || 'https://sportmaps-bff.onrender.com';
-    const frontendUrl = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
-
-    const sessionRes = await fetch(`${EPAYCO_APIFY_URL}/payment/session/create`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${epaycoToken}`,
-        },
-        body: JSON.stringify({
-            checkout_version: '2',
-            name: params.description,
-            description: params.description,
-            currency: 'COP',
-            amount: String(params.amount),
-            tax: '0',
-            tax_base: String(params.amount),
-            invoice: params.transactionId,
-            confirmation: `${bffUrl}/api/v1/webhooks/epayco/marketplace`,
-            response: `${frontendUrl}/marketplace/confirmacion`,
-            extras: {
-                extra1: params.transactionId,  // marketplace_transaction.id
-                extra2: 'marketplace',          // identifica que es del marketplace unificado
-                extra3: params.userId,
-            },
-        }),
-    });
-
-    if (!sessionRes.ok) {
-        const errBody = await sessionRes.text();
-        throw new Error(`ePayco session create failed: ${errBody}`);
-    }
-
-    const sessionData = await sessionRes.json();
-    const sessionId = sessionData.data?.sessionId || sessionData.sessionId;
-
-    if (!sessionId) {
-        throw new Error('ePayco no retornó un ID de sesión válido.');
-    }
-
-    // Guardar sessionId en la transaccion
-    const token = crypto.randomBytes(32).toString('hex');
-
-    await supabase
-        .from('marketplace_transactions')
-        .update({ epayco_session_id: sessionId, metadata: { token } })
-        .eq('id', params.transactionId);
-
-    return { sessionId, token };
-}
 
 export default router;
