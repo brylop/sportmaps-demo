@@ -65,16 +65,20 @@ export function MercadoPagoBrick({
             email: payerEmail,
             firstName: payerFirstName,
             lastName: payerLastName,
+            // CO requiere entityType. 'individual' = persona natural.
+            entityType: 'individual' as const,
         },
     }), [transactionAmount, payerEmail, payerFirstName, payerLastName]);
 
+    // Nota: NO incluir `mercadoPago` aqui — ese campo requiere `preferenceId`
+    // que solo se usa con Checkout Pro. Nuestro flujo (Checkout API direct con
+    // token tokenizado por el Brick) no necesita preferencia.
     const customization = useMemo(() => ({
         paymentMethods: {
             creditCard: 'all' as const,
             debitCard: 'all' as const,
             bankTransfer: 'all' as const,         // PSE en CO
             ticket: 'all' as const,               // Efectivo (Efecty/Baloto)
-            mercadoPago: 'all' as const,          // Wallet MP
             maxInstallments: 12,
         },
         visual: {
@@ -83,6 +87,20 @@ export function MercadoPagoBrick({
             },
         },
     }), []);
+
+    // Guard: no renderizamos el Brick hasta que tengamos un monto valido. MP
+    // CO exige minimo aprox 2.500 COP para tarjeta y montos mas altos para
+    // PSE/efectivo. Bajo eso el iframe falla con 422 y warnings ruidosos.
+    const minAmount = 2500;
+    if (!transactionAmount || transactionAmount < minAmount) {
+        return (
+            <div className="mp-brick-wrapper">
+                <p className="text-sm text-orange-600">
+                    El monto minimo para pagar con MercadoPago es ${minAmount.toLocaleString('es-CO')} COP.
+                </p>
+            </div>
+        );
+    }
 
     const onSubmit = useCallback(async (formData: any) => {
         if (submitting) return;
