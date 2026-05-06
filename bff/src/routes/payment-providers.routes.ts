@@ -48,7 +48,7 @@ const ProviderPatchSchema = z.object({
 // ─── School endpoints ──────────────────────────────────────────────────────
 
 router.get('/school/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { schoolId } = req.params;
+    const { schoolId } = req.params as { schoolId: string };
 
     // Verificar permisos: school owner / school_admin / admin
     const authorized = await isSchoolAuthorized(req.user.id, schoolId);
@@ -70,7 +70,7 @@ router.get('/school/:schoolId', requireAuth, async (req: AuthenticatedRequest, r
 });
 
 router.post('/school/:schoolId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { schoolId } = req.params;
+    const { schoolId } = req.params as { schoolId: string };
     const parsed = ProviderUpsertSchema.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({ error: 'invalid_body', details: parsed.error.issues });
@@ -112,7 +112,7 @@ router.post('/school/:schoolId', requireAuth, async (req: AuthenticatedRequest, 
 // ─── Vendor endpoints ──────────────────────────────────────────────────────
 
 router.get('/vendor/:vendorId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { vendorId } = req.params;
+    const { vendorId } = req.params as { vendorId: string };
     const isOwner = req.user.id === vendorId;
     const isAdmin = await isAdminGlobal(req.user.id);
     if (!isOwner && !isAdmin) {
@@ -133,7 +133,7 @@ router.get('/vendor/:vendorId', requireAuth, async (req: AuthenticatedRequest, r
 });
 
 router.post('/vendor/:vendorId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { vendorId } = req.params;
+    const { vendorId } = req.params as { vendorId: string };
     const isOwner = req.user.id === vendorId;
     const isAdmin = await isAdminGlobal(req.user.id);
     if (!isOwner && !isAdmin) {
@@ -176,7 +176,7 @@ router.post('/vendor/:vendorId', requireAuth, async (req: AuthenticatedRequest, 
 // ─── Generic patch / delete by id ──────────────────────────────────────────
 
 router.patch('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const parsed = ProviderPatchSchema.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({ error: 'invalid_body' });
@@ -213,7 +213,7 @@ router.patch('/:id', requireAuth, async (req: AuthenticatedRequest, res: Respons
 });
 
 router.delete('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const target = await locateProviderById(id);
     if (!target) {
         return res.status(404).json({ error: 'not_found' });
