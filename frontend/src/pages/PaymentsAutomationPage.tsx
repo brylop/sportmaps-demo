@@ -269,6 +269,7 @@ export default function PaymentsAutomationPage() {
           id, amount, status, created_at, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id,
+          period_year, period_month,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
@@ -298,6 +299,21 @@ export default function PaymentsAutomationPage() {
         (unregistered || []).forEach((u: any) => unregisteredMap.set(u.id, u.full_name));
       }
 
+      // Set de periodos ya cubiertos (paid/approved) por hijo, para marcar
+      // duplicados visibles cuando un comprobante pendiente apunta a un mes
+      // ya pagado. Clave: `${child_id}|${year}|${month}`.
+      const settledPeriods = new Set<string>();
+      (data as any[] | null)?.forEach((p) => {
+        if (p.child_id && p.period_year && p.period_month && (p.status === 'paid' || p.status === 'approved')) {
+          settledPeriods.add(`${p.child_id}|${p.period_year}|${p.period_month}`);
+        }
+      });
+
+      const monthLabel = (y?: number | null, m?: number | null): string | null =>
+        y && m && m >= 1 && m <= 12
+          ? `${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m - 1]} ${y}`
+          : null;
+
       setPayments(((data as any[]) || []).map((p) => ({
         id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
@@ -308,6 +324,15 @@ export default function PaymentsAutomationPage() {
         ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
         ocr_date: p.ocr_date, ocr_bank: p.ocr_bank,
         ocr_reference: p.ocr_reference, ocr_provider: p.ocr_provider,
+        period_year:  p.period_year ?? null,
+        period_month: p.period_month ?? null,
+        period_label: monthLabel(p.period_year, p.period_month),
+        // Solo marcamos duplicado en pendientes que reclaman un periodo
+        // ya saldado por OTRO pago (no por si mismo).
+        period_already_settled:
+          p.status === 'awaiting_approval' &&
+          p.child_id && p.period_year && p.period_month &&
+          settledPeriods.has(`${p.child_id}|${p.period_year}|${p.period_month}`),
         // Nombre del atleta resuelto por tipo
         athlete_name:
           p.child?.full_name ||
@@ -526,7 +551,16 @@ export default function PaymentsAutomationPage() {
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const rawPendingPayments = payments.filter(p => p.status === 'awaiting_approval');
+  // "Validación de Cobros" muestra SOLO transferencias manuales que requieren
+  // que la escuela apruebe/rechace el comprobante. Los pagos de MercadoPago
+  // y Wompi NO aparecen aqui — los valida el gateway automaticamente y se
+  // marcan paid via webhook. Si se mostraran aqui, la escuela podria aprobar
+  // por error un pago que MP / Wompi todavia esta procesando.
+  const rawPendingPayments = payments.filter(p =>
+    p.status === 'awaiting_approval'
+    && (p as any).payment_provider !== 'mercadopago'
+    && (p as any).payment_provider !== 'wompi'
+  );
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
     const term = pendingSearch.toLowerCase();
@@ -537,8 +571,19 @@ export default function PaymentsAutomationPage() {
       p.team?.name?.toLowerCase().includes(term);
   });
 
-  // Filtrar historial
-  const rawHistoryPayments = payments.filter(p => p.status !== 'pending' && p.status !== 'awaiting_approval');
+  // Historial muestra todo lo que NO esta en cola de validacion manual:
+  //  - paid / refunded / declined / cancelled (estados terminales)
+  //  - pending de MercadoPago / Wompi (gateway esta procesando, escuela ve solo lectura)
+  //  - awaiting_approval de MercadoPago / Wompi (igual, gateway-managed)
+  // Excluye los `awaiting_approval` de transferencia manual porque ya estan en
+  // "Validación de Cobros" arriba.
+  const rawHistoryPayments = payments.filter(p => {
+    const provider = (p as any).payment_provider;
+    const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
+    if (p.status === 'pending') return isGatewayPayment;
+    if (p.status === 'awaiting_approval') return isGatewayPayment;
+    return true;
+  });
   const historyPayments = rawHistoryPayments.filter(p => {
     const searchMatch = !historySearch ||
       p.child?.full_name?.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -687,10 +732,20 @@ export default function PaymentsAutomationPage() {
                                   <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
                                 </Badge>
                               )}
-                              {!payment.team?.name && !(payment as any).plan?.name && (
+                              {(payment as any).period_label && (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 py-0 h-4">
+                                  {(payment as any).period_label}
+                                </Badge>
+                              )}
+                              {!payment.team?.name && !(payment as any).plan?.name && !(payment as any).period_label && (
                                 <span className="text-xs text-muted-foreground truncate">{payment.concept}</span>
                               )}
                             </div>
+                            {(payment as any).period_already_settled && (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-red-600">
+                                <AlertTriangle className="h-3 w-3" /> Este mes ya fue pagado y aprobado
+                              </div>
+                            )}
                             <p className="text-xs text-muted-foreground">{(payment as any).parent_responsible || '—'}</p>
                           </div>
                           <div className="text-right shrink-0">
@@ -749,10 +804,20 @@ export default function PaymentsAutomationPage() {
                                       <Zap className="h-2.5 w-2.5 mr-1" /> {(payment as any).plan.name}
                                     </Badge>
                                   )}
-                                  {!payment.team?.name && !(payment as any).plan?.name && (
+                                  {(payment as any).period_label && (
+                                    <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 py-0 h-5">
+                                      {(payment as any).period_label}
+                                    </Badge>
+                                  )}
+                                  {!payment.team?.name && !(payment as any).plan?.name && !(payment as any).period_label && (
                                     <span className="text-xs text-muted-foreground">{payment.concept}</span>
                                   )}
                                 </div>
+                                {(payment as any).period_already_settled && (
+                                  <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-red-600">
+                                    <AlertTriangle className="h-3 w-3" /> Este mes ya fue pagado y aprobado
+                                  </div>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>

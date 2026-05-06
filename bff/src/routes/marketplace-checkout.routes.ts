@@ -25,6 +25,8 @@ import { z } from 'zod';
 import { requireMarketplaceAuth, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError, voidTransaction } from '../services/wompi.service';
+import { generateMpReference } from '../services/mercadopago.service';
+import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 
 const router = Router();
 
@@ -93,6 +95,7 @@ const CartCheckoutSchema = z.object({
     customerName: z.string().min(2),
     customerDocument: z.string().optional(),
     notes: z.string().optional(),
+    preferredProvider: z.enum(['wompi', 'mercadopago']).optional(),
 });
 
 
@@ -347,7 +350,7 @@ router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Re
             return res.status(400).json({ ok: false, error: 'Datos invalidos', details: parsed.error.issues });
         }
 
-        const { items, shippingAddress, contactPhone, contactEmail, customerName, customerDocument, notes } = parsed.data;
+        const { items, shippingAddress, contactPhone, contactEmail, customerName, customerDocument, notes, preferredProvider } = parsed.data;
 
         // 1. Obtener productos (precio + stock + vendor_id) desde la BD — NUNCA confiar en el cliente
         const productIds = items.map(i => i.productId);
@@ -438,11 +441,17 @@ router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Re
         const taxTotal = lineItems.reduce((a, l) => a + l.taxAmount, 0);
         const grossAmount = subtotalSum + taxTotal + shippingCost;
 
-        // 5. Generar reference Wompi unica
-        const reference = generateReference('cart');
-
-        // 6. Crear order (vendor_id = primer vendor; multi-vendor split se hace en webhook)
+        // 5. Resolver provider (per vendor); default marketplace global si no hay vendor.
         const primaryVendorId = lineItems[0]?.vendorId || null;
+        const resolved = await resolveProvider({ vendorId: primaryVendorId, preferredProvider });
+        const provider: PaymentProvider = resolved?.provider ?? 'wompi';
+
+        // 6. Generar reference segun provider
+        const reference = provider === 'mercadopago'
+            ? generateMpReference('cart')
+            : generateReference('cart');
+
+        // 7. Crear order (vendor_id = primer vendor; multi-vendor split se hace en webhook)
         const { data: order, error: orderErr } = await supabase
             .from('orders')
             .insert({
@@ -452,8 +461,10 @@ router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Re
                 tax_total: taxTotal,
                 shipping_cost: shippingCost,
                 status: 'pending',
-                payment_method: 'wompi',
-                wompi_reference: reference,
+                payment_method: provider,
+                payment_provider: provider,
+                provider_reference: reference,
+                wompi_reference: provider === 'wompi' ? reference : null,
                 shipping_address: shippingAddress,
                 contact_phone: contactPhone,
                 contact_email: contactEmail,
@@ -500,8 +511,12 @@ router.post('/checkout/cart', ensureUserNotBlocked, async (req: Request, res: Re
             ok: true,
             data: {
                 orderId: order.id,
+                provider,
+                publicKey: resolved?.publicKey ?? null,
+                sandbox: resolved?.sandbox ?? true,
                 reference,
                 amountInCents: copToCents(grossAmount),
+                transactionAmount: grossAmount,
                 grossAmount,
                 subtotal: subtotalSum,
                 taxTotal,

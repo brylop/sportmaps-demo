@@ -16,6 +16,8 @@ import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlockedError } from '../services/wompi.service';
+import { generateMpReference } from '../services/mercadopago.service';
+import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 import { extractReceipt } from '../services/ocr.service';
 
 const router = Router();
@@ -23,6 +25,7 @@ const router = Router();
 const CreateSessionSchema = z.object({
     paymentId: z.string().uuid(),
     enrollmentId: z.string().uuid().optional(),
+    preferredProvider: z.enum(['wompi', 'mercadopago']).optional(),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +49,7 @@ router.post(
                 });
             }
 
-            const { paymentId, enrollmentId } = parsed.data;
+            const { paymentId, enrollmentId, preferredProvider } = parsed.data;
             const { schoolId } = req;
 
             // 0. Lock de negocio: si el usuario tiene pagos pendientes de revision,
@@ -91,35 +94,48 @@ router.post(
                 });
             }
 
-            // 3. La escuela debe tener Wompi habilitado
+            // 3. Resolver provider de pago para esta escuela.
+            //    Estrategia:
+            //     a) school_payment_providers tiene config explicita → usa esa.
+            //     b) Sino, fallback legacy: school_settings.wompi_enabled.
+            const resolved = await resolveProvider({ schoolId, preferredProvider });
+
             const { data: settings } = await supabase
                 .from('school_settings')
                 .select('wompi_enabled, online_fee_pct, fee_payer')
                 .eq('school_id', schoolId)
                 .single();
 
-            if (!settings?.wompi_enabled) {
+            const provider: PaymentProvider = resolved?.provider
+                ?? (settings?.wompi_enabled ? 'wompi' : (null as any));
+
+            if (!provider) {
                 return res.status(400).json({
                     error: 'Los pagos online no estan habilitados para esta escuela.',
                 });
             }
 
-            const feePct = Number(settings.online_fee_pct ?? 3);
+            const feePct = Number(settings?.online_fee_pct ?? 3);
 
             // 4. No reutilizar links activos (idempotencia debil — evita doble cobro accidental)
             const { data: existingLink } = await supabase
                 .from('payment_links')
-                .select('id, status, expires_at, wompi_reference, gross_amount, base_amount, sportmaps_fee, fee_pct')
+                .select('id, status, expires_at, payment_provider, provider_reference, wompi_reference, gross_amount, base_amount, sportmaps_fee, fee_pct')
                 .eq('payment_id', paymentId)
                 .eq('status', 'pending')
                 .gte('expires_at', new Date().toISOString())
                 .maybeSingle();
 
-            if (existingLink && existingLink.wompi_reference) {
-                // Devolver el link activo en lugar de crear uno nuevo
+            if (existingLink && (existingLink.provider_reference || existingLink.wompi_reference)) {
+                const linkProvider = (existingLink.payment_provider as PaymentProvider) ?? 'wompi';
+                const linkRef = existingLink.provider_reference || existingLink.wompi_reference;
                 return res.status(200).json({
-                    reference: existingLink.wompi_reference,
+                    provider: linkProvider,
+                    publicKey: resolved?.publicKey ?? null,
+                    sandbox: resolved?.sandbox ?? true,
+                    reference: linkRef,
                     amountInCents: copToCents(Number(existingLink.gross_amount)),
+                    transactionAmount: Number(existingLink.gross_amount),
                     grossAmount: Number(existingLink.gross_amount),
                     baseAmount: Number(existingLink.base_amount),
                     sportmapsFee: Number(existingLink.sportmaps_fee),
@@ -133,19 +149,24 @@ router.post(
             const sportmapsFee = Math.round(baseAmount * (feePct / 100));
             const grossAmount = baseAmount + sportmapsFee;
 
-            // 6. Generar referencia Wompi unica
-            const reference = generateReference('school_payment');
+            // 6. Generar referencia segun provider
+            const reference = provider === 'mercadopago'
+                ? generateMpReference('school_payment')
+                : generateReference('school_payment');
+
             const token = crypto.randomBytes(32).toString('hex');
             const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
 
-            // 7. Persistir payment_link
+            // 7. Persistir payment_link con columnas genericas + legacy mirror
             const { error: linkErr } = await supabase
                 .from('payment_links')
                 .insert({
                     payment_id: paymentId,
                     school_id: schoolId,
                     token,
-                    wompi_reference: reference,
+                    payment_provider: provider,
+                    provider_reference: reference,
+                    wompi_reference: provider === 'wompi' ? reference : null,
                     gross_amount: grossAmount,
                     base_amount: baseAmount,
                     sportmaps_fee: sportmapsFee,
@@ -162,8 +183,12 @@ router.post(
             }
 
             return res.status(201).json({
+                provider,
+                publicKey: resolved?.publicKey ?? null,
+                sandbox: resolved?.sandbox ?? true,
                 reference,
                 amountInCents: copToCents(grossAmount),
+                transactionAmount: grossAmount,
                 grossAmount,
                 baseAmount,
                 sportmapsFee,

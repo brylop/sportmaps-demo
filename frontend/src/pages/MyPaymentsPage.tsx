@@ -185,6 +185,24 @@ export default function MyPaymentsPage() {
       const { data: payments, error: paymentsError } = await paymentsQuery;
       if (paymentsError) throw paymentsError;
 
+      // ── PASO 2.5: Hidratar period_year/period_month desde la tabla base ──
+      // La vista `payments_with_installments` no proyecta estas columnas
+      // (creada antes de la migracion 20260503000004). Hacemos un select
+      // directo a payments para obtenerlas por id. Si en el futuro la vista
+      // se regenera incluyendo estos campos, esta query se vuelve redundante
+      // pero no rompe nada (devuelve los mismos valores).
+      const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null }> = {};
+      if (paymentIds.length > 0) {
+        const { data: periodRows } = await supabase
+          .from('payments')
+          .select('id, period_year, period_month')
+          .in('id', paymentIds);
+        periodMap = Object.fromEntries(
+          (periodRows || []).map((r: any) => [r.id, { period_year: r.period_year, period_month: r.period_month }]),
+        );
+      }
+
       // ── PASO 3: Enriquecer con school_type ───────────────────────────────
       const transactionSchoolIds = [...new Set((payments || []).map((p: any) => p.school_id).filter(Boolean))];
       let schoolTypeMap: Record<string, string> = {};
@@ -217,9 +235,12 @@ export default function MyPaymentsPage() {
         transaction_date: p.payment_date || p.created_at,
         authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
         receipt_url: p.receipt_url,
-        period_year:  p.period_year ?? null,
-        period_month: p.period_month ?? null,
-        period_label: formatPeriodLabel(p.period_year, p.period_month),
+        period_year:  periodMap[p.id]?.period_year ?? p.period_year ?? null,
+        period_month: periodMap[p.id]?.period_month ?? p.period_month ?? null,
+        period_label: formatPeriodLabel(
+          periodMap[p.id]?.period_year ?? p.period_year,
+          periodMap[p.id]?.period_month ?? p.period_month,
+        ),
       }));
       setTransactions(txns);
 
