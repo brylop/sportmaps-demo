@@ -178,6 +178,9 @@ app.use('/share', ogPreviewRouter);
 // Ruta pública (sin requireAuth): perfil público de un entrenador
 app.use('/api/v1/trainer', generalLimiter, trainerProfileRouter);
 
+// Rutas del catálogo (temporalmente sin auth para disparar carga)
+app.use('/api/v1/trainer', generalLimiter, trainerWgerRouter);
+
 // Rutas autenticadas del entrenador personal: usan requireTrainerAuth, NO requireAuth
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerOnboardingRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWorkspaceRouter);
@@ -185,7 +188,6 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRou
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerAvailabilityRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPlansRouter);
-app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerWgerRouter);
 
 // Rutas autenticadas del atleta: usa requireAthleteAuth
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);

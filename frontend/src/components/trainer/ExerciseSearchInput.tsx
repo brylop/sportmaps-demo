@@ -266,7 +266,7 @@ export function ExerciseSearchInput({
 
                   {/* Info del ejercicio */}
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <p className="font-semibold text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">
                       {name}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">

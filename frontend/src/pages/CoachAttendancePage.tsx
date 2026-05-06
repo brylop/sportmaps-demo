@@ -22,7 +22,7 @@ import { getSportVisual } from '@/lib/sportVisuals';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
-import { useUpdatePTAttendance } from '@/hooks/useAthleteSessionBookings';
+import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ function PlanInfoCard({ plan }: { plan: PlanInfo }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function CoachAttendancePage() {
+export default function CoachAttendancePage({ showPlanSessions = true }: { showPlanSessions?: boolean }) {
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
@@ -200,6 +200,11 @@ export default function CoachAttendancePage() {
   const [isSecondary, setIsSecondary] = useState(false);
   const [attendanceState, setAttendanceState] = useState<Record<string, AttendanceStatus>>({});
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
+  const [noShowDialog, setNoShowDialog] = useState<{ open: boolean; session: any | null }>({
+    open: false,
+    session: null,
+  });
+  const { mutate: handleNoShow, isPending: processingNoShow } = useHandleNoShow();
 
   // Walk-in state
   const [walkInSearch, setWalkInSearch] = useState('');
@@ -764,28 +769,44 @@ export default function CoachAttendancePage() {
                           </div>
 
                           {/* Acciones */}
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Botón Asistió */}
                             <Button
                               size="sm"
-                              disabled={updatingPT}
+                              disabled={updatingPT || sess.status === 'no_show'}
                               variant={isCompleted ? 'secondary' : 'default'}
-                              className={`h-8 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                                isCompleted 
-                                  ? 'bg-green-100 text-green-700 hover:bg-green-200 border-none' 
-                                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
+                              className={`h-8 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                                isCompleted
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200 border-none'
+                                  : sess.status === 'no_show'
+                                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-500/20'
                               }`}
                               onClick={() => {
-                                updatePTAttendance({ 
-                                  sessionId: sess.id, 
-                                  status: isCompleted ? 'assigned' : 'completed' 
-                                }, {
-                                  onSuccess: () => toast({ title: isCompleted ? 'Pendiente' : '✅ Marcado como Asistió' })
-                                });
+                                if (isCompleted || sess.status === 'no_show') return;
+                                updatePTAttendance(
+                                  { sessionId: sess.id, status: 'completed' },
+                                  { onSuccess: () => toast({ title: '✅ Marcado como Asistió' }) }
+                                );
                               }}
                             >
-                              {isCompleted ? <CheckCircle2 className="w-3 h-3 mr-1.5" /> : null}
-                              {isCompleted ? 'Asistió' : 'Pendiente'}
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              {isCompleted ? 'Asistió' : sess.status === 'no_show' ? 'No asistió' : 'Asistió'}
                             </Button>
+
+                            {/* Botón No asistió — solo si la sesión sigue pendiente */}
+                            {!isCompleted && sess.status !== 'no_show' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingPT}
+                                className="h-8 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                                onClick={() => setNoShowDialog({ open: true, session: sess })}
+                              >
+                                <XCircle className="w-3 h-3 mr-1" />
+                                No asistió
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -797,7 +818,7 @@ export default function CoachAttendancePage() {
           )}
 
           {/* Sesiones de hoy */}
-          {planSessions.length > 0 && (
+          {showPlanSessions && planSessions.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <CalendarCheck className="w-5 h-5 text-muted-foreground" />
@@ -1020,6 +1041,108 @@ export default function CoachAttendancePage() {
             <Button variant="outline" onClick={() => setWalkInOpen(false)}>Cancelar</Button>
             <Button disabled={!walkInAthlete || walkInProcessing} onClick={() => walkInAthlete && handleWalkIn(walkInAthlete)}>
               {walkInProcessing ? 'Registrando...' : 'Registrar entrada'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: No asistió */}
+      <Dialog
+        open={noShowDialog.open}
+        onOpenChange={(open) => !open && setNoShowDialog({ open: false, session: null })}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              ¿Qué hacer con la sesión?
+            </DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold text-foreground">
+                {noShowDialog.session?.client?.full_name}
+              </span>{' '}
+              no asistió a la sesión de las{' '}
+              <span className="font-semibold">
+                {noShowDialog.session?.session_time?.substring(0, 5)}
+              </span>.
+              ¿Deseas devolver el crédito o descontarlo?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            {/* Devolver crédito */}
+            <button
+              disabled={processingNoShow}
+              onClick={() =>
+                handleNoShow(
+                  { sessionId: noShowDialog.session.id, action: 'return_credit' },
+                  {
+                    onSuccess: () => {
+                      toast({
+                        title: '↩️ Crédito devuelto',
+                        description: 'La sesión fue cancelada y el crédito restaurado al cliente.',
+                      });
+                      setNoShowDialog({ open: false, session: null });
+                    },
+                    onError: (e: any) =>
+                      toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+                  }
+                )
+              }
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <CreditCard className="w-5 h-5 text-blue-600" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-blue-700">
+                Devolver crédito
+              </span>
+              <span className="text-[10px] text-blue-500 text-center leading-tight">
+                Cancela la sesión y restaura el crédito al cliente
+              </span>
+            </button>
+
+            {/* Descontar crédito */}
+            <button
+              disabled={processingNoShow}
+              onClick={() =>
+                handleNoShow(
+                  { sessionId: noShowDialog.session.id, action: 'deduct' },
+                  {
+                    onSuccess: () => {
+                      toast({
+                        title: '✂️ Crédito descontado',
+                        description: 'La sesión fue marcada como inasistencia.',
+                      });
+                      setNoShowDialog({ open: false, session: null });
+                    },
+                    onError: (e: any) =>
+                      toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+                  }
+                )
+              }
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <XCircle className="w-5 h-5 text-red-600" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-red-700">
+                Descontar crédito
+              </span>
+              <span className="text-[10px] text-red-500 text-center leading-tight">
+                Marca inasistencia sin devolver el crédito
+              </span>
+            </button>
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={processingNoShow}
+              onClick={() => setNoShowDialog({ open: false, session: null })}
+            >
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>

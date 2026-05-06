@@ -34,7 +34,7 @@ export default function TrainerAvailability() {
         </TabsList>
 
         <TabsContent value="sessions" className="mt-4">
-          <CoachAttendancePage />
+          <CoachAttendancePage showPlanSessions={false} />
         </TabsContent>
 
         <TabsContent value="config" className="mt-4">
