@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
+import { hydrateBlocksWithLocalTranslations } from '../trainer/wger';
 
 const router = Router();
 
@@ -42,7 +43,13 @@ router.get('/training/today', async (req: Request, res: Response) => {
       const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
       sessionsWithTrainer = sessions.map((s: any) => ({
         ...s,
+        blocks: hydrateBlocksWithLocalTranslations(s.blocks),
         trainer_profiles: profileMap.get(s.trainer_id) ?? null,
+      }));
+    } else {
+      sessionsWithTrainer = sessions.map((s: any) => ({
+        ...s,
+        blocks: hydrateBlocksWithLocalTranslations(s.blocks)
       }));
     }
 
@@ -92,8 +99,14 @@ router.get('/training/history', async (req: Request, res: Response) => {
     if (sessionsRes.error) throw sessionsRes.error;
     if (logsRes.error)     throw logsRes.error;
 
-    // ✅ Resolver trainer_profiles para las sesiones del historial
+    // ✅ Resolver trainer_profiles y hydrate blocks para las sesiones del historial
     let sessions = sessionsRes.data ?? [];
+    
+    sessions = sessions.map((s: any) => ({
+      ...s,
+      blocks: hydrateBlocksWithLocalTranslations(s.blocks)
+    }));
+
     if (sessions.length > 0) {
       const trainerIds = [...new Set(sessions.map((s: any) => s.trainer_id).filter(Boolean))];
       const { data: profiles } = await supabase

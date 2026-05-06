@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
+import { hydrateBlocksWithLocalTranslations } from './wger';
 
 const router = Router();
 
@@ -22,7 +23,13 @@ router.get('/routines', async (req: Request, res: Response) => {
             .order('times_used', { ascending: false });
 
         if (error) throw error;
-        res.json(data);
+        
+        const hydratedData = (data || []).map((r: any) => ({
+            ...r,
+            blocks: hydrateBlocksWithLocalTranslations(r.blocks)
+        }));
+        
+        res.json(hydratedData);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching trainer routines');
         res.status(500).json({ error: 'Error al obtener rutinas.' });
@@ -50,6 +57,7 @@ router.get('/routines/:routineId', async (req: Request, res: Response) => {
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Rutina no encontrada.' });
 
+        data.blocks = hydrateBlocksWithLocalTranslations(data.blocks);
         res.json(data);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching trainer routine detail');
@@ -253,6 +261,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
                 : childMap.get(plan.client_id);
             return {
                 ...plan,
+                blocks:        hydrateBlocksWithLocalTranslations(plan.blocks),
                 client_name:   info?.full_name  ?? 'Cliente',
                 client_avatar: info?.avatar_url ?? null,
             };
@@ -285,6 +294,7 @@ router.get('/session-plans/:planId', async (req: Request, res: Response) => {
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Plan de sesión no encontrado.' });
 
+        data.blocks = hydrateBlocksWithLocalTranslations(data.blocks);
         res.json(data);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching trainer session plan detail');

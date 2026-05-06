@@ -463,12 +463,6 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                                       Cómo ejecutar
                                     </span>
                                   </div>
-                                  {/* Badge de idioma — solo si no tiene wger_id (solo free-db) */}
-                                  {!block.wger_id && (
-                                    <span className="text-[8px] text-muted-foreground border border-border/40 px-1.5 py-0.5 rounded font-medium">
-                                      🇬🇧 EN
-                                    </span>
-                                  )}
                                 </div>
                                 <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-line">
                                   {block.wger_description}

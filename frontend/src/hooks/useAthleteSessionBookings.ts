@@ -273,7 +273,19 @@ export function useUpdatePTAttendance() {
     mutationFn: ({ sessionId, status }: { sessionId: string; status: 'completed' | 'assigned' }) =>
       bffClient.patch(`/api/v1/trainer/availability/session/${sessionId}/attendance`, { status }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['trainer-schedule'] });
+      // Corregido: era 'trainer-schedule', la key real del componente es 'coach-pt-sessions'
+      queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
+    },
+  });
+}
+
+export function useHandleNoShow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, action }: { sessionId: string; action: 'return_credit' | 'deduct' }) =>
+      bffClient.patch(`/api/v1/trainer/availability/session/${sessionId}/no-show`, { action }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
     },
   });
 }

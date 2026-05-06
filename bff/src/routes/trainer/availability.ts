@@ -204,4 +204,65 @@ router.delete('/availability/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// PATCH /api/v1/trainer/availability/session/:id/no-show
+// ==========================================
+router.patch('/availability/session/:id/no-show', async (req: Request, res: Response) => {
+  try {
+    const trainerId = req.user.id;
+    const sessionId = req.params.id;
+    const { action } = req.body as { action: 'return_credit' | 'deduct' };
+
+    if (!['return_credit', 'deduct'].includes(action)) {
+      return res.status(400).json({ error: 'Acción inválida. Use "return_credit" o "deduct".' });
+    }
+
+    // Verificar que la sesión existe y pertenece al trainer
+    const { data: session, error: fetchErr } = await supabase
+      .from('trainer_session_plans')
+      .select('id, status, trainer_id, enrollment_id')
+      .eq('id', sessionId)
+      .eq('trainer_id', trainerId)
+      .maybeSingle();
+
+    if (fetchErr) throw fetchErr;
+    if (!session) {
+      return res.status(404).json({ error: 'Sesión no encontrada o no pertenece al entrenador.' });
+    }
+    if (session.status === 'completed') {
+      return res.status(400).json({ error: 'No se puede marcar inasistencia en una sesión ya completada.' });
+    }
+
+    if (action === 'return_credit') {
+      // Reutilizar RPC existente: cancela + devuelve sessions_used con GREATEST(0, ...)
+      const { data, error } = await supabase
+        .rpc('fn_cancel_pt_session', {
+          p_plan_id:   sessionId,
+          p_caller_id: trainerId,
+        });
+
+      if (error) throw error;
+      if (!data?.success) {
+        return res.status(400).json({ error: data?.error ?? 'Error al cancelar la sesión.' });
+      }
+
+    } else {
+      // deduct: solo marcar no_show — el crédito ya fue descontado al agendar (fn_book_pt_session)
+      const { error } = await supabase
+        .from('trainer_session_plans')
+        .update({ status: 'no_show', updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .eq('trainer_id', trainerId);
+
+      if (error) throw error;
+    }
+
+    res.json({ success: true, action });
+
+  } catch (err: any) {
+    (req as any).log?.error({ err }, 'Error handling PT no-show');
+    res.status(500).json({ error: 'Error al procesar la inasistencia.' });
+  }
+});
+
 export default router;
