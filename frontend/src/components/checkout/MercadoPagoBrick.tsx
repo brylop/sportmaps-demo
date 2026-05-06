@@ -88,20 +88,6 @@ export function MercadoPagoBrick({
         },
     }), []);
 
-    // Guard: no renderizamos el Brick hasta que tengamos un monto valido. MP
-    // CO exige minimo aprox 2.500 COP para tarjeta y montos mas altos para
-    // PSE/efectivo. Bajo eso el iframe falla con 422 y warnings ruidosos.
-    const minAmount = 2500;
-    if (!transactionAmount || transactionAmount < minAmount) {
-        return (
-            <div className="mp-brick-wrapper">
-                <p className="text-sm text-orange-600">
-                    El monto minimo para pagar con MercadoPago es ${minAmount.toLocaleString('es-CO')} COP.
-                </p>
-            </div>
-        );
-    }
-
     const onSubmit = useCallback(async (formData: any) => {
         if (submitting) return;
         setSubmitting(true);
@@ -142,6 +128,22 @@ export function MercadoPagoBrick({
         console.error('[MercadoPagoBrick] error', err);
         onError?.(new Error(err?.message ?? 'Error en el Brick'));
     }, [onError]);
+
+    // Guard: no renderizamos el Brick hasta que tengamos un monto valido. MP
+    // CO exige minimo aprox 2.500 COP para tarjeta y montos mas altos para
+    // PSE/efectivo. Bajo eso el iframe falla con 422 y warnings ruidosos.
+    // IMPORTANT: este check va DESPUES de todos los hooks para no violar
+    // Rules of Hooks (mismo numero de hooks por render).
+    const minAmount = 2500;
+    if (!transactionAmount || transactionAmount < minAmount) {
+        return (
+            <div className="mp-brick-wrapper">
+                <p className="text-sm text-orange-600">
+                    El monto minimo para pagar con MercadoPago es ${minAmount.toLocaleString('es-CO')} COP.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="mp-brick-wrapper">
