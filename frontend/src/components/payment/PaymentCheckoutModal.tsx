@@ -761,17 +761,17 @@ export function PaymentCheckoutModal({
               </div>
             )}
 
-            {/* Brick MercadoPago — se mantiene montado mientras MP este disponible
-                para que no pierda el form cuando el usuario cambia de tab/metodo.
-                Solo se oculta visualmente cuando otro metodo esta seleccionado. */}
-            {hasCompleteDianData && mpReference && mpEnabled && (
-              <div
-                className="space-y-2 pt-2 animate-in fade-in slide-in-from-top-2"
-                style={{ display: selectedMethod === 'mercadopago' ? 'block' : 'none' }}
-              >
+            {/* Brick MercadoPago — solo se monta cuando el usuario selecciona MP.
+                IMPORTANT: NO usar display:none para ocultarlo cuando otro metodo
+                esta seleccionado, porque el SDK MP mide el contenedor durante
+                .render() y con display:none queda con width/height=0, lo que
+                causa errores 'Could not find container' y SVG vacios. */}
+            {hasCompleteDianData && mpReference && mpEnabled && selectedMethod === 'mercadopago' && (
+              <div className="space-y-2 pt-2 animate-in fade-in slide-in-from-top-2">
                 <MercadoPagoBrick
+                  key={mpReference}
                   publicKey={import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT}
-                  sandbox={true}
+                  sandbox={false}
                   transactionAmount={finalAmount}
                   externalReference={mpReference}
                   payerEmail={user?.email || 'demo@sportmaps.co'}
