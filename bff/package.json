@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
-    "build": "tsc"
+    "build": "tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/data', {recursive:true}); fs.copyFileSync('src/data/exercises.json', 'dist/data/exercises.json');\""
   },
   "keywords": [],
   "author": "",
