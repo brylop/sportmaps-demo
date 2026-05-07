@@ -124,6 +124,10 @@ export interface StudentViewRow {
   team_sport?: string;
   price_monthly?: number;
   monthly_fee?: number;
+  enrollment_start_date?: string | null;
+  plan_start_date?: string | null;
+  team_monthly_fee?: number | null;
+  plan_monthly_fee?: number | null;
   branch_name?: string;
   medical_info?: string | null;
   display_parent_name?: string;

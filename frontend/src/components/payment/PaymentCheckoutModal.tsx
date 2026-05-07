@@ -31,6 +31,8 @@ import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
 import { useWompiCheckout } from '@/hooks/useWompiCheckout';
+import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
+import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import {
   useNextUnpaidPeriod,
   fetchPeriodStatus,
@@ -57,7 +59,8 @@ interface PaymentCheckoutModalProps {
 export function PaymentCheckoutModal({
   open, onOpenChange, studentId, schoolId, paymentId, teamId, childId, childName, branchId, amount, concept, mode = 'update', onSuccess
 }: PaymentCheckoutModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'pse' | 'card' | 'transfer' | 'online' | 'mercadopago' | null>(null);
+  const [mpReference, setMpReference] = useState<string>('');
   const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
   const [wompiEnabled, setWompiEnabled] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
@@ -192,25 +195,124 @@ export function PaymentCheckoutModal({
       setShowOnlineConfirm(false);
       setAdvancedPeriod(null);
       setConfirmAdvanceOpen(false);
+      setMpReference('');
     }
   }, [open]);
 
+  const mpEnabled = !!import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT;
+
   const paymentMethods = [
-    // ── Pago online (solo si la escuela lo tiene habilitado) ──────────────
+    // ── Pago online Wompi (solo si la escuela lo tiene habilitado) ────────
     ...(wompiEnabled ? [{
       id: 'online' as const,
-      name: 'Pagar online',
+      name: 'Pagar online (Wompi)',
       description: `Tarjeta, PSE o Nequi — inmediato y seguro`,
       icon: Globe,
       popular: true,
       enabled: true,
       badge: `+${formatCurrency(sportmapsFee)} fee`,
     }] : []),
+    // ── MercadoPago (cuando la escuela / global tiene MP configurado) ─────
+    ...(mpEnabled ? [{
+      id: 'mercadopago' as const,
+      name: 'MercadoPago',
+      description: 'Tarjeta, PSE, Efecty o wallet MP',
+      icon: CreditCard,
+      popular: !wompiEnabled,
+      enabled: true,
+      badge: `+${formatCurrency(sportmapsFee)} fee`,
+    }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
-    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled, enabled: true },
+    { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled && !mpEnabled, enabled: true },
     { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
     { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
   ];
+
+  // Generar reference MP una sola vez cuando MP esta habilitado para esta
+  // sesion del modal. NO regenera al cambiar de metodo (sino el Brick perderia
+  // datos cada vez que el usuario regresa a MP). Se limpia al cerrar el modal.
+  useEffect(() => {
+    if (mpEnabled && !mpReference) {
+      const ref = `SCH-MP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      setMpReference(ref);
+    }
+  }, [mpEnabled, mpReference]);
+
+  // Handler de éxito del Brick MP — actualiza/crea el payment row
+  const handleMpSuccess = async (result: MpCreatePaymentResult) => {
+    setProcessing(true);
+    setPaymentStatus('processing');
+    try {
+      const periodYear  = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year  : null;
+      const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+      const reference = mpReference || `SCH-MP-${Date.now().toString(36).toUpperCase()}`;
+      // Mapeo de status MP → status interno SportMaps:
+      //   approved → paid (caso ideal)
+      //   pending  → pending (MP esta revisando antifraude; el webhook actualizara
+      //              cuando MP confirme. NO va a 'awaiting_approval' porque eso es
+      //              para comprobantes manuales que la escuela debe validar)
+      //   rejected → declined
+      const internalStatus =
+        result.internalStatus === 'paid' ? 'paid'
+        : result.internalStatus === 'rejected' ? 'declined'
+        : 'pending';
+
+      if (mode === 'update' && paymentId) {
+        const { error: updateError } = await supabase.from('payments').update({
+          status: internalStatus,
+          payment_method: 'card',
+          payment_provider: 'mercadopago',
+          provider_reference: reference,
+          provider_transaction_id: String(result.paymentId),
+          payment_date: new Date().toISOString().split('T')[0],
+          receipt_number: reference,
+          period_year:  periodYear,
+          period_month: periodMonth,
+          updated_at: new Date().toISOString(),
+        } as any).eq('id', paymentId);
+        if (updateError) throw updateError;
+      } else {
+        const payloadChildId: string | null = childId || null;
+        const payloadBranchId: string | null = branchId || null;
+        const { error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: payloadChildId,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: payloadBranchId,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: internalStatus,
+          payment_method: 'card',
+          payment_provider: 'mercadopago',
+          provider_reference: reference,
+          provider_transaction_id: String(result.paymentId),
+          payment_type: 'one_time',
+          payment_date: new Date().toISOString().split('T')[0],
+          due_date: new Date().toISOString().split('T')[0],
+          receipt_number: reference,
+          period_year:  periodYear,
+          period_month: periodMonth,
+        } as any);
+        if (insertError) throw insertError;
+      }
+
+      setPaymentStatus(internalStatus === 'paid' ? 'success' : 'awaiting_approval');
+      toast({
+        title: internalStatus === 'paid' ? '¡Pago exitoso!' : 'Pago en proceso',
+        description: internalStatus === 'paid'
+          ? `Procesado con MercadoPago — ${formatCurrency(finalAmount)}`
+          : `Estado: ${result.statusDetail}. Te notificaremos cuando se confirme.`,
+      });
+      setTimeout(() => { onSuccess?.(); onOpenChange(false); }, 2500);
+    } catch (error: any) {
+      setPaymentStatus('error');
+      toast({ title: 'Error registrando el pago', description: error?.message ?? 'Error desconocido', variant: 'destructive' });
+      setTimeout(() => setPaymentStatus('idle'), 2000);
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const processPayment = async () => {
     if (processing) return;
@@ -457,10 +559,20 @@ export function PaymentCheckoutModal({
         - sm+: max-w-md centrado con border-radius normal
         El dvh (dynamic viewport height) evita el problema del teclado virtual en iOS
       */}
-      <DialogContent className="
+      <DialogContent
+        className="
         w-[100vw] h-[100dvh] max-h-[100dvh] rounded-none overflow-y-auto p-4
         sm:w-full sm:max-w-md sm:h-auto sm:max-h-[90vh] sm:rounded-lg sm:p-6
-      ">
+        "
+        onPointerDownOutside={(e) => {
+          // Si MP brick esta montado con datos posibles, prevenir cierre por
+          // click fuera (el iframe MP no permite recuperar los datos).
+          if (mpReference) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (mpReference) e.preventDefault();
+        }}
+      >
         <DialogHeader className="text-left">
           <DialogTitle className="text-xl sm:text-2xl">
             {conceptType === 'mensualidad' && effectivePeriod
@@ -649,8 +761,34 @@ export function PaymentCheckoutModal({
               </div>
             )}
 
-            {/* Botones acción */}
-            {hasCompleteDianData && selectedMethod !== 'online' && (
+            {/* Brick MercadoPago — solo se monta cuando el usuario selecciona MP.
+                IMPORTANT: NO usar display:none para ocultarlo cuando otro metodo
+                esta seleccionado, porque el SDK MP mide el contenedor durante
+                .render() y con display:none queda con width/height=0, lo que
+                causa errores 'Could not find container' y SVG vacios. */}
+            {hasCompleteDianData && mpReference && mpEnabled && selectedMethod === 'mercadopago' && (
+              <div className="space-y-2 pt-2 animate-in fade-in slide-in-from-top-2">
+                <MercadoPagoBrick
+                  key={mpReference}
+                  publicKey={import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT}
+                  sandbox={false}
+                  transactionAmount={finalAmount}
+                  externalReference={mpReference}
+                  payerEmail={user?.email || 'demo@sportmaps.co'}
+                  payerFirstName={(user?.user_metadata?.full_name || 'Padre').split(' ')[0]}
+                  payerLastName={(user?.user_metadata?.full_name || '').split(' ').slice(1).join(' ') || 'Demo'}
+                  description={`${finalConcept} — ${childName ?? 'estudiante'}`}
+                  schoolId={schoolId}
+                  onSuccess={handleMpSuccess}
+                  onPending={handleMpSuccess}
+                  onError={(err) => toast({ title: 'Error en MercadoPago', description: err.message, variant: 'destructive' })}
+                />
+                <Button variant="outline" className="w-full" onClick={handleClose} disabled={processing}>Cancelar</Button>
+              </div>
+            )}
+
+            {/* Botones acción para los demás métodos (no online ni MP) */}
+            {hasCompleteDianData && selectedMethod !== 'online' && selectedMethod !== 'mercadopago' && (
               <div className="space-y-2 pt-2">
                 <Button className="w-full" size="lg" disabled={!selectedMethod || processing} onClick={handlePayClick}>
                   {processing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Procesando...</> : `Pagar ${formatCurrency(finalAmount)}`}

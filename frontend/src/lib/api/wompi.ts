@@ -9,6 +9,16 @@ if (!WOMPI_PUBLIC_KEY) {
     console.error('❌ VITE_WOMPI_PUBLIC_KEY no configurado. Agrega la variable de entorno.');
 }
 
+/**
+ * Genera una referencia única para iniciar un checkout de Wompi.
+ * Prefijo `SCH-` indica pago de escuela (ver bff/src/routes/wompi.ts:128).
+ */
+export function generatePaymentReference(): string {
+    const ts = Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+    return `SCH-${ts}-${rand}`;
+}
+
 export interface WompiCheckoutConfig {
     reference: string;
     amountInCents: number;

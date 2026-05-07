@@ -595,7 +595,9 @@ DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='subscriptions') THEN
         EXECUTE $sql$
-            CREATE OR REPLACE VIEW public.subscriptions_due_for_billing AS
+            CREATE OR REPLACE VIEW public.subscriptions_due_for_billing
+            WITH (security_invoker = true)
+            AS
             SELECT
                 s.id AS subscription_id,
                 s.user_id,

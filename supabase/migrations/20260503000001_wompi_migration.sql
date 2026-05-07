@@ -848,7 +848,9 @@ CREATE POLICY "product_images_vendor_all" ON public.product_images
 -- 18. Vista: my_orders (cliente ve historial)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE VIEW public.my_orders_view AS
+CREATE OR REPLACE VIEW public.my_orders_view
+WITH (security_invoker = true)
+AS
 SELECT
     o.id,
     o.user_id,

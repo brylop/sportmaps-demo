@@ -286,7 +286,9 @@ DECLARE
     v_sql TEXT;
 BEGIN
     v_sql := $sql$
-        CREATE OR REPLACE VIEW public.blocked_payments_view AS
+        CREATE OR REPLACE VIEW public.blocked_payments_view
+        WITH (security_invoker = true)
+        AS
         SELECT 'payment' AS kind, id, user_id, amount AS gross_amount, last_failure_at, last_failure_reason, created_at
         FROM public.payments
         WHERE requires_review = true

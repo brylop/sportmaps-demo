@@ -13,11 +13,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
+import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
 import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
+import { useNextUnpaidPeriod, isPeriodActive, type PeriodStatus } from '@/hooks/usePaymentPeriod';
 
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
@@ -26,12 +29,16 @@ export default function ParentCheckoutPage() {
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
-  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
+  const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'mercadopago' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [receiptNumber, setReceiptNumber] = useState('');
   const [wompiTxId, setWompiTxId] = useState('');
   const [paymentMethodUsed, setPaymentMethodUsed] = useState('');
+
+  // Reference MP generada cuando el padre selecciona MercadoPago.
+  // Se persiste para que recordPaymentWithTraceability use la misma referencia.
+  const [mpReference, setMpReference] = useState<string>('');
   const [showSensitive, setShowSensitive] = useState(false);
   const [manualReceiptUrl, setManualReceiptUrl] = useState('');
   const [manualOcrResult, setManualOcrResult] = useState<ReceiptValidationResult | null>(null);
@@ -144,6 +151,12 @@ export default function ParentCheckoutPage() {
   const childId = searchParams.get('child_id');
   const teamId = searchParams.get('team_id');
 
+  // Periodo objetivo (solo si es mensualidad y hay hijo)
+  const isMensualidad = /mensual/i.test(concept);
+  const { period: nextPeriod } = useNextUnpaidPeriod(isMensualidad ? childId : null);
+  const periodAlreadyCovered =
+    !!nextPeriod && isPeriodActive(nextPeriod.current_status as PeriodStatus);
+
   const recordPaymentWithTraceability = async (reference: string) => {
     // Multi-tenant safe: resolve schoolId from URL or derive from team_id.
     // Never fall back to "any school" - would attach the payment to the wrong tenant.
@@ -173,12 +186,19 @@ export default function ParentCheckoutPage() {
       return;
     }
 
+    // Period explicito solo cuando es mensualidad y la RPC nos dio un mes
+    const periodYear  = isMensualidad && nextPeriod ? nextPeriod.year  : null;
+    const periodMonth = isMensualidad && nextPeriod ? nextPeriod.month : null;
+    const periodLabel = isMensualidad && nextPeriod ? nextPeriod.label : null;
+
     const { error: insertError } = await supabase.from('payments').insert({
       parent_id: user?.id,
       child_id: childId || null,
       team_id: teamId || null,
       amount,
-      concept,
+      // Si tenemos label del periodo, usarlo en lugar del concept libre del
+      // query string (mas consistente con la fuente de verdad de la BD).
+      concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
       // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
       status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
       payment_date: new Date().toISOString().split('T')[0],
@@ -188,6 +208,8 @@ export default function ParentCheckoutPage() {
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       school_id: schoolId,
       receipt_url: manualReceiptUrl,
+      period_year:  periodYear,
+      period_month: periodMonth,
       // Persistir OCR del comprobante (solo manual). Admin lo usa para detectar discrepancias.
       ocr_amount:    manualOcrResult?.extractedAmount    ?? null,
       ocr_currency:  manualOcrResult?.extractedCurrency  ?? null,
@@ -203,12 +225,15 @@ export default function ParentCheckoutPage() {
       return;
     }
 
-    const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}`;
+    const periodSuffix = periodLabel ? ` — ${periodLabel}` : '';
+    const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}${periodSuffix}`;
 
     if (ownerId) {
       await supabase.rpc('notify_user', {
         p_user_id: ownerId,
-        p_title: 'Pago Recibido',
+        p_title: paymentFlow === 'manual'
+          ? `Comprobante por validar${periodSuffix}`
+          : `Pago Recibido${periodSuffix}`,
         p_message: traceMsg,
         p_type: 'payment',
         p_link: '/finances',
@@ -300,9 +325,58 @@ export default function ParentCheckoutPage() {
     } finally { setProcessing(false); }
   };
 
+  const handleMpSuccess = async (result: MpCreatePaymentResult) => {
+    setProcessing(true);
+    try {
+      setWompiTxId(String(result.paymentId));
+      setPaymentMethodUsed('MercadoPago');
+      const ref = mpReference || `SCH-MP-${Date.now().toString(36).toUpperCase()}`;
+      setReceiptNumber(ref);
+      await recordPaymentWithTraceability(ref);
+      setSuccess(true);
+
+      if (result.internalStatus === 'paid') {
+        toast({ title: '¡Pago exitoso!', description: 'Procesado con MercadoPago' });
+      } else {
+        toast({
+          title: 'Pago en proceso',
+          description: `Estado: ${result.statusDetail}. Te notificaremos cuando se confirme.`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error registrando el pago',
+        description: getUserFriendlyError(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleMpError = (err: Error) => {
+    toast({
+      title: 'Error en MercadoPago',
+      description: err.message,
+      variant: 'destructive',
+    });
+  };
+
+  // Genera la reference MP cuando el padre cambia a MercadoPago, para
+  // garantizar consistencia entre la creacion del pago y el registro en DB.
+  useEffect(() => {
+    if (paymentFlow === 'mercadopago' && !mpReference) {
+      const ref = `SCH-MP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      setMpReference(ref);
+    }
+  }, [paymentFlow, mpReference]);
+
   const handlePayment = () => {
     if (paymentFlow === 'wompi') {
       handleWompiPayment();
+    } else if (paymentFlow === 'mercadopago') {
+      // El Brick maneja su propio submit; este boton no aplica para MP.
+      toast({ title: 'Completa los datos en el formulario MercadoPago' });
     } else {
       handleManualPayment();
     }
@@ -358,10 +432,31 @@ export default function ParentCheckoutPage() {
       </div>
 
       <div className="container mx-auto px-4 py-8 max-w-lg">
+        {periodAlreadyCovered && nextPeriod && (
+          <div className="mb-4 p-3 rounded-lg border-2 border-amber-300 bg-amber-50 flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-900">
+                {nextPeriod.label} ya tiene un pago activo
+              </p>
+              <p className="text-amber-800 text-xs mt-0.5">
+                {nextPeriod.current_status === 'paid' || nextPeriod.current_status === 'approved'
+                  ? `Ya pagaste ${nextPeriod.label}.`
+                  : `Hay un comprobante de ${nextPeriod.label} esperando validación.`}
+                {' '}Si continúas, este pago quedará registrado como un cobro adicional para ese mes.
+              </p>
+            </div>
+          </div>
+        )}
         <Card className="mb-6">
-          <CardHeader><CardTitle>Total: {formatPrice(amount)}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>
+              {nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : `Total: ${formatPrice(amount)}`}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
-            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{concept}</span></div>
+            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
+            <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Estudiante</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
@@ -377,13 +472,48 @@ export default function ParentCheckoutPage() {
               <div className="p-4 bg-destructive/10 text-destructive rounded-lg">Esta escuela no acepta pagos por este medio.</div>
             ) : (
               <>
-                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'manual')}>
+                <RadioGroup value={paymentFlow} onValueChange={(v) => setPaymentFlow(v as 'wompi' | 'mercadopago' | 'manual')}>
                   {canPayOnline && (
                     <div className={`flex items-center space-x-3 p-4 border rounded-lg cursor-pointer ${paymentFlow === 'wompi' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('wompi')}>
                       <RadioGroupItem value="wompi" id="wompi" />
                       <Label htmlFor="wompi" className="cursor-pointer flex-1">
                         <div className="font-medium flex items-center gap-2"><CreditCard className="h-4 w-4" /> Wompi (Online)</div>
                       </Label>
+                    </div>
+                  )}
+
+                  {canPayOnline && import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT && (
+                    <div className={`flex flex-col space-y-3 p-4 border rounded-lg cursor-pointer mt-3 ${paymentFlow === 'mercadopago' ? 'border-primary bg-primary/5' : ''}`} onClick={() => setPaymentFlow('mercadopago')}>
+                      <div className="flex items-center space-x-3">
+                        <RadioGroupItem value="mercadopago" id="mercadopago" />
+                        <Label htmlFor="mercadopago" className="cursor-pointer flex-1">
+                          <div className="font-medium flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" /> MercadoPago (Online)
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Tarjetas, PSE, Efecty, Wallet MP
+                          </div>
+                        </Label>
+                      </div>
+
+                      {paymentFlow === 'mercadopago' && mpReference && (
+                        <div className="pl-7 pt-2 animate-in fade-in slide-in-from-top-2" onClick={(e) => e.stopPropagation()}>
+                          <MercadoPagoBrick
+                            publicKey={import.meta.env.VITE_MP_PUBLIC_KEY_DEFAULT}
+                            sandbox={true}
+                            transactionAmount={amount}
+                            externalReference={mpReference}
+                            payerEmail={user?.email || 'demo@sportmaps.co'}
+                            payerFirstName={(user?.user_metadata?.full_name || 'Padre').split(' ')[0]}
+                            payerLastName={(user?.user_metadata?.full_name || '').split(' ').slice(1).join(' ') || 'Demo'}
+                            description={`${concept} — ${studentName}`}
+                            schoolId={schoolIdParam || undefined}
+                            onSuccess={handleMpSuccess}
+                            onPending={handleMpSuccess}
+                            onError={handleMpError}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -509,9 +639,11 @@ export default function ParentCheckoutPage() {
                   )}
                 </RadioGroup>
 
-                <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
-                  {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
-                </Button>
+                {paymentFlow !== 'mercadopago' && (
+                  <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
+                    {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
+                  </Button>
+                )}
               </>
             )}
           </CardContent>

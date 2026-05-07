@@ -561,5 +561,254 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'schoo
     }
 });
 
+// ── PUT /api/v1/students/:id ──────────────────────────────────────────────────
+// Actualiza perfil base + enrollment de un atleta.
+// Usa service role → ownership check OBLIGATORIO antes de cualquier write.
+router.put(
+  '/:id',
+  requireAuth,
+  requireRole('owner', 'admin', 'school_admin', 'coach', 'staff'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { schoolId } = req;
+      const { athlete_type, profile, enrollment } = req.body;
+
+      if (!id || !athlete_type || !schoolId) {
+        return res.status(400).json({ error: 'Faltan parámetros requeridos.' });
+      }
+
+      // ── PASO 1: Verificar ownership según tipo ────────────────────────────
+      // Nunca confiar en el body — siempre cruzar contra req.schoolId (del JWT)
+      if (athlete_type === 'child') {
+        const { data: owned } = await supabase
+          .from('children')
+          .select('id')
+          .eq('id', id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (!owned) return res.status(403).json({ error: 'Acceso denegado.' });
+
+      } else if (athlete_type === 'adult') {
+        const { data: membership } = await supabase
+          .from('school_members')
+          .select('id')
+          .eq('profile_id', id)
+          .eq('school_id', schoolId)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (!membership) return res.status(403).json({ error: 'Acceso denegado.' });
+
+      } else if (athlete_type === 'unregistered') {
+        const { data: owned } = await supabase
+          .from('unregistered_athletes')
+          .select('id')
+          .eq('id', id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+        if (!owned) return res.status(403).json({ error: 'Acceso denegado.' });
+
+      } else {
+        return res.status(400).json({ error: 'athlete_type inválido.' });
+      }
+
+      // ── PASO 2: Actualizar tabla base ─────────────────────────────────────
+      if (profile && Object.keys(profile).length > 0) {
+        const profileUpdate = {
+          full_name:     profile.full_name     ?? undefined,
+          date_of_birth: profile.date_of_birth ?? undefined,
+          medical_info:  profile.medical_info  ?? undefined,
+          updated_at:    new Date().toISOString(),
+        };
+
+        if (athlete_type === 'child') {
+          const childUpdate: any = {
+            ...profileUpdate,
+            tshirt_size:       profile.tshirt_size       ?? undefined,
+            blood_type:        profile.blood_type         ?? undefined,
+            eps_name:          profile.eps_name           ?? undefined,
+            parent_email_temp: profile.parent_email       ?? undefined,
+            parent_phone_temp: profile.parent_phone       ?? undefined,
+          };
+          // Limpiar keys undefined para no sobreescribir con null
+          Object.keys(childUpdate).forEach(k => childUpdate[k] === undefined && delete childUpdate[k]);
+
+          const { error } = await supabase
+            .from('children')
+            .update(childUpdate)
+            .eq('id', id)
+            .eq('school_id', schoolId); // doble candado
+          if (error) throw new Error(`Error actualizando child: ${error.message}`);
+
+        } else if (athlete_type === 'adult') {
+          // profiles no tiene school_id → el ownership ya fue verificado en paso 1
+          const adultUpdate: any = { ...profileUpdate };
+          Object.keys(adultUpdate).forEach(k => adultUpdate[k] === undefined && delete adultUpdate[k]);
+
+          const { error } = await supabase
+            .from('profiles')
+            .update(adultUpdate)
+            .eq('id', id);
+          if (error) throw new Error(`Error actualizando profile: ${error.message}`);
+
+        } else if (athlete_type === 'unregistered') {
+          const unregUpdate: any = { ...profileUpdate };
+          Object.keys(unregUpdate).forEach(k => unregUpdate[k] === undefined && delete unregUpdate[k]);
+
+          const { error } = await supabase
+            .from('unregistered_athletes')
+            .update(unregUpdate)
+            .eq('id', id)
+            .eq('school_id', schoolId); // doble candado
+          if (error) throw new Error(`Error actualizando unregistered_athlete: ${error.message}`);
+        }
+      }
+
+      // ── PASO 3: Actualizar enrollments + propagar a payments ──────────────────────
+      if (enrollment) {
+        // Helper: columna del atleta según tipo
+        const athleteCol = athlete_type === 'child' ? 'child_id'
+          : athlete_type === 'adult' ? 'user_id'
+          : 'unregistered_athlete_id';
+
+        const applyAthleteFilter = (q: any) => q.eq(athleteCol, id);
+
+        // Helper: crear pago pendiente
+        const createPendingPayment = async (
+          teamId: string | null,
+          planId: string | null,
+          amount: number,
+          concept: string,
+          startDate: string
+        ) => {
+          const dueDate = new Date(startDate);
+          dueDate.setMonth(dueDate.getMonth() + 1);
+          const row: any = {
+            school_id: schoolId,
+            amount,
+            concept,
+            due_date: dueDate.toISOString().split('T')[0],
+            status: 'pending',
+            payment_type: 'monthly',
+          };
+          if (teamId) row.team_id = teamId;
+          if (planId) row.offering_plan_id = planId;
+          row[athleteCol] = id;
+          await supabase.from('payments').insert(row);
+        };
+
+        // ── Enrollment de EQUIPO ────────────────────────────────────────────────
+        if (enrollment.team_id !== undefined) {
+          const teamStartDate: string = enrollment.team_start_date || new Date().toISOString().split('T')[0];
+          const teamFee: number | null = enrollment.team_monthly_fee ?? null;
+
+          const { data: existingTeam } = await applyAthleteFilter(
+            supabase.from('enrollments').select('id, team_id, monthly_fee')
+              .eq('school_id', schoolId).eq('status', 'active').not('team_id', 'is', null)
+          ).maybeSingle();
+
+          const oldTeamId: string | null = existingTeam?.team_id || null;
+
+          if (existingTeam) {
+            await supabase.from('enrollments')
+              .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString() })
+              .eq('id', existingTeam.id).eq('school_id', schoolId);
+
+            if (oldTeamId && oldTeamId !== enrollment.team_id) {
+              // Equipo cambió: cancelar pagos pending del equipo anterior
+              await applyAthleteFilter(
+                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('school_id', schoolId).eq('team_id', oldTeamId).eq('status', 'pending')
+              );
+              // Crear pago nuevo para el equipo nuevo
+              if (enrollment.team_id) {
+                const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
+                const amount = teamFee ?? teamData?.price_monthly ?? 0;
+                await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+              }
+            } else {
+              // Mismo equipo: actualizar pagos pending (monto y/o fecha)
+              const dueDate = new Date(teamStartDate);
+              dueDate.setMonth(dueDate.getMonth() + 1);
+              const paymentUpdates: any = { due_date: dueDate.toISOString().split('T')[0], updated_at: new Date().toISOString() };
+              if (teamFee !== null) paymentUpdates.amount = teamFee;
+              await applyAthleteFilter(
+                supabase.from('payments').update(paymentUpdates)
+                  .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
+              );
+            }
+          } else if (enrollment.team_id) {
+            const row: any = { school_id: schoolId, status: 'active', team_id: enrollment.team_id, start_date: teamStartDate, monthly_fee: teamFee };
+            row[athleteCol] = id;
+            const { error } = await supabase.from('enrollments').insert(row);
+            if (error) throw new Error(`Error creando enrollment equipo: ${error.message}`);
+            const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
+            const amount = teamFee ?? teamData?.price_monthly ?? 0;
+            await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+          }
+        }
+
+        // ── Enrollment de PLAN ──────────────────────────────────────────────────
+        if (enrollment.offering_plan_id !== undefined) {
+          const planStartDate: string = enrollment.plan_start_date || new Date().toISOString().split('T')[0];
+          const planFee: number | null = enrollment.plan_monthly_fee ?? null;
+          const expiresAt = new Date(planStartDate);
+          expiresAt.setDate(expiresAt.getDate() + 30);
+          const expiresAtStr = expiresAt.toISOString().split('T')[0];
+
+          const { data: existingPlan } = await applyAthleteFilter(
+            supabase.from('enrollments').select('id, offering_plan_id, monthly_fee')
+              .eq('school_id', schoolId).eq('status', 'active').not('offering_plan_id', 'is', null)
+          ).maybeSingle();
+
+          const oldPlanId: string | null = existingPlan?.offering_plan_id || null;
+
+          if (existingPlan) {
+            await supabase.from('enrollments')
+              .update({ offering_plan_id: enrollment.offering_plan_id || null, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee, updated_at: new Date().toISOString() })
+              .eq('id', existingPlan.id).eq('school_id', schoolId);
+
+            if (oldPlanId && oldPlanId !== enrollment.offering_plan_id) {
+              // Plan cambió: cancelar pagos pending del plan anterior
+              await applyAthleteFilter(
+                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId).eq('status', 'pending')
+              );
+              if (enrollment.offering_plan_id) {
+                const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
+                const amount = planFee ?? planData?.price ?? 0;
+                await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
+              }
+            } else {
+              // Mismo plan: actualizar pagos pending
+              const paymentUpdates: any = { due_date: expiresAtStr, updated_at: new Date().toISOString() };
+              if (planFee !== null) paymentUpdates.amount = planFee;
+              await applyAthleteFilter(
+                supabase.from('payments').update(paymentUpdates)
+                  .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+              );
+            }
+          } else if (enrollment.offering_plan_id) {
+            const row: any = { school_id: schoolId, status: 'active', offering_plan_id: enrollment.offering_plan_id, start_date: planStartDate, expires_at: expiresAtStr, monthly_fee: planFee };
+            row[athleteCol] = id;
+            const { error } = await supabase.from('enrollments').insert(row);
+            if (error) throw new Error(`Error creando enrollment plan: ${error.message}`);
+            const { data: planData } = await supabase.from('offering_plans').select('name, price').eq('id', enrollment.offering_plan_id).maybeSingle();
+            const amount = planFee ?? planData?.price ?? 0;
+            await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
+          }
+        }
+      }
+
+
+      return res.json({ success: true });
+
+    } catch (err: any) {
+      req.log?.error?.({ err: err.message }, 'Error en PUT /students/:id');
+      return res.status(500).json({ error: err.message || 'Error interno.' });
+    }
+  }
+);
+
 export default router;
 

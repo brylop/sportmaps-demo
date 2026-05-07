@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,11 +16,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, User, Mail, FileText, Upload, FileUp, Search, DollarSign, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Download, FolderOpen, Trophy, Zap, Calendar, CalendarCheck, CalendarX } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 import { CSVImportModal } from '@/components/students/CSVImportModal';
 import { StudentTypeSelector } from '@/components/students/StudentTypeSelector';
 import { CreateChildModal } from '@/components/students/CreateChildModal';
@@ -31,21 +36,21 @@ import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
 import { useNavigate } from 'react-router-dom';
 
 const studentSchema = z.object({
-  full_name: z.string().min(2, 'Nombre completo es requerido').max(100),
-  date_of_birth: z.string().min(1, 'Fecha de nacimiento es requerida'),
-  parent_email: z.string().email('Email inválido').max(255),
-  parent_phone: z.string().min(10, 'Teléfono debe tener al menos 10 dígitos').max(20),
-  team_id: z.string().optional(),
+  full_name:        z.string().min(2, 'Nombre completo es requerido').max(100),
+  date_of_birth:    z.string().optional(),
+  parent_email:     z.string().optional(),
+  parent_phone:     z.string().optional(),
+  team_id:          z.string().optional(),
   offering_plan_id: z.string().optional(),
-  monthly_fee: z.number().min(0).optional(),
-  medical_info: z.string().max(1000).optional(),
-  notes: z.string().max(500).optional(),
-  tshirt_size: z.string().optional(),
-  blood_type: z.string().optional(),
-  eps_name: z.string().optional(),
-}).refine(data => data.team_id || data.offering_plan_id, {
-  message: 'Debes seleccionar al menos un equipo o un plan',
-  path: ['team_id'],
+  team_start_date:   z.string().optional(),
+  plan_start_date:   z.string().optional(),
+  team_monthly_fee:  z.number().min(0).optional(),
+  plan_monthly_fee:  z.number().min(0).optional(),
+  medical_info:     z.string().max(1000).optional(),
+  notes:            z.string().max(500).optional(),
+  tshirt_size:      z.string().optional(),
+  blood_type:       z.string().optional(),
+  eps_name:         z.string().optional(),
 });
 
 type StudentFormData = z.infer<typeof studentSchema>;
@@ -62,7 +67,6 @@ export default function SchoolStudentsManagementPage() {
   const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
@@ -259,7 +263,8 @@ export default function SchoolStudentsManagementPage() {
       parent_phone: '',
       team_id: '',
       offering_plan_id: '',
-      monthly_fee: Number(defaultMonthlyFee) || 0,
+      team_monthly_fee: Number(defaultMonthlyFee) || 0,
+      plan_monthly_fee: 0,
       medical_info: '',
       notes: '',
     },
@@ -279,7 +284,7 @@ export default function SchoolStudentsManagementPage() {
           branchId: selectedTeam?.branch_id || activeBranchId || undefined,
           teamId: data.team_id,
           teamName: selectedTeam?.name || 'Equipo',
-          monthlyFee: data.monthly_fee,
+          monthlyFee: data.team_monthly_fee ?? data.plan_monthly_fee ?? 0,
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
@@ -315,36 +320,30 @@ export default function SchoolStudentsManagementPage() {
 
   const updateStudentMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
-      if (!editingStudent) return data;
-      if (editingAthleteType === 'unregistered') {
-        const { error } = await (supabase as any).from('unregistered_athletes')
-          .update({ full_name: data.full_name, date_of_birth: data.date_of_birth || null, updated_at: new Date().toISOString() })
-          .eq('id', editingStudent.id);
-        if (error) throw error;
-        return data;
-      }
-      if (editingAthleteType === 'adult') {
-        const { error } = await supabase.from('profiles')
-          .update({ full_name: data.full_name, date_of_birth: data.date_of_birth || null, updated_at: new Date().toISOString() })
-          .eq('id', editingStudent.id);
-        if (error) throw error;
-        return data;
-      }
-      const selectedTeam = teams.find(p => p.id === data.team_id);
-      await studentsAPI.updateStudent(editingStudent.id, {
-        full_name: data.full_name, date_of_birth: data.date_of_birth, medical_info: data.medical_info,
-        team_id: data.team_id || null, branch_id: selectedTeam?.branch_id || activeBranchId || undefined,
-        monthly_fee: typeof data.monthly_fee === 'number' ? data.monthly_fee : undefined,
-        tshirt_size: data.tshirt_size || null, blood_type: data.blood_type || null, eps_name: data.eps_name || null,
+      if (!editingStudent || !schoolId) return;
+
+      const { bffClient } = await import('@/lib/api/bffClient');
+      await bffClient.put(`/api/v1/students/${editingStudent.id}`, {
+        athlete_type: editingAthleteType,
+        profile: {
+          full_name:     data.full_name,
+          date_of_birth: data.date_of_birth     || null,
+          medical_info:  data.medical_info       || null,
+          tshirt_size:   data.tshirt_size        || null,
+          blood_type:    data.blood_type         || null,
+          eps_name:      data.eps_name           || null,
+          parent_email:  data.parent_email       || null,
+          parent_phone:  data.parent_phone       || null,
+        },
+        enrollment: {
+          team_id:          data.team_id            || null,
+          offering_plan_id: data.offering_plan_id   || null,
+          team_start_date:  data.team_start_date    || null,
+          plan_start_date:  data.plan_start_date    || null,
+          team_monthly_fee: data.team_monthly_fee   ?? null,
+          plan_monthly_fee: data.plan_monthly_fee   ?? null,
+        },
       });
-      if (schoolId && (data.team_id || data.offering_plan_id)) {
-        await (supabase as any).from('enrollments').upsert({
-          child_id: editingStudent.id, school_id: schoolId,
-          branch_id: selectedTeam?.branch_id || activeBranchId || null,
-          team_id: data.team_id || null, offering_plan_id: data.offering_plan_id || null, status: 'active',
-        }, { onConflict: 'child_id,school_id' });
-      }
-      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['school-students'] });
@@ -352,7 +351,14 @@ export default function SchoolStudentsManagementPage() {
       setEditingStudent(null);
       setEditingAthleteType(null);
       toast({ title: '✅ Atleta actualizado' });
-    }
+    },
+    onError: (error: any) => {
+      toast({
+        title: '❌ Error al actualizar',
+        description: error?.message || 'Ocurrió un error inesperado',
+        variant: 'destructive',
+      });
+    },
   });
 
   const onSubmit = (data: StudentFormData) => {
@@ -378,13 +384,26 @@ export default function SchoolStudentsManagementPage() {
       const { data } = await (supabase as any).from('children').select('tshirt_size, blood_type, eps_name').eq('id', student.id).maybeSingle();
       if (data) extraFields = { tshirt_size: data.tshirt_size || '', blood_type: data.blood_type || '', eps_name: data.eps_name || '' };
     }
+    const teamStartDate: string = (student as any).enrollment_start_date || '';
+    const planStartDate: string  = (student as any).plan_start_date       || '';
+    const teamFee: number        = (student as any).team_monthly_fee      || 0;
+    const planFee: number        = (student as any).plan_monthly_fee      || 0;
     form.reset({
-      full_name: student.full_name, date_of_birth: student.date_of_birth || '',
-      parent_email: student.parent_email || '', parent_phone: student.parent_phone || '',
-      team_id: student.team_id || '', offering_plan_id: student.offering_plan_id || '',
-      monthly_fee: student.price_monthly || Number(defaultMonthlyFee) || 0,
-      medical_info: student.medical_info || '', notes: student.notes || '',
-      tshirt_size: extraFields.tshirt_size, blood_type: extraFields.blood_type, eps_name: extraFields.eps_name,
+      full_name:        student.full_name,
+      date_of_birth:    student.date_of_birth   || '',
+      parent_email:     student.parent_email     || '',
+      parent_phone:     student.parent_phone     || '',
+      team_id:          student.enrolled_team_id || student.team_id || '',
+      offering_plan_id: student.offering_plan_id || '',
+      team_start_date:  teamStartDate,
+      plan_start_date:  planStartDate,
+      team_monthly_fee: teamFee,
+      plan_monthly_fee: planFee,
+      medical_info:     student.medical_info     || '',
+      notes:            student.notes            || '',
+      tshirt_size:      extraFields.tshirt_size,
+      blood_type:       extraFields.blood_type,
+      eps_name:         extraFields.eps_name,
     });
     setDialogOpen(true);
   };
@@ -455,11 +474,6 @@ export default function SchoolStudentsManagementPage() {
     toggleStatusMutation.mutate({ id: student.id, status: student.status === 'inactive' ? 'active' : 'inactive' });
   };
 
-  const handleTeamChange = (teamId: string) => {
-    form.setValue('team_id', teamId);
-    const selectedTeam = teams.find(p => p.id === teamId);
-    if (selectedTeam) form.setValue('monthly_fee', selectedTeam.monthly_fee);
-  };
 
   // ── Helper: construye los params de navegación a /invitations ─────────────
   // PATCH: para atletas unregistered se agrega role=athlete y unregisteredId
@@ -711,8 +725,231 @@ export default function SchoolStudentsManagementPage() {
               {editingStudent ? (editingAthleteType === 'child' ? 'Actualiza la información del menor y su acudiente.' : editingAthleteType === 'adult' ? 'Actualiza la información del atleta. El email se gestiona desde su cuenta.' : 'Actualiza la información del atleta registrado manualmente.') : <>Registra al atleta. Quedará asociado a <strong>{schoolName}</strong>.</>}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {/* Form content unchanged from original */}
+          <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
+            {/* ── Datos del atleta ── */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Datos del atleta</h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="full_name">Nombre completo *</Label>
+                  <Input id="full_name" {...form.register('full_name')} />
+                  {form.formState.errors.full_name && <p className="text-xs text-destructive">{form.formState.errors.full_name.message as string}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Fecha de nacimiento</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={cn('w-full pl-3 text-left font-normal', !form.watch('date_of_birth') && 'text-muted-foreground')}
+                      >
+                        {form.watch('date_of_birth')
+                          ? format(new Date(form.watch('date_of_birth')! + 'T12:00:00'), 'PPP', { locale: es })
+                          : <span>Seleccionar fecha</span>}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={form.watch('date_of_birth') ? new Date(form.watch('date_of_birth')! + 'T12:00:00') : undefined}
+                        onSelect={(date) => {
+                          if (date) {
+                            const y = date.getFullYear();
+                            const m = String(date.getMonth() + 1).padStart(2, '0');
+                            const d = String(date.getDate()).padStart(2, '0');
+                            form.setValue('date_of_birth', `${y}-${m}-${d}`);
+                          }
+                        }}
+                        captionLayout="dropdown-buttons"
+                        fromYear={1920}
+                        toYear={new Date().getFullYear()}
+                        disabled={(date) => date > new Date() || date < new Date('1900-01-01')}
+                        initialFocus
+                        locale={es}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="medical_info">Información médica</Label>
+                <Textarea id="medical_info" {...form.register('medical_info')} rows={2} />
+              </div>
+              {(!editingStudent || editingAthleteType === 'child') && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Campos opcionales</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="tshirt_size">Talla camiseta</Label>
+                      <Input id="tshirt_size" placeholder="XS, S, M, L..." {...form.register('tshirt_size')} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="blood_type">Tipo de sangre</Label>
+                      <Input id="blood_type" placeholder="O+, A-..." {...form.register('blood_type')} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="eps_name">EPS</Label>
+                      <Input id="eps_name" placeholder="Sura, Sanitas..." {...form.register('eps_name')} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Acudiente (solo menores) ── */}
+            {(!editingStudent || editingAthleteType === 'child') && (
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Contacto del acudiente</h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_email">Email del acudiente</Label>
+                    <Input id="parent_email" type="email" {...form.register('parent_email')} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="parent_phone">Teléfono</Label>
+                    <Input id="parent_phone" type="tel" placeholder="+57 300..." {...form.register('parent_phone')} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Inscripción ── */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Inscripción</h3>
+              <div className="grid gap-6 sm:grid-cols-2">
+                {/* Columna Equipo */}
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Equipo</Label>
+                    <Select
+                      value={form.watch('team_id') || '__none__'}
+                      onValueChange={(val) => {
+                        const v = val === '__none__' ? '' : val;
+                        form.setValue('team_id', v);
+                        const t = teams.find(t => t.id === v);
+                        if (t?.monthly_fee) form.setValue('team_monthly_fee' as any, t.monthly_fee);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin equipo</SelectItem>
+                        {teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fecha de inscripción</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn('w-full pl-3 text-left font-normal', !form.watch('team_start_date') && 'text-muted-foreground')}
+                        >
+                          {form.watch('team_start_date')
+                            ? format(new Date(form.watch('team_start_date')! + 'T12:00:00'), 'PPP', { locale: es })
+                            : <span>Seleccionar fecha</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={form.watch('team_start_date') ? new Date(form.watch('team_start_date')! + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const y = date.getFullYear();
+                              const m = String(date.getMonth() + 1).padStart(2, '0');
+                              const d = String(date.getDate()).padStart(2, '0');
+                              form.setValue('team_start_date', `${y}-${m}-${d}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={2020}
+                          toYear={new Date().getFullYear() + 2}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
+                    <Input id="team_monthly_fee" type="number" step={1000}
+                      {...form.register('team_monthly_fee', { valueAsNumber: true })} />
+                  </div>
+                </div>
+                {/* Columna Plan */}
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Plan</Label>
+                    <Select
+                      value={form.watch('offering_plan_id') || '__none__'}
+                      onValueChange={(val) => {
+                        const v = val === '__none__' ? '' : val;
+                        form.setValue('offering_plan_id', v);
+                        const p = offeringPlans.find(p => p.id === v);
+                        if (p?.price) form.setValue('plan_monthly_fee' as any, p.price);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin plan</SelectItem>
+                        {offeringPlans.map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.offering_name ? `${p.offering_name} — ` : ''}{p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fecha de inscripción</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn('w-full pl-3 text-left font-normal', !form.watch('plan_start_date') && 'text-muted-foreground')}
+                        >
+                          {form.watch('plan_start_date')
+                            ? format(new Date(form.watch('plan_start_date')! + 'T12:00:00'), 'PPP', { locale: es })
+                            : <span>Seleccionar fecha</span>}
+                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={form.watch('plan_start_date') ? new Date(form.watch('plan_start_date')! + 'T12:00:00') : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              const y = date.getFullYear();
+                              const m = String(date.getMonth() + 1).padStart(2, '0');
+                              const d = String(date.getDate()).padStart(2, '0');
+                              form.setValue('plan_start_date', `${y}-${m}-${d}`);
+                            }
+                          }}
+                          captionLayout="dropdown-buttons"
+                          fromYear={2020}
+                          toYear={new Date().getFullYear() + 2}
+                          initialFocus
+                          locale={es}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="plan_monthly_fee" className="text-xs text-muted-foreground">Mensualidad plan (COP)</Label>
+                    <Input id="plan_monthly_fee" type="number" step={1000}
+                      {...form.register('plan_monthly_fee', { valueAsNumber: true })} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={createStudentMutation.isPending || updateStudentMutation.isPending}>
