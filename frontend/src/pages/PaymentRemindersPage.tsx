@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { emailClient } from '@/lib/email-client';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import { ReminderHistoryModal } from '@/components/finances/ReminderHistoryModal';
 
 export default function PaymentRemindersPage() {
     const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
@@ -34,6 +35,9 @@ export default function PaymentRemindersPage() {
     const [sendingAuto, setSendingAuto] = useState(false);
     const [templates, setTemplates] = useState<{ id: string; name: string; template_type: string }[]>([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>('auto');
+    const [athletesWithoutPayment, setAthletesWithoutPayment] = useState<any[]>([]);
+    const [loadingWithout, setLoadingWithout] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
 
     useEffect(() => {
         if (schoolId) {
@@ -67,10 +71,15 @@ export default function PaymentRemindersPage() {
             // Then generate the reminder list
             const data = await paymentRemindersAPI.generateReminders(schoolId, activeBranchId);
             setBatch(data);
+            // Cargar atletas sin cobro
+            setLoadingWithout(true);
+            const without = await paymentRemindersAPI.getAthletesWithoutPayment(schoolId);
+            setAthletesWithoutPayment(without);
         } catch (error: any) {
             toast.error(error.message || 'Error al cargar recordatorios');
         } finally {
             setLoading(false);
+            setLoadingWithout(false);
         }
     }
 
@@ -133,7 +142,7 @@ export default function PaymentRemindersPage() {
                         to: reminder.parentEmail,
                         data: {
                             userName: reminder.parentName,
-                            schoolName: batch?.schoolId || '',
+                            schoolName: schoolName || '',
                             concept: reminder.teamName,
                             amount: formatCurrency(reminder.amount),
                             dueDate: formatDate(reminder.dueDate),
@@ -217,6 +226,19 @@ export default function PaymentRemindersPage() {
             const cleanPhone = reminder.parentPhone.replace(/[\s\-()]/g, '');
             const phone = cleanPhone.startsWith('+') ? cleanPhone.replace('+', '') : `57${cleanPhone.replace(/^0+/, '')}`;
 
+            // Registrar en historial
+            const { data: { user } } = await supabase.auth.getUser();
+            await paymentRemindersAPI.logReminder({
+                school_id: schoolId!,
+                payment_id: reminder.paymentId || undefined,
+                contact_name: reminder.parentName,
+                contact_email: reminder.parentEmail || undefined,
+                contact_phone: reminder.parentPhone || undefined,
+                amount: reminder.amount,
+                channel: 'whatsapp',
+                sent_by: user?.id || '',
+            });
+
             window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.body)}`, '_blank');
         } catch (err: any) {
             // Fallback: use hardcoded message if BFF fails
@@ -252,6 +274,7 @@ export default function PaymentRemindersPage() {
     }
 
     return (
+        <>
         <div className="space-y-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -294,6 +317,10 @@ export default function PaymentRemindersPage() {
                             <><Send className="h-4 w-4 mr-2" /> Enviar ({selectedIds.size})</>
                         )}
                     </Button>
+                    <Button variant="outline" onClick={() => setShowHistory(true)}>
+                        <Clock className="h-4 w-4 mr-2" />
+                        Historial
+                    </Button>
                 </div>
             </div>
 
@@ -329,6 +356,57 @@ export default function PaymentRemindersPage() {
                         <p className="text-xl font-bold mt-1">{formatCurrency(filteredStats.total)}</p>
                     </Card>
                 </div>
+            )}
+
+            {/* Sin cobro */}
+            {athletesWithoutPayment.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                            <AlertTriangle className="h-4 w-4" />
+                            {athletesWithoutPayment.length} atleta{athletesWithoutPayment.length > 1 ? 's' : ''} sin cobro generado
+                        </CardTitle>
+                        <CardDescription>
+                            Tienen inscripción activa pero no tienen pago pendiente registrado
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Atleta</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead>Equipo / Plan</TableHead>
+                                    <TableHead className="text-right">Tarifa</TableHead>
+                                    <TableHead>Contacto</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {athletesWithoutPayment.map(a => (
+                                    <TableRow key={a.athlete_id}>
+                                        <TableCell className="font-medium text-sm">{a.full_name}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="text-[10px]">
+                                                {a.athlete_type === 'child' ? 'Menor' : a.athlete_type === 'adult' ? 'Adulto' : 'No registrado'}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {a.team_name || a.plan_name || '—'}
+                                        </TableCell>
+                                        <TableCell className="text-right text-sm font-semibold">
+                                            {a.price_monthly > 0
+                                                ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(a.price_monthly)
+                                                : '—'}
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">
+                                            {a.contact_email || a.contact_phone || 'Sin contacto'}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
             )}
 
             {/* Filter Bar */}
@@ -583,5 +661,12 @@ export default function PaymentRemindersPage() {
                 </Card>
             )}
         </div>
+
+        <ReminderHistoryModal
+            open={showHistory}
+            onOpenChange={setShowHistory}
+            schoolId={schoolId ?? ''}
+        />
+        </>
     );
 }

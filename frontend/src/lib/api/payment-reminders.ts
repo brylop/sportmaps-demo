@@ -147,7 +147,9 @@ class PaymentRemindersAPI {
             const unregistered = unregisteredMap.get(payment.unregistered_athlete_id || '');
             const plan = planMap.get(payment.offering_plan_id || '');
             const team = teamMap.get(payment.team_id || '');
-            const daysOverdue = Math.max(0, daysDiffFromToday(payment.due_date));
+            const daysOverdue = payment.due_date
+                ? Math.max(0, daysDiffFromToday(payment.due_date))
+                : 0;
 
             // For unregistered athletes, the athlete IS the contact person
             const contactName = parent?.full_name || unregistered?.full_name || 'Sin nombre';
@@ -169,7 +171,7 @@ class PaymentRemindersAPI {
                 teamName: programLabel,
                 amount: payment.amount,
                 dueDate: payment.due_date,
-                status: daysOverdue > 0 ? 'overdue' : 'pending',
+                status: payment.status as 'pending' | 'overdue',
                 paymentId: payment.id,
                 daysOverdue,
             };
@@ -198,6 +200,50 @@ class PaymentRemindersAPI {
 
         if (error) throw error;
         return (data as number) || 0;
+    }
+
+    async getAthletesWithoutPayment(schoolId: string): Promise<{
+        athlete_id: string;
+        full_name: string;
+        athlete_type: string;
+        team_name: string | null;
+        plan_name: string | null;
+        price_monthly: number;
+        contact_email: string | null;
+        contact_phone: string | null;
+    }[]> {
+        const { data, error } = await (supabase as any)
+            .rpc('get_athletes_without_payment', { p_school_id: schoolId });
+        if (error) throw error;
+        return data ?? [];
+    }
+
+    async logReminder(entry: {
+        school_id: string;
+        payment_id?: string;
+        child_id?: string;
+        user_id?: string;
+        unregistered_athlete_id?: string;
+        contact_name: string;
+        contact_email?: string;
+        contact_phone?: string;
+        amount: number;
+        channel: 'whatsapp' | 'email' | 'sms' | 'in_app';
+        sent_by: string;
+        status?: 'sent' | 'failed';
+        error_message?: string;
+    }): Promise<void> {
+        await (supabase as any).from('payment_reminder_logs').insert(entry);
+    }
+
+    async getReminderLogs(schoolId: string, limit = 50): Promise<any[]> {
+        const { data } = await (supabase as any)
+            .from('payment_reminder_logs')
+            .select('*')
+            .eq('school_id', schoolId)
+            .order('sent_at', { ascending: false })
+            .limit(limit);
+        return data ?? [];
     }
 }
 
