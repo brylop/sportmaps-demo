@@ -140,6 +140,7 @@ export function BiomechCaptureModal({
   const [errorMsg,     setErrorMsg]     = useState('');
   const [captureSource, setCaptureSource] = useState<'camera' | 'upload'>('camera');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [initKey, setInitKey] = useState(0);
 
   const meta = ANALYZER_META[analyzerCode] ?? { label: analyzerCode, tip: '' };
 
@@ -211,36 +212,70 @@ export function BiomechCaptureModal({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const init = async () => {
+
+    const timeoutId = setTimeout(async () => {
+      if (cancelled) return;
+
       setModalState('loading'); setErrorMsg('');
       recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = false;
+
       try {
         // @ts-ignore
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
-        const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+        const vision = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
+        );
+        if (cancelled) return;
+
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' },
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+          },
           runningMode: 'VIDEO', numPoses: 1,
-          minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5, outputSegmentationMasks: false,
+          minPoseDetectionConfidence: 0.5,
+          minPosePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+          outputSegmentationMasks: false,
         });
+
         if (cancelled) { landmarker.close(); return; }
         landmarkerRef.current = landmarker;
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        if (cancelled) return;
         setModalState('ready');
         startDetectionLoop();
+
       } catch (err: any) {
         if (!cancelled) {
-          setErrorMsg(err?.name === 'NotAllowedError' ? 'Permiso de cámara denegado.' : (err?.message ?? 'No se pudo iniciar la cámara.'));
+          setErrorMsg(
+            err?.name === 'NotAllowedError'
+              ? 'Permiso de cámara denegado. Habilitalo en la configuración del navegador.'
+              : (err?.message ?? 'No se pudo iniciar la cámara.'),
+          );
           setModalState('error');
         }
       }
+    }, 50);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      cleanup();
     };
-    init();
-    return () => { cancelled = true; cleanup(); };
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const processAndSend = async () => {
     try {
@@ -308,7 +343,11 @@ export function BiomechCaptureModal({
       };
     };
   };
-  const handleRetry = () => { cleanup(); setModalState('loading'); };
+  const handleRetry = () => {
+    cleanup();
+    setModalState('loading');
+    setInitKey(k => k + 1);
+  };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
