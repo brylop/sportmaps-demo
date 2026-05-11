@@ -13,7 +13,7 @@ router.get('/training/today', async (req: Request, res: Response) => {
     const [sessionsRes, logsRes] = await Promise.all([
       supabase
         .from('trainer_session_plans')
-        .select('id, name, status, session_date, custom_notes, blocks, trainer_id')
+        .select('id, name, status, session_date, custom_notes, blocks, trainer_id, school_id')
         .eq('client_id', athleteId)
         .eq('session_date', today)
         .order('created_at'),
@@ -73,7 +73,7 @@ router.get('/training/history', async (req: Request, res: Response) => {
 
     let sessionsQuery = supabase
       .from('trainer_session_plans')
-      .select('id, name, status, session_date, completed_at, blocks, results, trainer_id')
+      .select('id, name, status, session_date, completed_at, blocks, results, trainer_id, school_id')
       .eq('client_id', athleteId)
       .in('status', ['completed', 'assigned']);
 

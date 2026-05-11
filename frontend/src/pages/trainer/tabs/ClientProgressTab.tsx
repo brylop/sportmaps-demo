@@ -10,24 +10,52 @@ import { Slider } from "@/components/ui/slider";
 import { ShieldCheck, Plus } from "lucide-react";
 import { supabase } from '@/integrations/supabase/client';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
+import { BiomechResultCard, BiomechCapture } from '@/components/biomech/BiomechResultCard';
+import { Activity } from 'lucide-react';
 
 export function ClientProgressTab({ clientId, type, onUpdate }: { clientId: string, type: string, onUpdate: () => void }) {
   const { session } = useAuth();
   const { toast } = useToast();
   const [progress, setProgress] = useState<any[]>([]);
+  const [captures, setCaptures] = useState<BiomechCapture[]>([]);
+  const [loadingCaptures, setLoadingCaptures] = useState(false);
   const [open, setOpen] = useState(false);
   const EFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
   const [form, setForm] = useState({ skill_name: '', skill_level: 5, comments: '' });
 
   useEffect(() => {
-    supabase.from('academic_progress')
+    (supabase as any).from('academic_progress')
       .select('*')
       .eq(type === 'adult' ? 'user_id' : 'child_id', clientId)
       .order('created_at', { ascending: false })
       .limit(30)
-      .then(({data}) => setProgress(data || []));
+      .then(({ data }: any) => setProgress(data || []));
   }, [clientId, type]);
+
+  useEffect(() => {
+    if (!clientId || !session?.access_token) return;
+
+    const fetchCaptures = async () => {
+      setLoadingCaptures(true);
+      try {
+        const res = await fetch(
+          `${EFF_URL}/api/v1/trainer/biomech/captures?client_id=${clientId}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setCaptures(data ?? []);
+        }
+      } catch {
+        // Silencioso — biomecánica es aditiva, no bloquea el tab
+      } finally {
+        setLoadingCaptures(false);
+      }
+    };
+
+    fetchCaptures();
+  }, [clientId, session, EFF_URL]);
 
   const handleSave = async () => {
     try {
@@ -41,13 +69,12 @@ export function ClientProgressTab({ clientId, type, onUpdate }: { clientId: stri
       setOpen(false);
       onUpdate();
       
-      // refetch
-      supabase.from('academic_progress')
+      (supabase as any).from('academic_progress')
         .select('*')
         .eq(type === 'adult' ? 'user_id' : 'child_id', clientId)
         .order('created_at', { ascending: false })
         .limit(30)
-        .then(({data}) => setProgress(data || []));
+        .then(({ data }: any) => setProgress(data || []));
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
   };
 
@@ -123,6 +150,58 @@ export function ClientProgressTab({ clientId, type, onUpdate }: { clientId: stri
           </div>
         </div>
       )}
+
+      {/* ── Sección Biomecánica ─────────────────────────────────────── */}
+      <div className="space-y-4 pt-2 border-t border-border/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h4 className="font-bold text-sm">Biomecánica</h4>
+            <span className="text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
+              SportMaps Body
+            </span>
+          </div>
+          {captures.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              {captures.length} captura{captures.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {loadingCaptures ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" />
+          </div>
+        ) : captures.length === 0 ? (
+          <div className="text-center py-8 border border-dashed rounded-xl text-muted-foreground">
+            <Activity className="mx-auto h-7 w-7 mb-2 opacity-30" />
+            <p className="text-sm font-medium">Sin capturas biomecánicas</p>
+            <p className="text-xs mt-1 opacity-60">
+              Las capturas aparecen cuando el atleta completa un ejercicio con cámara requerida.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {captures.slice(0, 10).map(capture => (
+              <BiomechResultCard
+                key={capture.id}
+                capture={capture}
+                showAnnotate
+                onAnnotate={(captureId) => {
+                  // TODO Sprint 2: abrir modal de anotación
+                  // Por ahora navegar al detalle de captura
+                  console.log('Anotar captura:', captureId);
+                }}
+              />
+            ))}
+            {captures.length > 10 && (
+              <p className="text-center text-xs text-muted-foreground pt-1">
+                Mostrando las últimas 10 de {captures.length} capturas
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

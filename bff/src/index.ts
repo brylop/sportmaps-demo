@@ -53,9 +53,11 @@ import trainerAvailabilityRouter from './routes/trainer/availability';
 import trainerRoutinesRouter from './routes/trainer/routines';
 import trainerTrainingPlansRouter from './routes/trainer/training-plans';
 import trainerWgerRouter from './routes/trainer/wger';
+import trainerBiomechRouter from './routes/trainer/biomech';
 
 import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
+import athleteBiomechRouter from './routes/athlete/biomech';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 
 const app = express();
@@ -193,10 +195,12 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerClientsRou
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerAvailabilityRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerRoutinesRouter);
 app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerTrainingPlansRouter);
+app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerBiomechRouter);
 
 // Rutas autenticadas del atleta: usa requireAthleteAuth
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
+app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteBiomechRouter);
 app.use('/api/v1/athletes', bulkUploadRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
