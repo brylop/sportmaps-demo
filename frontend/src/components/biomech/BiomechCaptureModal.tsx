@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap } from 'lucide-react';
+import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap, Upload, Video } from 'lucide-react';
 import { bffClient } from '@/lib/api/bffClient';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -138,6 +138,8 @@ export function BiomechCaptureModal({
   const [finalMetrics, setFinalMetrics] = useState<Record<string, number>>({});
   const [finalFlags,   setFinalFlags]   = useState<BiomechCaptureResult['flags']>([]);
   const [errorMsg,     setErrorMsg]     = useState('');
+  const [captureSource, setCaptureSource] = useState<'camera' | 'upload'>('camera');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const meta = ANALYZER_META[analyzerCode] ?? { label: analyzerCode, tip: '' };
 
@@ -245,10 +247,10 @@ export function BiomechCaptureModal({
       const frames = recordedFrames.current;
       const metrics = computeMetrics(frames, analyzerCode);
       const fps = frames.length > 0 ? Math.round((frames.length / MAX_RECORDING_SECONDS) * SAMPLE_EVERY_N_FRAMES * 10) / 10 : 10;
-      const captureRes = await bffClient.post('/api/v1/athlete/biomech/captures', { school_id: schoolId, session_plan_id: sessionPlanId??null, enrollment_id: enrollmentId??null, analyzer_code: analyzerCode, block_index: blockIndex??null, source: sessionPlanId ? 'session' : 'voluntary' });
+      const captureRes: any = await bffClient.post('/api/v1/athlete/biomech/captures', { school_id: schoolId, session_plan_id: sessionPlanId??null, enrollment_id: enrollmentId??null, analyzer_code: analyzerCode, block_index: blockIndex??null, source: sessionPlanId ? 'session' : 'voluntary' });
       const captureId: string = captureRes.data?.id ?? captureRes.id;
       await bffClient.patch(`/api/v1/athlete/biomech/captures/${captureId}/keypoints`, { keypoints: frames, fps, duration_seconds: Math.round(frames.length * SAMPLE_EVERY_N_FRAMES / fps), quality_score: frames.length > 10 ? 0.8 : 0.5 });
-      const analyzeRes = await bffClient.post(`/api/v1/athlete/biomech/captures/${captureId}/analyze`, { metrics, rep_count: Math.max(1, Math.round(frames.length / (fps / SAMPLE_EVERY_N_FRAMES * 2))), is_assessment: false });
+      const analyzeRes: any = await bffClient.post(`/api/v1/athlete/biomech/captures/${captureId}/analyze`, { metrics, rep_count: Math.max(1, Math.round(frames.length / (fps / SAMPLE_EVERY_N_FRAMES * 2))), is_assessment: false });
       const analysis = analyzeRes.data ?? analyzeRes;
       setFinalMetrics(metrics); setFinalFlags(analysis.flags ?? []); setModalState('done');
       onComplete({ captureId, analysisId: analysis.id, metrics, flags: analysis.flags ?? [] });
@@ -260,6 +262,52 @@ export function BiomechCaptureModal({
 
   const handleClose = () => { cleanup(); setModalState('loading'); setFinalMetrics({}); setFinalFlags([]); setErrorMsg(''); onClose(); };
   const handleStartRecording = () => { recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = true; recordingStart.current = performance.now(); setCountdown(MAX_RECORDING_SECONDS); setModalState('recording'); };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar que sea video
+    if (!file.type.startsWith('video/')) {
+      toast({ title: 'Archivo inválido', description: 'Solo se aceptan archivos de video.', variant: 'destructive' });
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Cargar el video subido en el mismo elemento de video
+    video.srcObject = null;
+    video.src = objectUrl;
+    video.currentTime = 0;
+
+    video.onloadedmetadata = async () => {
+      if (video.duration > MAX_RECORDING_SECONDS + 2) {
+        toast({
+          title:       'Video muy largo',
+          description: `El video debe ser de máximo ${MAX_RECORDING_SECONDS} segundos. El tuyo dura ${Math.round(video.duration)}s.`,
+          variant:     'destructive',
+        });
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      // Procesar igual que la grabación en vivo
+      recordedFrames.current  = [];
+      frameCountRef.current   = 0;
+      isRecordingRef.current  = true;
+      recordingStart.current  = performance.now();
+      setModalState('recording');
+      await video.play();
+
+      // Detener automáticamente cuando termine el video
+      video.onended = () => {
+        URL.revokeObjectURL(objectUrl);
+        triggerStop();
+      };
+    };
+  };
   const handleRetry = () => { cleanup(); setModalState('loading'); };
 
   return (
@@ -310,13 +358,60 @@ export function BiomechCaptureModal({
           {(modalState === 'ready' || modalState === 'recording' || modalState === 'processing') && (
             <div className="space-y-4">
               {modalState === 'ready' && (
-                <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                  <Camera className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">{meta.tip}</p>
+                <div className="space-y-3">
+                  {/* Toggle fuente */}
+                  <div className="flex rounded-xl border border-border/40 overflow-hidden p-0.5 bg-muted/20 gap-0.5">
+                    <button
+                      onClick={() => setCaptureSource('camera')}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
+                        captureSource === 'camera'
+                          ? 'bg-background shadow-sm text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Video className="h-3.5 w-3.5" />
+                      Cámara en vivo
+                    </button>
+                    <button
+                      onClick={() => setCaptureSource('upload')}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
+                        captureSource === 'upload'
+                          ? 'bg-background shadow-sm text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Subir video
+                    </button>
+                  </div>
+
+                  {/* Tip de posición */}
+                  <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                    <Camera className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+                      {captureSource === 'upload'
+                        ? `Sube un video de máximo ${MAX_RECORDING_SECONDS}s. ${meta.tip}`
+                        : meta.tip}
+                    </p>
+                  </div>
                 </div>
               )}
               <div className="relative rounded-2xl overflow-hidden bg-black border border-border/40 shadow-xl aspect-video">
-                <video ref={videoRef} className="hidden" autoPlay playsInline muted />
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    position:      'absolute',
+                    opacity:        0,
+                    pointerEvents: 'none',
+                    width:          1,
+                    height:         1,
+                    top:            0,
+                    left:           0,
+                  }}
+                />
                 <canvas ref={canvasRef} className="w-full h-full object-contain" />
                 {modalState === 'recording' && (
                   <div className="absolute inset-0 pointer-events-none">
@@ -342,9 +437,34 @@ export function BiomechCaptureModal({
                 )}
               </div>
               {modalState === 'ready' && (
-                <Button onClick={handleStartRecording} className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20">
-                  <Camera className="h-5 w-5" /> Iniciar captura · {MAX_RECORDING_SECONDS}s
-                </Button>
+                <>
+                  {captureSource === 'camera' ? (
+                    <Button
+                      onClick={handleStartRecording}
+                      className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+                    >
+                      <Camera className="h-5 w-5" />
+                      Iniciar captura · {MAX_RECORDING_SECONDS}s
+                    </Button>
+                  ) : (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        onChange={handleVideoUpload}
+                      />
+                      <Button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+                      >
+                        <Upload className="h-5 w-5" />
+                        Seleccionar video (máx {MAX_RECORDING_SECONDS}s)
+                      </Button>
+                    </>
+                  )}
+                </>
               )}
               {modalState === 'recording' && (
                 <Button onClick={triggerStop} variant="destructive" className="w-full h-12 gap-2 font-black">
