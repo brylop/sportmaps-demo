@@ -177,7 +177,10 @@ export function BiomechCaptureModal({
       const ctx = canvas.getContext('2d');
       if (!ctx) { rafRef.current = requestAnimationFrame(detect); return; }
       canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
-      ctx.save(); ctx.scale(-1,1); ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height); ctx.restore();
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+      ctx.restore();
       const nowMs = performance.now();
       if (video.currentTime !== lastVideoTime.current) {
         lastVideoTime.current = video.currentTime;
@@ -394,124 +397,126 @@ export function BiomechCaptureModal({
           )}
 
           {/* Cámara */}
-          {(modalState === 'ready' || modalState === 'recording' || modalState === 'processing') && (
-            <div className="space-y-4">
-              {modalState === 'ready' && (
-                <div className="space-y-3">
-                  {/* Toggle fuente */}
-                  <div className="flex rounded-xl border border-border/40 overflow-hidden p-0.5 bg-muted/20 gap-0.5">
-                    <button
-                      onClick={() => setCaptureSource('camera')}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
-                        captureSource === 'camera'
-                          ? 'bg-background shadow-sm text-primary'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Video className="h-3.5 w-3.5" />
-                      Cámara en vivo
-                    </button>
-                    <button
-                      onClick={() => setCaptureSource('upload')}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
-                        captureSource === 'upload'
-                          ? 'bg-background shadow-sm text-primary'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Subir video
-                    </button>
-                  </div>
+          <div
+            className="space-y-4"
+            style={{ display: ['ready','recording','processing'].includes(modalState) ? 'flex' : 'none', flexDirection: 'column' }}
+          >
+            {modalState === 'ready' && (
+              <div className="space-y-3">
+                {/* Toggle fuente */}
+                <div className="flex rounded-xl border border-border/40 overflow-hidden p-0.5 bg-muted/20 gap-0.5">
+                  <button
+                    onClick={() => setCaptureSource('camera')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
+                      captureSource === 'camera'
+                        ? 'bg-background shadow-sm text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Video className="h-3.5 w-3.5" />
+                    Cámara en vivo
+                  </button>
+                  <button
+                    onClick={() => setCaptureSource('upload')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-colors ${
+                      captureSource === 'upload'
+                        ? 'bg-background shadow-sm text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Subir video
+                  </button>
+                </div>
 
-                  {/* Tip de posición */}
-                  <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                    <Camera className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
-                      {captureSource === 'upload'
-                        ? `Sube un video de máximo ${MAX_RECORDING_SECONDS}s. ${meta.tip}`
-                        : meta.tip}
-                    </p>
+                {/* Tip de posición */}
+                <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                  <Camera className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+                    {captureSource === 'upload'
+                      ? `Sube un video de máximo ${MAX_RECORDING_SECONDS}s. ${meta.tip}`
+                      : meta.tip}
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="relative rounded-2xl overflow-hidden bg-black border border-border/40 shadow-xl aspect-video">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  position:   'absolute',
+                  width:      1,
+                  height:     1,
+                  visibility: 'hidden',
+                }}
+              />
+              <canvas
+                ref={canvasRef}
+                className="w-full h-full object-contain"
+                style={{ position: 'relative', zIndex: 1 }}
+              />
+              {modalState === 'recording' && (
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute inset-0 border-2 border-red-500/70 rounded-2xl animate-pulse" />
+                  <div className="absolute top-3 right-3 h-10 w-10 rounded-full bg-black/70 border border-red-500/60 flex items-center justify-center">
+                    <span className="text-white font-black text-sm">{countdown}</span>
+                  </div>
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full">
+                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-white text-[10px] font-black uppercase tracking-widest">REC</span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+                    <div className="h-full bg-red-500 transition-all duration-1000 ease-linear" style={{ width: `${((MAX_RECORDING_SECONDS - countdown) / MAX_RECORDING_SECONDS) * 100}%` }} />
                   </div>
                 </div>
               )}
-              <div className="relative rounded-2xl overflow-hidden bg-black border border-border/40 shadow-xl aspect-video">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{
-                    position:   'absolute',
-                    inset:      0,
-                    width:      '100%',
-                    height:     '100%',
-                    objectFit:  'cover',
-                    opacity:    0,
-                    zIndex:     0,
-                  }}
-                />
-                <canvas ref={canvasRef} className="w-full h-full object-contain" />
-                {modalState === 'recording' && (
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute inset-0 border-2 border-red-500/70 rounded-2xl animate-pulse" />
-                    <div className="absolute top-3 right-3 h-10 w-10 rounded-full bg-black/70 border border-red-500/60 flex items-center justify-center">
-                      <span className="text-white font-black text-sm">{countdown}</span>
-                    </div>
-                    <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full">
-                      <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-white text-[10px] font-black uppercase tracking-widest">REC</span>
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
-                      <div className="h-full bg-red-500 transition-all duration-1000 ease-linear" style={{ width: `${((MAX_RECORDING_SECONDS - countdown) / MAX_RECORDING_SECONDS) * 100}%` }} />
-                    </div>
-                  </div>
-                )}
-                {modalState === 'processing' && (
-                  <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3 rounded-2xl">
-                    <Loader2 className="h-8 w-8 text-primary animate-spin" />
-                    <p className="text-white font-bold text-sm">Analizando movimiento...</p>
-                    <p className="text-white/50 text-xs">Calculando métricas biomecánicas</p>
-                  </div>
-                )}
-              </div>
-              {modalState === 'ready' && (
-                <>
-                  {captureSource === 'camera' ? (
-                    <Button
-                      onClick={handleStartRecording}
-                      className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
-                    >
-                      <Camera className="h-5 w-5" />
-                      Iniciar captura · {MAX_RECORDING_SECONDS}s
-                    </Button>
-                  ) : (
-                    <>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        onChange={handleVideoUpload}
-                      />
-                      <Button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
-                      >
-                        <Upload className="h-5 w-5" />
-                        Seleccionar video (máx {MAX_RECORDING_SECONDS}s)
-                      </Button>
-                    </>
-                  )}
-                </>
-              )}
-              {modalState === 'recording' && (
-                <Button onClick={triggerStop} variant="destructive" className="w-full h-12 gap-2 font-black">
-                  <Square className="h-4 w-4 fill-current" /> Detener grabación
-                </Button>
+              {modalState === 'processing' && (
+                <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3 rounded-2xl">
+                  <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                  <p className="text-white font-bold text-sm">Analizando movimiento...</p>
+                  <p className="text-white/50 text-xs">Calculando métricas biomecánicas</p>
+                </div>
               )}
             </div>
-          )}
+            {modalState === 'ready' && (
+              <>
+                {captureSource === 'camera' ? (
+                  <Button
+                    onClick={handleStartRecording}
+                    className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+                  >
+                    <Camera className="h-5 w-5" />
+                    Iniciar captura · {MAX_RECORDING_SECONDS}s
+                  </Button>
+                ) : (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handleVideoUpload}
+                    />
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full h-12 gap-2 font-black bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
+                    >
+                      <Upload className="h-5 w-5" />
+                      Seleccionar video (máx {MAX_RECORDING_SECONDS}s)
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
+            {modalState === 'recording' && (
+              <Button onClick={triggerStop} variant="destructive" className="w-full h-12 gap-2 font-black">
+                <Square className="h-4 w-4 fill-current" /> Detener grabación
+              </Button>
+            )}
+          </div>
 
           {/* Done */}
           {modalState === 'done' && (
