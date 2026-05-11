@@ -603,7 +603,10 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
       <BiomechCaptureModal
         open={!!biomechBlock}
         onClose={() => setBiomechBlock(null)}
-        onComplete={() => setBiomechBlock(null)}
+        onComplete={({ captureId, analysisId, metrics, flags }) => {
+          // No cerrar el modal aquí — el usuario cierra con el botón "Listo"
+          // que llama onClose → setBiomechBlock(null)
+        }}
         analyzerCode={biomechBlock.block.analyzer_code!}
         sessionPlanId={session.id}
         schoolId={session.school_id ?? ''}

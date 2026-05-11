@@ -219,7 +219,7 @@ export function BiomechCaptureModal({
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
         const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
         const landmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate: 'GPU' },
+          baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' },
           runningMode: 'VIDEO', numPoses: 1,
           minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5, outputSegmentationMasks: false,
         });
@@ -403,13 +403,13 @@ export function BiomechCaptureModal({
                   playsInline
                   muted
                   style={{
-                    position:      'absolute',
-                    opacity:        0,
-                    pointerEvents: 'none',
-                    width:          1,
-                    height:         1,
-                    top:            0,
-                    left:           0,
+                    position:   'absolute',
+                    inset:      0,
+                    width:      '100%',
+                    height:     '100%',
+                    objectFit:  'cover',
+                    opacity:    0,
+                    zIndex:     0,
                   }}
                 />
                 <canvas ref={canvasRef} className="w-full h-full object-contain" />
