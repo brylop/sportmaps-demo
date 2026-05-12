@@ -1,9 +1,14 @@
 # SportMaps — Roadmap Maestro Unificado
 
-**Alcance:** Web + Mobile (iOS/Android) + SaaS multi-cuenta + Rediseño UX + WhatsApp AI Channel + White-label schools
-**Versión:** 1.2
-**Fecha:** 2026-04-28
-**Duración estimada:** ~28 semanas calendario · ~85 días-dev (con WhatsApp AI Channel)
+**Alcance:** Web + Mobile (iOS/Android) + SaaS multi-cuenta + Rediseño UX + WhatsApp AI Channel + White-label schools + **Marketplace & Vendor SaaS**
+**Versión:** 1.3
+**Fecha:** 2026-05-12
+**Duración estimada:** ~30 semanas calendario · ~95 días-dev (con Marketplace + WhatsApp AI Channel)
+
+> **Changelog v1.3 (2026-05-12)**
+> - Añadido **BLOQUE M — Marketplace & Vendor SaaS** (no contemplado en v1.2). Cubre venta de productos y servicios por coaches/schools/external_vendors con catálogo rico, reviews, payouts, shipping y moderación admin.
+> - Estado: M1-M7 ✓ entregados entre abril-mayo 2026. M8 (planes vendor) es el siguiente foco.
+> - Etapa G (Payments BFF fase 1) marcada como entregada en gran parte (Wompi + MP + refunds + idempotencia ya en producción).
 
 ---
 
@@ -63,6 +68,20 @@ BLOQUE 6: WHATSAPP AI CHANNEL (Sem 19-28)
   WA3. Pagos via WhatsApp (link + recordatorios proactivos)
   WA4. Modo Auto + Inbox completo + Analytics
   WA5. V2 features (voz, multi-idioma, multi-sede)  [opcional]
+
+BLOQUE M: MARKETPLACE & VENDOR SAAS (Sem 4-12, paralelo a Bloques 2-4)
+  M1. ✓ Roles + capabilities (external_vendor, coach/school/personal_trainer venden)
+  M2. ✓ Producto rico (categorias jerarquicas, brands, ProductWizard 4 pasos)
+  M3. ✓ Reviews + Q&A (contexto deportivo, verified purchase)
+  M4. ✓ Pagos vendor minimal (settlements + payouts + balance)
+  M5. ✓ Logistica (10 carriers CO, Mock provider, ShippingSelector)
+  M6. ✓ Cierre del ciclo de compra (auto-shipment + settlements en webhook)
+  M7. ✓ Admin verification queue (vendor docs + signed URLs + notifs)
+  M8. ◯ Planes vendor (Free / Pro / Elite) con gating  ← SIGUIENTE
+  M9. ◯ Multi-vendor split en carrito
+  M10. ◯ R6 Medios 3D/AR (model-viewer, 360, captura camara)
+  M11. ◯ Mox shipping provider real (reemplazar Mock)
+  M12. ◯ Email transaccional para vendors
 ```
 
 ---
@@ -1043,6 +1062,204 @@ bff/src/routes/wellness/
 
 ---
 
+## BLOQUE M — Marketplace & Vendor SaaS
+
+**Origen:** No estaba en v1.2 del roadmap. Surgió como necesidad de monetizar coaches/schools/external_vendors vendiendo productos y servicios deportivos. Se ejecutó en paralelo a Bloques 2-4 entre abril-mayo 2026.
+
+**Estado global:** 7 de 12 etapas entregadas (M1-M7 ✓). M8 (planes) es el siguiente foco.
+
+**Principios específicos:**
+- Cualquier rol activo (coach, school, personal_trainer, store_owner, external_vendor) puede activar Mi Tienda sin perder su rol primario — vía `vendor_profile.capabilities`.
+- Todo producto pasa por `pending_review` antes de publicarse — gate de calidad mínimo.
+- Doc de verificación (RUT/CC/cédula) es **opcional**: sin doc el vendor vende pero no aparece verificado.
+- Stock atómico via RPC `confirm_order_payment` — no se confirma pago sin haber descontado inventario.
+- Settlements idempotentes — `compute_settlements_for_order` puede llamarse N veces.
+
+### Etapa M1 ✓ — Roles + capabilities (R1) [entregado abril 2026]
+
+- Nuevo rol `external_vendor` + auto-promoción a `personal_trainer` para coaches que activan tienda.
+- `vendor_profiles.capabilities` desacoplado de `profiles.role` → un coach puede vender servicios + productos sin dejar de ser coach.
+- Middleware `requireVendorProfile(capability)` reemplaza `requireRole` en endpoints de vendor.
+- Sidebar contextual + onboarding "Activar Mi Tienda" + CTA en dashboards.
+
+**Migraciones:** `20260418000003_school_vendor_integration.sql`, `20260511000002_marketplace_role_capabilities_logic.sql`
+
+### Etapa M2 ✓ — Producto rico (R2) [entregado abril-mayo 2026]
+
+- `product_categories` jerárquica con `attribute_schema` JSON dinámico (ropa, calzado, suplementos, equipamiento, accesorios, servicios).
+- 17 marcas oficiales en `product_brands`.
+- `ProductWizard` 4 pasos: categoría → info + atributos dinámicos → variantes (matriz talla×color) → publicación.
+- `ProductGalleryUploader` multi-imagen vía Supabase Storage.
+- Estado `pending_review` + trigger `enforce_product_publish_gate` + `AdminMarketplaceModerationPage` (tab Productos).
+
+**Migraciones:** `20260511000003_product_taxonomy_and_quality.sql`
+
+### Etapa M3 ✓ — Reviews + Q&A (R3) [entregado mayo 2026]
+
+- `product_reviews` con contexto deportivo (`sport_used_for`, `level`, `usage_duration`, `fit_feedback`).
+- Verified purchase gate via RLS — solo quien compró puede reseñar.
+- `product_questions` (Q&A público), `vendor_reviews`, sistema de votos `helpful`.
+- Vendor inbox `/vendor/inbox` para responder preguntas.
+- Agregados materializados en `products.avg_rating` y `vendor_profiles.avg_rating`.
+
+**Migraciones:** `20260511000004_reviews_and_qa.sql`
+
+### Etapa M4 ✓ — Pagos minimal (R5) [entregado mayo 2026]
+
+- `vendor_bank_accounts` (cuentas + Nequi/Daviplata/Bre-B) — actualizado mayo 12 con neobancos colombianos.
+- `settlements` (por order × vendor) + `vendor_balances` (running totals pending + available).
+- `platform_config` (comisiones, gateway fees por provider).
+- RPCs:
+  - `compute_settlements_for_order` — crea settlements al confirmar pago, idempotente.
+  - `release_settlements_for_vendor` — vendor solicita liquidación.
+  - `request_payout` — crea entrada en `vendor_payouts`.
+  - `admin_generate_pending_payouts` + `vendor_payout_summary`.
+- `VendorPayoutsPage` (balance + cuentas + solicitar liquidación) + `AdminPayoutsPage` (confirmar pagos masivos).
+- Constraint `one_origin <= 1` (relajada de `= 1`) para soportar payouts agregados.
+
+**Migraciones:** `20260511000005_vendor_payouts_pipeline.sql`, `20260511000007_financial_engine_minimal.sql`, `20260511000008_payouts_functions_unconditional.sql`
+
+### Etapa M5 ✓ — Logística (R4) [entregado mayo 2026]
+
+- Namespace separado `marketplace_shipping_zones` + `marketplace_shipping_rates` para no chocar con tabla `shipping_zones` legacy.
+- `shipping_carriers` con 10 transportadoras CO: Servientrega, Coordinadora, Interrapidísimo, Envía Colvanes, TCC, Mensajeros Urbanos, Picap, Rappi Cargo, pickup_in_store, vendor_delivers.
+- `vendor_shipping_settings` (origen, dimensiones default, free shipping mínimo, carriers aceptados, política de devolución).
+- `shipping_rate_quotes` con `quote_id` y `expires_at` anti-tampering.
+- BFF con adapter pattern: `ShippingProvider` interface + `MockProvider` listo + slots para Mox/Drenvio.
+- Endpoints: `POST /shipping/quote`, `GET /shipping/carriers`, `GET /shipping/tracking/:nro`, `POST /vendor/shipments/:id/{label,pickup,cancel}`, `POST /webhooks/shipping`.
+- Frontend: `useShipping`, `<ShippingSelector>`, `VendorShippingSettingsPage`.
+
+**Migraciones:** `20260511000020_shipping_provider_pipeline.sql` → `20260511000023_marketplace_shipping_namespace.sql`
+
+### Etapa M6 ✓ — Cierre del ciclo de compra [entregado mayo 11 2026]
+
+- `<ShippingSelector>` integrado en `CheckoutPage` (solo cuando hay productos en el carrito).
+- Formulario de dirección + auto-cotización + bloqueo del botón Pagar hasta que se elija opción.
+- `createProductOrder` agrupa todos los productos en una sola order, persiste `shipping_address` completa, `carrier`, `contact_phone`, `customer_name`.
+- Insert automático en `shipments` con `status='pending'`, `carrier_code`, `estimated_delivery`.
+- Webhooks Wompi y MercadoPago llaman `compute_settlements_for_order` después de `confirm_order_payment` + `split_order_payment` (idempotente).
+
+**Commits:** `ab9bd62` (feat checkout)
+
+### Etapa M7 ✓ — Admin verification queue [entregado mayo 12 2026]
+
+- Tab nuevo "Vendors pendientes" en `AdminMarketplaceModerationPage` con preview de doc + datos del titular + capabilities.
+- BFF endpoints:
+  - `GET /admin/vendors/verification-queue?status=` (pending/verified/rejected/all).
+  - `GET /admin/vendors/:id/doc-url` → `createSignedUrl` 5 min sobre bucket privado.
+  - `POST /admin/vendors/:id/verify` con notificación al vendor.
+- Bucket `vendor-docs` privado, 5 MB, mime restringido (PDF/JPG/PNG), policies path-based (owner CRUD + admin read).
+- `notify_user` a todos los admins/super_admins cuando vendor sube doc.
+- Sidebar super_admin: nueva sección "Moderación" con link a `/admin/marketplace/moderation`.
+
+**Migraciones:** `20260512000004_vendor_docs_bucket.sql`
+**Commits:** `421a8f3`, `4aa1e46`
+
+### Etapa M8 ◯ — Planes vendor (Free / Pro / Elite) [próximo, ~6-8 h]
+
+**Objetivo:** Monetizar vendors con tiers que combinen límites + comisión + verificación + visibilidad.
+
+**Modelo propuesto (sujeto a decisión final del usuario):**
+
+| Plan | Precio | Productos | Comisión | Verificación | Beneficios |
+|---|---|---|---|---|---|
+| Free | $0 | 10 max | 12 % | opcional | publica, sin badge, payouts cada 14 días |
+| Pro | $49.000/mes | ilimitado | 8 % | requerida (cédula/RUT) | badge verificado, destacado, promociones, payouts semanales |
+| Elite | $149.000/mes | ilimitado | 5 % | requerida (RUT + Cámara Comercio) | subdomain, analytics, API, soporte prioritario, payouts a demanda |
+
+**Decisiones que faltan antes de implementar:**
+1. Confirmar precios.
+2. ¿Free permanente o trial 30 días? (conflicto con principio rector #6 del roadmap original).
+3. Confirmar comisiones.
+4. ¿Verificación es prerrequisito del plan o badge aparte?
+
+**Tareas:**
+- Migración `vendor_plans` + asignar `'free'` por default a todos vía trigger.
+- RLS y trigger `enforce_vendor_product_limit` que limita productos según `vendor_plans.max_products`.
+- Pantalla `/vendor/plans` con comparativa + CTA "Mejorar".
+- Flujo de pago usando `recurring_subscriptions` (ya implementado en mayo 2026).
+- Webhook que activa el plan tras pago aprobado + auto-renueva mensualmente.
+- Email transaccional (depende de M12).
+
+**Tablas:**
+```sql
+CREATE TABLE public.vendor_plans (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    code            text UNIQUE NOT NULL,
+    name            text NOT NULL,
+    price_monthly   numeric NOT NULL DEFAULT 0,
+    max_products    integer,  -- NULL = unlimited
+    commission_rate numeric NOT NULL,
+    requires_verification boolean NOT NULL DEFAULT false,
+    features        jsonb NOT NULL DEFAULT '[]',
+    is_active       boolean NOT NULL DEFAULT true,
+    sort_order      integer NOT NULL DEFAULT 0
+);
+
+ALTER TABLE public.vendor_profiles
+    ADD COLUMN current_plan_id uuid REFERENCES public.vendor_plans(id),
+    ADD COLUMN plan_started_at timestamptz,
+    ADD COLUMN plan_renews_at  timestamptz;
+```
+
+### Etapa M9 ◯ — Multi-vendor split en carrito [~1 día]
+
+- Particionar carrito por vendor → 1 order por vendor en vez de 1 order para todo.
+- 1 shipment por vendor (cada uno cotiza por su origen y peso).
+- UX: mostrar items separados por tienda en `CartContext` y `CheckoutPage`.
+- Settlement se ejecuta naturalmente por vendor porque ya hoy `compute_settlements_for_order` agrupa por `vendor_id`.
+
+### Etapa M10 ◯ — R6 Medios 3D / AR [~3 sem]
+
+- Tabla `product_media` con `media_type IN ('image', 'video', '360', '3d_model', 'ar')`.
+- `<model-viewer>` para `.glb`/`.gltf`.
+- Captura cámara nativa (vía Capacitor, depende de N1 mobile).
+- Visor 360° con foto-rotación.
+- Storage bucket `product-media` con quota por plan.
+- Solo Plan Elite (M8) puede subir 3D/AR — gating natural.
+
+### Etapa M11 ◯ — Mox shipping provider real [~1 sem]
+
+- Reemplazar `MockProvider` por `MoxShippingProvider`.
+- Conseguir credenciales sandbox + entrevista comercial con Mox.
+- Implementar `getQuotes`, `createLabel`, `trackShipment`, `schedulePickup`, `cancelShipment`.
+- Webhook real para tracking updates.
+- Backfill: tarifas reales en `marketplace_shipping_rates` (fallback global cuando Mox falla).
+
+### Etapa M12 ◯ — Email transaccional para vendors [~3 h]
+
+- Hook en `notify_user` RPC → trigger `emailClient.send` con template.
+- Templates nuevos:
+  - `vendor_new_order`
+  - `vendor_payout_released`
+  - `vendor_verification_approved`
+  - `vendor_verification_rejected`
+  - `vendor_plan_renewed`
+  - `vendor_plan_expiring`
+- Resend o SES como provider (decisión pendiente).
+
+### Lecciones técnicas que costaron tiempo (M1-M7)
+
+1. **Colisión de timestamps en migraciones** — dos archivos `20260511000006_*` causaron migración fantasma. Fix: timestamps únicos con segundos.
+2. **Tablas preexistentes con shape distinto** — `shipping_zones` ya existía con `departamento NOT NULL` para otro dominio. Fix: namespace `marketplace_*`.
+3. **Migraciones que skipean silenciosamente** — `DO $$ IF EXISTS table THEN CREATE FUNCTION $$` no marcaba error pero dejaba funciones inexistentes. Fix: definir funciones siempre con `to_regclass` guards adentro.
+4. **`CREATE OR REPLACE` no cambia return type** — fix: `DROP FUNCTION IF EXISTS ... CASCADE` antes.
+5. **Constraint `one_origin = 1`** en `vendor_payouts` bloqueaba payouts agregados. Fix: relajar a `<= 1`.
+6. **Colisión de routes Express** — `marketplace.routes.ts` y `marketplace-catalog.routes.ts` ambos definían `/categories`; el primero ganaba y devolvía objeto en vez de array → `O.map is not a function` en ProductWizard. Fix: renombrar legacy + defensive `Array.isArray()` en hooks.
+
+### Métricas de éxito Marketplace
+
+| Métrica | Sem 1 | Sem 4 | Sem 12 |
+|---|---|---|---|
+| Vendors activos | 5 | 20 | 100 |
+| Productos publicados | 50 | 200 | 1000 |
+| Conversion checkout | ≥40% | ≥45% | ≥50% |
+| % vendors verificados | 10% | 30% | 60% |
+| MRR planes vendor | $0 | $300k COP | $5M COP |
+| Vendors Pro/Elite | 0% | 15% | 30% |
+
+---
+
 ## Resumen de esfuerzo total
 
 | Bloque | Etapas | Dias-dev | Calendario |
@@ -1054,10 +1271,12 @@ bff/src/routes/wellness/
 | 5 — Cierre | K, L, M | 8 | Sem 16-18 |
 | 6 — WhatsApp AI Channel | WA1, WA2, WA3, WA4, (WA5 opcional) | 30 + esperas Meta | Sem 19-28 |
 | 7 — Wellness Pro | W1, W2, W3, W4, W5 | 45 | Sem 19-26 paralelo Bloque 6 (otro dev) **o** Sem 29-36 secuencial |
+| **M — Marketplace & Vendor SaaS** | M1-M7 ✓ entregados · M8-M12 pendiente | **~15 dias-dev** invertidos · ~10 dias-dev pendientes | **abril-mayo 2026 · pendiente jun-jul 2026** |
 | **TOTAL optimista** (1 dev pleno, sin retrabajo, sin WA5, sin W) | | **~86.5 dias-dev** | **~28 semanas** |
 | **TOTAL realista** (1-2 devs, con QA + retrabajo PR + WA5, sin W) | | **108-118 dias-dev** | **32-34 semanas** |
 | **TOTAL realista CON Bloque 7** (2 devs paralelos Bloque 6+7) | | **~155 dias-dev** | **~32 semanas** |
 | **TOTAL realista CON Bloque 7 secuencial** (1 dev) | | **~165 dias-dev** | **~38 semanas** |
+| **TOTAL realista CON Bloque M completo** | añade Marketplace SaaS | **+10 dias-dev sobre cualquier total** | añade ~2 semanas |
 
 Razones del delta: ciclos de QA por etapa, ida-y-vuelta de PRs grandes (C, G, N1) con bugs encontrados en staging, esperas de Apple Review (5-7 dias por ciclo, tipico 1-3 ciclos), preparacion de assets de tienda (N3.1-N3.6 en paralelo desde Sem 2 ahorra ~5 dias en Sem 14).
 
