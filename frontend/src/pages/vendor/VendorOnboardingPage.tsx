@@ -137,15 +137,6 @@ export default function VendorOnboardingPage() {
     });
     const [docFile, setDocFile] = useState<File | null>(null);
 
-    // Si ya tiene vendor_profile y esta pendiente de verificacion sin doc,
-    // saltar directo al step 3 (subir documento). El usuario llego aqui via
-    // el sidebar "Verificacion" y no tiene caso re-llenar paso 1 y 2.
-    useEffect(() => {
-        if (existingProfile && existingProfile.verification_status === 'pending') {
-            setStep(3);
-        }
-    }, [existingProfile?.id, existingProfile?.verification_status]);
-
     // Pre-llenar form con datos del vendor_profile si ya existe
     useEffect(() => {
         if (existingProfile) {
@@ -166,12 +157,12 @@ export default function VendorOnboardingPage() {
         can_sell_services: sellWhat === 'services' || sellWhat === 'both',
     }), [sellWhat]);
 
-    // El selector "qué vendes" se muestra para todos, EXCEPTO roles cuyo unico
-    // producto vendible es un servicio (wellness, personal_trainer).
-    // Antes se ocultaba a quien ya tenia vendor_profile y eso impedia
-    // cambiar el mix (ej. pasar de "productos" a "ambos"). Ahora si es editable.
-    const FORCED_SERVICES_ROLES = new Set(['wellness_professional', 'personal_trainer']);
-    const showSellWhatSelector = !FORCED_SERVICES_ROLES.has((profile?.role as string) || '');
+    // El selector "qué vendes" se muestra SIEMPRE — incluso para roles
+    // historicamente forzados a servicios (wellness, personal_trainer).
+    // Un wellness puede ahora tambien vender productos relacionados, etc.
+    // El default por rol sigue aplicando como pre-seleccion via
+    // defaultSellWhatForRole, pero el usuario puede cambiar.
+    const showSellWhatSelector = true;
 
     const handleChange = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -414,6 +405,16 @@ export default function VendorOnboardingPage() {
                             >
                                 Siguiente: Métodos de pago
                             </Button>
+
+                            {hasExistingProfile && existingProfile?.verification_status === 'pending' && (
+                                <button
+                                    type="button"
+                                    onClick={() => setStep(3)}
+                                    className="w-full text-xs text-primary hover:underline mt-1"
+                                >
+                                    Solo quiero subir el documento de verificación →
+                                </button>
+                            )}
                         </div>
                     )}
 
