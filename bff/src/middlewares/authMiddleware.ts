@@ -171,8 +171,33 @@ export const requireAuth = async (
             return res.status(401).json({ error: 'Token inválido o expirado.' });
         }
 
-        // 2. Leer el schoolId del header (enviado por bffClient)
-        //    NOTA: tabla school_members solo tiene `profile_id` (no `user_id`)
+        // 2. Escape hatch para roles de plataforma (super_admin / admin global).
+        //    Esos usuarios no necesitan estar en school_members — su rol vive
+        //    en profiles. Sin esto, cualquier endpoint que use requireAuth
+        //    rechaza al super_admin con 403 "No tienes permisos para acceder
+        //    a esta escuela", incluso si el router montado siguiente no
+        //    necesita contexto de escuela (ej. marketplaceAdminRouter que va
+        //    montado en /api/v1/admin junto a adminPayoutsRouter).
+        const { data: platformProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        const platformRole = (platformProfile as any)?.role as string | undefined;
+        if (platformRole === 'super_admin' || platformRole === 'admin') {
+            req.user = {
+                id: user.id,
+                email: user.email!,
+                user_metadata: user.user_metadata,
+            };
+            req.schoolId = (req.headers['x-school-id'] as string) || '';
+            req.branchId = null;
+            req.role = platformRole as any;
+            return next();
+        }
+
+        // 3. Resto de usuarios: validar contra school_members
         const targetSchoolId = req.headers['x-school-id'] as string | undefined;
 
         let q = supabase
