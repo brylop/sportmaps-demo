@@ -56,8 +56,10 @@ export function AppSidebar() {
 
   if (effectiveRole) {
     switch (effectiveRole) {
-      case 'owner':
       case 'super_admin':
+        navigationRole = 'super_admin';
+        break;
+      case 'owner':
       case 'school':
         navigationRole = 'school';
         break;
