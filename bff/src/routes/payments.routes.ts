@@ -11,6 +11,7 @@
  */
 
 import { Router, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
@@ -70,13 +71,33 @@ router.post(
             // 1. Pago debe existir y pertenecer a la escuela del request
             const { data: payment, error: paymentErr } = await supabase
                 .from('payments')
-                .select('id, amount, status, concept, child_id, user_id, school_id, requires_review')
+                .select('id, amount, status, concept, child_id, user_id, parent_id, school_id, requires_review')
                 .eq('id', paymentId)
                 .eq('school_id', schoolId)
                 .single();
 
             if (paymentErr || !payment) {
                 return res.status(404).json({ error: 'Pago no encontrado.' });
+            }
+
+            // 1.a IDOR check: usuarios no-staff (parent/athlete) solo pueden
+            // pagar pagos donde figuran como parent_id o user_id. Sin esto,
+            // un padre podia pagar la deuda de otro padre en la misma escuela
+            // si conocia el paymentId.
+            const STAFF_ROLES = new Set(['owner', 'admin', 'super_admin', 'school_admin']);
+            const isStaff = STAFF_ROLES.has(req.role);
+            if (!isStaff) {
+                const callerId = req.user.id;
+                const payerIds = [(payment as any).parent_id, (payment as any).user_id].filter(Boolean);
+                if (!payerIds.includes(callerId)) {
+                    req.log?.warn(
+                        { paymentId, callerId, payerIds },
+                        'create-session: caller no es payer del pago',
+                    );
+                    return res.status(403).json({
+                        error: 'No tienes permiso para pagar este registro.',
+                    });
+                }
             }
 
             // 1.b Lock especifico al pago
@@ -274,9 +295,31 @@ router.get('/link/:token', async (req: AuthenticatedRequest, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Usado por el frontend al subir un comprobante manual. El cliente envia la
 // imagen en base64 y recibe JSON estructurado que se persiste en payments.ocr_*.
+//
+// Seguridad:
+//  - rate-limit dedicado: 10/min por IP (encima del paymentLimiter del router).
+//  - imageBase64 acotado a ~6 MB binario para evitar memory exhaustion / abuso
+//    del free tier de Groq.
+//  - mimeType validado contra whitelist (imagenes y PDF).
+
+// ~8 MB de base64 == ~6 MB de imagen binaria. Suficiente para PNG/JPG de un
+// comprobante movil; bloquea uploads disenados para reventar memoria.
+const MAX_BASE64_LENGTH = 8 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf'] as const;
+
 const ExtractSchema = z.object({
-    imageBase64: z.string().min(100, 'Imagen demasiado pequena'),
-    mimeType: z.string().optional(),
+    imageBase64: z.string()
+        .min(100, 'Imagen demasiado pequena')
+        .max(MAX_BASE64_LENGTH, 'Imagen demasiado grande (max ~6 MB).'),
+    mimeType: z.enum(ALLOWED_MIME_TYPES).optional(),
+});
+
+const ocrLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas peticiones de OCR. Intenta en 1 minuto.' },
 });
 
 // Cliente liviano con ANON key, solo para validar JWTs en endpoints userspace
@@ -292,6 +335,7 @@ const supabaseAnonClient = createClient(
 
 router.post(
     '/extract-receipt',
+    ocrLimiter,
     // Auth ligera: solo valida el JWT (no consulta school_members). Es suficiente
     // porque este endpoint solo procesa una imagen — no toca data de la escuela.
     async (req: AuthenticatedRequest, res: Response) => {

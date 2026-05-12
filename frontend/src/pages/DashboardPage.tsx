@@ -21,6 +21,7 @@ import { DashboardChecklist } from '@/components/dashboard/DashboardChecklist';
 import { InvitationBanner } from '@/components/dashboard/InvitationBanner';
 import { CoachProfileWizard } from '@/components/coach/CoachProfileWizard';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
+import { ActivateStoreCTA } from '@/components/vendor/ActivateStoreCTA';
 import { supabase } from '@/integrations/supabase/client';
 import { getStepsForRole } from '@/lib/onboarding/getStepsForRole';
 
@@ -377,6 +378,9 @@ export default function DashboardPage() {
         role={profile.role as UserRole}
         userName={profile.full_name?.split(' ')[0]}
       />
+
+      {/* CTA Activar Mi Tienda — visible solo para roles elegibles sin vendor_profile */}
+      <ActivateStoreCTA />
 
       {/* Pending Enrollment Modal */}
       <PendingEnrollmentModal />

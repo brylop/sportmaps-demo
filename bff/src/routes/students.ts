@@ -41,20 +41,30 @@ const BulkUploadSchema = z.object({
 });
 
 // GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// IMPORTANTE: el BFF usa service role (bypassa RLS). Sin el filtro school_id
+// abajo, un admin de la escuela A podía obtener PII medica de niños de la
+// escuela B con sólo saber los UUIDs.
 router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const ids = (req.query.ids as string)?.split(',').filter(Boolean);
         if (!ids?.length) return res.json([]);
 
+        const { schoolId } = req;
+        if (!schoolId) {
+            return res.status(400).json({ error: 'schoolId del request es requerido.' });
+        }
+
         const { data, error } = await supabase
             .from('children')
             .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
-            .in('id', ids);
+            .in('id', ids)
+            .eq('school_id', schoolId);
 
         if (error) throw error;
         res.json(data ?? []);
     } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        req.log?.error({ err }, 'children-by-ids unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
 
@@ -539,7 +549,7 @@ router.post(
 
         } catch (err: any) {
             req.log?.error?.({ err: err.message || err }, 'Error inesperado en bulk upload');
-            return res.status(500).json({ error: err.message || 'Error interno del servidor al procesar el CSV.' });
+            return res.status(500).json({ error: 'Error interno del servidor al procesar el CSV.' });
         }
     }
 );

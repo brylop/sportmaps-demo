@@ -17,7 +17,7 @@ declare global {
             branchId: string | null;
             role: 'owner' | 'admin' | 'super_admin' | 'auditor' | 'reporter'
             | 'school_admin' | 'school' | 'coach' | 'parent' | 'athlete' | 'staff' | 'organizer'
-            | 'store_owner' | 'wellness_professional' | 'personal_trainer';
+            | 'store_owner' | 'external_vendor' | 'wellness_professional' | 'personal_trainer';
             log: import('pino').Logger;
             id: string;
         }
@@ -126,6 +126,8 @@ rolePermissions['super_admin'] = rolePermissions.admin;
 rolePermissions['owner'] = rolePermissions.admin;
 rolePermissions['staff'] = rolePermissions.coach;
 rolePermissions['personal_trainer'] = rolePermissions.coach;
+// external_vendor reemplaza a store_owner como rol explícito de vendedor puro
+rolePermissions['external_vendor'] = rolePermissions.store_owner;
 
 // ─────────────────────────────────────────────────────────────────────────────
 export const requireBasicAuth = async (
@@ -235,6 +237,60 @@ export const requireRole = (...roles: Request['role'][]) => {
         }
 
         next();
+    };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// requireVendorProfile — Autoriza por capability de vendor_profile,
+// NO por role. Reemplaza a requireRole para rutas de venta.
+//
+// Uso:
+//   router.use(requireMarketplaceAuth);
+//   router.use(requireVendorProfile('can_sell_products'));
+//
+// Reglas:
+//  - admin/super_admin/owner: pasan automáticamente.
+//  - Resto: requieren vendor_profile.is_active = true Y la capability solicitada = true.
+//  - El user_id se toma de req.user.id (debe haber pasado por un auth middleware).
+//  - La verificación usa la función SQL has_vendor_capability(uuid, text)
+//    creada en la migración 20260511000002.
+// ─────────────────────────────────────────────────────────────────────────────
+type VendorCapability = 'can_sell_products' | 'can_sell_services';
+
+export const requireVendorProfile = (capability: VendorCapability) => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+        // Privilegios siempre pasan
+        if ((PRIVILEGED_ROLES as readonly string[]).includes(req.role)) {
+            return next();
+        }
+
+        if (!req.user?.id) {
+            return res.status(401).json({ error: 'No autenticado.' });
+        }
+
+        try {
+            const { data, error } = await supabase.rpc('has_vendor_capability', {
+                p_user_id:    req.user.id,
+                p_capability: capability,
+            });
+
+            if (error) {
+                req.log?.error({ err: error, capability }, 'Error verificando capability de vendor');
+                return res.status(500).json({ error: 'Error interno verificando permisos de vendedor.' });
+            }
+
+            if (data !== true) {
+                return res.status(403).json({
+                    error: 'Tu cuenta no tiene activada esta capacidad de venta.',
+                    capability,
+                    hint: 'Activa Mi Tienda desde tu dashboard para empezar a vender.',
+                });
+            }
+
+            next();
+        } catch (err) {
+            next(err);
+        }
     };
 };
 
@@ -511,18 +567,35 @@ export const optionalAuth = async (
         const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
         if (authError || !user) {
+            // El caller envio un Authorization header pero el token es invalido.
+            // Antes esto pasaba silencioso y el atacante podia probar tokens sin
+            // dejar rastro. Logueamos para que aparezca en metricas de seguridad
+            // y se pueda correlacionar con ataques.
+            req.log?.warn(
+                {
+                    err: authError?.message ?? null,
+                    ua: req.headers['user-agent'],
+                    ip: req.ip,
+                },
+                'optionalAuth: JWT presente pero invalido — continuando como anon',
+            );
             (req as any).user = null;
             return next();
         }
 
-        req.user = { 
-            id: user.id, 
-            email: user.email!, 
-            user_metadata: user.user_metadata 
+        req.user = {
+            id: user.id,
+            email: user.email!,
+            user_metadata: user.user_metadata,
         };
 
         next();
     } catch (err) {
+        // Igual que el caso de JWT invalido pero por error inesperado del SDK.
+        req.log?.warn(
+            { err: (err as any)?.message ?? err, ua: req.headers['user-agent'], ip: req.ip },
+            'optionalAuth: error inesperado validando JWT — continuando como anon',
+        );
         (req as any).user = null;
         next();
     }

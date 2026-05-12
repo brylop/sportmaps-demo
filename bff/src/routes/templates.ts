@@ -45,7 +45,7 @@ router.post('/render',
             res.json({ message: result });
         } catch (err: any) {
             req.log?.error({ err }, 'Error rendering template');
-            res.status(500).json({ error: err.message || 'Error al renderizar plantilla' });
+            res.status(500).json({ error: 'Error al renderizar plantilla.' });
         }
     }
 );
@@ -85,7 +85,7 @@ router.post('/render-batch',
             res.json({ results });
         } catch (err: any) {
             req.log?.error({ err }, 'Error rendering batch templates');
-            res.status(500).json({ error: err.message || 'Error al renderizar plantillas' });
+            res.status(500).json({ error: 'Error al renderizar plantillas.' });
         }
     }
 );

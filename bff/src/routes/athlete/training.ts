@@ -59,7 +59,8 @@ router.get('/training/today', async (req: Request, res: Response) => {
       free_activity: logsRes.data ?? [],
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -129,7 +130,8 @@ router.get('/training/history', async (req: Request, res: Response) => {
 
     res.json(merged);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -160,7 +162,8 @@ router.post('/training/log', async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -186,7 +189,8 @@ router.put('/training/log/:logId', async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -205,7 +209,8 @@ router.delete('/training/log/:logId', async (req: Request, res: Response) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -252,7 +257,8 @@ router.post('/training/session/:planId/exercise-results', async (req: Request, r
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -285,7 +291,8 @@ router.post('/training/session/:planId/complete', async (req: Request, res: Resp
     res.json(data);
 
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -306,7 +313,8 @@ router.get('/training/plan', async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data ?? null);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -326,7 +334,8 @@ router.get('/training/body-metrics', async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data ?? []);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -362,7 +371,8 @@ router.post('/training/body-metrics', async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -388,7 +398,8 @@ router.post('/training/book-session', async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -404,7 +415,8 @@ router.delete('/training/session/:planId/cancel', async (req: Request, res: Resp
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -583,7 +595,8 @@ router.get('/training/pt-availability', async (req: Request, res: Response) => {
       enrollment_id: enrollmentId,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -615,7 +628,8 @@ router.post('/training/book-pt-session', async (req: Request, res: Response) => 
 
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -641,7 +655,8 @@ router.delete('/training/cancel-pt-session', async (req: Request, res: Response)
 
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

@@ -155,6 +155,12 @@ const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPag
 const VendorServicesPage = lazy(() => import("./pages/vendor/VendorServicesPage"));
 const VendorAppointmentsPage = lazy(() => import("./pages/vendor/VendorAppointmentsPage"));
 const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"));
+const ProductWizardPage = lazy(() => import("./components/vendor/product-wizard/ProductWizard").then(m => ({ default: m.ProductWizard })));
+const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMarketplaceModerationPage"));
+const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
+const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
+const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
+const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
@@ -595,6 +601,11 @@ const App = () => (
                         <Route path="vendor/services" element={<VendorServicesPage />} />
                         <Route path="vendor/appointments" element={<VendorAppointmentsPage />} />
                         <Route path="vendor/products" element={<VendorProductsPage />} />
+                        <Route path="vendor/products/new" element={<ProductWizardPage />} />
+                        <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
+                        <Route path="vendor/inbox" element={<VendorInboxPage />} />
+                        <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
                       </Route>
 
                       {/* Organizer routes */}
@@ -667,6 +678,16 @@ const App = () => (
                       <Route path="admin/activity-logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminActivityLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/marketplace/moderation" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminMarketplaceModerationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/payouts" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminPayoutsPage />
                         </ProtectedRoute>
                       } />
                     </Route>

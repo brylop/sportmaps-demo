@@ -156,8 +156,19 @@ export function PaymentCheckoutModal({
     }
   }, [open, user?.id]);
 
+  // Guard legacy: bloquea si ya hay un pago `awaiting_approval`.
+  // Para MENSUALIDADES con periodo conocido, este guard se delega al
+  // flujo nuevo (next_unpaid_period + AlertDialog "¿adelantar siguiente mes?").
+  // Asi el padre puede pagar Junio aunque Mayo este pendiente de validacion.
+  // Para inscripcion / abono / otros conceptos, mantenemos el bloqueo total
+  // porque no hay periodo y no podemos distinguir duplicados.
   useEffect(() => {
     if (!open || !studentId) return;
+    if (conceptType === 'mensualidad') {
+      setPendingPaymentDate(null);
+      setCheckingPending(false);
+      return;
+    }
     const checkPendingPayment = async () => {
       setCheckingPending(true);
       setPendingPaymentDate(null);
@@ -170,9 +181,9 @@ export function PaymentCheckoutModal({
           .eq(idColumn, idValue)
           .eq('status', 'awaiting_approval')
           .limit(1);
-        
+
         if (mode === 'update' && paymentId) query.neq('id', paymentId);
-        
+
         const { data, error } = await query;
         if (error) { console.error('[PaymentCheckoutModal]', error); return; }
         if (data && data.length > 0) {
@@ -184,7 +195,7 @@ export function PaymentCheckoutModal({
       }
     };
     checkPendingPayment();
-  }, [open, studentId, paymentId, mode]);
+  }, [open, studentId, paymentId, mode, conceptType, childId]);
 
   useEffect(() => {
     if (!open) {
@@ -326,18 +337,37 @@ export function PaymentCheckoutModal({
       const payloadChildId: string | null = childId || null;
       const payloadBranchId: string | null = branchId || null;
 
-      // Duplicate check (already handled via checkPendingPayment but double check here)
+      // Duplicate check.
+      //  - Mensualidad: bloquea solo si hay otro pago activo del MISMO mes.
+      //    El unique index `uniq_payment_active_period_per_child` (migracion
+      //    20260503000004) ya garantiza esto a nivel BD; aqui damos el error
+      //    amigable antes del INSERT.
+      //  - Inscripcion / abono / otros: bloquea cualquier awaiting_approval
+      //    para ese hijo, como antes.
       const idColumn = payloadChildId ? 'child_id' : 'user_id';
       const idValue = payloadChildId || user.id;
 
-      const duplicateQuery = (supabase as any).from('payments').select('id')
+      const duplicateQuery = (supabase as any).from('payments').select('id, period_year, period_month')
         .eq(idColumn, idValue)
-        .eq('status', 'awaiting_approval').limit(1);
+        .in('status', ['awaiting_approval', 'paid', 'approved', 'partial']).limit(50);
       if (mode === 'update' && paymentId) duplicateQuery.neq('id', paymentId);
       const { data: pendingPayments, error: pendingError } = await duplicateQuery;
       if (pendingError) throw pendingError;
-      if (pendingPayments && pendingPayments.length > 0)
+
+      if (conceptType === 'mensualidad' && effectivePeriod) {
+        const samePeriod = (pendingPayments || []).find((p: any) =>
+          p.period_year === effectivePeriod.year && p.period_month === effectivePeriod.month,
+        );
+        if (samePeriod) {
+          throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
+        }
+      } else if (pendingPayments && pendingPayments.some((p: any) =>
+        // Para no-mensualidades, mantener el bloqueo legacy: cualquier awaiting_approval
+        // sin periodo definido cuenta como duplicado.
+        !p.period_year && !p.period_month,
+      )) {
         throw new Error('Ya existe un pago pendiente de aprobación para este estudiante.');
+      }
 
       if (mode === 'update' && paymentId && paymentId !== '') {
         const { data: existingPayment, error: fetchError } = await supabase.from('payments').select('school_id, status').eq('id', paymentId).single();

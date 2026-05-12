@@ -27,6 +27,8 @@ import paymentsRouter from './routes/payments.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
+import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
+import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
 import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
 import systemRouter from './routes/system';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
@@ -36,6 +38,9 @@ import templatesRouter from './routes/templates';
 import pollsRouter from './routes/polls';
 import schoolDelegationsRouter from './routes/school-delegations.route';
 import marketplaceRouter from './routes/marketplace.routes';
+import marketplaceCatalogRouter from './routes/marketplace-catalog.routes';
+import marketplaceAdminRouter from './routes/marketplace-admin.routes';
+import reviewsRouter from './routes/reviews.routes';
 import marketplaceCheckoutRouter from './routes/marketplace-checkout.routes';
 import vendorRouter from './routes/vendor.routes';
 import vendorProductsRouter from './routes/vendor-products.routes';
@@ -93,26 +98,58 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
     next();
 });
 
-app.use(cors({
+// CORS: allowlist explicito en lugar de wildcards amplios.
+//
+// El comodin previo `*.vercel.app` permitia requests credenciados desde
+// CUALQUIER app hospedada en Vercel (millones), no solo nuestros previews.
+// Una app comprometida en otro proyecto Vercel podia montar CSRF contra
+// nuestro BFF con cookies de usuario.
+//
+// Ahora:
+//   - Whitelist exacta (FRONTEND_URL + sportmaps.co + app.sportmaps.co).
+//   - Subdominios *.sportmaps.co siguen permitidos (controlamos el DNS).
+//   - Previews de Vercel: pattern restringido al proyecto via env
+//     CORS_PREVIEW_PATTERN (regex). Ejemplo: ^sportmaps-[\w-]+\.vercel\.app$
+//   - Origenes adicionales via CORS_EXTRA_ORIGINS (CSV).
+const previewPattern = process.env.CORS_PREVIEW_PATTERN
+    ? new RegExp(process.env.CORS_PREVIEW_PATTERN)
+    : null;
+const extraOrigins = new Set(
+    (process.env.CORS_EXTRA_ORIGINS ?? '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean),
+);
 
+app.use(cors({
     origin: (origin, callback) => {
-        // Permitir requests sin origin (como Postman o curl) o localhost en development
-        if (!origin || origin.startsWith('http://localhost:')) {
-            return callback(null, true);
-        }
+        // Postman/curl/server-to-server no envian origin
+        if (!origin) return callback(null, true);
+        // Localhost en dev
+        if (origin.startsWith('http://localhost:')) return callback(null, true);
 
         const allowedProductionDomain = process.env.FRONTEND_URL || 'https://app.sportmaps.co';
 
-        // Si el origen coincide exactamente con la URL principal,
-        // termina en .vercel.app (Preview branches),
-        // o es un subdominio de sportmaps.co (dev.sportmaps.co, staging.sportmaps.co, etc.)
-        if (
+        const exactAllowed =
             origin === allowedProductionDomain ||
-            origin.endsWith('.vercel.app') ||
-            origin.endsWith('.sportmaps.co') ||
-            origin === 'https://sportmaps.co'
-        ) {
-            return callback(null, true);
+            origin === 'https://sportmaps.co' ||
+            origin === 'https://app.sportmaps.co' ||
+            extraOrigins.has(origin);
+
+        if (exactAllowed) return callback(null, true);
+
+        // Subdominios de sportmaps.co (dev.sportmaps.co, staging.sportmaps.co, etc.).
+        // Se valida URL parseada para evitar bypasses tipo "evil.sportmaps.co.attacker.io".
+        try {
+            const url = new URL(origin);
+            if (url.hostname === 'sportmaps.co' || url.hostname.endsWith('.sportmaps.co')) {
+                return callback(null, true);
+            }
+            if (previewPattern && previewPattern.test(url.hostname)) {
+                return callback(null, true);
+            }
+        } catch {
+            // origin malformado → bloquear
         }
 
         return callback(new Error('Bloqueado por CORS'));
@@ -160,6 +197,13 @@ app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 app.use('/api/v1/payment-tokens', generalLimiter, paymentTokensRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
+app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
+// Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
+app.use('/api/v1/shipping', generalLimiter, shippingRouter);
+// Shipping vendor: /api/v1/vendor/shipping/settings y /api/v1/vendor/shipments
+app.use('/api/v1', generalLimiter, vendorShippingRouter);
+// Webhook publico del provider de envios
+app.use('/api/v1/webhooks/shipping', shippingWebhookRouter);
 app.use('/api/v1/admin', generalLimiter, adminPayoutsRouter);
 app.use('/api/v1/system', systemRouter);
 app.use('/api/v1/organizer', generalLimiter, organizerRouter);
@@ -170,6 +214,10 @@ app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
 // ── Marketplace routes ──────────────────────────────────────────────────────
 app.use('/api/v1/marketplace', generalLimiter, marketplaceRouter);
+app.use('/api/v1/marketplace', generalLimiter, marketplaceCatalogRouter);
+app.use('/api/v1/admin', generalLimiter, marketplaceAdminRouter);
+// Reviews + Q&A: rutas publicas y autenticadas mezcladas — el router las separa internamente
+app.use('/api/v1', generalLimiter, reviewsRouter);
 app.use('/api/v1/marketplace', paymentLimiter, marketplaceCheckoutRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorRouter);
 app.use('/api/v1/vendor/products', generalLimiter, vendorProductsRouter);

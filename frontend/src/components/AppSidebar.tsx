@@ -19,8 +19,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getNavigationByRole } from '@/config/navigation';
+import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
+import { useVendorProfile } from '@/hooks/useVendorProfile';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
 // team asociado, asi que no se puede scopear fiablemente). El componente
@@ -88,7 +89,14 @@ export function AppSidebar() {
     }
   }
 
-  const navigationGroups = getNavigationByRole(navigationRole);
+  const baseNavigationGroups = getNavigationByRole(navigationRole);
+
+  // Mi Tienda: grupo adicional para cualquier usuario con vendor_profile activo,
+  // independiente del rol principal. (coach + tienda, school + tienda, etc.)
+  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
+  const navigationGroups = hasVendorProfile
+    ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
+    : baseNavigationGroups;
 
   const getUserInitials = () => {
     if (profile.full_name) {

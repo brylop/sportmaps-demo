@@ -23,7 +23,8 @@ interface FileUploadProps {
   onValidationResult?: (result: ReceiptValidationResult) => void;
   /** Monto esperado (del plan/payment) para validar contra el OCR. Solo aplica si conceptKind='fixed'. */
   expectedAmount?: number;
-  /** 'fixed' = bloquea si OCR no match (mensualidad/inscripcion fija). 'lenient' = advisory (default). */
+  /** 'fixed' = bloquea por monto y fecha (mensualidad/inscripcion fija).
+   *  'lenient' = solo bloquea por fecha distinta a hoy (default). */
   conceptKind?: ConceptKind;
 }
 
@@ -99,9 +100,9 @@ export function FileUpload({
       setValidation(result);
       onValidationResult?.(result);
 
-      // Bloqueo solo cuando concept es FIXED y el OCR detecto conflicto duro
-      // (monto distinto al esperado o fecha distinta a hoy). En todos los demas
-      // casos (advisory, lenient, OCR no detecto) el archivo se sube.
+      // Bloqueo cuando el OCR detecto conflicto duro: fecha distinta a hoy
+      // (siempre) o monto distinto al esperado (solo en concept FIXED).
+      // Si el OCR no detecto fecha/monto, se sube y el admin valida visualmente.
       if (!result.valid) {
         return;
       }

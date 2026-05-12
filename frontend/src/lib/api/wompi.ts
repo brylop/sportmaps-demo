@@ -2,6 +2,8 @@
 // La firma de integridad se genera en el servidor (Edge Function)
 // El cliente NUNCA debe tener acceso al WOMPI_INTEGRITY_SECRET
 
+import { supabase } from '@/integrations/supabase/client';
+
 const WOMPI_PUBLIC_KEY = import.meta.env.VITE_WOMPI_PUBLIC_KEY;
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -49,32 +51,41 @@ export interface WompiTransactionResult {
  *
  * ⚠️ Si la Edge Function no está desplegada, el pago no puede proceder en producción.
  */
+/**
+ * Resultado autoritativo del servidor: firma + monto que DEBE pasarse al Widget.
+ * El monto puede diferir del que envió el cliente si fue tampered — el EF
+ * siempre devuelve el monto real de la BD.
+ */
+interface IntegritySignatureResult {
+    signature: string;
+    amountInCents: number;
+    currency: string;
+}
+
 async function getIntegritySignature(
     reference: string,
-    amountInCents: number,
     currency: string = 'COP',
-    schoolId?: string
-): Promise<string> {
+): Promise<IntegritySignatureResult> {
     if (!SUPABASE_URL) {
         throw new Error('VITE_SUPABASE_URL no configurado');
     }
 
-    // Supabase anon key para llamar Edge Functions públicas con autenticación
-    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    // Necesitamos el JWT de la sesión del usuario (NO la anon key) para que
+    // el Edge Function pueda verificar ownership de la referencia.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+        throw new Error('Sesión de usuario expirada. Vuelve a iniciar sesión.');
+    }
+    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';
 
     const response = await fetch(`${SUPABASE_URL}/functions/v1/wompi-sign`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${anonKey}`,
-            'apikey': anonKey ?? '',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': anonKey,
         },
-        body: JSON.stringify({
-            reference,
-            amount_in_cents: amountInCents,
-            currency,
-            school_id: schoolId,
-        }),
+        body: JSON.stringify({ reference, currency }),
     });
 
     if (!response.ok) {
@@ -83,11 +94,15 @@ async function getIntegritySignature(
     }
 
     const data = await response.json();
-    if (!data.signature) {
+    if (!data.signature || typeof data.amount_in_cents !== 'number') {
         throw new Error('Respuesta de firma inválida desde el servidor');
     }
 
-    return data.signature;
+    return {
+        signature: data.signature,
+        amountInCents: data.amount_in_cents,
+        currency: data.currency ?? currency,
+    };
 }
 
 /**
@@ -113,8 +128,19 @@ export async function openWompiCheckout(
     }
 
     let signature: string;
+    // El servidor es la fuente de verdad para el monto. Si el cliente envió
+    // un monto tampered, lo sobreescribimos con el que devuelve el EF.
+    let effectiveAmountInCents = amountInCents;
     try {
-        signature = await getIntegritySignature(reference, amountInCents, 'COP', schoolId);
+        const result = await getIntegritySignature(reference, 'COP');
+        signature = result.signature;
+        effectiveAmountInCents = result.amountInCents;
+        if (result.amountInCents !== amountInCents) {
+            console.warn(
+                `⚠️ amountInCents del cliente (${amountInCents}) difiere del servidor ` +
+                `(${result.amountInCents}). Usando el del servidor.`,
+            );
+        }
     } catch (err) {
         console.error('❌ No se pudo generar la firma de integridad:', err);
         // En sandbox se puede continuar sin firma (modo de prueba)
@@ -140,7 +166,7 @@ export async function openWompiCheckout(
 
             const widgetConfig: Record<string, unknown> = {
                 currency: 'COP',
-                amountInCents,
+                amountInCents: effectiveAmountInCents,
                 reference,
                 publicKey: WOMPI_PUBLIC_KEY,
                 redirectUrl: redirectUrl || `${window.location.origin}/payment-result`,

@@ -51,7 +51,8 @@ router.get('/products/:id', optionalAuth, async (req: Request, res: Response) =>
             .select(`
                 *,
                 product_variants (id, sku, name, attributes, price_override, stock, image_url, is_active, sort_order),
-                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status)
+                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status, avg_rating, reviews_count),
+                product_categories!products_category_id_fkey (slug, name, attribute_schema)
             `)
             .eq('id', id)
             .eq('active', true)

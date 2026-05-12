@@ -514,7 +514,8 @@ router.get(
         available: (all || []).filter((s: any) => !assignedIds.has(s.id)),
       });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );
@@ -544,7 +545,8 @@ router.post(
       if (err.code === '23505') {
         return res.status(409).json({ error: 'El entrenador ya está asignado a este plan.' });
       }
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );
@@ -564,7 +566,8 @@ router.delete(
       if (error) throw error;
       return res.status(204).send();
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      req.log?.error({ err }, 'offerings unhandled error');
+      return res.status(500).json({ error: 'Error interno del servidor.' });
     }
   }
 );
