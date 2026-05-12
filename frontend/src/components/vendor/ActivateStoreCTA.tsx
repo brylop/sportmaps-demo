@@ -8,12 +8,13 @@ import { Store, Sparkles, ArrowRight } from 'lucide-react';
 // Roles a los que se les ofrece activar Mi Tienda explicitamente.
 // (external_vendor / wellness_professional / personal_trainer reciben
 //  vendor_profile automatico en signup — no necesitan CTA).
+//
+// athlete/parent quedan FUERA: el flujo C2C (segunda mano deportiva)
+// esta diferido a un release posterior. Cuando se abra, agregarlos aqui.
 const ELIGIBLE_ROLES = new Set([
     'coach',
     'school',
     'school_admin',
-    'parent',
-    'athlete',
     'staff',
     'owner', // owner de escuela puede activar tienda
 ]);
@@ -85,8 +86,6 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                             Vende tus productos o servicios deportivos a toda la comunidad de SportMaps.
                             {profile.role === 'coach' && ' Ideal para entrenadores que ofrecen planes, asesorías o mercancía propia.'}
                             {(profile.role === 'school' || profile.role === 'school_admin') && ' Vende uniformes, kits y mercancía de tu escuela.'}
-                            {profile.role === 'parent' && ' Publica artículos deportivos en buen estado de tus hijos.'}
-                            {profile.role === 'athlete' && ' Comparte productos que uses y recomiendes.'}
                         </p>
                         <Button
                             onClick={() => navigate('/vendor/onboarding')}
