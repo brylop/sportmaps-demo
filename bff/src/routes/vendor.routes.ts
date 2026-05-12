@@ -161,6 +161,26 @@ router.put('/profile/verification', async (req: Request, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error enviando verificación.' });
         }
 
+        // Notificar a todos los admins/owners para que revisen el doc.
+        try {
+            const { data: admins } = await supabase
+                .from('profiles')
+                .select('id')
+                .in('role', ['admin', 'owner', 'super_admin']);
+
+            for (const a of admins || []) {
+                await supabase.rpc('notify_user', {
+                    p_user_id: a.id,
+                    p_title: 'Nuevo vendor para verificar',
+                    p_message: `"${data.display_name || 'Vendor'}" subió su documento de verificación.`,
+                    p_type: 'vendor_verification_pending',
+                    p_link: '/admin/marketplace/moderation',
+                }).then(() => {}, () => {});
+            }
+        } catch (notifErr) {
+            req.log?.warn({ err: notifErr }, 'Admin notify failed (non-blocking)');
+        }
+
         await auditLog(req, 'vendor_verification_submit', 'vendor_profiles', data.id);
         return res.json({ ok: true, data, message: 'Documento de verificación enviado. Será revisado pronto.' });
     } catch (err) {

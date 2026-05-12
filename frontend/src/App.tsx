@@ -152,6 +152,7 @@ const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
+const VendorPromotionsPage = lazy(() => import("./pages/vendor/VendorPromotionsPage"));
 const VendorServicesPage = lazy(() => import("./pages/vendor/VendorServicesPage"));
 const VendorAppointmentsPage = lazy(() => import("./pages/vendor/VendorAppointmentsPage"));
 const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"));
@@ -606,6 +607,7 @@ const App = () => (
                         <Route path="vendor/inbox" element={<VendorInboxPage />} />
                         <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
                         <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
+                        <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
                       </Route>
 
                       {/* Organizer routes */}

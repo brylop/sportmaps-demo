@@ -137,9 +137,12 @@ router.get('/services/:id/slots', optionalAuth, async (req: Request, res: Respon
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/marketplace/categories
-// Categorias agregadas de productos y tipos de servicio
+// Categorias agregadas (legacy) — se mueve a /categories-legacy para no
+// colisionar con marketplace-catalog.routes.ts /categories (jerarquico).
+// El frontend nuevo (ProductWizard) consume el endpoint del catalog router
+// que devuelve un array. Este sigue disponible para llamadas legacy.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/categories', async (_req: Request, res: Response) => {
+router.get('/categories-legacy', async (_req: Request, res: Response) => {
     try {
         // Categorias de productos
         const { data: productCategories } = await supabase

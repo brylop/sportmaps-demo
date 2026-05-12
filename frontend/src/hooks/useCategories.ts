@@ -49,7 +49,9 @@ export function useCategories() {
             const res = await fetch(`${API_URL}/api/v1/marketplace/categories`);
             if (!res.ok) throw new Error('Error cargando categorias.');
             const json = await res.json();
-            return (json.data as ProductCategory[]) || [];
+            // Defensive: si el endpoint cambia el shape (objeto en vez de array),
+            // no crashear el .map del consumer.
+            return Array.isArray(json.data) ? (json.data as ProductCategory[]) : [];
         },
     });
 }
@@ -79,11 +81,15 @@ export function useBrands() {
     return useQuery({
         queryKey: ['marketplace', 'brands'],
         staleTime: 10 * 60_000,
+        retry: 1,
         queryFn: async (): Promise<ProductBrand[]> => {
             const res = await fetch(`${API_URL}/api/v1/marketplace/brands`);
-            if (!res.ok) throw new Error('Error cargando marcas.');
+            if (!res.ok) {
+                // 401/404 → tratar como "sin marcas disponibles" sin tirar error visible
+                return [];
+            }
             const json = await res.json();
-            return (json.data as ProductBrand[]) || [];
+            return Array.isArray(json.data) ? (json.data as ProductBrand[]) : [];
         },
     });
 }

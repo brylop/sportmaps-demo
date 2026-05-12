@@ -120,25 +120,124 @@ router.post('/products/:id/reject', async (req: Request, res: Response) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/v1/admin/vendors/:id/verify — marca vendor como verificado
+// GET /api/v1/admin/vendors/verification-queue — vendors con doc cargado
+// pendientes de revision, o filtrados por status.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/vendors/verification-queue', async (req: Request, res: Response) => {
+    try {
+        const { status = 'pending', page = '1', limit = '20' } = req.query;
+        const offset = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+
+        let query = supabase
+            .from('vendor_profiles')
+            .select(`
+                id, user_id, display_name, vendor_type, capabilities, description,
+                city, phone, verification_status, verification_doc_url,
+                is_active, created_at,
+                profiles!vendor_profiles_user_id_fkey ( id, full_name, email, role )
+            `, { count: 'exact' })
+            .order('created_at', { ascending: true })
+            .range(offset, offset + parseInt(limit as string, 10) - 1);
+
+        if (status !== 'all') {
+            query = query.eq('verification_status', status as string);
+        }
+        // Para "pending" solo mostramos los que subieron doc (los otros no requieren accion).
+        if (status === 'pending') {
+            query = query.not('verification_doc_url', 'is', null);
+        }
+
+        const { data, error, count } = await query;
+
+        if (error) {
+            req.log?.error({ err: error }, 'verification-queue failed');
+            return res.status(500).json({ ok: false, error: 'Error obteniendo cola.' });
+        }
+
+        return res.json({ ok: true, data: data || [], total: count || 0 });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/admin/vendors/:id/doc-url — genera signed URL del doc privado.
+// El bucket vendor-docs es privado; este endpoint resuelve la URL temporal
+// para que el admin pueda previsualizar.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/vendors/:id/doc-url', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const { data: vp, error: vpErr } = await supabase
+            .from('vendor_profiles')
+            .select('id, verification_doc_url')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (vpErr || !vp) {
+            return res.status(404).json({ ok: false, error: 'Vendor no encontrado.' });
+        }
+        if (!vp.verification_doc_url) {
+            return res.status(404).json({ ok: false, error: 'Sin documento cargado.' });
+        }
+
+        // El frontend guardo getPublicUrl. Extraemos el path del nombre del archivo
+        // (luego de /object/<public|sign>/vendor-docs/<filename>).
+        const url: string = vp.verification_doc_url;
+        const match = url.match(/vendor-docs\/(.+?)(?:\?|$)/);
+        const filePath = match ? decodeURIComponent(match[1]) : url.split('/').pop();
+
+        if (!filePath) {
+            return res.status(400).json({ ok: false, error: 'No se pudo resolver el archivo.' });
+        }
+
+        const { data, error } = await supabase.storage
+            .from('vendor-docs')
+            .createSignedUrl(filePath, 60 * 5); // 5 minutos
+
+        if (error) {
+            req.log?.error({ err: error, filePath }, 'createSignedUrl failed');
+            return res.status(500).json({ ok: false, error: 'No se pudo generar URL firmada.' });
+        }
+
+        return res.json({ ok: true, data: { signed_url: data.signedUrl, expires_in: 300 } });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/admin/vendors/:id/verify — marca vendor como verificado o rechazado
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/vendors/:id/verify', async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { verified = true } = req.body as { verified?: boolean };
+        const { verified = true, reason } = req.body as { verified?: boolean; reason?: string };
 
         const { data, error } = await supabase
             .from('vendor_profiles')
             .update({ verification_status: verified ? 'verified' : 'rejected' })
             .eq('id', id)
-            .select()
+            .select('id, user_id, display_name, verification_status')
             .single();
 
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Vendor no encontrado.' });
         }
 
-        await auditLog(req, 'vendor_verify', 'vendor_profiles', id as string, null, { verified });
+        // Notificar al vendor del resultado
+        await supabase.rpc('notify_user', {
+            p_user_id: data.user_id,
+            p_title: verified ? 'Verificación aprobada' : 'Verificación rechazada',
+            p_message: verified
+                ? `Tu tienda "${data.display_name}" ya esta verificada. Apareceras destacada.`
+                : `Tu verificacion fue rechazada${reason ? `: ${reason}` : '.'} Puedes reenviar otro documento.`,
+            p_type: verified ? 'verification_approved' : 'verification_rejected',
+            p_link: '/vendor/onboarding',
+        }).then(() => {}, () => {}); // non-blocking
+
+        await auditLog(req, 'vendor_verify', 'vendor_profiles', id as string, null, { verified, reason });
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });

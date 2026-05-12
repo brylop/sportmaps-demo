@@ -4,13 +4,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { ShieldCheck, X, Eye, CheckCircle2, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { ShieldCheck, X, Eye, CheckCircle2, Clock, AlertTriangle, Loader2, FileText, ExternalLink, Package, Store } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -106,23 +106,35 @@ export default function AdminMarketplaceModerationPage() {
 
     return (
         <div className="container mx-auto p-4 space-y-6">
-            <header className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                        <ShieldCheck className="h-6 w-6 text-primary" />
-                        Moderación Marketplace
-                    </h1>
-                    <p className="text-sm text-muted-foreground">Revisa productos enviados por vendors no verificados.</p>
-                </div>
-                <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
-                    <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="pending_review">Pendientes</SelectItem>
-                        <SelectItem value="rejected">Rechazados</SelectItem>
-                        <SelectItem value="active">Activos (revisados)</SelectItem>
-                    </SelectContent>
-                </Select>
+            <header>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                    <ShieldCheck className="h-6 w-6 text-primary" />
+                    Moderación Marketplace
+                </h1>
+                <p className="text-sm text-muted-foreground">Revisa productos enviados y verifica identidad de vendors.</p>
             </header>
+
+            <Tabs defaultValue="products" className="w-full">
+                <TabsList>
+                    <TabsTrigger value="products" className="flex items-center gap-2">
+                        <Package className="h-4 w-4" /> Productos
+                    </TabsTrigger>
+                    <TabsTrigger value="vendors" className="flex items-center gap-2">
+                        <Store className="h-4 w-4" /> Vendors pendientes
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="products" className="space-y-4 mt-4">
+                    <div className="flex justify-end">
+                        <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
+                            <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="pending_review">Pendientes</SelectItem>
+                                <SelectItem value="rejected">Rechazados</SelectItem>
+                                <SelectItem value="active">Activos (revisados)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
 
             {isLoading ? (
                 <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
@@ -242,6 +254,305 @@ export default function AdminMarketplaceModerationPage() {
                             <Button onClick={() => selected && approve(selected.id)} disabled={!selected || approving === selected?.id}>
                                 {approving === selected?.id && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                                 Aprobar y publicar
+                            </Button>
+                        </DialogFooter>
+                    )}
+                </DialogContent>
+            </Dialog>
+                </TabsContent>
+
+                <TabsContent value="vendors" className="mt-4">
+                    <VendorVerificationQueue />
+                </TabsContent>
+            </Tabs>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vendor verification queue — admin revisa docs de identidad cargados.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface VendorVerificationItem {
+    id:                  string;
+    user_id:             string;
+    display_name:        string;
+    vendor_type:         string;
+    capabilities:        { can_sell_products?: boolean; can_sell_services?: boolean };
+    description:         string | null;
+    city:                string | null;
+    phone:               string | null;
+    verification_status: 'pending' | 'verified' | 'rejected';
+    verification_doc_url: string | null;
+    is_active:           boolean;
+    created_at:          string;
+    profiles:            { id: string; full_name: string | null; email: string | null; role: string } | null;
+}
+
+function VendorVerificationQueue() {
+    const { session } = useAuth();
+    const { toast } = useToast();
+    const qc = useQueryClient();
+
+    const [vendorStatus, setVendorStatus] = useState<'pending' | 'verified' | 'rejected' | 'all'>('pending');
+    const [selectedVendor, setSelectedVendor] = useState<VendorVerificationItem | null>(null);
+    const [signedUrl, setSignedUrl] = useState<string | null>(null);
+    const [loadingUrl, setLoadingUrl] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
+    const [processing, setProcessing] = useState(false);
+
+    const { data, isLoading } = useQuery({
+        queryKey: ['admin', 'vendors', 'verification', vendorStatus],
+        queryFn: async () => {
+            const res = await fetch(`${API_URL}/api/v1/admin/vendors/verification-queue?status=${vendorStatus}`, {
+                headers: { 'Authorization': `Bearer ${session?.access_token}` },
+            });
+            if (!res.ok) throw new Error('Error');
+            const json = await res.json();
+            return { items: (json.data as VendorVerificationItem[]) || [], total: json.total };
+        },
+    });
+
+    const openVendor = async (v: VendorVerificationItem) => {
+        setSelectedVendor(v);
+        setRejectReason('');
+        setSignedUrl(null);
+        if (v.verification_doc_url) {
+            setLoadingUrl(true);
+            try {
+                const res = await fetch(`${API_URL}/api/v1/admin/vendors/${v.id}/doc-url`, {
+                    headers: { 'Authorization': `Bearer ${session?.access_token}` },
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    setSignedUrl(json.data?.signed_url || null);
+                }
+            } finally {
+                setLoadingUrl(false);
+            }
+        }
+    };
+
+    const verify = async (id: string, verified: boolean) => {
+        setProcessing(true);
+        try {
+            const res = await fetch(`${API_URL}/api/v1/admin/vendors/${id}/verify`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type':  'application/json',
+                    'Authorization': `Bearer ${session?.access_token}`,
+                },
+                body: JSON.stringify({ verified, reason: !verified ? rejectReason : undefined }),
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                toast({ title: 'Error', description: json.error, variant: 'destructive' });
+                return;
+            }
+            toast({
+                title: verified ? 'Vendor verificado' : 'Vendor rechazado',
+                description: verified
+                    ? 'El vendor aparecerá destacado en el marketplace.'
+                    : 'Se notificó al vendor con el motivo.',
+            });
+            setSelectedVendor(null);
+            setRejectReason('');
+            qc.invalidateQueries({ queryKey: ['admin', 'vendors', 'verification'] });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="flex justify-end">
+                <Select value={vendorStatus} onValueChange={(v: any) => setVendorStatus(v)}>
+                    <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="pending">Pendientes con doc cargado</SelectItem>
+                        <SelectItem value="verified">Verificados</SelectItem>
+                        <SelectItem value="rejected">Rechazados</SelectItem>
+                        <SelectItem value="all">Todos</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            {isLoading ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            ) : !data?.items?.length ? (
+                <Card>
+                    <CardContent className="py-12 text-center">
+                        <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-3" />
+                        <h3 className="font-semibold">No hay vendors en este estado</h3>
+                        <p className="text-sm text-muted-foreground">
+                            {vendorStatus === 'pending' ? 'No hay vendors con documentos pendientes de revisar.' : 'La lista está vacía.'}
+                        </p>
+                    </CardContent>
+                </Card>
+            ) : (
+                <div className="space-y-3">
+                    {data.items.map((v: VendorVerificationItem) => (
+                        <Card key={v.id}>
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="font-semibold truncate">{v.display_name || '(sin nombre)'}</h3>
+                                            <Badge
+                                                variant={
+                                                    v.verification_status === 'verified' ? 'default'
+                                                    : v.verification_status === 'rejected' ? 'destructive'
+                                                    : 'secondary'
+                                                }
+                                                className="text-[10px]"
+                                            >
+                                                {v.verification_status === 'verified' ? 'Verificado'
+                                                    : v.verification_status === 'rejected' ? 'Rechazado'
+                                                    : 'Pendiente'}
+                                            </Badge>
+                                            {v.verification_doc_url && (
+                                                <Badge variant="outline" className="text-[10px]">
+                                                    <FileText className="h-3 w-3 mr-1" /> Doc cargado
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {v.profiles?.email || '(sin email)'} · {v.profiles?.role} · {v.vendor_type}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-muted-foreground">
+                                            {v.city && <span>{v.city}</span>}
+                                            {v.phone && <span>· {v.phone}</span>}
+                                            <span className="flex items-center gap-1">
+                                                <Clock className="h-3 w-3" />
+                                                {new Date(v.created_at).toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                        <Button size="sm" variant="outline" onClick={() => openVendor(v)}>
+                                            <Eye className="h-4 w-4 mr-1" /> Revisar
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            )}
+
+            <Dialog open={!!selectedVendor} onOpenChange={o => { if (!o) { setSelectedVendor(null); setSignedUrl(null); setRejectReason(''); } }}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Store className="h-5 w-5 text-primary" />
+                            Verificar vendor
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    {selectedVendor && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2 text-sm">
+                                <div>
+                                    <Label className="text-xs">Negocio</Label>
+                                    <p className="font-semibold">{selectedVendor.display_name}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-xs">Titular</Label>
+                                    <p>{selectedVendor.profiles?.full_name || '—'}</p>
+                                    <p className="text-xs text-muted-foreground">{selectedVendor.profiles?.email}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <Label className="text-xs">Rol</Label>
+                                        <p>{selectedVendor.profiles?.role}</p>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Tipo</Label>
+                                        <p>{selectedVendor.vendor_type}</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <Label className="text-xs">Ciudad</Label>
+                                        <p>{selectedVendor.city || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <Label className="text-xs">Teléfono</Label>
+                                        <p>{selectedVendor.phone || '—'}</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-xs">Capabilities</Label>
+                                    <div className="flex gap-1 flex-wrap mt-1">
+                                        {selectedVendor.capabilities?.can_sell_products && <Badge variant="outline">Productos</Badge>}
+                                        {selectedVendor.capabilities?.can_sell_services && <Badge variant="outline">Servicios</Badge>}
+                                    </div>
+                                </div>
+                                {selectedVendor.description && (
+                                    <div>
+                                        <Label className="text-xs">Descripción</Label>
+                                        <p className="text-xs">{selectedVendor.description}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div>
+                                <Label className="text-xs">Documento de verificación</Label>
+                                {loadingUrl ? (
+                                    <div className="border rounded p-6 flex items-center justify-center">
+                                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    </div>
+                                ) : signedUrl ? (
+                                    /\.(jpe?g|png)(\?|$)/i.test(signedUrl) ? (
+                                        <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                            <img src={signedUrl} alt="Doc" className="w-full max-h-80 object-contain border rounded" />
+                                        </a>
+                                    ) : (
+                                        <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="border rounded p-6 flex items-center gap-2 hover:bg-muted">
+                                            <FileText className="h-6 w-6 text-primary" />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium">Ver documento (PDF)</p>
+                                                <p className="text-xs text-muted-foreground">Link temporal (5 min)</p>
+                                            </div>
+                                            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                                        </a>
+                                    )
+                                ) : (
+                                    <div className="border border-dashed rounded p-6 text-center text-sm text-muted-foreground">
+                                        Sin documento cargado
+                                    </div>
+                                )}
+                                {selectedVendor.verification_status === 'pending' && (
+                                    <div className="mt-3">
+                                        <Label>Motivo de rechazo (si aplica)</Label>
+                                        <Textarea
+                                            rows={2}
+                                            value={rejectReason}
+                                            onChange={e => setRejectReason(e.target.value)}
+                                            placeholder="Doc ilegible, no corresponde al titular, falsificado..."
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {selectedVendor?.verification_status === 'pending' && (
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setSelectedVendor(null)}>Cancelar</Button>
+                            <Button
+                                variant="destructive"
+                                onClick={() => verify(selectedVendor.id, false)}
+                                disabled={processing || rejectReason.length < 5}
+                            >
+                                {processing && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                                <X className="h-4 w-4 mr-1" />
+                                Rechazar
+                            </Button>
+                            <Button onClick={() => verify(selectedVendor.id, true)} disabled={processing}>
+                                {processing && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Verificar
                             </Button>
                         </DialogFooter>
                     )}
