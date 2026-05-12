@@ -308,13 +308,14 @@ function VendorVerificationQueue() {
         queryFn: async () => {
             // Lectura directa via Supabase client. Requiere RLS
             // vendor_profiles_admin_read (migracion 20260512000006).
+            // Hacemos dos queries simples en vez de un join — mas robusto
+            // ante cambios en el nombre del FK constraint.
             let q = supabase
                 .from('vendor_profiles')
                 .select(`
                     id, user_id, display_name, vendor_type, capabilities, description,
                     city, phone, verification_status, verification_doc_url,
-                    is_active, created_at,
-                    profiles!vendor_profiles_user_id_fkey ( id, full_name, email, role )
+                    is_active, created_at
                 `, { count: 'exact' })
                 .order('created_at', { ascending: true });
 
@@ -334,11 +335,24 @@ function VendorVerificationQueue() {
                 return { items: [] as VendorVerificationItem[], total: 0 };
             }
 
-            // Supabase devuelve profiles como array por relacion fk; normalizar.
-            const items = ((rows as any[]) || []).map(r => ({
+            // Enriquecer con datos del profile (full_name, email, role) en una
+            // segunda query — para no depender del nombre exacto del FK.
+            const userIds = ((rows || []) as any[]).map(r => r.user_id).filter(Boolean);
+            const profilesById = new Map<string, { id: string; full_name: string | null; email: string | null; role: string }>();
+            if (userIds.length > 0) {
+                const { data: profs } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, email, role')
+                    .in('id', userIds);
+                for (const p of (profs || []) as any[]) {
+                    profilesById.set(p.id, p);
+                }
+            }
+
+            const items: VendorVerificationItem[] = ((rows || []) as any[]).map(r => ({
                 ...r,
-                profiles: Array.isArray(r.profiles) ? r.profiles[0] || null : r.profiles,
-            })) as VendorVerificationItem[];
+                profiles: profilesById.get(r.user_id) || null,
+            }));
 
             return { items, total: count || 0 };
         },
