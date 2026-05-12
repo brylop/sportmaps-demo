@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BankAccountFields } from '@/components/payments/BankAccountFields';
 import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -20,59 +20,6 @@ const PAYMENT_METHODS = [
     { id: 'wompi',         label: 'Wompi Gateway' },
     { id: 'mercadopago',   label: 'MercadoPago' },
     { id: 'cash',          label: 'Efectivo / Presencial' },
-];
-
-// Bancos colombianos (tradicionales + neobancos / billeteras)
-const COLOMBIAN_BANKS: { group: string; options: { value: string; label: string }[] }[] = [
-    {
-        group: 'Bancos tradicionales',
-        options: [
-            { value: 'bancolombia',      label: 'Bancolombia' },
-            { value: 'davivienda',       label: 'Davivienda' },
-            { value: 'banco_bogota',     label: 'Banco de Bogotá' },
-            { value: 'bbva',             label: 'BBVA Colombia' },
-            { value: 'av_villas',        label: 'Banco AV Villas' },
-            { value: 'banco_popular',    label: 'Banco Popular' },
-            { value: 'banco_occidente',  label: 'Banco de Occidente' },
-            { value: 'itau',             label: 'Itaú Colombia' },
-            { value: 'scotiabank',       label: 'Scotiabank Colpatria' },
-            { value: 'banco_caja_social',label: 'Banco Caja Social' },
-            { value: 'banco_falabella',  label: 'Banco Falabella' },
-            { value: 'banco_agrario',    label: 'Banco Agrario' },
-            { value: 'banco_pichincha',  label: 'Banco Pichincha' },
-            { value: 'banco_gnb',        label: 'Banco GNB Sudameris' },
-            { value: 'banco_serfinanza', label: 'Banco Serfinanza' },
-            { value: 'bancoomeva',       label: 'Bancoomeva' },
-            { value: 'banco_cooperativo_coopcentral', label: 'Banco Cooperativo Coopcentral' },
-            { value: 'bancow',           label: 'BancoW' },
-            { value: 'bancamia',         label: 'Bancamía' },
-        ],
-    },
-    {
-        group: 'Neobancos / Billeteras digitales',
-        options: [
-            { value: 'nequi',     label: 'Nequi' },
-            { value: 'daviplata', label: 'Daviplata' },
-            { value: 'lulo_bank', label: 'Lulo Bank' },
-            { value: 'nu',        label: 'Nu Colombia' },
-            { value: 'rappipay',  label: 'RappiPay' },
-            { value: 'movii',     label: 'Movii' },
-            { value: 'powwi',     label: 'Powwi' },
-            { value: 'tpaga',     label: 'tpaga' },
-            { value: 'iris',      label: 'Iris (Bancolombia)' },
-            { value: 'ualá',      label: 'Ualá' },
-        ],
-    },
-];
-
-// Tipos de cuenta — incluye cuentas tradicionales + billeteras + BRE-B (interoperabilidad)
-const ACCOUNT_TYPES: { value: string; label: string; hint?: string }[] = [
-    { value: 'ahorros',   label: 'Cuenta de ahorros' },
-    { value: 'corriente', label: 'Cuenta corriente' },
-    { value: 'nequi',     label: 'Nequi',     hint: 'Solo número de celular' },
-    { value: 'daviplata', label: 'Daviplata', hint: 'Solo número de celular' },
-    { value: 'bre_b',     label: 'Bre-B',     hint: 'Llave única interoperable (celular, correo, cédula o @llave)' },
-    { value: 'wallet',    label: 'Otra billetera digital' },
 ];
 
 const SERVICE_TYPES = [
@@ -437,92 +384,29 @@ export default function VendorOnboardingPage() {
                                 ))}
                             </div>
 
-                            {paymentMethods.includes('bank_transfer') && (() => {
-                                const isWalletType = ['nequi', 'daviplata', 'bre_b', 'wallet'].includes(bankData.account_type);
-                                const accountPlaceholder =
-                                    bankData.account_type === 'nequi' || bankData.account_type === 'daviplata'
-                                        ? '300 123 4567'
-                                        : bankData.account_type === 'bre_b'
-                                        ? '@tu_llave  /  correo  /  cédula  /  celular'
-                                        : '123-456789-00';
-                                const accountLabel = isWalletType ? 'Número / Llave' : 'Número de cuenta';
-
-                                return (
+                            {paymentMethods.includes('bank_transfer') && (
                                 <div className="space-y-3 border-t pt-4">
                                     <h4 className="text-sm font-medium">Datos para recibir pagos</h4>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <Label>Banco / Entidad</Label>
-                                            <Select
-                                                value={bankData.bank_name}
-                                                onValueChange={(v) => setBankData(p => ({ ...p, bank_name: v }))}
-                                            >
-                                                <SelectTrigger><SelectValue placeholder="Selecciona un banco" /></SelectTrigger>
-                                                <SelectContent>
-                                                    {COLOMBIAN_BANKS.map(g => (
-                                                        <SelectGroup key={g.group}>
-                                                            <SelectLabel>{g.group}</SelectLabel>
-                                                            {g.options.map(o => (
-                                                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                                                            ))}
-                                                        </SelectGroup>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div>
-                                            <Label>Tipo de cuenta</Label>
-                                            <Select
-                                                value={bankData.account_type}
-                                                onValueChange={(v) => setBankData(p => ({ ...p, account_type: v }))}
-                                            >
-                                                <SelectTrigger><SelectValue placeholder="Selecciona el tipo" /></SelectTrigger>
-                                                <SelectContent>
-                                                    {ACCOUNT_TYPES.map(t => (
-                                                        <SelectItem key={t.value} value={t.value}>
-                                                            <div className="flex flex-col text-left">
-                                                                <span>{t.label}</span>
-                                                                {t.hint && <span className="text-[11px] text-muted-foreground">{t.hint}</span>}
-                                                            </div>
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div>
-                                            <Label>{accountLabel}</Label>
-                                            <Input
-                                                value={bankData.account_number}
-                                                onChange={(e) => setBankData(p => ({ ...p, account_number: e.target.value }))}
-                                                placeholder={accountPlaceholder}
-                                            />
-                                        </div>
-                                        <div>
-                                            <Label>Titular</Label>
-                                            <Input
-                                                value={bankData.account_holder}
-                                                onChange={(e) => setBankData(p => ({ ...p, account_holder: e.target.value }))}
-                                                placeholder="Nombre completo"
-                                            />
-                                        </div>
-                                        <div className="col-span-2">
-                                            <Label>Cédula del titular</Label>
-                                            <Input
-                                                value={bankData.account_document}
-                                                onChange={(e) => setBankData(p => ({ ...p, account_document: e.target.value }))}
-                                                placeholder="1.020.345.678"
-                                            />
-                                        </div>
-                                    </div>
-                                    {bankData.account_type === 'bre_b' && (
-                                        <p className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-2">
-                                            Bre-B es el sistema interoperable del Banco de la República. Tu llave puede ser
-                                            tu celular, correo, cédula o un alias <code>@nombre</code>.
-                                        </p>
-                                    )}
+                                    <BankAccountFields
+                                        value={{
+                                            bank_name:       bankData.bank_name,
+                                            account_type:    bankData.account_type,
+                                            account_number:  bankData.account_number,
+                                            account_holder:  bankData.account_holder,
+                                            document_number: bankData.account_document,
+                                        }}
+                                        onChange={(next) => setBankData(p => ({
+                                            ...p,
+                                            bank_name:        next.bank_name,
+                                            account_type:     next.account_type,
+                                            account_number:   next.account_number,
+                                            account_holder:   next.account_holder,
+                                            account_document: next.document_number || '',
+                                        }))}
+                                        showDocumentType={false}
+                                    />
                                 </div>
-                                );
-                            })()}
+                            )}
 
                             <div className="flex gap-2">
                                 <Button variant="outline" onClick={() => setStep(1)} className="flex-1">Atrás</Button>
