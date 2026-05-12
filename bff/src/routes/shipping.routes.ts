@@ -128,7 +128,7 @@ router.post('/quote', optionalAuth, async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/tracking/:number', async (req: Request, res: Response) => {
     try {
-        const { number } = req.params;
+        const number = req.params.number as string;
 
         // Cargar shipment local primero
         const { data: shipment } = await supabase
@@ -198,7 +198,7 @@ auth.get('/vendor/shipping/settings', async (req: Request, res: Response) => {
 
 // PUT /vendor/shipping/settings
 const SettingsSchema = z.object({
-    origin_address:           z.record(z.unknown()).optional(),
+    origin_address:           z.record(z.string(), z.unknown()).optional(),
     origin_city:              z.string().optional().nullable(),
     origin_state:             z.string().optional().nullable(),
     origin_postal_code:       z.string().optional().nullable(),
@@ -210,7 +210,7 @@ const SettingsSchema = z.object({
     free_shipping_min_amount: z.number().nonnegative().optional().nullable(),
     ready_to_ship_hours:      z.number().int().min(0).max(168).optional(),
     accepts_pickup_in_store:  z.boolean().optional(),
-    pickup_addresses:         z.array(z.record(z.unknown())).optional(),
+    pickup_addresses:         z.array(z.record(z.string(), z.unknown())).optional(),
     accepted_carrier_codes:   z.array(z.string()).optional(),
     return_policy_days:       z.number().int().min(0).max(90).optional(),
     return_policy_text:       z.string().max(2000).optional().nullable(),

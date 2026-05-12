@@ -150,7 +150,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Cuenta no encontrada.' });
         }
-        await auditLog(req, 'bank_account_update', 'vendor_bank_accounts', req.params.id);
+        await auditLog(req, 'bank_account_update', 'vendor_bank_accounts', req.params.id as string);
         return res.json({ ok: true, data });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
@@ -168,7 +168,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
         const { data, error } = await supabase
             .from('vendor_bank_accounts')
             .update({ is_active: false, is_default: false })
-            .eq('id', req.params.id)
+            .eq('id', req.params.id as string)
             .eq('vendor_profile_id', vpId)
             .select()
             .single();
@@ -176,7 +176,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Cuenta no encontrada.' });
         }
-        await auditLog(req, 'bank_account_delete', 'vendor_bank_accounts', req.params.id);
+        await auditLog(req, 'bank_account_delete', 'vendor_bank_accounts', req.params.id as string);
         return res.json({ ok: true });
     } catch (err) {
         return res.status(500).json({ ok: false, error: 'Error interno.' });
