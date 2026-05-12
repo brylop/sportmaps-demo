@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -46,12 +47,36 @@ export function useCategories() {
         queryKey: ['marketplace', 'categories'],
         staleTime: 10 * 60_000,
         queryFn: async (): Promise<ProductCategory[]> => {
-            const res = await fetch(`${API_URL}/api/v1/marketplace/categories`);
-            if (!res.ok) throw new Error('Error cargando categorias.');
-            const json = await res.json();
-            // Defensive: si el endpoint cambia el shape (objeto en vez de array),
-            // no crashear el .map del consumer.
-            return Array.isArray(json.data) ? (json.data as ProductCategory[]) : [];
+            // Lectura directa via Supabase client. La tabla product_categories
+            // tiene RLS publica para SELECT. Esto evita depender del BFF y
+            // de eventuales colisiones de rutas (/categories en dos routers).
+            const { data, error } = await supabase
+                .from('product_categories')
+                .select('id, parent_id, slug, name, icon, sport, attribute_schema, sort_order, is_active')
+                .eq('is_active', true)
+                .order('sort_order', { ascending: true });
+
+            if (error) {
+                console.error('useCategories error:', error);
+                return [];
+            }
+
+            // Construir arbol jerarquico: hijos bajo su parent.
+            type Row = ProductCategory & { children?: Row[] };
+            const byId = new Map<string, Row>();
+            const roots: Row[] = [];
+
+            for (const row of (data || []) as Row[]) {
+                byId.set(row.id, { ...row, children: [] });
+            }
+            for (const row of byId.values()) {
+                if (row.parent_id && byId.has(row.parent_id)) {
+                    byId.get(row.parent_id)!.children!.push(row);
+                } else {
+                    roots.push(row);
+                }
+            }
+            return roots;
         },
     });
 }
@@ -65,11 +90,18 @@ export function useCategory(slug: string | undefined) {
         enabled: !!slug,
         staleTime: 10 * 60_000,
         queryFn: async (): Promise<ProductCategory | null> => {
-            const res = await fetch(`${API_URL}/api/v1/marketplace/categories/${slug}`);
-            if (res.status === 404) return null;
-            if (!res.ok) throw new Error('Error cargando categoria.');
-            const json = await res.json();
-            return (json.data as ProductCategory) || null;
+            const { data, error } = await supabase
+                .from('product_categories')
+                .select('*')
+                .eq('slug', slug!)
+                .eq('is_active', true)
+                .maybeSingle();
+
+            if (error) {
+                console.error('useCategory error:', error);
+                return null;
+            }
+            return (data as ProductCategory) || null;
         },
     });
 }
@@ -83,13 +115,18 @@ export function useBrands() {
         staleTime: 10 * 60_000,
         retry: 1,
         queryFn: async (): Promise<ProductBrand[]> => {
-            const res = await fetch(`${API_URL}/api/v1/marketplace/brands`);
-            if (!res.ok) {
-                // 401/404 → tratar como "sin marcas disponibles" sin tirar error visible
+            const { data, error } = await supabase
+                .from('product_brands')
+                .select('id, slug, name, logo_url, is_official')
+                .eq('is_active', true)
+                .order('is_official', { ascending: false })
+                .order('name', { ascending: true });
+
+            if (error) {
+                console.error('useBrands error:', error);
                 return [];
             }
-            const json = await res.json();
-            return Array.isArray(json.data) ? (json.data as ProductBrand[]) : [];
+            return (data as ProductBrand[]) || [];
         },
     });
 }
