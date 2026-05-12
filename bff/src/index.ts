@@ -26,6 +26,7 @@ import schoolStaffRouter from './routes/school-staff';
 import paymentsRouter from './routes/payments.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
+import recurringRouter from './routes/recurring.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
@@ -196,6 +197,7 @@ app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 app.use('/api/v1/payment-tokens', generalLimiter, paymentTokensRouter);
+app.use('/api/v1/recurring', paymentLimiter, recurringRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
