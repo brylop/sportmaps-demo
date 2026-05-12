@@ -28,7 +28,8 @@ import {
   IdCard,
   FileCheck2,
   QrCode,
-  Truck
+  Truck,
+  ShieldCheck
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -392,6 +393,13 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Escuelas', href: '/admin/clubs', icon: Building },
           { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Reportes', href: '/admin/reports', icon: FileText }
+        ]
+      },
+      {
+        title: 'Moderación',
+        items: [
+          { title: 'Marketplace',     href: '/admin/marketplace/moderation', icon: ShieldCheck },
+          { title: 'Pagos a vendors', href: '/admin/payouts',                icon: DollarSign }
         ]
       },
       {
