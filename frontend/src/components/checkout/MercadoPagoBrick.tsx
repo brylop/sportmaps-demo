@@ -88,19 +88,32 @@ export function MercadoPagoBrick({
         },
     }), []);
 
-    const onSubmit = useCallback(async (formData: any) => {
+    const onSubmit = useCallback(async (param: any) => {
         if (submitting) return;
         setSubmitting(true);
+
+        // MP SDK v1.x puede entregar el callback con shape:
+        //   ({ selectedPaymentMethod, formData })  → nested
+        //   (formData)                              → flat
+        // Tomamos el primer shape no-vacio.
+        const fd = param?.formData && typeof param.formData === 'object' ? param.formData : param;
+        // eslint-disable-next-line no-console
+        console.debug('[MP Brick] onSubmit raw param', param);
+        // eslint-disable-next-line no-console
+        console.debug('[MP Brick] resolved formData', fd);
 
         try {
             const result = await createMpPayment(
                 {
-                    token: formData.formData?.token ?? formData.token,
-                    paymentMethodId: formData.formData?.payment_method_id ?? formData.payment_method_id,
-                    installments: formData.formData?.installments ?? formData.installments ?? 1,
-                    payerEmail: formData.formData?.payer?.email ?? payerEmail,
+                    token: fd?.token,
+                    paymentMethodId: fd?.payment_method_id ?? fd?.paymentMethodId,
+                    installments: fd?.installments ?? 1,
+                    payerEmail: fd?.payer?.email ?? payerEmail,
                     payerFirstName,
                     payerLastName,
+                    payerIdentification: fd?.payer?.identification
+                        ? { type: fd.payer.identification.type, number: fd.payer.identification.number }
+                        : undefined,
                     transactionAmount,
                     description: description ?? `SportMaps ${externalReference}`,
                     externalReference,
