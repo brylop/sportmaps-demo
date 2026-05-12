@@ -3,9 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { usePayoutMutations, BankAccount, BANK_OPTIONS, ACCOUNT_TYPE_LABEL } from '@/hooks/usePayouts';
+import { BankAccountFields } from '@/components/payments/BankAccountFields';
+import { usePayoutMutations, BankAccount } from '@/hooks/usePayouts';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
@@ -57,58 +57,25 @@ export function BankAccountForm({ open, onOpenChange, initial }: Props) {
                 </DialogHeader>
 
                 <div className="space-y-3">
-                    <div>
-                        <Label>Banco / Billetera *</Label>
-                        <Select value={form.bank_name} onValueChange={v => setForm(p => ({ ...p, bank_name: v }))}>
-                            <SelectTrigger><SelectValue placeholder="Selecciona banco" /></SelectTrigger>
-                            <SelectContent>
-                                {BANK_OPTIONS.map(b => <SelectItem key={b.value} value={b.label}>{b.label}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <Label>Tipo de cuenta *</Label>
-                            <Select value={form.account_type} onValueChange={(v: any) => setForm(p => ({ ...p, account_type: v }))}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {Object.entries(ACCOUNT_TYPE_LABEL).map(([v, l]) => (
-                                        <SelectItem key={v} value={v}>{l}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div>
-                            <Label>Número *</Label>
-                            <Input value={form.account_number} onChange={e => setForm(p => ({ ...p, account_number: e.target.value }))} placeholder="000-000000-00" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <Label>Titular (nombre completo) *</Label>
-                        <Input value={form.account_holder} onChange={e => setForm(p => ({ ...p, account_holder: e.target.value }))} />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <Label>Tipo doc. *</Label>
-                            <Select value={form.document_type} onValueChange={(v: any) => setForm(p => ({ ...p, document_type: v }))}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="CC">Cédula</SelectItem>
-                                    <SelectItem value="CE">Cédula extranjería</SelectItem>
-                                    <SelectItem value="NIT">NIT</SelectItem>
-                                    <SelectItem value="PASS">Pasaporte</SelectItem>
-                                    <SelectItem value="PEP">PEP</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div>
-                            <Label>Número doc. *</Label>
-                            <Input value={form.document_number} onChange={e => setForm(p => ({ ...p, document_number: e.target.value }))} />
-                        </div>
-                    </div>
+                    <BankAccountFields
+                        value={{
+                            bank_name:       form.bank_name,
+                            account_type:    form.account_type,
+                            account_number:  form.account_number,
+                            account_holder:  form.account_holder,
+                            document_type:   form.document_type,
+                            document_number: form.document_number,
+                        }}
+                        onChange={(next) => setForm(p => ({
+                            ...p,
+                            bank_name:       next.bank_name,
+                            account_type:    next.account_type as BankAccount['account_type'],
+                            account_number:  next.account_number,
+                            account_holder:  next.account_holder,
+                            document_type:   (next.document_type || 'CC') as BankAccount['document_type'],
+                            document_number: next.document_number || '',
+                        }))}
+                    />
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
