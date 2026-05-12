@@ -33,6 +33,9 @@ interface AdminSchool {
   city: string;
   verified: boolean;
   owner_email?: string;
+  created_at?: string;
+  children_count?: number;
+  branches_count?: number;
 }
 
 export default function AdminPanelPage() {
@@ -92,6 +95,9 @@ export default function AdminPanelPage() {
         city: s.city,
         verified: s.verified,
         owner_email: s.owner_email,
+        created_at: s.created_at,
+        children_count: s.children_count,
+        branches_count: s.branches_count,
       })));
 
       const counts = (countsRes.data as any) || {};
@@ -284,6 +290,10 @@ export default function AdminPanelPage() {
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Ciudad</TableHead>
+                <TableHead>Owner</TableHead>
+                <TableHead className="text-right">Atletas</TableHead>
+                <TableHead className="text-right">Sedes</TableHead>
+                <TableHead>Registro</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -291,7 +301,7 @@ export default function AdminPanelPage() {
             <TableBody>
               {schools.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-6 text-muted-foreground">
                     No hay escuelas registradas
                   </TableCell>
                 </TableRow>
@@ -299,7 +309,17 @@ export default function AdminPanelPage() {
                 schools.map((school) => (
                   <TableRow key={school.id}>
                     <TableCell className="font-medium">{school.name}</TableCell>
-                    <TableCell>{school.city}</TableCell>
+                    <TableCell>{school.city || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{school.owner_email || '—'}</TableCell>
+                    <TableCell className="text-right">{school.children_count ?? 0}</TableCell>
+                    <TableCell className="text-right">{school.branches_count ?? 0}</TableCell>
+                    <TableCell className="text-xs">
+                      {school.created_at
+                        ? new Date(school.created_at).toLocaleDateString('es-CO', {
+                            year: 'numeric', month: 'short', day: '2-digit',
+                          })
+                        : '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={school.verified ? 'default' : 'secondary'}>
                         {school.verified ? 'Verificada' : 'Pendiente'}
