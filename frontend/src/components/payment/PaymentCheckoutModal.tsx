@@ -366,7 +366,7 @@ export function PaymentCheckoutModal({
         // sin periodo definido cuenta como duplicado.
         !p.period_year && !p.period_month,
       )) {
-        throw new Error('Ya existe un pago pendiente de aprobación para este estudiante.');
+        throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
       }
 
       if (mode === 'update' && paymentId && paymentId !== '') {
@@ -427,7 +427,7 @@ export function PaymentCheckoutModal({
               const ownerId = schoolRow?.owner_id;
               if (!ownerId) return;
               const periodLabel = effectivePeriod?.label;
-              const studentLabel = childName ?? 'un estudiante';
+              const studentLabel = childName ?? 'un deportista';
               await supabase.rpc('notify_user', {
                 p_user_id: ownerId,
                 p_title:   periodLabel
@@ -807,7 +807,7 @@ export function PaymentCheckoutModal({
                   payerEmail={user?.email || 'demo@sportmaps.co'}
                   payerFirstName={(user?.user_metadata?.full_name || 'Padre').split(' ')[0]}
                   payerLastName={(user?.user_metadata?.full_name || '').split(' ').slice(1).join(' ') || 'Demo'}
-                  description={`${finalConcept} — ${childName ?? 'estudiante'}`}
+                  description={`${finalConcept} — ${childName ?? 'deportista'}`}
                   schoolId={schoolId}
                   onSuccess={handleMpSuccess}
                   onPending={handleMpSuccess}
@@ -936,7 +936,7 @@ export function PaymentCheckoutModal({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {nextPeriod?.current_status === 'paid' || nextPeriod?.current_status === 'approved'
-              ? `Ya pagaste ${nextPeriod.label} para ${childName ?? 'este estudiante'}.`
+              ? `Ya pagaste ${nextPeriod.label} para ${childName ?? 'este deportista'}.`
               : nextPeriod?.current_status === 'awaiting_approval'
                 ? `Hay un comprobante de ${nextPeriod?.label} esperando validacion de la escuela.`
                 : `Ya hay un cobro registrado para ${nextPeriod?.label}.`}

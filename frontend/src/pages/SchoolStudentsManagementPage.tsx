@@ -560,7 +560,7 @@ export default function SchoolStudentsManagementPage() {
     </DropdownMenu>
   );
 
-  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
+  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando deportistas..." />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">

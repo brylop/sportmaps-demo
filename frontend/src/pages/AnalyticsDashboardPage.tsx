@@ -335,7 +335,7 @@ export default function AnalyticsDashboardPage() {
       {/* Top Schools Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Top Escuelas por Estudiantes</CardTitle>
+          <CardTitle>Top Escuelas por Deportistas</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">

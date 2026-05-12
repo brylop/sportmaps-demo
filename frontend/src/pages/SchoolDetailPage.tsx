@@ -300,7 +300,7 @@ export default function SchoolDetailPage() {
       {
         id: 'demo-2',
         name: `${sport} Intermedio`,
-        description: 'Nivel intermedio para estudiantes con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
+        description: 'Nivel intermedio para deportistas con experiencia previa. Desarrolla habilidades técnicas avanzadas y trabajo en equipo.',
         sport: sport,
         schedule: 'Martes y Jueves 5:00 PM - 6:30 PM',
         price_monthly: 55000,
@@ -783,7 +783,7 @@ export default function SchoolDetailPage() {
                     <div>
                       <h3 className="font-semibold mb-3">Acerca de nosotros</h3>
                       <p className="text-muted-foreground leading-relaxed">
-                        {school.description || `En ${school.name}, nos dedicamos a formar atletas integrales a través de programas deportivos de alta calidad. Contamos con entrenadores certificados y experiencia comprobada en el desarrollo de jóvenes talentos. Nuestras instalaciones modernas y metodología de entrenamiento garantizan el mejor ambiente para el crecimiento deportivo y personal de nuestros estudiantes.`}
+                        {school.description || `En ${school.name}, nos dedicamos a formar atletas integrales a través de programas deportivos de alta calidad. Contamos con entrenadores certificados y experiencia comprobada en el desarrollo de jóvenes talentos. Nuestras instalaciones modernas y metodología de entrenamiento garantizan el mejor ambiente para el crecimiento deportivo y personal de nuestros deportistas.`}
                       </p>
                     </div>
 

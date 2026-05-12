@@ -111,7 +111,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                 <div className="space-y-4">
                     <div className="flex gap-2">
                         <Input
-                            placeholder="Buscar estudiante..."
+                            placeholder="Buscar deportista..."
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -124,7 +124,7 @@ export function AddDropInModal({ open, onClose, sessionId }: AddDropInModalProps
                     <div className="max-h-[300px] overflow-y-auto space-y-1">
                         {results.length === 0 && !searching && search && (
                             <p className="text-sm text-muted-foreground text-center py-4">
-                                No se encontraron estudiantes.
+                                No se encontraron deportistas.
                             </p>
                         )}
                         {results.map((r) => (

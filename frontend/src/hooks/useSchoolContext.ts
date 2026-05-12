@@ -561,12 +561,12 @@ export function useSchoolContext(): SchoolContext {
 }
 
 /**
- * Helper: Crea un estudiante y su pago pendiente de forma atómica.
+ * Helper: Crea un deportista y su pago pendiente de forma atómica.
  * Reutilizable desde cualquier flujo (modal, CSV, invitación).
  * 
- * @param params Objeto con la información del estudiante y del padre.
- * @returns Un objeto con el ID del estudiante creado y estados de éxito de las inserciones.
- * @throws Error si la creación del estudiante falla.
+ * @param params Objeto con la información del deportista y del padre.
+ * @returns Un objeto con el ID del deportista creado y estados de éxito de las inserciones.
+ * @throws Error si la creación del deportista falla.
  */
 export async function createStudentWithPendingPayment(params: {
     fullName: string;
@@ -621,7 +621,7 @@ export async function createStudentWithPendingPayment(params: {
     // For production: throw error if insert fails
     if (childError) {
         console.error('Child insert failed:', childError.message);
-        throw new Error(childError.message || 'Error al crear el estudiante');
+        throw new Error(childError.message || 'Error al crear el deportista');
     }
 
     const childId = child.id;
@@ -647,7 +647,7 @@ export async function createStudentWithPendingPayment(params: {
     if (paymentError) {
         console.error('Payment insert failed:', paymentError.message);
         // We might want to allow this if the student was created, but for consistency let's throw
-        // throw new Error(paymentError.message || 'Error al crear el pago del estudiante');
+        // throw new Error(paymentError.message || 'Error al crear el pago del deportista');
     }
 
     // 3. Send Invitation and Record in DB if parent email provided

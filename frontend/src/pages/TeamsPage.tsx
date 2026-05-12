@@ -459,7 +459,7 @@ export default function TeamsPage() {
                 </CardDescription>
               </div>
               <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 px-3 py-1">
-                {schoolStudents.length} Estudiantes
+                {schoolStudents.length} Deportistas
               </Badge>
             </div>
           </CardHeader>
@@ -472,8 +472,8 @@ export default function TeamsPage() {
             ) : schoolStudents.length === 0 ? (
               <div className="text-center py-12 border-2 border-dashed rounded-xl">
                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-20" />
-                <p className="text-muted-foreground font-medium">No se encontraron estudiantes registrados</p>
-                <p className="text-xs text-muted-foreground">Vincula alumnos a la escuela desde el módulo de Estudiantes.</p>
+                <p className="text-muted-foreground font-medium">No se encontraron deportistas registrados</p>
+                <p className="text-xs text-muted-foreground">Vincula alumnos a la escuela desde el módulo de Deportistas.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -661,7 +661,7 @@ export default function TeamsPage() {
                         <Button
                           variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                           onClick={() => { setSelectedTeamForEnroll(team); setIsEnrollModalOpen(true); }}
-                          title="Gestionar Estudiantes"
+                          title="Gestionar Deportistas"
                         >
                           <UserPlus className="h-4 w-4" />
                         </Button>
@@ -711,7 +711,7 @@ export default function TeamsPage() {
                           setSelectedTeamForEnroll(team);
                           setIsEnrollModalOpen(true);
                         }}
-                        title="Gestionar Estudiantes"
+                        title="Gestionar Deportistas"
                       >
                         <UserPlus className="h-4 w-4" />
                       </Button>

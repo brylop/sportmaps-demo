@@ -480,7 +480,7 @@ export default function ParentCheckoutPage() {
           <CardContent>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Estudiante</span><span>{studentName}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Deportista</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
 

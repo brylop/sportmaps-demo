@@ -250,8 +250,8 @@ export default function DashboardPage() {
             ...stat,
             value: count,
             description: count > 0
-              ? `${count} estudiante${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
-              : 'Agrega tu primer estudiante'
+              ? `${count} deportista${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
+              : 'Agrega tu primer deportista'
           };
         }
         if (index === 1) {

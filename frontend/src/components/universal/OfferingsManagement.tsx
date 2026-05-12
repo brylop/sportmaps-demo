@@ -563,7 +563,7 @@ export function OfferingsManagement() {
             onError: (err: any) => {
                 const code = err?.body?.code || err?.code;
                 const msg = code === 'PLAN_HAS_ACTIVE_ENROLLMENTS'
-                    ? 'No puedes eliminar una tarifa con estudiantes activos. Cancela las inscripciones primero.'
+                    ? 'No puedes eliminar una tarifa con deportistas activos. Cancela las inscripciones primero.'
                     : err?.body?.error || err?.message || 'No se pudo eliminar la tarifa.';
                 toast({ title: '❌ Error al eliminar tarifa', description: msg, variant: 'destructive' });
                 setPlanToDelete(null);
@@ -581,7 +581,7 @@ export function OfferingsManagement() {
             onError: (err: any) => {
                 const code = err?.body?.code || err?.code;
                 const msg = code === 'OFFERING_HAS_ACTIVE_ENROLLMENTS'
-                    ? 'No puedes eliminar un plan con estudiantes activos. Cancela las inscripciones primero.'
+                    ? 'No puedes eliminar un plan con deportistas activos. Cancela las inscripciones primero.'
                     : err?.body?.error || err?.message || 'No se pudo eliminar el plan.';
                 toast({ title: '❌ Error al eliminar plan', description: msg, variant: 'destructive' });
                 setOfferingToDelete(null);
@@ -609,7 +609,7 @@ export function OfferingsManagement() {
                 <div>
                     <h3 className="text-lg font-bold tracking-tight">Planes y Membresías</h3>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                        {offerings.length > 0 ? `${offerings.length} plan${offerings.length !== 1 ? 'es' : ''} configurado${offerings.length !== 1 ? 's' : ''}` : 'Configura los planes para tus estudiantes'}
+                        {offerings.length > 0 ? `${offerings.length} plan${offerings.length !== 1 ? 'es' : ''} configurado${offerings.length !== 1 ? 's' : ''}` : 'Configura los planes para tus deportistas'}
                     </p>
                 </div>
                 <Button onClick={() => { resetOfferingForm(); setShowCreate(true); }} size="sm" className="gap-1.5 shadow-sm">
@@ -683,7 +683,7 @@ export function OfferingsManagement() {
                             {editingOfferingId ? '✏️ Editar Plan' : '✨ Nuevo Plan'}
                         </DialogTitle>
                         <p className="text-sm text-muted-foreground">
-                            {editingOfferingId ? 'Modifica los detalles de este plan.' : 'Crea un plan o membresía para ofrecer a tus estudiantes.'}
+                            {editingOfferingId ? 'Modifica los detalles de este plan.' : 'Crea un plan o membresía para ofrecer a tus deportistas.'}
                         </p>
                     </DialogHeader>
 
@@ -998,7 +998,7 @@ export function OfferingsManagement() {
                         <AlertDialogTitle>¿Eliminar plan completo?</AlertDialogTitle>
                         <AlertDialogDescription>
                             Se eliminará el plan y todas sus tarifas. 
-                            Solo posible si no hay estudiantes inscritos.
+                            Solo posible si no hay deportistas inscritos.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

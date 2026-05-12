@@ -64,7 +64,7 @@ export const EmailTemplates = {
           </a>
         </div>
   
-        <p>Si ya tienes cuenta, el estudiante se asociará automáticamente cuando inicies sesión con este correo.</p>
+        <p>Si ya tienes cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
       </div>

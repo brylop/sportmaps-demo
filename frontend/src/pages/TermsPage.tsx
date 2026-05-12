@@ -63,7 +63,7 @@ export default function TermsPage() {
             <div className="bg-muted/30 rounded-lg p-3">
               <p className="font-medium text-foreground">Escuelas y academias deportivas (school, school_admin):</p>
               <ul className="list-disc list-inside mt-1 space-y-1">
-                <li>Gestión de estudiantes, equipos, sedes y staff</li>
+                <li>Gestión de deportistas, equipos, sedes y staff</li>
                 <li>Configuración y automatización de cobros y mensualidades</li>
                 <li>Control de asistencia y reportes operativos/financieros</li>
                 <li>Comunicaciones con padres y entrenadores</li>

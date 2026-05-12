@@ -43,7 +43,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
         if (!formData.fullName || !formData.parentEmail) {
             toast({
                 title: 'Campos requeridos',
-                description: 'Nombre del estudiante y email del padre son necesarios',
+                description: 'Nombre del deportista y email del padre son necesarios',
                 variant: 'destructive'
             });
             return;
@@ -68,7 +68,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
             });
 
             toast({
-                title: '¡Estudiante creado!',
+                title: '¡Deportista creado!',
                 description: `Se ha enviado la invitación a ${formData.parentEmail}`,
             });
 
@@ -77,7 +77,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
         } catch (error: any) {
             toast({
                 title: 'Error',
-                description: error.message || 'No se pudo crear el estudiante',
+                description: error.message || 'No se pudo crear el deportista',
                 variant: 'destructive',
             });
         } finally {
@@ -116,13 +116,13 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                         Nuevo Alumno e Invitación
                     </DialogTitle>
                     <DialogDescription>
-                        Registra al estudiante y envía una invitación al padre para que complete el vínculo.
+                        Registra al deportista y envía una invitación al padre para que complete el vínculo.
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">
                     <div className="space-y-2">
-                        <Label htmlFor="stdName">Nombre completo del Estudiante *</Label>
+                        <Label htmlFor="stdName">Nombre completo del Deportista *</Label>
                         <Input
                             id="stdName"
                             placeholder="Ej: Mateo Pérez"
@@ -207,7 +207,7 @@ export function CreateStudentModal({ open, onClose, onSuccess, schoolId }: Creat
                         </Button>
                         <Button type="submit" disabled={loading}>
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
-                            Crear Estudiante e Invitar
+                            Crear Deportista e Invitar
                         </Button>
                     </DialogFooter>
                 </form>

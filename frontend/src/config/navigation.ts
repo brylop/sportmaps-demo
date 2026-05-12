@@ -182,7 +182,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
-          { title: 'Mis Estudiantes', href: '/students', icon: Users },
+          { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
       },
@@ -218,7 +218,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Deportistas', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },
@@ -409,7 +409,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Deportistas', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },

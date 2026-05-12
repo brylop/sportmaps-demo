@@ -213,7 +213,7 @@ export default function DocumentsReportTab() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Estudiantes</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Deportistas</CardTitle>
             <FileText className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -256,7 +256,7 @@ export default function DocumentsReportTab() {
         <CardHeader>
           <CardTitle>Documentos de Identidad</CardTitle>
           <CardDescription>
-            Filtra por equipo o plan y descarga los documentos de tus estudiantes
+            Filtra por equipo o plan y descarga los documentos de tus deportistas
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -317,7 +317,7 @@ export default function DocumentsReportTab() {
           ) : students.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
               <FileText className="h-10 w-10 opacity-30" />
-              <p className="text-sm">No se encontraron estudiantes con los filtros aplicados.</p>
+              <p className="text-sm">No se encontraron deportistas con los filtros aplicados.</p>
             </div>
           ) : (
             <div className="rounded-md border">
@@ -331,7 +331,7 @@ export default function DocumentsReportTab() {
                         aria-label="Seleccionar todos"
                       />
                     </TableHead>
-                    <TableHead>Estudiante</TableHead>
+                    <TableHead>Deportista</TableHead>
                     <TableHead>Equipo</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Estado</TableHead>

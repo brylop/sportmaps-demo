@@ -56,7 +56,7 @@ router.get(
             //    Solución: filtrar por los team_ids ya obtenidos en el paso anterior.
             const teamIds = teams.map((t: any) => t.id);
 
-            const allEnrollmentsSet = new Set<string>(); // para estudiantes únicos 
+            const allEnrollmentsSet = new Set<string>(); // para deportistas únicos 
 
             const teamOccupiedMap = new Map<string, number>();
             let totalStudents = 0;

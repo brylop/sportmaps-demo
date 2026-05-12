@@ -30,12 +30,12 @@ const StudentSchema = z.object({
 
 const BulkUploadSchema = z.object({
     students: z.array(StudentSchema)
-        .min(1, 'Al menos un estudiante requerido')
-        .max(200, 'Máximo 200 estudiantes por carga'),
+        .min(1, 'Al menos un deportista requerido')
+        .max(200, 'Máximo 200 deportistas por carga'),
     options: z.object({
         // Si true: actualiza si document_id ya existe. Si false: reporta como error.
         upsert: z.boolean().default(false),
-        // Branch ID por defecto para estudiantes sin columna 'sede' en el CSV
+        // Branch ID por defecto para deportistas sin columna 'sede' en el CSV
         defaultBranchId: z.string().uuid().nullable().optional(),
     }).default({ upsert: false }),
 });
@@ -563,10 +563,10 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'schoo
             .eq('school_id', req.schoolId)   // 🔒 siempre filtrado
             .order('last_name');
 
-        if (error) return res.status(500).json({ error: 'Error al obtener estudiantes.' });
+        if (error) return res.status(500).json({ error: 'Error al obtener deportistas.' });
         return res.json({ students: data });
     } catch (err: any) {
-        req.log?.error({ err: err.message || err }, 'Error inesperado al obtener estudiantes');
+        req.log?.error({ err: err.message || err }, 'Error inesperado al obtener deportistas');
         return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
