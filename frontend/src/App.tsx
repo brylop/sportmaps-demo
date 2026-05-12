@@ -134,6 +134,7 @@ const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
+const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
@@ -655,6 +656,11 @@ const App = () => (
                       <Route path="admin/clubs" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <AdminClubsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/schools" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminSchoolsGlobalPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/reports" element={
