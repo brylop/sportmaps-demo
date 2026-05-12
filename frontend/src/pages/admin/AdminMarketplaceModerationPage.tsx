@@ -289,12 +289,14 @@ interface VendorVerificationItem {
     profiles:            { id: string; full_name: string | null; email: string | null; role: string } | null;
 }
 
+type VendorFilter = 'pending_with_doc' | 'pending_no_doc' | 'verified' | 'rejected' | 'all';
+
 function VendorVerificationQueue() {
     const { session } = useAuth();
     const { toast } = useToast();
     const qc = useQueryClient();
 
-    const [vendorStatus, setVendorStatus] = useState<'pending' | 'verified' | 'rejected' | 'all'>('pending');
+    const [vendorFilter, setVendorFilter] = useState<VendorFilter>('pending_with_doc');
     const [selectedVendor, setSelectedVendor] = useState<VendorVerificationItem | null>(null);
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [loadingUrl, setLoadingUrl] = useState(false);
@@ -302,14 +304,43 @@ function VendorVerificationQueue() {
     const [processing, setProcessing] = useState(false);
 
     const { data, isLoading } = useQuery({
-        queryKey: ['admin', 'vendors', 'verification', vendorStatus],
+        queryKey: ['admin', 'vendors', 'verification', vendorFilter],
         queryFn: async () => {
-            const res = await fetch(`${API_URL}/api/v1/admin/vendors/verification-queue?status=${vendorStatus}`, {
-                headers: { 'Authorization': `Bearer ${session?.access_token}` },
-            });
-            if (!res.ok) throw new Error('Error');
-            const json = await res.json();
-            return { items: (json.data as VendorVerificationItem[]) || [], total: json.total };
+            // Lectura directa via Supabase client. Requiere RLS
+            // vendor_profiles_admin_read (migracion 20260512000006).
+            let q = supabase
+                .from('vendor_profiles')
+                .select(`
+                    id, user_id, display_name, vendor_type, capabilities, description,
+                    city, phone, verification_status, verification_doc_url,
+                    is_active, created_at,
+                    profiles!vendor_profiles_user_id_fkey ( id, full_name, email, role )
+                `, { count: 'exact' })
+                .order('created_at', { ascending: true });
+
+            if (vendorFilter === 'pending_with_doc') {
+                q = q.eq('verification_status', 'pending').not('verification_doc_url', 'is', null);
+            } else if (vendorFilter === 'pending_no_doc') {
+                q = q.eq('verification_status', 'pending').is('verification_doc_url', null);
+            } else if (vendorFilter === 'verified') {
+                q = q.eq('verification_status', 'verified');
+            } else if (vendorFilter === 'rejected') {
+                q = q.eq('verification_status', 'rejected');
+            }
+
+            const { data: rows, error, count } = await q;
+            if (error) {
+                console.error('verification-queue error:', error);
+                return { items: [] as VendorVerificationItem[], total: 0 };
+            }
+
+            // Supabase devuelve profiles como array por relacion fk; normalizar.
+            const items = ((rows as any[]) || []).map(r => ({
+                ...r,
+                profiles: Array.isArray(r.profiles) ? r.profiles[0] || null : r.profiles,
+            })) as VendorVerificationItem[];
+
+            return { items, total: count || 0 };
         },
     });
 
@@ -320,12 +351,17 @@ function VendorVerificationQueue() {
         if (v.verification_doc_url) {
             setLoadingUrl(true);
             try {
-                const res = await fetch(`${API_URL}/api/v1/admin/vendors/${v.id}/doc-url`, {
-                    headers: { 'Authorization': `Bearer ${session?.access_token}` },
-                });
-                if (res.ok) {
-                    const json = await res.json();
-                    setSignedUrl(json.data?.signed_url || null);
+                // Extraer path desde la URL guardada (puede ser public URL legacy o solo path).
+                const match = v.verification_doc_url.match(/vendor-docs\/(.+?)(?:\?|$)/);
+                const filePath = match ? decodeURIComponent(match[1]) : v.verification_doc_url.split('/').pop();
+
+                if (filePath) {
+                    // El bucket es privado y la policy vendor_docs_admin_read deja
+                    // que admins firmen URLs temporales directo desde el client.
+                    const { data: signed, error } = await supabase.storage
+                        .from('vendor-docs')
+                        .createSignedUrl(filePath, 300); // 5 min
+                    if (!error && signed) setSignedUrl(signed.signedUrl);
                 }
             } finally {
                 setLoadingUrl(false);
@@ -366,10 +402,11 @@ function VendorVerificationQueue() {
     return (
         <div className="space-y-4">
             <div className="flex justify-end">
-                <Select value={vendorStatus} onValueChange={(v: any) => setVendorStatus(v)}>
-                    <SelectTrigger className="w-[220px]"><SelectValue /></SelectTrigger>
+                <Select value={vendorFilter} onValueChange={(v: any) => setVendorFilter(v)}>
+                    <SelectTrigger className="w-[260px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="pending">Pendientes con doc cargado</SelectItem>
+                        <SelectItem value="pending_with_doc">Pendientes con doc cargado</SelectItem>
+                        <SelectItem value="pending_no_doc">Pendientes sin doc cargado</SelectItem>
                         <SelectItem value="verified">Verificados</SelectItem>
                         <SelectItem value="rejected">Rechazados</SelectItem>
                         <SelectItem value="all">Todos</SelectItem>
@@ -385,7 +422,11 @@ function VendorVerificationQueue() {
                         <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-3" />
                         <h3 className="font-semibold">No hay vendors en este estado</h3>
                         <p className="text-sm text-muted-foreground">
-                            {vendorStatus === 'pending' ? 'No hay vendors con documentos pendientes de revisar.' : 'La lista está vacía.'}
+                            {vendorFilter === 'pending_with_doc'
+                                ? 'No hay vendors con documentos pendientes de revisar.'
+                                : vendorFilter === 'pending_no_doc'
+                                ? 'No hay vendors esperando subir documento.'
+                                : 'La lista está vacía.'}
                         </p>
                     </CardContent>
                 </Card>

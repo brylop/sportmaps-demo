@@ -352,16 +352,6 @@ export default function VendorOnboardingPage() {
                             >
                                 Siguiente: Métodos de pago
                             </Button>
-
-                            {hasExistingProfile && existingProfile?.verification_status === 'pending' && (
-                                <button
-                                    type="button"
-                                    onClick={() => setStep(3)}
-                                    className="w-full text-xs text-primary hover:underline mt-1"
-                                >
-                                    Solo quiero subir el documento de verificación →
-                                </button>
-                            )}
                         </div>
                     )}
 

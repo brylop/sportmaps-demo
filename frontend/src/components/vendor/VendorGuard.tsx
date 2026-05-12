@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, AlertTriangle, PauseCircle } from 'lucide-react';
+import { Loader2, AlertTriangle, PauseCircle, Upload } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { VendorDocUploadModal } from './VendorDocUploadModal';
 
 type VendorGate =
   | { state: 'loading' }
   | { state: 'no_profile' }
   | { state: 'inactive' }
-  | { state: 'active'; verification: 'pending' | 'verified' | 'rejected' }
+  | { state: 'active'; verification: 'pending' | 'verified' | 'rejected'; docUrl: string | null }
   | { state: 'error' };
 
 // Autorizacion por vendor_profile (no por role).
@@ -19,6 +21,7 @@ export function VendorGuard() {
   const { user, loading: authLoading } = useAuth();
   const location = useLocation();
   const [gate, setGate] = useState<VendorGate>({ state: 'loading' });
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -32,7 +35,7 @@ export function VendorGuard() {
       try {
         const { data, error } = await supabase
           .from('vendor_profiles')
-          .select('id, is_active, verification_status')
+          .select('id, is_active, verification_status, verification_doc_url')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -57,6 +60,7 @@ export function VendorGuard() {
         setGate({
           state: 'active',
           verification: (data.verification_status ?? 'pending') as 'pending' | 'verified' | 'rejected',
+          docUrl: (data as any).verification_doc_url ?? null,
         });
       } catch (err) {
         console.error('Check vendor profile error:', err);
@@ -102,24 +106,55 @@ export function VendorGuard() {
     return <Navigate to="/vendor/dashboard" replace />;
   }
 
+  const showActiveBanners = gate.state === 'active' && !isOnboardingRoute;
+  const showUploadCta = showActiveBanners && (gate.verification === 'pending' || gate.verification === 'rejected');
+
   return (
     <div className="flex flex-col min-h-screen w-full">
-      {gate.state === 'active' && gate.verification === 'pending' && !isOnboardingRoute && (
+      {showActiveBanners && gate.verification === 'pending' && (
         <Alert variant="default" className="rounded-none border-t-0 border-x-0 border-b-2 bg-amber-50 border-amber-200">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-800">Verificacion pendiente</AlertTitle>
-          <AlertDescription className="text-amber-700">
-            Tu cuenta de vendedor esta pendiente de verificacion. Algunas funciones estaran limitadas hasta que se complete la revision.
-          </AlertDescription>
+          <div className="flex items-start justify-between gap-3 w-full">
+            <div className="flex-1">
+              <AlertTitle className="text-amber-800">Verificacion pendiente</AlertTitle>
+              <AlertDescription className="text-amber-700">
+                {gate.docUrl
+                    ? 'Tu documento esta en revision. Si necesitas actualizarlo, puedes subir uno nuevo.'
+                    : 'Sube un documento (cedula, RUT, Camara de Comercio) para acelerar la revision y aparecer destacado.'}
+              </AlertDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-400 bg-white hover:bg-amber-100 shrink-0"
+              onClick={() => setUploadOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              {gate.docUrl ? 'Actualizar documento' : 'Subir documento'}
+            </Button>
+          </div>
         </Alert>
       )}
-      {gate.state === 'active' && gate.verification === 'rejected' && !isOnboardingRoute && (
+      {showActiveBanners && gate.verification === 'rejected' && (
         <Alert variant="destructive" className="rounded-none border-t-0 border-x-0 border-b-2">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Verificacion rechazada</AlertTitle>
-          <AlertDescription>
-            Tu solicitud de verificacion fue rechazada. Contacta soporte para mas informacion.
-          </AlertDescription>
+          <div className="flex items-start justify-between gap-3 w-full">
+            <div className="flex-1">
+              <AlertTitle>Verificacion rechazada</AlertTitle>
+              <AlertDescription>
+                Tu solicitud fue rechazada. Sube un nuevo documento o contacta soporte.
+              </AlertDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="bg-white text-red-700 hover:bg-red-50 shrink-0"
+              onClick={() => setUploadOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              Subir nuevo documento
+            </Button>
+          </div>
         </Alert>
       )}
       {gate.state === 'inactive' && isOnboardingRoute && (
@@ -134,6 +169,19 @@ export function VendorGuard() {
       <div className="flex-1 w-full bg-background/50">
         <Outlet />
       </div>
+
+      {showUploadCta && (
+        <VendorDocUploadModal
+          open={uploadOpen}
+          onOpenChange={setUploadOpen}
+          status={gate.verification}
+          currentDocUrl={gate.docUrl}
+          onUploaded={() => {
+            // Refrescar el gate para que muestre el nuevo doc.
+            setGate(prev => prev.state === 'active' ? { ...prev } : prev);
+          }}
+        />
+      )}
     </div>
   );
 }
