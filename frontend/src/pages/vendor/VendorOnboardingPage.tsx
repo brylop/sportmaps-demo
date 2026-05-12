@@ -137,6 +137,15 @@ export default function VendorOnboardingPage() {
     });
     const [docFile, setDocFile] = useState<File | null>(null);
 
+    // Si ya tiene vendor_profile y esta pendiente de verificacion sin doc,
+    // saltar directo al step 3 (subir documento). El usuario llego aqui via
+    // el sidebar "Verificacion" y no tiene caso re-llenar paso 1 y 2.
+    useEffect(() => {
+        if (existingProfile && existingProfile.verification_status === 'pending') {
+            setStep(3);
+        }
+    }, [existingProfile?.id, existingProfile?.verification_status]);
+
     // Pre-llenar form con datos del vendor_profile si ya existe
     useEffect(() => {
         if (existingProfile) {
