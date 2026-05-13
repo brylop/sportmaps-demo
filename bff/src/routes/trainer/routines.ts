@@ -240,7 +240,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
         // Enriquecer con nombre del cliente
         if (!data || data.length === 0) return res.json([]);
 
-        const adultIds  = [...new Set(data.filter((p: any) => p.client_type === 'adult').map((p: any) => p.client_id))];
+        const adultIds  = [...new Set(data.filter((p: any) => p.client_type === 'registered').map((p: any) => p.client_id))];
         const childIds  = [...new Set(data.filter((p: any) => p.client_type === 'child').map((p: any) => p.client_id))];
 
         const [profilesRes, childrenRes] = await Promise.all([
@@ -256,7 +256,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
         const childMap   = new Map((childrenRes.data || []).map((c: any) => [c.id, { full_name: c.full_name, avatar_url: null }]));
 
         const enriched = data.map((plan: any) => {
-            const info = plan.client_type === 'adult'
+            const info = plan.client_type === 'registered'
                 ? profileMap.get(plan.client_id)
                 : childMap.get(plan.client_id);
             return {

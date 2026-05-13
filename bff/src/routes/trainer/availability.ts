@@ -112,27 +112,40 @@ router.patch('/availability/session/:id/attendance', async (req: Request, res: R
     const { status } = req.body;
 
     if (!['completed', 'assigned'].includes(status)) {
-      return res.status(400).json({ error: 'Estado de asistencia inválido. Use "completed" o "assigned".' });
+      return res.status(400).json({ error: 'Estado inválido. Use "completed" o "assigned".' });
     }
 
-    // Actualizar estado en trainer_session_plans
-    const { data, error } = await supabase
-      .from('trainer_session_plans')
-      .update({ 
-        status,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', sessionId)
-      .eq('trainer_id', trainerId) // Validar que pertenece al PT
-      .select()
-      .maybeSingle();
+    if (status === 'completed') {
+      // Llamar fn_complete_session_plan para garantizar:
+      // - stats en athlete_stats / children_stats
+      // - sessions_used++ si fue sesión manual (booked_by IS NULL)
+      // - status='completed' en trainer_session_plans
+      const { data, error } = await supabase.rpc('fn_complete_session_plan', {
+        p_plan_id:    sessionId,
+        p_trainer_id: trainerId,
+        p_results:    {},
+      });
 
-    if (error) throw error;
-    if (!data) {
-      return res.status(404).json({ error: 'Sesión no encontrada o no pertenece al entrenador.' });
+      if (error) throw error;
+      if (!data?.success) {
+        return res.status(400).json({ error: data?.error ?? 'No se pudo completar la sesión.' });
+      }
+      return res.json({ success: true });
+
+    } else {
+      // status='assigned' → desmarcar, UPDATE directo está bien
+      const { data, error } = await supabase
+        .from('trainer_session_plans')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .eq('trainer_id', trainerId)
+        .select()
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: 'Sesión no encontrada.' });
+      return res.json({ success: true, session: data });
     }
-
-    res.json({ success: true, session: data });
 
   } catch (err: any) {
     (req as any).log?.error({ err }, 'Error updating session attendance');
