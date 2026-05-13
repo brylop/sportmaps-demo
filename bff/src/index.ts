@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
+import path from 'path';
 
 // Cargar variables de entorno PRIMERO, antes de cualquier import que las use
 dotenv.config();
@@ -166,6 +167,9 @@ app.use(pinoHttp({
         res: (res) => ({ statusCode: res.statusCode }),
     },
 }));
+
+// ── Archivos Estáticos ────────────────────────────────────────────────────────
+app.use('/exercises', express.static(path.join(__dirname, '../public/exercises')));
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 app.get('/health', (_req: Request, res: Response) => {

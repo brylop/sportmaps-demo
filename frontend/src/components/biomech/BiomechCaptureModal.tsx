@@ -67,6 +67,14 @@ function angleBetween(a: Landmark, b: Landmark, c: Landmark): number {
   if (mag === 0) return 0;
   return Math.acos(Math.max(-1, Math.min(1, dot / mag))) * (180 / Math.PI);
 }
+function valgusAngle2D(hip: Landmark, knee: Landmark, ankle: Landmark): number {
+  const v_ha = { x: ankle.x - hip.x, y: ankle.y - hip.y };
+  const v_hk = { x: knee.x - hip.x, y: knee.y - hip.y };
+  const dot = v_ha.x * v_hk.x + v_ha.y * v_hk.y;
+  const mag = Math.sqrt(v_ha.x**2 + v_ha.y**2) * Math.sqrt(v_hk.x**2 + v_hk.y**2);
+  if (mag === 0) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, dot / mag))) * (180 / Math.PI);
+}
 function midpoint(a: Landmark, b: Landmark): Landmark {
   return { x: (a.x+b.x)/2, y: (a.y+b.y)/2, z: (a.z+b.z)/2 };
 }
@@ -78,9 +86,9 @@ function computeMetrics(frames: Frame[], code: string): Record<string, number> {
   const m: Record<string, number> = {};
 
   if (code === 'hack_squat') {
-    const lv = frames.map(f => angleBetween(f[23], f[25], f[27]));
-    const rv = frames.map(f => angleBetween(f[24], f[26], f[28]));
-    m.knee_valgus_angle = round2(Math.max(0, 180 - (lv.reduce((s,v)=>s+v,0)/lv.length + rv.reduce((s,v)=>s+v,0)/rv.length)/2));
+    const lv = frames.map(f => valgusAngle2D(f[23], f[25], f[27]));
+    const rv = frames.map(f => valgusAngle2D(f[24], f[26], f[28]));
+    m.knee_valgus_angle = round2((lv.reduce((s,v)=>s+v,0)/lv.length + rv.reduce((s,v)=>s+v,0)/rv.length)/2);
     const sHipY = (frames[0][23].y + frames[0][24].y) / 2;
     const maxHipY = Math.max(...frames.map(f => (f[23].y + f[24].y) / 2));
     const ankleY  = (frames[0][27].y + frames[0][28].y) / 2;
@@ -166,6 +174,12 @@ export function BiomechCaptureModal({
     if (!isRecordingRef.current) return;
     isRecordingRef.current = false;
     recordingStart.current = 0;
+    cancelAnimationFrame(rafRef.current);
+    if (recordedFrames.current.length === 0) {
+      setErrorMsg('No se detectó ninguna pose. Asegurate de estar completamente visible en la cámara.');
+      setModalState('error');
+      return;
+    }
     setModalState('processing');
     setTimeout(() => processAndSend(), 50);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -271,7 +285,7 @@ export function BiomechCaptureModal({
           setModalState('error');
         }
       }
-    }, 50);
+    }, 200);
 
     return () => {
       cancelled = true;
@@ -474,7 +488,7 @@ export function BiomechCaptureModal({
                 </div>
               )}
               {modalState === 'processing' && (
-                <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3 rounded-2xl">
+                <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3 rounded-2xl" style={{ zIndex: 10 }}>
                   <Loader2 className="h-8 w-8 text-primary animate-spin" />
                   <p className="text-white font-bold text-sm">Analizando movimiento...</p>
                   <p className="text-white/50 text-xs">Calculando métricas biomecánicas</p>

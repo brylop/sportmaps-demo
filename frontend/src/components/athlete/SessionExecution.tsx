@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { postSessionExerciseResults } from '@/lib/athlete/queries';
-import { bffClient } from '@/lib/api/bffClient';
+import { bffClient, BFF_URL } from '@/lib/api/bffClient';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -380,7 +380,13 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                               <div className="space-y-1.5">
                                 <div className="relative rounded-xl overflow-hidden bg-muted/30 border border-border/30">
                                   <img
-                                    src={block.wger_images![activeImageIndex[blockIdx] ?? 0]}
+                                    src={(() => {
+                                      const rawUrl = block.wger_images![activeImageIndex[blockIdx] ?? 0];
+                                      if (rawUrl && rawUrl.startsWith('/')) {
+                                        return `${BFF_URL}${rawUrl}`;
+                                      }
+                                      return rawUrl;
+                                    })()}
                                     alt={`Ejecución — ${block.name}`}
                                     className="w-full h-40 object-contain"
                                     onError={(e) => {

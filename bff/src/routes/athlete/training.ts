@@ -376,49 +376,7 @@ router.post('/training/body-metrics', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/v1/athlete/training/book-session
-router.post('/training/book-session', async (req: Request, res: Response) => {
-  try {
-    const { client_id, trainer_id, session_date, session_time, enrollment_id, name, notes } = req.body;
-
-    if (!client_id || !trainer_id || !session_date || !session_time || !enrollment_id) {
-      return res.status(400).json({ error: 'Faltan parámetros obligatorios para el agendamiento.' });
-    }
-
-    const { data, error } = await supabase.rpc('fn_book_pt_session', {
-      p_client_id:     client_id,
-      p_trainer_id:    trainer_id,
-      p_session_date:  session_date,
-      p_session_time:  session_time,
-      p_enrollment_id: enrollment_id,
-      p_name:          name  || 'Sesión PT',
-      p_notes:         notes || ''
-    });
-
-    if (error) throw error;
-    res.status(201).json(data);
-  } catch (err: any) {
-    req.log?.error({ err }, 'athlete/training unhandled error');
-    res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
-// DELETE /api/v1/athlete/training/session/:planId/cancel
-router.delete('/training/session/:planId/cancel', async (req: Request, res: Response) => {
-  try {
-    const { planId } = req.params;
-
-    const { data, error } = await supabase.rpc('fn_cancel_pt_session', {
-      p_plan_id: planId
-    });
-
-    if (error) throw error;
-    res.json(data);
-  } catch (err: any) {
-    req.log?.error({ err }, 'athlete/training unhandled error');
-    res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
+// POST /api/v1/athlete/training/book-session [Ruta legacy descontinuada en favor de /training/book-pt-session]
 
 // ==========================================
 // GET /api/v1/athlete/training/pt-availability
