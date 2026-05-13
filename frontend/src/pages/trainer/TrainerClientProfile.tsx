@@ -184,7 +184,7 @@ export default function TrainerClientProfile() {
           />
         </TabsContent>
         <TabsContent value="stats" className="mt-0">
-          <ClientStatsTab clientId={clientId!} clientName={name} onUpdate={refreshAction} stats={stats} />
+          <ClientStatsTab clientId={clientId!} clientName={name} onUpdate={refreshAction} stats={stats} clientType={type!} />
         </TabsContent>
         <TabsContent value="goals" className="mt-0">
           <ClientGoalsTab clientId={clientId!} goals={goals} onUpdate={refreshAction} />
@@ -201,7 +201,7 @@ export default function TrainerClientProfile() {
           <ClientProgressTab clientId={clientId!} type={type!} onUpdate={refreshAction} />
         </TabsContent>
         <TabsContent value="plan" className="mt-0">
-          <ClientPlanTab enrollment={enrollment} payments={payments} />
+          <ClientPlanTab enrollment={enrollment} payments={payments} ptSummary={clientData.ptSummary} />
         </TabsContent>
       </Tabs>
 

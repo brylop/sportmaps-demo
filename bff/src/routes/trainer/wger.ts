@@ -144,6 +144,7 @@ export function hydrateBlocksWithLocalTranslations(blocks: any[]): any[] {
 function applyLocalTranslations(exercises: WgerExercise[]): WgerExercise[] {
   const localMap = loadLocalTranslations();
   let appliedCount = 0;
+  const matchedIds = new Set<string>();
 
   const result = exercises.map(ex => {
     // Buscar por ID (Wger o FreeDB)
@@ -154,6 +155,7 @@ function applyLocalTranslations(exercises: WgerExercise[]): WgerExercise[] {
     
     if (local && local.name_es) {
       appliedCount++;
+      matchedIds.add(String(local.id));
       return {
         ...ex,
         name_es: local.name_es,
@@ -164,6 +166,47 @@ function applyLocalTranslations(exercises: WgerExercise[]): WgerExercise[] {
   });
 
   console.log(`[exercises] Se aplicaron ${appliedCount} traducciones locales`);
+
+  // Agregar ejercicios locales personalizados que no coincidan con la API remota
+  const addedCustom: WgerExercise[] = [];
+  const processedIds = new Set<string>();
+
+  localMap.forEach((local) => {
+    const localIdStr = String(local.id);
+    if (processedIds.has(localIdStr)) return;
+    processedIds.add(localIdStr);
+
+    if (!matchedIds.has(localIdStr)) {
+      const isNumeric = /^\d+$/.test(localIdStr);
+      const wger_id = isNumeric ? parseInt(localIdStr, 10) : null;
+      const free_db_id = isNumeric ? null : localIdStr;
+
+      // Servir imagen desde frontend public assets
+      const images = localIdStr === '9001' ? ['/exercises/9001.gif'] : [`/exercises/${localIdStr}.gif`];
+
+      addedCustom.push({
+        wger_id,
+        free_db_id,
+        name_en: local.name_en,
+        name_es: local.name_es,
+        description: local.description,
+        muscles: [],
+        muscles_secondary: [],
+        equipment: [],
+        images,
+        category: 'Custom',
+        level: null,
+        mechanic: null,
+        is_compound: false,
+      });
+    }
+  });
+
+  if (addedCustom.length > 0) {
+    console.log(`[exercises] Se agregaron ${addedCustom.length} ejercicios personalizados locales`);
+    return [...result, ...addedCustom];
+  }
+
   return result;
 }
 
@@ -561,6 +604,12 @@ router.get('/exercises/search', async (req: Request, res: Response) => {
       .filter(({ score }) => score > 0)
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
+        
+        // Priorizar ejercicios locales personalizados (ID >= 9000)
+        const aIsCustom = (a.ex.wger_id && a.ex.wger_id >= 9000) ? 1 : 0;
+        const bIsCustom = (b.ex.wger_id && b.ex.wger_id >= 9000) ? 1 : 0;
+        if (bIsCustom !== aIsCustom) return bIsCustom - aIsCustom;
+
         // Desempate: imágenes disponibles → nombre en español
         const imgDiff = (b.ex.images.length > 0 ? 1 : 0) - (a.ex.images.length > 0 ? 1 : 0);
         if (imgDiff !== 0) return imgDiff;

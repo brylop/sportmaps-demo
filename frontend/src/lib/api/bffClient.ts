@@ -32,7 +32,7 @@ function resolveBffUrl(): string {
     }
     return 'https://sportmaps-bff.onrender.com';
 }
-const BFF_URL = resolveBffUrl();
+export const BFF_URL = resolveBffUrl();
 
 // ── Estado interno del módulo ─────────────────────────────────────────────────
 // Se persiste a nivel de módulo — sobrevive re-renders sin React context.

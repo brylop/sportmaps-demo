@@ -123,8 +123,10 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
     
     const athleteColumn = type === 'adult' ? 'user_id' : type === 'child' ? 'child_id' : 'unregistered_athlete_id';
 
+    const todayBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+
     // Execute all flat queries in parallel
-    const [enrollResult, paymentsResult, attendanceResult, statsResult, goalsResult] = await Promise.all([
+    const [enrollResult, paymentsResult, attendanceResult, statsResult, goalsResult, nextSessionResult, recentSessionsResult] = await Promise.all([
       enrollmentQuery.order('created_at', { ascending: false }).limit(1).maybeSingle(),
       
       supabase.from('payments')
@@ -142,16 +144,35 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
         .order('attendance_date', { ascending: false })
         .limit(10),
         
-      supabase.from('athlete_stats')
-        .select('*')
-        .eq('athlete_id', clientId)
-        .order('stat_date', { ascending: false })
-        .limit(30),
+      type === 'child'
+        ? Promise.all([
+            supabase.from('athlete_stats').select('*').eq('athlete_id', clientId).order('stat_date', { ascending: false }).limit(100),
+            supabase.from('children_stats').select('id, child_id as athlete_id, stat_type, value, unit, stat_date, notes, school_id, created_at, updated_at').eq('child_id', clientId).order('stat_date', { ascending: false }).limit(100),
+          ]).then(([a, c]) => ({ data: [...(a.data ?? []), ...(c.data ?? [])].sort((x, y) => y.stat_date.localeCompare(x.stat_date)), error: a.error ?? c.error }))
+        : supabase.from('athlete_stats').select('*').eq('athlete_id', clientId).order('stat_date', { ascending: false }).limit(100),
         
       supabase.from('athlete_goals')
         .select('*')
         .eq('athlete_id', clientId)
-        .order('target_date', { ascending: true })
+        .order('target_date', { ascending: true }),
+
+      supabase.from('trainer_session_plans')
+        .select('id, name, status, session_date, session_time')
+        .eq('client_id', clientId)
+        .eq('school_id', schoolId)
+        .eq('status', 'assigned')
+        .gte('session_date', todayBogota)
+        .order('session_date', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+
+      supabase.from('trainer_session_plans')
+        .select('id, name, status, session_date, session_time')
+        .eq('client_id', clientId)
+        .eq('school_id', schoolId)
+        .in('status', ['completed', 'assigned', 'cancelled'])
+        .order('session_date', { ascending: false })
+        .limit(8)
     ]);
 
     console.log('PAYMENTS DEBUG:', JSON.stringify(paymentsResult.data, null, 2));
@@ -188,6 +209,8 @@ router.get('/clients/:clientId', async (req: Request, res: Response) => {
       attendance: attendanceResult.data || [],
       stats: statsResult.data || [],
       goals: goalsResult.data || [],
+      next_session: nextSessionResult.data ?? null,
+      recent_sessions: recentSessionsResult.data ?? [],
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -281,14 +304,15 @@ router.post('/clients/:clientId/stats', async (req: Request, res: Response) => {
   try {
     const { clientId } = req.params;
     const { stat_type, value, unit, notes, stat_date } = req.body;
-    
-    // NOTA: Como la tabla de stats no tiene school_id, dependemos de que clientId sea válido. 
-    // Para simplificar asuminos que si llega acá el trainer lo conoce (podrías validar el enrollment como en GET).
-    
+    const clientType = req.query.type as string; // 'adult' | 'child' | 'unregistered'
+
+    const table  = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol  = clientType === 'child' ? 'child_id'       : 'athlete_id';
+
     const { data, error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .insert({
-        athlete_id: clientId,
+        [idCol]: clientId,
         stat_type, value, unit, notes, stat_date
       })
       .select()
@@ -303,12 +327,15 @@ router.put('/clients/:clientId/stats/:statId', async (req: Request, res: Respons
   try {
     const { clientId, statId } = req.params;
     const { value, notes } = req.body;
-    
+    const clientType = req.query.type as string;
+    const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
+
     const { data, error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .update({ value, notes })
       .eq('id', statId)
-      .eq('athlete_id', clientId)
+      .eq(idCol, clientId)
       .select()
       .single();
       
@@ -320,11 +347,15 @@ router.put('/clients/:clientId/stats/:statId', async (req: Request, res: Respons
 router.delete('/clients/:clientId/stats/:statId', async (req: Request, res: Response) => {
   try {
     const { clientId, statId } = req.params;
+    const clientType = req.query.type as string;
+    const table = clientType === 'child' ? 'children_stats' : 'athlete_stats';
+    const idCol = clientType === 'child' ? 'child_id' : 'athlete_id';
+
     const { error } = await supabase
-      .from('athlete_stats')
+      .from(table)
       .delete()
       .eq('id', statId)
-      .eq('athlete_id', clientId);
+      .eq(idCol, clientId);
       
     if (error) throw error;
     res.json({ success: true });
