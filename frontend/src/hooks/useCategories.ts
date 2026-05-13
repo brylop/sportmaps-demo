@@ -107,14 +107,40 @@ export function useCategory(slug: string | undefined) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// useBrands — marcas activas
+// useBrands — marcas activas, opcionalmente filtradas por categoria
+//
+// Si se pasa categoryId, hace un join contra product_brand_categories y solo
+// devuelve marcas mapeadas a esa categoria. Si no se pasa, devuelve todas.
 // ─────────────────────────────────────────────────────────────────────────────
-export function useBrands() {
+export function useBrands(categoryId?: string | null) {
     return useQuery({
-        queryKey: ['marketplace', 'brands'],
+        queryKey: ['marketplace', 'brands', categoryId ?? 'all'],
         staleTime: 10 * 60_000,
         retry: 1,
         queryFn: async (): Promise<ProductBrand[]> => {
+            if (categoryId) {
+                // Filtro por categoria via tabla junction product_brand_categories
+                const { data, error } = await supabase
+                    .from('product_brand_categories')
+                    .select('product_brands!inner(id, slug, name, logo_url, is_official, is_active)')
+                    .eq('category_id', categoryId)
+                    .eq('product_brands.is_active', true);
+
+                if (error) {
+                    console.error('useBrands (filtered) error:', error);
+                    return [];
+                }
+
+                const rows = (data || []) as Array<{ product_brands: ProductBrand & { is_active: boolean } }>;
+                return rows
+                    .map(r => r.product_brands)
+                    .filter(b => !!b)
+                    .sort((a, b) => {
+                        if (a.is_official !== b.is_official) return a.is_official ? -1 : 1;
+                        return a.name.localeCompare(b.name);
+                    });
+            }
+
             const { data, error } = await supabase
                 .from('product_brands')
                 .select('id, slug, name, logo_url, is_official')

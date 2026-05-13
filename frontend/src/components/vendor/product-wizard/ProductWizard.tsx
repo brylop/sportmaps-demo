@@ -74,7 +74,7 @@ export function ProductWizard() {
 
     const { data: categories = [], isLoading: catsLoading } = useCategories();
     const { data: category }                                = useCategory(state.category_slug);
-    const { data: brands = [] }                             = useBrands();
+    const { data: brands = [] }                             = useBrands(state.category_id);
 
     // En edit mode, cargar producto existente
     useEffect(() => {
@@ -293,7 +293,13 @@ export function ProductWizard() {
                                         <button
                                             key={c.id}
                                             type="button"
-                                            onClick={() => setState(s => ({ ...s, category_slug: c.slug, category_id: c.id, product_attrs: {} }))}
+                                            onClick={() => setState(s => ({
+                                                ...s,
+                                                category_slug: c.slug,
+                                                category_id:   c.id,
+                                                product_attrs: {},
+                                                brand_id:      s.category_id === c.id ? s.brand_id : undefined,
+                                            }))}
                                             className={`text-left rounded-lg border p-4 transition-colors hover:bg-muted ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border'}`}
                                         >
                                             <div className="flex items-center gap-2 mb-1">
