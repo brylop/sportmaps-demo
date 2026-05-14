@@ -45,7 +45,8 @@ interface CreateRequestBody {
 
 router.post('/', requireAuth, async (req: Request, res: Response) => {
     try {
-        const { schoolId, userId } = req;
+        const { schoolId } = req;
+        const userId = req.user?.id;
         const body = req.body as CreateRequestBody;
 
         if (!schoolId) {
