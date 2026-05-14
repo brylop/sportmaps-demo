@@ -18,8 +18,11 @@ import { supabase } from '@/integrations/supabase/client';
 
 /**
  * Resuelve la URL del BFF en runtime.
- * En producción/staging siempre usa sportmaps-bff.onrender.com,
- * evitando el problema de env vars mal configuradas en el build de Vercel.
+ * Mapea según hostname:
+ *   - localhost/127.0.0.1 → http://localhost:3000
+ *   - dev.sportmaps.co → sportmaps-bff-dev.onrender.com
+ *   - resto → sportmaps-bff.onrender.com (prod)
+ * VITE_BFF_URL override esta logica.
  */
 function resolveBffUrl(): string {
     const configured = import.meta.env.VITE_BFF_URL;
@@ -29,6 +32,10 @@ function resolveBffUrl(): string {
     const { hostname } = window.location;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3000';
+    }
+    // dev.sportmaps.co (develop branch) → BFF dev
+    if (hostname === 'dev.sportmaps.co' || hostname.startsWith('dev.') || hostname.includes('preview') || hostname.includes('vercel.app')) {
+        return 'https://sportmaps-bff-dev.onrender.com';
     }
     return 'https://sportmaps-bff.onrender.com';
 }
