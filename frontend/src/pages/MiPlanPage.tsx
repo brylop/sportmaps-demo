@@ -12,6 +12,7 @@
  *   - Sección de upsell para los addons NO activos (recomendaciones)
  */
 
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -94,16 +95,42 @@ export default function MiPlanPage() {
     const activeAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => ent.addons[k]);
     const inactiveAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => !ent.addons[k]);
 
-    const upgradeUrl = buildLandingPlansUrl({
-        schoolId: ent.schoolId,
-        currentPlan: ent.plan.code,
-        returnTo: typeof window !== 'undefined'
-            ? `${window.location.origin}/mi-plan`
-            : undefined,
-    });
+    /**
+     * Construye el URL de la landing y le agrega el access_token de
+     * Supabase en el hash (#t=...) para que la landing pueda autenticar
+     * el POST al BFF sin compartir cookies entre dominios.
+     *
+     * Hash en vez de query porque:
+     *   - No aparece en logs del servidor
+     *   - No se envía en Referer header
+     *   - El JS de la landing lo limpia con replaceState al leerlo
+     */
+    const buildUrlWithToken = async (upsellKey?: string, action?: string): Promise<string> => {
+        const baseUrl = buildLandingPlansUrl({
+            schoolId: ent.schoolId ?? undefined,
+            currentPlan: ent.plan.code,
+            upsellFeature: upsellKey as any,
+            returnTo: typeof window !== 'undefined'
+                ? `${window.location.origin}/mi-plan`
+                : undefined,
+        });
+        const finalUrl = action ? `${baseUrl}&action=${action}` : baseUrl;
 
-    const handleUpgrade = () => {
-        window.location.href = upgradeUrl;
+        try {
+            const { data } = await supabase.auth.getSession();
+            const token = data.session?.access_token;
+            if (token) {
+                return `${finalUrl}#t=${encodeURIComponent(token)}`;
+            }
+        } catch {
+            // Si no se puede obtener token, sigue sin él (caerá al flow legacy)
+        }
+        return finalUrl;
+    };
+
+    const handleUpgrade = async () => {
+        const url = await buildUrlWithToken();
+        window.location.href = url;
     };
 
     /**
@@ -111,15 +138,8 @@ export default function MiPlanPage() {
      * La landing muestra ese addon destacado y al confirmar
      * crea un plan_upgrade_requests + notifica al super_admin.
      */
-    const handleAddonUpsell = (addonKey: AddonKey) => {
-        const url = buildLandingPlansUrl({
-            schoolId: ent.schoolId ?? undefined,
-            currentPlan: ent.plan.code,
-            upsellFeature: addonKey,
-            returnTo: typeof window !== 'undefined'
-                ? `${window.location.origin}/mi-plan`
-                : undefined,
-        });
+    const handleAddonUpsell = async (addonKey: AddonKey) => {
+        const url = await buildUrlWithToken(addonKey);
         window.location.href = url;
     };
 
@@ -129,15 +149,9 @@ export default function MiPlanPage() {
      * Cuando Fase 6 esté lista, esta función abrirá un modal interno
      * con Wompi tokenized para re-cobrar.
      */
-    const handleUpdatePayment = () => {
-        const url = buildLandingPlansUrl({
-            schoolId: ent.schoolId ?? undefined,
-            currentPlan: ent.plan.code,
-            returnTo: typeof window !== 'undefined'
-                ? `${window.location.origin}/mi-plan`
-                : undefined,
-        });
-        window.location.href = `${url}&action=update_payment`;
+    const handleUpdatePayment = async () => {
+        const url = await buildUrlWithToken(undefined, 'update_payment');
+        window.location.href = url;
     };
 
     return (
