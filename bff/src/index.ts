@@ -66,6 +66,8 @@ import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
 import athleteBiomechRouter from './routes/athlete/biomech';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
+import meRouter from './routes/me.routes';
+import upgradeRequestsRouter from './routes/upgrade-requests.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -190,6 +192,8 @@ app.use('/api/v1/payments/mp', paymentLimiter, mpPaymentsRouter);
 app.use('/api/v1/payment-providers', generalLimiter, paymentProvidersRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
+app.use('/api/v1/me', generalLimiter, meRouter);
+app.use('/api/v1/upgrade-requests', generalLimiter, upgradeRequestsRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);

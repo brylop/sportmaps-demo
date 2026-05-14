@@ -22,10 +22,11 @@ interface EntitlementGateProps {
     gracePeriod?: boolean;
     /** Estilo de bloqueo. Default 'modal'. */
     fallback?: GateFallback;
-    /** Si fallback='redirect', a dónde mandar. Default /admin/mi-plan. */
+    /** Si fallback='redirect', a dónde mandar. Default /mi-plan. */
     redirectTo?: string;
     /** Cuando no hay bloqueo, renderiza children. */
     children: ReactNode;
+
     /** Custom card inline (sobreescribe el default visual de fallback='inline'). */
     inlineRenderer?: (props: {
         mode: UpgradeModalMode;
@@ -97,7 +98,7 @@ export function EntitlementGate({
     currentUsage,
     gracePeriod,
     fallback = 'modal',
-    redirectTo = '/admin/mi-plan',
+    redirectTo = '/mi-plan',
     children,
     inlineRenderer,
 }: EntitlementGateProps) {

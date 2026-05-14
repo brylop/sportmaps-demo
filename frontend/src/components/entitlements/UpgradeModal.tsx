@@ -103,7 +103,7 @@ export function UpgradeModal({
     };
 
     const goToBillingAddon = (key: AddonKey) => {
-        navigate(`/admin/mi-plan/addons?activate=${key}`);
+        navigate(`/mi-plan?activate=${key}`);
         onOpenChange(false);
     };
 
@@ -147,7 +147,7 @@ export function UpgradeModal({
                         <Button
                             className="flex-1"
                             onClick={() => {
-                                navigate('/admin/mi-plan/pago');
+                                navigate('/mi-plan');
                                 onOpenChange(false);
                             }}
                         >

@@ -95,6 +95,8 @@ const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 // ─── School pages (lazy) ──────────────────────────────────────────────────────
 const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
+const MiPlanPage = lazy(() => import("./pages/MiPlanPage"));
+const AdminUpgradeRequestsPage = lazy(() => import("./pages/AdminUpgradeRequestsPage"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
@@ -396,6 +398,11 @@ const App = () => (
                           <SchoolStudentsManagementPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="mi-plan" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <MiPlanPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="invitations" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <InvitationsManagementPage />
@@ -661,6 +668,11 @@ const App = () => (
                       <Route path="admin/schools" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminSchoolsGlobalPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/upgrade-requests" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminUpgradeRequestsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/reports" element={
