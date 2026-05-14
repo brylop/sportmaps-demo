@@ -7,12 +7,17 @@
  *   2. enrollments  (trigger resuelve offering_id automáticamente)
  *   3. payments     (status=paid, payment_channel=manual)
  *
- * El BFF usa service role → bypass de RLS garantizado.
- * Nunca genera invitaciones — eso se hace manualmente desde el panel después.
+ * Seguridad:
+ *  - Requiere autenticación + role staff de escuela.
+ *  - El BFF usa service role para los inserts (bypass RLS para velocidad batch),
+ *    PERO el school_id efectivo se toma de req.schoolId (del JWT/header), nunca
+ *    del body. El campo school_id de cada atleta en el payload se ignora.
+ *  - Nunca genera invitaciones — eso se hace manualmente desde el panel después.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { requireAuth, requireRole, AuthenticatedRequest } from '../../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -29,7 +34,9 @@ type EnrollmentStatus = 'active' | 'pending' | 'overdue';
 
 interface BulkAthleteInput {
   fila?: number;               // número de fila del Excel (solo para trazabilidad)
-  school_id: string;
+  /** Ignorado: el school_id efectivo se toma de req.schoolId. Se mantiene en el
+   *  tipo para retrocompatibilidad con frontends viejos que aun lo envian. */
+  school_id?: string;
   full_name: string;
   doc_type: DocType | null;
   doc_number: string | null;
@@ -47,7 +54,8 @@ interface BulkAthleteInput {
 }
 
 interface BulkUploadBody {
-  school_id: string;
+  /** Ignorado: el school_id efectivo se toma de req.schoolId. */
+  school_id?: string;
   athletes: BulkAthleteInput[];
   dry_run?: boolean;           // si true, valida sin insertar
 }
@@ -77,18 +85,30 @@ function isValidDoc(docType: DocType | null, docNumber: string | null): boolean 
 }
 
 // ── Handler principal ─────────────────────────────────────────────────────────
-router.post('/bulk-upload', async (req: Request, res: Response) => {
+router.post(
+  '/bulk-upload',
+  requireAuth,
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
+  async (req: AuthenticatedRequest, res: Response) => {
   const body = req.body as BulkUploadBody;
 
-  if (!body.school_id || !Array.isArray(body.athletes) || body.athletes.length === 0) {
-    return res.status(400).json({ error: 'Se requieren school_id y athletes[].' });
+  // El school_id efectivo SIEMPRE viene del JWT/header, jamás del body.
+  // Esto cierra un IDOR cross-tenant donde un admin de escuela A enviaba
+  // body.school_id = '<escuela B>' y el service role bypasseaba RLS.
+  const schoolId = req.schoolId;
+  if (!schoolId) {
+    return res.status(400).json({ error: 'schoolId del request es requerido.' });
+  }
+
+  if (!Array.isArray(body.athletes) || body.athletes.length === 0) {
+    return res.status(400).json({ error: 'Se requiere athletes[] no vacío.' });
   }
 
   // ── 0. Resolver sede principal de la escuela ─────────────────────────────────
   const { data: mainBranch } = await supabase
     .from('school_branches')
     .select('id')
-    .eq('school_id', body.school_id)
+    .eq('school_id', schoolId)
     .eq('is_main', true)
     .single();
 
@@ -100,7 +120,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
     .from('offering_plans')
     .select('id, price, name')
     .in('id', planIds)
-    .eq('school_id', body.school_id);
+    .eq('school_id', schoolId);
 
   if (plansError) return res.status(500).json({ error: 'Error validando planes.', detail: plansError.message });
 
@@ -121,7 +141,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
   const { data: existingDocs } = await supabase
     .from('unregistered_athletes')
     .select('doc_number, doc_type, full_name')
-    .eq('school_id', body.school_id)
+    .eq('school_id', schoolId)
     .in('doc_number', docsToCheck);
 
   const existingDocSet = new Set(
@@ -162,7 +182,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
       const { data: uaData, error: uaError } = await supabase
         .from('unregistered_athletes')
         .insert({
-          school_id:   athlete.school_id,
+          school_id:   schoolId,
           full_name:   athlete.full_name.trim(),
           doc_type:    athlete.doc_type,
           doc_number:  athlete.doc_number,
@@ -183,7 +203,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
       const { data: enrollData, error: enrollError } = await supabase
         .from('enrollments')
         .insert({
-          school_id:                athlete.school_id,
+          school_id:                schoolId,
           unregistered_athlete_id:  uaId,
           offering_plan_id:         athlete.offering_plan_id,
           start_date:               athlete.start_date,
@@ -201,7 +221,7 @@ router.post('/bulk-upload', async (req: Request, res: Response) => {
       const { data: payData, error: payError } = await supabase
         .from('payments')
         .insert({
-          school_id:                athlete.school_id,
+          school_id:                schoolId,
           unregistered_athlete_id:  uaId,
           offering_plan_id:         athlete.offering_plan_id,
           amount:                   athlete.amount,

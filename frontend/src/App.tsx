@@ -95,6 +95,8 @@ const AnnouncementsPage = lazy(() => import("./pages/AnnouncementsPage"));
 
 // ─── School pages (lazy) ──────────────────────────────────────────────────────
 const SchoolStudentsManagementPage = lazy(() => import("./pages/SchoolStudentsManagementPage"));
+const MiPlanPage = lazy(() => import("./pages/MiPlanPage"));
+const AdminUpgradeRequestsPage = lazy(() => import("./pages/AdminUpgradeRequestsPage"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage"));
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
@@ -134,6 +136,7 @@ const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
 const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
+const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
@@ -152,9 +155,16 @@ const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
+const VendorPromotionsPage = lazy(() => import("./pages/vendor/VendorPromotionsPage"));
 const VendorServicesPage = lazy(() => import("./pages/vendor/VendorServicesPage"));
 const VendorAppointmentsPage = lazy(() => import("./pages/vendor/VendorAppointmentsPage"));
 const VendorProductsPage = lazy(() => import("./pages/vendor/VendorProductsPage"));
+const ProductWizardPage = lazy(() => import("./components/vendor/product-wizard/ProductWizard").then(m => ({ default: m.ProductWizard })));
+const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMarketplaceModerationPage"));
+const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
+const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
+const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
+const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
 const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOnboardingPage"));
@@ -388,6 +398,11 @@ const App = () => (
                           <SchoolStudentsManagementPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="mi-plan" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <MiPlanPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="invitations" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
                           <InvitationsManagementPage />
@@ -595,6 +610,12 @@ const App = () => (
                         <Route path="vendor/services" element={<VendorServicesPage />} />
                         <Route path="vendor/appointments" element={<VendorAppointmentsPage />} />
                         <Route path="vendor/products" element={<VendorProductsPage />} />
+                        <Route path="vendor/products/new" element={<ProductWizardPage />} />
+                        <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
+                        <Route path="vendor/inbox" element={<VendorInboxPage />} />
+                        <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
+                        <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
                       </Route>
 
                       {/* Organizer routes */}
@@ -644,6 +665,16 @@ const App = () => (
                           <AdminClubsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="admin/schools" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminSchoolsGlobalPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/upgrade-requests" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminUpgradeRequestsPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="admin/reports" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <ReportsPage />
@@ -667,6 +698,16 @@ const App = () => (
                       <Route path="admin/activity-logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminActivityLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/marketplace/moderation" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminMarketplaceModerationPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/payouts" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminPayoutsPage />
                         </ProtectedRoute>
                       } />
                     </Route>

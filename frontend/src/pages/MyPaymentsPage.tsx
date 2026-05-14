@@ -228,7 +228,7 @@ export default function MyPaymentsPage() {
         installments_pending: p.installments_pending,
         concept: p.concept,
         child_id: p.child_id,
-        child_name: childNameMap[p.child_id] || 'Estudiante',
+        child_name: childNameMap[p.child_id] || 'Deportista',
         payment_method: p.payment_type || 'transfer',
         status: p.status === 'paid' ? 'approved' : p.status,
         reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
@@ -316,7 +316,7 @@ export default function MyPaymentsPage() {
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
-                name: 'Mensualidad Estudiante',
+                name: 'Mensualidad Deportista',
                 price_monthly: child.monthly_fee,
               },
               schools: null,
@@ -429,7 +429,7 @@ export default function MyPaymentsPage() {
           if (p.status === 'approved') return;
           setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
             childId: p.child_id || '',
-            childName: p.child_name || 'Estudiante',
+            childName: p.child_name || 'Deportista',
             teamName: p.concept || 'Mensualidad',
             amount: p.balance_pending || p.amount,
             schoolId: p.school_id || '',
@@ -602,9 +602,9 @@ export default function MyPaymentsPage() {
                     onClick={() => {
                       setSelectedPayment({
                         childId: enroll.child_id,
-                        childName: enroll.children?.full_name || 'Estudiante',
+                        childName: enroll.children?.full_name || 'Deportista',
                         teamId: enroll.team_id || undefined,
-                        teamName: enroll.teams?.name || 'Mensualidad Estudiante',
+                        teamName: enroll.teams?.name || 'Mensualidad Deportista',
                         amount: enroll.teams?.price_monthly || 0,
                         schoolId: enroll.school_id,
                       });
@@ -782,7 +782,7 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
           <div className="flex-1 min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
-                {txn.child_name || 'Estudiante'}
+                {txn.child_name || 'Deportista'}
               </span>
               {txn.school_type === 'personal_trainer' && (
                 <Badge variant="outline" className="text-[10px] py-0 px-2 h-5 bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 font-bold">

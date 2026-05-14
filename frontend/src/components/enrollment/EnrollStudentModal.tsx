@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -129,11 +129,11 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
-            Inscribir Estudiante en Clase
+            Inscribir Deportista en Clase
           </DialogTitle>
           <div className="flex gap-2 mt-2">
             <Badge variant={step === 'select-student' ? 'default' : 'outline'}>
-              1. Estudiante
+              1. Deportista
             </Badge>
             <Badge variant={step === 'select-class' ? 'default' : 'outline'}>
               2. Clase
@@ -147,11 +147,11 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
         {step === 'select-student' && (
           <div className="space-y-4">
             <div>
-              <Label>Seleccionar Estudiante</Label>
+              <Label>Seleccionar Deportista</Label>
               <div className="relative mt-2">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar estudiante..."
+                  placeholder="Buscar deportista..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -162,7 +162,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
             <div className="max-h-[400px] overflow-y-auto space-y-2">
               {filteredStudents.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  No se encontraron estudiantes activos
+                  No se encontraron deportistas activos
                 </div>
               ) : (
                 filteredStudents.map((student) => (
@@ -249,14 +249,14 @@ export function EnrollStudentModal({ open, onClose, onSuccess, schoolId }: Enrol
               <div>
                 <p className="text-lg font-semibold">Confirmar InscripciÃ³n</p>
                 <p className="text-sm text-muted-foreground mt-2">
-                  Â¿Deseas inscribir al siguiente estudiante?
+                  Â¿Deseas inscribir al siguiente deportista?
                 </p>
               </div>
             </div>
 
             <div className="bg-accent p-4 rounded-lg space-y-3">
               <div>
-                <p className="text-sm text-muted-foreground">Estudiante:</p>
+                <p className="text-sm text-muted-foreground">Deportista:</p>
                 <p className="font-medium">{selectedStudent?.full_name}</p>
                 <p className="text-sm">{selectedStudent?.grade && `Grado ${selectedStudent.grade}`}</p>
               </div>

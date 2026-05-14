@@ -101,7 +101,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/school/enroll/:eventId': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Inscripción a evento' },
     '/school/delegations': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Delegaciones de escuela' },
     '/school/delegations/:id': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Detalle de delegación' },
-    '/students': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], requiredPermission: 'students:view', description: 'Gestión de estudiantes' },
+    '/students': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], requiredPermission: 'students:view', description: 'Gestión de deportistas' },
     '/invitations': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], description: 'Gestión de invitaciones' },
     '/staff': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Gestión de entrenadores' },
     '/offerings': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Planes y ofertas' },
@@ -164,6 +164,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     // ── Admin ──
     '/admin/users': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:users', description: 'Gestión de usuarios' },
     '/admin/clubs': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Gestión de clubes' },
+    '/admin/schools': { allowedRoles: ['admin', 'super_admin'], requiredPermission: 'admin:all', description: 'Vista global de escuelas' },
     '/admin/reports': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Reportes admin' },
     '/admin/analytics': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Analytics admin' },
     '/admin/config': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Configuración admin' },

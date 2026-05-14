@@ -115,7 +115,7 @@ export default function SchoolBranchesManagementPage() {
     };
 
     const handleDelete = async (id: string, name: string) => {
-        if (!window.confirm(`¿Eliminar la sede "${name}"? Los programas y estudiantes asociados quedarán sin sede asignada.`)) return;
+        if (!window.confirm(`¿Eliminar la sede "${name}"? Los programas y deportistas asociados quedarán sin sede asignada.`)) return;
 
         try {
             await branchesAPI.deleteBranch(id);

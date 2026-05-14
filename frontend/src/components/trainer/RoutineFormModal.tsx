@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 import { Switch } from '@/components/ui/switch';
 import { BlockBuilder, ExerciseBlock } from './BlockBuilder';
-import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame } from 'lucide-react';
+import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NumberStepper } from '@/components/ui/number-stepper';
@@ -29,6 +29,55 @@ interface RoutineFormModalProps {
 
 const CATEGORIES = ['Fuerza', 'Cardio', 'Funcional', 'HIIT', 'Flexibilidad', 'Yoga', 'Otro'];
 const DIFFICULTIES = ['Principiante', 'Intermedio', 'Avanzado', 'Elite'];
+
+const BIOMECH_ANALYZERS = [
+  { code: 'hack_squat',    label: 'Sentadilla Hack'  },
+  { code: 'incline_press', label: 'Press Inclinado'  },
+  { code: 'row',           label: 'Remo'             },
+] as const;
+
+// Mapeo local para detección inmediata sin latencia
+// Se sincroniza con exercise_analyzer_mappings en la DB
+const KNOWN_WGER_IDS: Record<number, string> = {
+  1414: 'hack_squat',
+  // Agregar más a medida que se descubran en producción
+};
+
+const NAME_PATTERNS: Array<{ pattern: string; code: string }> = [
+  // hack_squat
+  { pattern: 'hack squat',         code: 'hack_squat'    },
+  { pattern: 'hack squats',        code: 'hack_squat'    },
+  { pattern: 'sentadilla hack',    code: 'hack_squat'    },
+  // incline_press
+  { pattern: 'incline press',      code: 'incline_press' },
+  { pattern: 'incline bench',      code: 'incline_press' },
+  { pattern: 'press inclinado',    code: 'incline_press' },
+  // row
+  { pattern: 'bent over row',      code: 'row'           },
+  { pattern: 'barbell row',        code: 'row'           },
+  { pattern: 'dumbbell row',       code: 'row'           },
+  { pattern: 'cable row',          code: 'row'           },
+  { pattern: 'seated row',         code: 'row'           },
+  { pattern: 'remo con',           code: 'row'           },
+  { pattern: 'remo en',            code: 'row'           },
+];
+
+function detectAnalyzerCode(block: any): string | null {
+  // 1. Por wger_id exacto
+  if (block.wger_id && KNOWN_WGER_IDS[block.wger_id]) {
+    return KNOWN_WGER_IDS[block.wger_id];
+  }
+  // 2. Por nombre (wger_name_en o name) en lowercase
+  const haystack = [
+    block.wger_name_en ?? '',
+    block.name ?? '',
+  ].join(' ').toLowerCase();
+
+  for (const { pattern, code } of NAME_PATTERNS) {
+    if (haystack.includes(pattern)) return code;
+  }
+  return null;
+}
 
 export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: RoutineFormModalProps) {
   const [step, setStep] = useState(1);
@@ -288,14 +337,132 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                     difficulty={formData.difficulty}
                     onChange={(blocks) => {
                       const totalCals = blocks.reduce((sum: number, b: any) => sum + (b.calories || 0), 0);
-                      setFormData({ 
-                        ...formData, 
-                        blocks,
-                        estimated_calories: totalCals > 0 ? totalCals : formData.estimated_calories 
+
+                      // Auto-detectar analyzer para bloques nuevos (sin analyzer_required todavía)
+                      const enrichedBlocks = blocks.map((b: any) => {
+                        // Si ya tiene configuración biomecánica, no sobreescribir
+                        if (b.analyzer_required !== undefined) return b;
+
+                        const detected = detectAnalyzerCode(b);
+                        if (!detected) return b;
+
+                        // Auto-activar con el analyzer detectado
+                        return {
+                          ...b,
+                          analyzer_required: true,
+                          analyzer_code:     detected,
+                        };
+                      });
+
+                      setFormData({
+                        ...formData,
+                        blocks:             enrichedBlocks,
+                        estimated_calories: totalCals > 0 ? totalCals : formData.estimated_calories,
                       });
                     }}
                   />
                 </div>
+
+                {/* ── Configuración Biomecánica por Bloque ──────────────────────── */}
+                {formData.blocks.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge
+                        variant="outline"
+                        className="rounded-full h-6 w-6 p-0 flex items-center justify-center font-bold text-primary border-primary/40"
+                      >
+                        <Activity className="h-3 w-3" />
+                      </Badge>
+                      <Label className="text-sm font-bold uppercase tracking-wider text-primary">
+                        Captura Biomecánica
+                      </Label>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-primary/70 bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
+                        SportMaps Body
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {formData.blocks.map((block: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-xl border transition-colors ${
+                            block.analyzer_required
+                              ? 'bg-primary/5 border-primary/20'
+                              : 'bg-muted/20 border-border/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            {/* Nombre del bloque */}
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="h-6 w-6 rounded-md bg-muted/50 border border-border/40 flex items-center justify-center shrink-0">
+                                <span className="text-[10px] font-black text-muted-foreground">{idx + 1}</span>
+                              </div>
+                              <p className="text-sm font-bold truncate">
+                                {block.name || `Ejercicio ${idx + 1}`}
+                              </p>
+                            </div>
+
+                            {/* Toggle */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] text-muted-foreground font-medium hidden sm:block">
+                                {block.analyzer_required ? 'Captura activa' : 'Sin captura'}
+                              </span>
+                              <Switch
+                                checked={!!block.analyzer_required}
+                                onCheckedChange={(val) => {
+                                  const updatedBlocks = formData.blocks.map((b: any, i: number) =>
+                                    i === idx
+                                      ? {
+                                          ...b,
+                                          analyzer_required: val,
+                                          // Limpiar analyzer_code si se desactiva
+                                          analyzer_code: val ? (b.analyzer_code ?? 'hack_squat') : undefined,
+                                        }
+                                      : b
+                                  );
+                                  setFormData({ ...formData, blocks: updatedBlocks });
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Selector de analyzer — solo si el toggle está activo */}
+                          {block.analyzer_required && (
+                            <div className="mt-3 flex items-center gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0 whitespace-nowrap">
+                                Tipo de análisis
+                              </Label>
+                              <Select
+                                value={block.analyzer_code ?? 'hack_squat'}
+                                onValueChange={(val) => {
+                                  const updatedBlocks = formData.blocks.map((b: any, i: number) =>
+                                    i === idx ? { ...b, analyzer_code: val } : b
+                                  );
+                                  setFormData({ ...formData, blocks: updatedBlocks });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs bg-background border-primary/20">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {BIOMECH_ANALYZERS.map(a => (
+                                    <SelectItem key={a.code} value={a.code} className="text-xs">
+                                      {a.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-[10px] text-muted-foreground px-1 leading-relaxed">
+                      Los bloques con captura activa mostrarán un botón de cámara al atleta durante la ejecución.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-2">

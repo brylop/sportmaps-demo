@@ -179,3 +179,9 @@ mobile/android/app/build/
 mobile/android/local.properties
 mobile/analyze_output*.txt
 *.iml
+
+# Claude Code project config (local only)
+.claude/
+
+# Vite config cache (build artifact)
+frontend/vite.config.ts.timestamp-*.mjs

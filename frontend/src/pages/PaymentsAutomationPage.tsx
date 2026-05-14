@@ -517,7 +517,7 @@ export default function PaymentsAutomationPage() {
 
   const handleExportCSV = () => {
     if (payments.length === 0) { toast({ title: 'No hay datos', description: 'No hay transacciones para exportar.' }); return; }
-    const headers = ['Fecha', 'Padre', 'Estudiante', 'Monto', 'Estado', 'Concepto', 'Tipo'];
+    const headers = ['Fecha', 'Padre', 'Deportista', 'Monto', 'Estado', 'Concepto', 'Tipo'];
     const rows = payments.map(p => {
       const cfg = STATUS_CONFIG[p.status];
       return [new Date(p.created_at).toLocaleDateString(), p.parent?.full_name || 'Desconocido', p.child?.full_name || 'Desconocido', p.amount, cfg?.label ?? p.status, p.concept, p.payment_type || 'N/A'];
@@ -535,14 +535,14 @@ export default function PaymentsAutomationPage() {
   const handleShowProof = async (payment: PaymentTransaction) => {
     if (!payment.receipt_url) return;
     if (payment.receipt_url.startsWith('http')) {
-      setViewingProof({ open: true, url: payment.receipt_url, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
+      setViewingProof({ open: true, url: payment.receipt_url, student: payment.child?.full_name || 'Deportista', amount: payment.amount });
       return;
     }
     try {
       const cleanPath = normalizeReceiptUrl(payment.receipt_url);
       const { data, error } = await supabase.storage.from('payment-receipts').createSignedUrl(cleanPath, 300);
       if (error) throw error;
-      setViewingProof({ open: true, url: data.signedUrl, student: payment.child?.full_name || 'Estudiante', amount: payment.amount });
+      setViewingProof({ open: true, url: data.signedUrl, student: payment.child?.full_name || 'Deportista', amount: payment.amount });
     } catch {
       toast({ title: 'Error de acceso', description: 'No se pudo generar el acceso al comprobante.', variant: 'destructive' });
     }
@@ -778,7 +778,7 @@ export default function PaymentsAutomationPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Fecha</TableHead>
-                          <TableHead>Estudiante / Programa</TableHead>
+                          <TableHead>Deportista / Programa</TableHead>
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
                           <TableHead>OCR</TableHead>
@@ -869,7 +869,7 @@ export default function PaymentsAutomationPage() {
                 {loading ? (
                   <div className="flex justify-center py-8"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>
                 ) : teamSubscriptions.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No hay estudiantes asignados a equipos o planes.</p>
+                  <p className="text-center text-muted-foreground py-8">No hay deportistas asignados a equipos o planes.</p>
                 ) : teamSubscriptions.map((sub) => (
                   <div key={sub.id} className="border rounded-lg p-4 flex items-center gap-3">
                     <div className="flex-1 min-w-0">
@@ -1015,7 +1015,7 @@ export default function PaymentsAutomationPage() {
 
                 {teamSubscriptions.length === 0 && !loading && (
                    <div className="text-center py-12 text-muted-foreground">
-                     <p>No hay estudiantes asignados a equipos o planes activos.</p>
+                     <p>No hay deportistas asignados a equipos o planes activos.</p>
                    </div>
                 )}
               </div>
@@ -1112,7 +1112,7 @@ export default function PaymentsAutomationPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Fecha</TableHead>
-                      <TableHead>Estudiante</TableHead>
+                      <TableHead>Deportista</TableHead>
                       <TableHead>Concepto</TableHead>
                       <TableHead>Monto</TableHead>
                       <TableHead>Método</TableHead>

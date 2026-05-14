@@ -34,7 +34,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -54,7 +55,8 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Staff no encontrado' });
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -77,7 +79,8 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -102,7 +105,8 @@ router.patch('/:id', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -128,7 +132,8 @@ router.patch('/:id/status', requireAuth, async (req: Request, res: Response) => 
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -147,7 +152,8 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
     if (error) throw error;
     res.status(204).send();
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -169,7 +175,8 @@ router.get('/:coachId/availability', requireAuth, async (req: Request, res: Resp
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -205,7 +212,8 @@ router.post('/:coachId/availability', requireAuth, async (req: Request, res: Res
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -224,7 +232,8 @@ router.delete('/:coachId/availability/:availId', requireAuth, async (req: Reques
     if (error) throw error;
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'school-staff unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

@@ -119,7 +119,13 @@ export function validateWebhookChecksum(body: any): boolean {
 
     const raw = values.join('') + String(timestamp ?? '') + eventsSecret;
     const expected = crypto.createHash('sha256').update(raw).digest('hex');
-    return signature.checksum === expected;
+
+    // Comparacion constant-time: evita timing attacks que filtrarian el checksum
+    // byte por byte. timingSafeEqual REQUIERE buffers de la misma longitud — el
+    // chequeo previo evita un throw cuando un atacante manda un checksum corto.
+    const received = String(signature.checksum);
+    if (received.length !== expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected));
 }
 
 /**

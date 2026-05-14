@@ -51,7 +51,8 @@ router.get('/products/:id', optionalAuth, async (req: Request, res: Response) =>
             .select(`
                 *,
                 product_variants (id, sku, name, attributes, price_override, stock, image_url, is_active, sort_order),
-                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status)
+                vendor_profiles!products_vendor_profile_id_fkey (id, display_name, slug, city, logo_url, verification_status, avg_rating, reviews_count),
+                product_categories!products_category_id_fkey (slug, name, attribute_schema)
             `)
             .eq('id', id)
             .eq('active', true)
@@ -136,9 +137,12 @@ router.get('/services/:id/slots', optionalAuth, async (req: Request, res: Respon
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/marketplace/categories
-// Categorias agregadas de productos y tipos de servicio
+// Categorias agregadas (legacy) — se mueve a /categories-legacy para no
+// colisionar con marketplace-catalog.routes.ts /categories (jerarquico).
+// El frontend nuevo (ProductWizard) consume el endpoint del catalog router
+// que devuelve un array. Este sigue disponible para llamadas legacy.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/categories', async (_req: Request, res: Response) => {
+router.get('/categories-legacy', async (_req: Request, res: Response) => {
     try {
         // Categorias de productos
         const { data: productCategories } = await supabase

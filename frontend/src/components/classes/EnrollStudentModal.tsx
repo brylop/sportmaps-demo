@@ -52,7 +52,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
-                title: 'Error al cargar estudiantes',
+                title: 'Error al cargar deportistas',
                 description: error.message,
                 variant: 'destructive',
             });
@@ -79,7 +79,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
             await classesAPI.enrollStudent(classItem.id, student.id, student.full_name);
 
             toast({
-                title: '¡Estudiante inscrito!',
+                title: '¡Deportista inscrito!',
                 description: `${student.full_name} ha sido inscrito en ${classItem.name}`,
             });
 
@@ -104,7 +104,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
             await classesAPI.unenrollStudent(classItem.id, student.id);
 
             toast({
-                title: 'Estudiante removido',
+                title: 'Deportista removido',
                 description: `${student.full_name} ha sido removido de ${classItem.name}`,
             });
 
@@ -136,11 +136,11 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                 <DialogHeader className="text-left">
                     <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
                         <UserPlus className="h-5 w-5 text-primary" />
-                        Inscribir Estudiantes
+                        Inscribir Deportistas
                     </DialogTitle>
                     <DialogDescription asChild>
                         <div className="flex flex-col gap-2">
-                            <span>Inscribe o remueve estudiantes para este programa específico.</span>
+                            <span>Inscribe o remueve deportistas para este programa específico.</span>
                             {classItem && (
                                 <div className="flex flex-wrap gap-2 mt-2">
                                     <Badge variant="secondary">{classItem.name}</Badge>
@@ -160,7 +160,7 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Buscar estudiante por nombre, email o grado..."
+                            placeholder="Buscar deportista por nombre, email o grado..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-10"
@@ -172,15 +172,15 @@ export function EnrollStudentModal({ open, onClose, onSuccess, classItem }: Enro
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                                <p className="text-muted-foreground">Cargando estudiantes...</p>
+                                <p className="text-muted-foreground">Cargando deportistas...</p>
                             </div>
                         ) : filteredStudents.length === 0 ? (
                             <div className="text-center py-12">
                                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                                 <p className="text-muted-foreground">
                                     {searchQuery
-                                        ? 'No se encontraron estudiantes con esa búsqueda'
-                                        : 'No hay estudiantes registrados aún'
+                                        ? 'No se encontraron deportistas con esa búsqueda'
+                                        : 'No hay deportistas registrados aún'
                                     }
                                 </p>
                             </div>

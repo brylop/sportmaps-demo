@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { postSessionExerciseResults } from '@/lib/athlete/queries';
-import { bffClient } from '@/lib/api/bffClient';
+import { bffClient, BFF_URL } from '@/lib/api/bffClient';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -12,7 +12,9 @@ import { NumberStepper } from '@/components/ui/number-stepper';
 import {
   Loader2, CheckCircle2, Dumbbell, ChevronDown, ChevronUp,
   Wind, Heart, Zap, Timer, Coffee, FileText, Flame, BookOpen,
+  Camera, Activity,
 } from 'lucide-react';
+import { BiomechCaptureModal } from '@/components/biomech/BiomechCaptureModal';
 import { useBodyMetrics } from '@/hooks/useAthleteData';
 import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 
@@ -39,12 +41,16 @@ interface Block {
   is_compound?:      boolean;
   level?:            string | null;
   mechanic?:         string | null;
+  // ✅ Biomecánica
+  analyzer_required?: boolean;
+  analyzer_code?:     'hack_squat' | 'incline_press' | 'row';
 }
 
 interface SessionExecutionProps {
   session: {
     id: string;
     name: string;
+    school_id?: string;
     blocks: Block[] | { blocks?: Block[] } | any;
     custom_notes?: string | null;
     trainer_profiles?: { display_name: string } | null;
@@ -139,6 +145,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
   const [expandedBlock, setExpandedBlock] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted]   = useState(false);
+  const [biomechBlock, setBiomechBlock] = useState<{ blockIdx: number; block: Block } | null>(null);
   // Índice de imagen activa por bloque (para el carrusel)
   const [activeImageIndex, setActiveImageIndex] = useState<Record<number, number>>({});
 
@@ -232,7 +239,8 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
   };
 
   return (
-    <Dialog open onOpenChange={onClose}>
+    <>
+      <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-xl max-h-[88vh] flex flex-col p-0 overflow-hidden border-border/50 shadow-2xl">
 
         {/* ── Header ─────────────────────────────────────────────────── */}
@@ -372,7 +380,13 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                               <div className="space-y-1.5">
                                 <div className="relative rounded-xl overflow-hidden bg-muted/30 border border-border/30">
                                   <img
-                                    src={block.wger_images![activeImageIndex[blockIdx] ?? 0]}
+                                    src={(() => {
+                                      const rawUrl = block.wger_images![activeImageIndex[blockIdx] ?? 0];
+                                      if (rawUrl && rawUrl.startsWith('/')) {
+                                        return `${BFF_URL}${rawUrl}`;
+                                      }
+                                      return rawUrl;
+                                    })()}
                                     alt={`Ejecución — ${block.name}`}
                                     className="w-full h-40 object-contain"
                                     onError={(e) => {
@@ -475,6 +489,30 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                           </div>
                         )}
 
+                        {/* ✅ Captura biomecánica */}
+                        {block.analyzer_required && block.analyzer_code && (
+                          <div className="pt-3 p-4 bg-primary/5 rounded-xl border border-primary/20 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                <Activity className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-black text-primary uppercase tracking-widest">Captura requerida</p>
+                                <p className="text-[10px] text-muted-foreground truncate">SportMaps Body · {block.analyzer_code.replace(/_/g, ' ')}</p>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0 gap-1.5 text-xs font-bold border-primary/30 text-primary hover:bg-primary/10"
+                              onClick={() => setBiomechBlock({ blockIdx, block })}
+                            >
+                              <Camera className="h-3.5 w-3.5" />
+                              Capturar
+                            </Button>
+                          </div>
+                        )}
+
                         {/* Notas del bloque */}
                         {block.notes && (
                           <p className="text-xs text-muted-foreground italic pt-3 px-1">
@@ -565,5 +603,22 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* ✅ Modal de captura biomecánica */}
+    {biomechBlock && (
+      <BiomechCaptureModal
+        open={!!biomechBlock}
+        onClose={() => setBiomechBlock(null)}
+        onComplete={({ captureId, analysisId, metrics, flags }) => {
+          // No cerrar el modal aquí — el usuario cierra con el botón "Listo"
+          // que llama onClose → setBiomechBlock(null)
+        }}
+        analyzerCode={biomechBlock.block.analyzer_code!}
+        sessionPlanId={session.id}
+        schoolId={session.school_id ?? ''}
+        blockIndex={biomechBlock.blockIdx}
+      />
+    )}
+    </>
   );
 }

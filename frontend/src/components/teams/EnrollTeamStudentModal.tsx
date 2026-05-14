@@ -67,7 +67,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
-                title: 'Error al cargar estudiantes',
+                title: 'Error al cargar deportistas',
                 description: error.message,
                 variant: 'destructive',
             });
@@ -110,7 +110,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             });
 
             toast({
-                title: '¡Estudiante inscrito!',
+                title: '¡Deportista inscrito!',
                 description: `${student.full_name} ha sido inscrito en ${team.name}`,
             });
 
@@ -149,7 +149,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
             }
 
             toast({
-                title: 'Estudiante removido',
+                title: 'Deportista removido',
                 description: `${student.full_name} ha sido removido del equipo ${team.name}`,
             });
 
@@ -194,7 +194,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
-                        Inscribir Estudiantes
+                        Inscribir Deportistas
                     </DialogTitle>
                     <DialogDescription asChild>
                         <div className="flex flex-col gap-2">
@@ -217,7 +217,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Buscar estudiante por nombre, email o grado..."
+                            placeholder="Buscar deportista por nombre, email o grado..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-10"
@@ -228,15 +228,15 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                                <p className="text-muted-foreground">Cargando estudiantes...</p>
+                                <p className="text-muted-foreground">Cargando deportistas...</p>
                             </div>
                         ) : filteredStudents.length === 0 ? (
                             <div className="text-center py-12">
                                 <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                                 <p className="text-muted-foreground">
                                     {searchQuery
-                                        ? 'No se encontraron estudiantes con esa búsqueda'
-                                        : 'No hay estudiantes registrados o vinculados a esta escuela aún.'
+                                        ? 'No se encontraron deportistas con esa búsqueda'
+                                        : 'No hay deportistas registrados o vinculados a esta escuela aún.'
                                     }
                                 </p>
                             </div>

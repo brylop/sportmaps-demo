@@ -218,7 +218,7 @@ export default function AdminClubsPage() {
             {/* Global summary */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                    { label: 'Total Estudiantes', value: totals.students, icon: Users, color: 'text-blue-600' },
+                    { label: 'Total Deportistas', value: totals.students, icon: Users, color: 'text-blue-600' },
                     { label: 'Total Entrenadores', value: totals.coaches, icon: Activity, color: 'text-green-600' },
                     { label: 'Ingresos del Mes', value: `$${totals.income.toLocaleString('es-CO')}`, icon: DollarSign, color: 'text-emerald-600' },
                     { label: 'Sedes Activas', value: branches.length, icon: Building, color: 'text-purple-600' },
@@ -281,7 +281,7 @@ export default function AdminClubsPage() {
                                 <div className="grid grid-cols-3 gap-3">
                                     <div className="text-center">
                                         <p className="text-xl font-bold text-blue-600">{branch.students}</p>
-                                        <p className="text-xs text-muted-foreground">Estudiantes</p>
+                                        <p className="text-xs text-muted-foreground">Deportistas</p>
                                     </div>
                                     <div className="text-center">
                                         <p className="text-xl font-bold text-green-600">{branch.coaches}</p>

@@ -22,6 +22,11 @@ import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
 import { useNextUnpaidPeriod, isPeriodActive, type PeriodStatus } from '@/hooks/usePaymentPeriod';
 
+/** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
+function safeParseJson(s: string): unknown | null {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
 export default function ParentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -217,11 +222,29 @@ export default function ParentCheckoutPage() {
       ocr_bank:      manualOcrResult?.extractedBank      ?? null,
       ocr_reference: manualOcrResult?.extractedReference ?? null,
       ocr_provider:  manualOcrResult?.provider           ?? null,
+      // Respuesta cruda del LLM (string JSON o texto). Util para auditoria
+      // cuando hay disputa sobre lo que extrajo el OCR. Se guarda como
+      // jsonb: el postgrest acepta tanto el objeto parseado como un string
+      // (lo trata como JSON string si no es objeto valido).
+      ocr_raw_response: manualOcrResult?.rawResponse
+        ? safeParseJson(manualOcrResult.rawResponse) ?? manualOcrResult.rawResponse
+        : null,
     } as any);
 
     if (insertError) {
       console.error('Error inserting payment:', insertError);
-      toast({ title: 'Error', description: 'No se pudo registrar el pago en la base de datos', variant: 'destructive' });
+      // Conflicto del unique index uq_payments_school_ocr_reference: el
+      // numero de operacion bancaria del comprobante ya fue usado en otro
+      // pago de esta escuela.
+      const isOcrDuplicate = insertError.code === '23505'
+        && (insertError.message?.toLowerCase().includes('ocr_reference') ?? false);
+      toast({
+        title: isOcrDuplicate ? 'Comprobante ya usado' : 'Error',
+        description: isOcrDuplicate
+          ? 'Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración.'
+          : 'No se pudo registrar el pago en la base de datos',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -457,7 +480,7 @@ export default function ParentCheckoutPage() {
           <CardContent>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Estudiante</span><span>{studentName}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Deportista</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
 

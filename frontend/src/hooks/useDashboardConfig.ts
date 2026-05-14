@@ -59,7 +59,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
         { id: 'create_school', title: 'Crea tu Academia', description: 'Registra los datos básicos de tu escuela.', icon: Building, href: '/school-config', completed: false },
         { id: 'add_staff', title: 'Equipo de Trabajo', description: 'Registra entrenadores o administrativos.', icon: Users, href: '/staff', completed: false },
         { id: 'create_program', title: 'Oferta Deportiva', description: 'Crea niveles o clases (ej. Porrismo Nivel 1).', icon: Award, href: '/programs-management', completed: false },
-        { id: 'invite_students', title: 'Invita Estudiantes', description: 'Registra y envía invitaciones.', icon: Users, href: '/students', completed: false }
+        { id: 'invite_students', title: 'Invita Deportistas', description: 'Registra y envía invitaciones.', icon: Users, href: '/students', completed: false }
       ],
       parent: [
         { id: 'add_child', title: 'Vincular Hijo', description: 'Registra el perfil de tus deportistas.', icon: Users, href: '/children', completed: false },
@@ -175,10 +175,10 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
         return {
           role: 'coach',
           title: 'Panel de Entrenador',
-          description: 'Gestiona tus equipos y estudiantes',
+          description: 'Gestiona tus equipos y deportistas',
           stats: [
             {
-              title: 'Estudiantes Total',
+              title: 'Deportistas Total',
               value: stats.totalStudents || 0,
               description: 'En todos los equipos',
               icon: Users
@@ -219,9 +219,9 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Gestión completa de tu centro deportivo',
           stats: [
             {
-              title: 'Estudiantes Activos',
+              title: 'Deportistas Activos',
               value: stats.totalStudents,
-              description: stats.totalStudents === 0 ? 'Aún no tienes estudiantes' : 'Total matriculados',
+              description: stats.totalStudents === 0 ? 'Aún no tienes deportistas' : 'Total matriculados',
               icon: Users
             },
             {
@@ -245,7 +245,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           ],
           activities: [],
           quickActions: [
-            { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
+            { label: 'Gestionar Deportistas', icon: Users, href: '/students', variant: 'default' },
             { label: 'Ver Equipos', icon: Trophy, href: '/programs-management', variant: 'outline' },
             { label: 'Ver Planes', icon: Zap, href: '/offerings', variant: 'outline' },
             { label: 'Cobros y Pagos', icon: DollarSign, href: '/payments-automation', variant: 'outline' },
@@ -341,7 +341,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           description: 'Vista general del conglomerado de sedes',
           stats: [
             {
-              title: 'Total Estudiantes',
+              title: 'Total Deportistas',
               value: stats.totalStudents || 0,
               description: 'Suma de todas las sedes',
               icon: Users
@@ -367,7 +367,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
           ],
           activities: [],
           quickActions: [
-            { label: 'Gestionar Estudiantes', icon: Users, href: '/students', variant: 'default' },
+            { label: 'Gestionar Deportistas', icon: Users, href: '/students', variant: 'default' },
             { label: 'Gestionar Sedes', icon: Building, href: '/branches', variant: 'outline' },
             { label: 'Reportes Globales', icon: BarChart3, href: '/school-reports', variant: 'outline' }
           ],

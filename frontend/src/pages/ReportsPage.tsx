@@ -163,7 +163,7 @@ export default function ReportsPage() {
       '',
       '-- RESUMEN --',
       `Ocupación Global,${summary.occupancyRate}%`,
-      `Total Estudiantes,${summary.totalStudents}`,
+      `Total Deportistas,${summary.totalStudents}`,
       `Capacidad Total,${summary.totalCapacity}`,
       `Ingresos Confirmados,${formatCurrency(summary.totalRevenue)}`,
       `Crecimiento Neto (mes),${summary.netGrowth}`,
@@ -354,7 +354,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-blue-500">+{summary.netGrowth}</div>
-                <p className="text-xs text-muted-foreground">Estudiantes este mes</p>
+                <p className="text-xs text-muted-foreground">Deportistas este mes</p>
               </CardContent>
             </Card>
           </div>
@@ -388,7 +388,7 @@ export default function ReportsPage() {
                 ) : (
                   <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
                     <Users className="w-10 h-10 opacity-30" />
-                    <p className="text-sm">No hay programas o estudiantes activos aún.</p>
+                    <p className="text-sm">No hay programas o deportistas activos aún.</p>
                   </div>
                 )}
               </CardContent>
@@ -466,7 +466,7 @@ export default function ReportsPage() {
               ) : (
                 <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
                   <TrendingUp className="w-10 h-10 opacity-30" />
-                  <p className="text-sm">Registra estudiantes para ver la tendencia de crecimiento.</p>
+                  <p className="text-sm">Registra deportistas para ver la tendencia de crecimiento.</p>
                 </div>
               )}
             </CardContent>

@@ -94,8 +94,20 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
             vendorId: merchantCtx.vendorId,
         });
 
-        const effectiveSecret = merchantConfig?.webhookSecret ?? process.env.MP_WEBHOOK_SECRET_DEFAULT ?? null;
+        // Cada merchant debe tener su propio webhookSecret configurado en
+        // payment_provider_configs. NO se usa fallback global: un secret
+        // compartido entre escuelas permitiria que una merchant maliciosa
+        // forje webhooks de otras escuelas que tampoco lo configuraron.
+        const effectiveSecret = merchantConfig?.webhookSecret ?? null;
         const isSandbox = merchantConfig?.sandbox ?? ((process.env.MP_ENV ?? 'sandbox').toLowerCase() !== 'production');
+
+        if (!effectiveSecret) {
+            req.log?.error(
+                { dataId, schoolId: merchantCtx.schoolId, vendorId: merchantCtx.vendorId },
+                'MP webhook: merchant sin webhookSecret configurado',
+            );
+            return res.status(503).json({ error: 'merchant_webhook_secret_missing' });
+        }
 
         const validSig = validateMpWebhookSignature({
             xSignature,
@@ -433,6 +445,17 @@ async function handleCartOrder(args: HandlerArgs): Promise<HandlerResult> {
             req.log?.warn({ err: splitErr, orderId: order.id }, 'split_order_payment failed (non-blocking)');
         }
 
+        // Settlements R5 — crea settlements y acredita pending_balance (idempotente)
+        const { data: settleResult, error: settleErr } = await supabase.rpc(
+            'compute_settlements_for_order',
+            { p_order_id: order.id },
+        );
+        if (settleErr) {
+            req.log?.warn({ err: settleErr, orderId: order.id }, 'compute_settlements_for_order failed (non-blocking)');
+        } else {
+            req.log?.info({ orderId: order.id, settleResult }, 'Settlements computed');
+        }
+
         return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
     }
 
@@ -597,8 +620,15 @@ paymentsRouter.post('/create', async (req: Request, res: Response) => {
             statementDescriptor,            // opcional: por default 'SPORTMAPS'
         } = req.body ?? {};
 
-        if (!token || !paymentMethodId || !transactionAmount || !payerEmail || !externalReference) {
-            return res.status(400).json({ error: 'missing_fields' });
+        const missing: string[] = [];
+        if (!token) missing.push('token');
+        if (!paymentMethodId) missing.push('paymentMethodId');
+        if (!transactionAmount) missing.push('transactionAmount');
+        if (!payerEmail) missing.push('payerEmail');
+        if (!externalReference) missing.push('externalReference');
+        if (missing.length) {
+            req.log?.warn({ missing, body: req.body }, 'MP /create missing_fields');
+            return res.status(400).json({ error: 'missing_fields', missing });
         }
 
         const config = await loadProviderConfig({

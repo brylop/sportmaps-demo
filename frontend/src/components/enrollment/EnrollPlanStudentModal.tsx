@@ -94,7 +94,7 @@ export function EnrollPlanStudentModal({
         } catch (error: any) {
             console.error('Error loading students:', error);
             toast({
-                title: 'Error al cargar estudiantes',
+                title: 'Error al cargar deportistas',
                 description: error.message,
                 variant: 'destructive',
             });
@@ -279,7 +279,7 @@ export function EnrollPlanStudentModal({
                 </DialogTitle>
                 <DialogDescription asChild>
                     <div className="flex flex-col gap-2">
-                        <p>Asigna este plan a estudiantes de tu escuela.</p>
+                        <p>Asigna este plan a deportistas de tu escuela.</p>
                         <div className="flex flex-wrap gap-2 mt-1">
                             <Badge variant="secondary" className="bg-primary/10 text-primary">
                                 {offeringName}
@@ -306,7 +306,7 @@ export function EnrollPlanStudentModal({
  
                 {plan && (
                     <p className="text-[10px] text-muted-foreground px-1">
-                        {enrollmentMap.size} estudiante{enrollmentMap.size !== 1 ? 's' : ''} inscrito{enrollmentMap.size !== 1 ? 's' : ''}
+                        {enrollmentMap.size} deportista{enrollmentMap.size !== 1 ? 's' : ''} inscrito{enrollmentMap.size !== 1 ? 's' : ''}
                     </p>
                 )}
  
@@ -314,12 +314,12 @@ export function EnrollPlanStudentModal({
                     {loading ? (
                         <div className="flex flex-col items-center justify-center py-12">
                             <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                            <p className="text-muted-foreground text-sm">Cargando estudiantes...</p>
+                            <p className="text-muted-foreground text-sm">Cargando deportistas...</p>
                         </div>
                     ) : students.length === 0 ? (
                         <div className="text-center py-12">
                             <Users className="h-12 w-12 mx-auto text-muted-foreground/20 mb-4" />
-                            <p className="text-muted-foreground text-sm">No hay estudiantes en la escuela</p>
+                            <p className="text-muted-foreground text-sm">No hay deportistas en la escuela</p>
                         </div>
                     ) : (
                         <div className="space-y-4">

@@ -9,6 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, ShoppingCart, Clock, MapPin, Store, Star, CheckCircle } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { ShareButton } from '@/components/marketplace/ShareButton';
+import { ReviewList } from '@/components/reviews/ReviewList';
+import { QuestionsList } from '@/components/reviews/QuestionsList';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -234,6 +236,21 @@ export default function MarketplaceDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Reviews + Q&A (solo para productos por ahora; servicios se pueden agregar luego) */}
+        {type === 'product' && id && (
+          <div className="mt-10 space-y-6">
+            <ReviewList
+              productId={id}
+              productName={data.name}
+              productCategorySlug={data.product_categories?.slug}
+              productAvgRating={data.avg_rating}
+              productReviewsCount={data.reviews_count}
+              isVendor={user?.id === data.vendor_id}
+            />
+            <QuestionsList productId={id} isVendor={user?.id === data.vendor_id} />
+          </div>
+        )}
       </div>
     </div>
   );

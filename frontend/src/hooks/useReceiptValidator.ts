@@ -11,10 +11,15 @@
  *   2. Convertir blob a base64
  *   3. Llamar POST /api/v1/payments/extract-receipt
  *   4. Validar resultado:
- *      - Fecha debe ser hoy
- *      - Si conceptKind === 'fixed' y monto no match con expectedAmount -> bloquea
- *      - Si conceptKind === 'lenient' -> advisory (no bloquea)
- *      - Si LLM no detecto monto/fecha -> advisory (admin valida visualmente)
+ *      - Fecha debe ser hoy en Bogota -> SIEMPRE bloquea si no coincide
+ *        (evita reuso de comprobantes vencidos, independiente del conceptKind)
+ *      - Moneda debe ser COP -> SIEMPRE bloquea si OCR detecto otra (USD, etc.)
+ *      - Si conceptKind === 'fixed':
+ *          * monto debe coincidir con expectedAmount (tolerancia 0.5%)
+ *          * exige fecha Y monto detectados (sin advisory en fixed)
+ *      - Si conceptKind === 'lenient':
+ *          * el monto es advisory (no bloquea)
+ *          * si LLM no detecto fecha/monto -> advisory (admin valida visualmente)
  */
 
 import { useState } from 'react';
@@ -30,6 +35,9 @@ export interface ReceiptValidationResult {
     rejectionReason: string | null;
     /** Provider que respondio (groq/openai/gemini), util para debug */
     provider?: string;
+    /** Respuesta cruda del LLM (string JSON o texto). Se persiste en
+     *  payments.ocr_raw_response para auditoria/forensia. */
+    rawResponse?: string;
 }
 
 export type ConceptKind = 'fixed' | 'lenient';
@@ -46,6 +54,7 @@ interface OcrResponse {
     bank: string | null;
     reference: string | null;
     provider?: string;
+    rawResponse?: string;
 }
 
 // Tolerancia: monto OCR puede diferir del esperado en hasta esto y se considera match.
@@ -53,14 +62,14 @@ interface OcrResponse {
 const AMOUNT_TOLERANCE_PCT = 0.5; // 0.5%
 
 const todayIsoBogota = (): string => {
-    const now = new Date();
-    // Bogota es UTC-5 sin DST. Calculo manual evita depender de Intl.
-    const offsetMs = -5 * 60 * 60 * 1000;
-    const bogota = new Date(now.getTime() + offsetMs - now.getTimezoneOffset() * 60 * 1000);
-    const y = bogota.getUTCFullYear();
-    const m = String(bogota.getUTCMonth() + 1).padStart(2, '0');
-    const d = String(bogota.getUTCDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    // en-CA formatea como YYYY-MM-DD. Intl resuelve la zona correctamente
+    // para usuarios en cualquier tz (no solo UTC).
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Bogota',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
 };
 
 const formatCop = (n: number): string =>
@@ -150,47 +159,78 @@ export function useReceiptValidator() {
                 );
             }
 
-            const { amount, date, reference, bank, currency, provider } = ocr;
+            const { amount, date, reference, bank, currency, provider, rawResponse } = ocr;
 
-            // 3) Validacion de fecha (hoy en Bogota)
+            // 3) Validacion de fecha (hoy en Bogota) — SIEMPRE bloquea fechas
+            //    distintas a hoy (vencidas o futuras), independiente del conceptKind.
+            //    Evita que se reusen comprobantes viejos para "pagar" de nuevo.
             const today = todayIsoBogota();
             const dateMatchesToday = date === today;
-
-            // 4) Validacion de monto (solo aplica si conceptKind === 'fixed')
             const conceptKind: ConceptKind = opts.conceptKind ?? 'lenient';
             const expected = opts.expectedAmount;
+            const errors: string[] = [];
+
+            if (date && !dateMatchesToday) {
+                errors.push(
+                    `El comprobante es del ${date}, pero debe ser de hoy (${today}).`,
+                );
+            }
+
+            // 3.b) Validacion de moneda: SIEMPRE bloquea si el OCR detecto una
+            //      moneda distinta a COP. Comprobantes en USD u otra moneda
+            //      no aplican para pagos en SportMaps Colombia.
+            if (currency && currency.toUpperCase() !== 'COP') {
+                errors.push(
+                    `El comprobante esta en ${currency}, pero solo aceptamos pagos en pesos colombianos (COP).`,
+                );
+            }
+
+            // 4) Validacion de monto (solo aplica si conceptKind === 'fixed')
             let amountMatches: boolean | null = null;
             if (typeof amount === 'number' && typeof expected === 'number' && expected > 0) {
                 const diffPct = Math.abs(amount - expected) / expected * 100;
                 amountMatches = diffPct <= AMOUNT_TOLERANCE_PCT;
             }
+            if (
+                conceptKind === 'fixed' &&
+                typeof amount === 'number' &&
+                expected &&
+                amountMatches === false
+            ) {
+                errors.push(
+                    `El comprobante es por ${formatCop(amount)} pero el plan cuesta ${formatCop(expected)}.`,
+                );
+            }
 
-            // 5) Bloqueo duro en concept fixed: acumula TODOS los conflictos detectados
-            //    (monto incorrecto + fecha distinta a hoy) en un solo mensaje.
+            // 4.b) Endurecimiento de concept 'fixed': exigir que el OCR haya
+            //      detectado al menos fecha y monto. En 'fixed' no aceptamos
+            //      comprobantes ilegibles como advisory — el padre debe subir
+            //      uno legible o el flujo se cae a aprobacion manual del admin.
             if (conceptKind === 'fixed') {
-                const errors: string[] = [];
-                if (typeof amount === 'number' && expected && amountMatches === false) {
+                if (!date) {
                     errors.push(
-                        `El comprobante es por ${formatCop(amount)} pero el plan cuesta ${formatCop(expected)}.`,
+                        'No se pudo leer la fecha del comprobante. Sube una imagen mas nitida.',
                     );
                 }
-                if (date && !dateMatchesToday) {
+                if (typeof amount !== 'number') {
                     errors.push(
-                        `El comprobante es del ${date}, pero debe ser de hoy (${today}).`,
+                        'No se pudo leer el monto del comprobante. Sube una imagen mas nitida.',
                     );
                 }
-                if (errors.length > 0) {
-                    return {
-                        valid: false,
-                        extractedDate: date,
-                        extractedAmount: amount,
-                        extractedReference: reference,
-                        extractedBank: bank,
-                        extractedCurrency: currency,
-                        provider,
-                        rejectionReason: errors.join(' ') + ' Sube el comprobante correcto.',
-                    };
-                }
+            }
+
+            if (errors.length > 0) {
+                return {
+                    valid: false,
+                    extractedDate: date,
+                    extractedAmount: amount,
+                    extractedReference: reference,
+                    extractedBank: bank,
+                    extractedCurrency: currency,
+                    provider,
+                    rawResponse,
+                    rejectionReason: errors.join(' ') + ' Sube el comprobante correcto.',
+                };
             }
 
             // 6) Si llegamos aqui: o todo coincide, o concept es lenient, o el LLM no detecto algun campo.
@@ -203,6 +243,7 @@ export function useReceiptValidator() {
                 extractedBank: bank,
                 extractedCurrency: currency,
                 provider,
+                rawResponse,
                 rejectionReason: null,
             };
         } catch (err) {

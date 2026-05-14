@@ -53,7 +53,7 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
 
         if (studentError || !student) {
             return res.status(404).json({
-                error: 'Estudiante no encontrado'
+                error: 'Deportista no encontrado'
             });
         }
 

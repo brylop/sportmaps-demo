@@ -1,5 +1,5 @@
 // Students API service — uses Supabase directly (table: children)
-// Per NAMING_DICTIONARY.md: tabla=children, UI=estudiantes
+// Per NAMING_DICTIONARY.md: tabla=children, UI=deportistas
 //
 // MIGRACIÓN BFF (Feb 2026):
 //   - Lecturas (GET):  siguen via Supabase SDK directo ← sin cambios
@@ -96,9 +96,9 @@ export interface BulkUploadResponse {
 }
 
 export interface BulkUploadOptions {
-  /** Si true, actualiza estudiantes con document_id existente. Default: false */
+  /** Si true, actualiza deportistas con document_id existente. Default: false */
   upsert?: boolean;
-  /** Branch ID por defecto para estudiantes sin columna 'sede' en el CSV */
+  /** Branch ID por defecto para deportistas sin columna 'sede' en el CSV */
   defaultBranchId?: string | null;
 }
 
@@ -464,7 +464,7 @@ class StudentsAPI {
       if (!firstName && !lastName) {
         const fullName = row['full_name'] || row['nombre_completo'] || '';
         if (!fullName) {
-          parseErrors.push({ row: i + 1, error: 'Falta nombre del estudiante' });
+          parseErrors.push({ row: i + 1, error: 'Falta nombre del deportista' });
           continue;
         }
         if (!docId) {
@@ -601,7 +601,7 @@ class StudentsAPI {
     if (uniqueStudents.length === 0) {
       return {
         success: false,
-        message: `No se pudo parsear ningún estudiante. ${parseErrors.length} errores.`,
+        message: `No se pudo parsear ningún deportista. ${parseErrors.length} errores.`,
         summary: { total: 0, inserted: 0, updated: 0, skipped: parseErrors.length },
         skipped: [],
         failed: parseErrors.length,

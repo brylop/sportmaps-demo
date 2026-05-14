@@ -30,31 +30,41 @@ const StudentSchema = z.object({
 
 const BulkUploadSchema = z.object({
     students: z.array(StudentSchema)
-        .min(1, 'Al menos un estudiante requerido')
-        .max(200, 'Máximo 200 estudiantes por carga'),
+        .min(1, 'Al menos un deportista requerido')
+        .max(200, 'Máximo 200 deportistas por carga'),
     options: z.object({
         // Si true: actualiza si document_id ya existe. Si false: reporta como error.
         upsert: z.boolean().default(false),
-        // Branch ID por defecto para estudiantes sin columna 'sede' en el CSV
+        // Branch ID por defecto para deportistas sin columna 'sede' en el CSV
         defaultBranchId: z.string().uuid().nullable().optional(),
     }).default({ upsert: false }),
 });
 
 // GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// IMPORTANTE: el BFF usa service role (bypassa RLS). Sin el filtro school_id
+// abajo, un admin de la escuela A podía obtener PII medica de niños de la
+// escuela B con sólo saber los UUIDs.
 router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
         const ids = (req.query.ids as string)?.split(',').filter(Boolean);
         if (!ids?.length) return res.json([]);
 
+        const { schoolId } = req;
+        if (!schoolId) {
+            return res.status(400).json({ error: 'schoolId del request es requerido.' });
+        }
+
         const { data, error } = await supabase
             .from('children')
             .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
-            .in('id', ids);
+            .in('id', ids)
+            .eq('school_id', schoolId);
 
         if (error) throw error;
         res.json(data ?? []);
     } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        req.log?.error({ err }, 'children-by-ids unhandled error');
+        res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });
 
@@ -539,7 +549,7 @@ router.post(
 
         } catch (err: any) {
             req.log?.error?.({ err: err.message || err }, 'Error inesperado en bulk upload');
-            return res.status(500).json({ error: err.message || 'Error interno del servidor al procesar el CSV.' });
+            return res.status(500).json({ error: 'Error interno del servidor al procesar el CSV.' });
         }
     }
 );
@@ -553,10 +563,10 @@ router.get('/', requireAuth, requireRole('owner', 'admin', 'super_admin', 'schoo
             .eq('school_id', req.schoolId)   // 🔒 siempre filtrado
             .order('last_name');
 
-        if (error) return res.status(500).json({ error: 'Error al obtener estudiantes.' });
+        if (error) return res.status(500).json({ error: 'Error al obtener deportistas.' });
         return res.json({ students: data });
     } catch (err: any) {
-        req.log?.error({ err: err.message || err }, 'Error inesperado al obtener estudiantes');
+        req.log?.error({ err: err.message || err }, 'Error inesperado al obtener deportistas');
         return res.status(500).json({ error: 'Error interno del servidor.' });
     }
 });

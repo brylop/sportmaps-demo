@@ -204,7 +204,7 @@ export default function ProgramsManagementPage() {
         </Card>
         <Card>
           <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Estudiantes</CardTitle>
+            <CardTitle className="text-sm md:text-base">Deportistas</CardTitle>
           </CardHeader>
           <CardContent className="p-3 md:p-6 pt-0">
             <div className="text-xl md:text-2xl font-bold text-blue-600">
@@ -262,7 +262,7 @@ export default function ProgramsManagementPage() {
                       size="sm"
                       className="h-8 w-8 p-0"
                       onClick={() => handleEnrollClick(classItem)}
-                      title="Inscribir estudiante"
+                      title="Inscribir deportista"
                     >
                       <UserPlus className="h-4 w-4 text-primary" />
                     </Button>
@@ -290,7 +290,7 @@ export default function ProgramsManagementPage() {
                 <div className="flex items-center gap-2 text-sm">
                   <Users className="h-4 w-4 text-muted-foreground" />
                   <span>
-                    {classItem.enrolled_count}/{classItem.capacity} estudiantes
+                    {classItem.enrolled_count}/{classItem.capacity} deportistas
                   </span>
                   {getCapacityBadge(classItem.enrolled_count, classItem.capacity)}
                 </div>

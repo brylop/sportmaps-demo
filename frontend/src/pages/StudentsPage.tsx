@@ -98,7 +98,7 @@ export default function StudentsPage() {
     } catch (error: any) {
       console.error('Error loading students:', error);
       toast({
-        title: 'Error al cargar estudiantes',
+        title: 'Error al cargar deportistas',
         description: getUserFriendlyError(error),
         variant: 'destructive',
       });
@@ -113,7 +113,7 @@ export default function StudentsPage() {
     setRefreshing(false);
     toast({
       title: 'Lista actualizada',
-      description: 'Los estudiantes se han actualizado correctamente',
+      description: 'Los deportistas se han actualizado correctamente',
     });
   };
 
@@ -147,7 +147,7 @@ export default function StudentsPage() {
       <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Cargando estudiantes...</p>
+          <p className="text-muted-foreground">Cargando deportistas...</p>
         </div>
       </div>
     );
@@ -157,7 +157,7 @@ export default function StudentsPage() {
     <div className="container mx-auto p-3 md:p-6 space-y-4 md:space-y-6 max-w-full overflow-x-hidden animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 md:gap-0">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Estudiantes</h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Deportistas</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             Base de datos completa de alumnos ({students.length})
           </p>
@@ -285,12 +285,12 @@ export default function StudentsPage() {
           {filteredStudents.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-muted-foreground mb-4">
-                {searchQuery ? 'No se encontraron estudiantes con esa búsqueda' : 'No hay estudiantes registrados aún'}
+                {searchQuery ? 'No se encontraron deportistas con esa búsqueda' : 'No hay deportistas registrados aún'}
               </p>
               {!searchQuery && (
                 <Button onClick={() => setShowImportModal(true)}>
                   <FileUp className="h-4 w-4 mr-2" />
-                  Importar Estudiantes
+                  Importar Deportistas
                 </Button>
               )}
             </div>

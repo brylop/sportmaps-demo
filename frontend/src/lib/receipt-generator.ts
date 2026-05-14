@@ -150,7 +150,7 @@ export function generatePaymentReceipt(data: ReceiptData): jsPDF {
   // Student name if applicable
   if (data.studentName) {
     y += 7;
-    doc.text('Estudiante:', 20, y);
+    doc.text('Deportista:', 20, y);
     doc.text(data.studentName, 60, y);
   }
 

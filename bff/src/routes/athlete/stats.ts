@@ -24,7 +24,8 @@ router.get('/stats', async (req: Request, res: Response) => {
     if (error) throw error;
     res.json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/stats unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -48,7 +49,8 @@ router.get('/stats/sources', async (req: Request, res: Response) => {
 
     res.json(sources);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/stats unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
@@ -75,7 +77,8 @@ router.get('/stats/exercise-history/:exerciseKey', async (req: Request, res: Res
     if (error) throw error;
     res.json(data ?? []);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log?.error({ err }, 'athlete/stats unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

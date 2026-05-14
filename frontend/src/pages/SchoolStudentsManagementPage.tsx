@@ -16,7 +16,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -560,7 +560,7 @@ export default function SchoolStudentsManagementPage() {
     </DropdownMenu>
   );
 
-  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando estudiantes..." />;
+  if (isLoading || schoolLoading) return <LoadingSpinner fullScreen text="Cargando deportistas..." />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -960,12 +960,266 @@ export default function SchoolStudentsManagementPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── View Athlete Dialog (read-only) ────────────────────────────
+          Muestra datos personales, médico, equipo, plan, acudiente
+          y documentos cargados. Funciona para child / adult / unregistered.
+          ─────────────────────────────────────────────────────────────── */}
+      <Dialog open={!!viewingStudent} onOpenChange={(o) => !o && setViewingStudent(null)}>
+        <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
+          {viewingStudent && (() => {
+            const s = viewingStudent;
+            const athleteType = getAthleteType(s);
+            const age = calculateAge(s.date_of_birth);
+            const isChild = athleteType === 'child';
+            const isAdult = athleteType === 'adult';
+            const isUnregistered = athleteType === 'unregistered';
+
+            const typeBadge = isChild
+              ? <Badge className="bg-blue-500/10 text-blue-700 border-blue-500/30">Menor</Badge>
+              : isAdult
+                ? <Badge className="bg-purple-500/10 text-purple-700 border-purple-500/30">Adulto</Badge>
+                : <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Sin cuenta</Badge>;
+
+            const statusBadge = s.status === 'inactive'
+              ? <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
+              : <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Activo</Badge>;
+
+            const monthlyFee = (s as any).price_monthly || (s as any).team_monthly_fee || (s as any).plan_monthly_fee || s.monthly_fee || 0;
+
+            return (
+              <>
+                <DialogHeader>
+                  <div className="flex items-start gap-4">
+                    {/* Avatar del atleta: foto si subió, ícono genérico si no */}
+                    {s.avatar_url ? (
+                      <img
+                        src={s.avatar_url}
+                        alt={s.full_name}
+                        className="w-16 h-16 rounded-full object-cover flex-shrink-0 ring-2 ring-primary/20"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <User className="w-8 h-8 text-primary" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <DialogTitle className="text-xl break-words">{s.full_name}</DialogTitle>
+                      <DialogDescription asChild>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          {typeBadge}
+                          {statusBadge}
+                          {age != null && <span className="text-sm text-muted-foreground">{age} años</span>}
+                          {s.date_of_birth && (
+                            <span className="text-sm text-muted-foreground">
+                              · {format(new Date(s.date_of_birth + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}
+                            </span>
+                          )}
+                        </div>
+                      </DialogDescription>
+                    </div>
+                  </div>
+                </DialogHeader>
+
+                <div className="space-y-6 mt-2">
+                  {/* ── Sección: Datos personales ───────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <User className="w-4 h-4" /> Datos personales
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <InfoRow label="Documento" value={
+                        studentDocInfo.doc_type && studentDocInfo.doc_number
+                          ? `${studentDocInfo.doc_type.toUpperCase()} ${studentDocInfo.doc_number}`
+                          : null
+                      } />
+                      <InfoRow label="Talla camiseta" value={studentDocInfo.tshirt_size} />
+                      <InfoRow label="Tipo de sangre" value={studentDocInfo.blood_type} />
+                      <InfoRow label="EPS" value={studentDocInfo.eps_name} />
+                      {s.emergency_contact && (
+                        <InfoRow label="Contacto emergencia" value={s.emergency_contact} />
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ── Sección: Información médica ─────────────────── */}
+                  {s.medical_info && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <Heart className="w-4 h-4 text-red-500" /> Información médica
+                      </h3>
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm whitespace-pre-wrap break-words">
+                        {(() => {
+                          try {
+                            const parsed = JSON.parse(s.medical_info);
+                            if (parsed.has_allergies) {
+                              return (
+                                <div className="space-y-1">
+                                  <p className="font-semibold text-red-700">⚠️ Tiene alergias</p>
+                                  {parsed.allergy_type && <p><strong>Tipo:</strong> {parsed.allergy_type}</p>}
+                                  {parsed.allergy_severity && <p><strong>Severidad:</strong> {parsed.allergy_severity}</p>}
+                                  {parsed.allergy_treatment && <p><strong>Tratamiento:</strong> {parsed.allergy_treatment}</p>}
+                                  {parsed.notes && <p className="mt-2"><strong>Notas:</strong> {parsed.notes}</p>}
+                                </div>
+                              );
+                            }
+                            return <span className="text-muted-foreground">Sin alergias reportadas{parsed.notes ? ` · ${parsed.notes}` : ''}</span>;
+                          } catch {
+                            return s.medical_info;
+                          }
+                        })()}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Sección: Equipo, sede y plan ─────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-orange-500" /> Equipo y plan
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                      <InfoRow label="Equipo" value={s.team_name} />
+                      <InfoRow label="Deporte" value={s.team_sport || s.sport} />
+                      <InfoRow label="Sede" value={s.branch_name} icon={<MapPin className="w-3 h-3" />} />
+                      <InfoRow label="Mensualidad" value={monthlyFee > 0 ? formatCurrency(monthlyFee) : null} />
+                    </div>
+
+                    {/* Plan activo */}
+                    <div className="mt-3 rounded-lg border bg-muted/30 p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-2">
+                        <Zap className="w-3 h-3 text-purple-500" /> Plan activo
+                      </p>
+                      {loadingPlanInfo ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Cargando plan...
+                        </div>
+                      ) : studentPlanInfo ? (
+                        <div className="space-y-1 text-sm">
+                          <p className="font-semibold">{studentPlanInfo.plan_name}</p>
+                          {studentPlanInfo.offering_name && <p className="text-muted-foreground text-xs">{studentPlanInfo.offering_name}</p>}
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
+                            {studentPlanInfo.start_date && (
+                              <span>Inicio: {format(new Date(studentPlanInfo.start_date + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}</span>
+                            )}
+                            {studentPlanInfo.end_date && (
+                              <span>Vence: {format(new Date(studentPlanInfo.end_date + 'T12:00:00'), 'dd MMM yyyy', { locale: es })}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">Sin plan activo</p>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* ── Sección: Acudiente (solo child) ──────────────── */}
+                  {isChild && (s.display_parent_name || s.parent_name || s.parent_email || s.parent_phone) && (
+                    <section>
+                      <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <User className="w-4 h-4" /> Acudiente
+                      </h3>
+                      <div className="flex items-start gap-4">
+                        {/* Avatar del acudiente */}
+                        {s.parent_avatar ? (
+                          <img
+                            src={s.parent_avatar}
+                            alt={s.display_parent_name || s.parent_name || 'Acudiente'}
+                            className="w-12 h-12 rounded-full object-cover flex-shrink-0 ring-1 ring-border"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                            <User className="w-6 h-6 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                          <InfoRow label="Nombre" value={s.display_parent_name || s.parent_name} />
+                          <InfoRow label="Email" value={s.parent_email} icon={<Mail className="w-3 h-3" />} />
+                          <InfoRow label="Teléfono" value={s.parent_phone} icon={<Phone className="w-3 h-3" />} />
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Sección: Documentos cargados ─────────────────── */}
+                  <section>
+                    <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <FileText className="w-4 h-4" /> Documentos cargados
+                    </h3>
+                    {loadingDocs ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Cargando documentos...
+                      </div>
+                    ) : studentDocs.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                        Sin documentos cargados
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {studentDocs.map((doc) => (
+                          <a
+                            key={doc.name}
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 rounded-lg border bg-card p-3 hover:bg-accent/50 transition-colors"
+                          >
+                            <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                            <span className="flex-1 text-sm truncate">{doc.name}</span>
+                            <Download className="w-4 h-4 text-primary flex-shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+
+                <DialogFooter className="flex-col-reverse sm:flex-row gap-2 mt-6">
+                  <Button variant="outline" onClick={() => setViewingStudent(null)}>
+                    Cerrar
+                  </Button>
+                  <Button onClick={() => {
+                    const stored = s;
+                    setViewingStudent(null);
+                    handleEditStudent(stored);
+                  }}>
+                    <Edit className="w-4 h-4 mr-2" />
+                    Editar
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
       <CSVImportModal open={showImportModal} onClose={() => setShowImportModal(false)}
         onSuccess={() => { setShowImportModal(false); toast({ title: "Importación completada", description: "La lista de atletas se ha actualizado." }); queryClient.invalidateQueries({ queryKey: ['school-students'] }); }}
         schoolId={schoolId ?? ''} schoolName={schoolName} branchId={activeBranchId} students={students} teams={teams} branches={branches} />
       <StudentTypeSelector open={showTypeSelector} onClose={() => setShowTypeSelector(false)} onSelectChild={() => setShowCreateChildModal(true)} onSelectAdult={() => setShowCreateAdultModal(true)} />
       <CreateChildModal open={showCreateChildModal} onClose={() => setShowCreateChildModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateChildModal(false); }} schoolId={schoolId || ''} />
       <CreateAdultAthleteModal open={showCreateAdultModal} onClose={() => setShowCreateAdultModal(false)} onSuccess={() => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); setShowCreateAdultModal(false); }} schoolId={schoolId || ''} />
+    </div>
+  );
+}
+
+// ─── Helper: fila de info "Label — Value" usada en el View Dialog ───────────────
+function InfoRow({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | null | undefined;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="font-medium break-words flex items-center gap-1.5">
+        {icon}
+        {value || <span className="text-muted-foreground font-normal italic">—</span>}
+      </p>
     </div>
   );
 }

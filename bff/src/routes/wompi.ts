@@ -384,7 +384,18 @@ async function handleCartOrder({
             req.log?.warn({ err: splitErr, orderId: order.id }, 'split_order_payment failed (non-blocking)');
         }
 
-        req.log?.info({ orderId: order.id, txReference }, 'Cart order paid + stock decremented + payouts split');
+        // 6. Settlements R5 — crea settlements y acredita pending_balance (idempotente)
+        const { data: settleResult, error: settleErr } = await supabase.rpc(
+            'compute_settlements_for_order',
+            { p_order_id: order.id },
+        );
+        if (settleErr) {
+            req.log?.warn({ err: settleErr, orderId: order.id }, 'compute_settlements_for_order failed (non-blocking)');
+        } else {
+            req.log?.info({ orderId: order.id, settleResult }, 'Settlements computed');
+        }
+
+        req.log?.info({ orderId: order.id, txReference }, 'Cart order paid + stock decremented + payouts split + settlements');
         return { status: 200, body: { status: 'ok', kind: 'cart', result: stockResult } };
     }
 

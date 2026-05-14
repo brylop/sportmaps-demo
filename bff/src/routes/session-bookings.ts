@@ -98,7 +98,10 @@ router.get('/:id/availability', requireAuth, async (req: Request, res: Response)
       available_spots: s.max_capacity ? Math.max(0, s.max_capacity - s.current_bookings) : null,
       is_full: s.max_capacity ? s.current_bookings >= s.max_capacity : false,
     });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
@@ -123,7 +126,10 @@ router.post('/:id/book', requireAuth, async (req: Request, res: Response) => {
     if (enr) await supabase.from('enrollments').update({ [f]: ((enr as any)[f] || 0) + 1 }).eq('id', enrollment_id);
 
     res.status(201).json({ booking: data });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/:id/bookings', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coach'), async (req: Request, res: Response) => {
@@ -165,7 +171,10 @@ router.get('/:id/bookings', requireAuth, requireRole('owner', 'admin', 'school_a
         return { ...b, person, enrollment: eM[b.enrollment_id] };
       })
     });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 
@@ -201,7 +210,10 @@ router.delete('/bookings/:id', requireAuth, async (req: Request, res: Response) 
       .eq('id', b.enrollment_id);
 
     res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/my-bookings', requireAuth, async (req: Request, res: Response) => {
@@ -221,7 +233,10 @@ router.get('/my-bookings', requireAuth, async (req: Request, res: Response) => {
     const { data, error } = await query;
     if (error) throw error;
     res.json({ bookings: data });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 // ── ATHLETE / PARENT ROUTES ──────────────────────────────────────────────────
@@ -623,7 +638,10 @@ router.get('/athlete/available', requireAuth, async (req: Request, res: Response
     });
 
     res.json({ sessions });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.post('/athlete/book-session', requireAuth, async (req: Request, res: Response) => {
@@ -808,7 +826,10 @@ router.post('/athlete/book-session', requireAuth, async (req: Request, res: Resp
       .eq('id', enrollment_id);
 
     res.status(201).json({ booking: b });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Response) => {
@@ -955,7 +976,10 @@ router.get('/athlete/my-bookings', requireAuth, async (req: Request, res: Respon
     );
 
     res.json(result);
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 
@@ -1068,7 +1092,10 @@ router.delete('/athlete/:id/cancel', requireAuth, async (req: Request, res: Resp
       .eq('id', b.enrollment_id);
 
     res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response) => {
@@ -1175,7 +1202,10 @@ router.get('/athlete/upcoming', requireAuth, async (req: Request, res: Response)
     }).slice(0, 5);
 
     res.json({ sessions: enriched });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Response) => {
@@ -1222,7 +1252,10 @@ router.post('/athlete/book-secondary', requireAuth, async (req: Request, res: Re
       .eq('id', enrollment_id);
 
     res.status(201).json({ reservation: b });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res: Response) => {
@@ -1276,7 +1309,10 @@ router.get('/athlete/secondary-bookings', requireAuth, async (req: Request, res:
     });
 
     res.json(enriched);
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request, res: Response) => {
@@ -1322,7 +1358,10 @@ router.delete('/athlete/secondary/:id/cancel', requireAuth, async (req: Request,
       .eq('id', r.enrollment_id);
 
     res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/athlete/facilities', requireAuth, async (req: Request, res: Response) => {
@@ -1350,7 +1389,10 @@ router.get('/athlete/facilities', requireAuth, async (req: Request, res: Respons
       .eq('booking_enabled', true);
 
     res.json({ facilities: facs || [] });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Response) => {
@@ -1404,7 +1446,10 @@ router.get('/facility/:id/slots', requireAuth, async (req: Request, res: Respons
         already_booked: mySet.has(s.start),
       })),
     });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 // ── UTILITY ROUTES ────────────────────────────────────────────────────────────
@@ -1417,7 +1462,10 @@ router.post('/generate-sessions', requireAuth, requireRole('owner', 'admin'), as
     });
     if (error) throw error;
     res.json({ message: 'success', sessions: data });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.post('/generate-offering-sessions', requireAuth, requireRole('owner', 'admin'), async (req: Request, res: Response) => {
@@ -1428,7 +1476,10 @@ router.post('/generate-offering-sessions', requireAuth, requireRole('owner', 'ad
     });
     if (error) throw error;
     res.json({ message: 'success', sessions: data });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 router.get('/extend-horizon', requireAuth, async (req: Request, res: Response) => {
@@ -1438,7 +1489,10 @@ router.get('/extend-horizon', requireAuth, async (req: Request, res: Response) =
     });
     if (error) throw error;
     res.json({ sessions_created: data });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    req.log?.error({ err }, 'session-bookings unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
 });
 
 // Las rutas legacy de PT (GET /athlete/pt-availability, POST /athlete/book-pt-session, DELETE /athlete/cancel-pt-session) fueron eliminadas por ser código muerto. El frontend ahora llama a las rutas correspondientes en training.ts.

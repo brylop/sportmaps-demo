@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { requireMarketplaceAuth, requireRole, auditLog } from '../middlewares/authMiddleware';
+import { requireMarketplaceAuth, requireVendorProfile, auditLog } from '../middlewares/authMiddleware';
 import { supabase } from '../config/supabase';
 
 const router = Router();
 
 router.use(requireMarketplaceAuth);
-router.use(requireRole('wellness_professional', 'admin'));
+// Autoriza por capability — wellness_professional, personal_trainer, coach (activado),
+// o cualquier vendor que tenga can_sell_services = true.
+router.use(requireVendorProfile('can_sell_services'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/vendor/services — Mis servicios con variaciones

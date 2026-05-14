@@ -82,7 +82,7 @@ export default function FinancesPage() {
       setOverdueAccounts(accountsData.map(p => ({
         id: p.id,
         parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
-        student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Estudiante',
+        student: (Array.isArray(p.student) ? p.student[0]?.full_name : p.student?.full_name) || 'Deportista',
         concept: p.concept,
         amount: Number(p.amount),
         daysOverdue: daysDiffFromToday(p.due_date),
@@ -225,7 +225,7 @@ export default function FinancesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Padre</TableHead>
-                <TableHead>Estudiante</TableHead>
+                <TableHead>Deportista</TableHead>
                 <TableHead>Concepto</TableHead>
                 <TableHead>Monto Vencido</TableHead>
                 <TableHead>Estado</TableHead>

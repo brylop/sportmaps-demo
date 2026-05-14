@@ -70,7 +70,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       setAthletes(data || []);
     } catch (err: any) {
       console.error(err);
-      toast({ title: 'Error al cargar estudiantes', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error al cargar deportistas', description: err.message, variant: 'destructive' });
     } finally {
       setLoadingAthletes(false);
     }
@@ -314,7 +314,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
           <div className="space-y-3">
             <Label htmlFor="student" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <User className="h-3.5 w-3.5" /> Estudiante / Atleta
+              <User className="h-3.5 w-3.5" /> Deportista / Atleta
             </Label>
             <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId} disabled={loadingAthletes}>
               <SelectTrigger id="student" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">

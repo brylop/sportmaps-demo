@@ -29,7 +29,7 @@ import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 
 const sports = SPORTS_LIST;
 // Roles que representan instituciones/negocios (no personas físicas)
-const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'organizer', 'personal_trainer'];
+const INSTITUTION_ROLES = ['school', 'school_admin', 'store_owner', 'external_vendor', 'organizer', 'personal_trainer'];
 
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -93,6 +93,8 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   admin: '🛡️ Administrador',
   super_admin: '🛡️ Super Administrador',
   wellness_professional: '💚 Profesional Bienestar',
+  personal_trainer: '🏋️ Entrenador Personal',
+  external_vendor: '🛍️ Vendedor / Marca',
   store_owner: '🏪 Dueño de Tienda',
   organizer: '📋 Organizador',
 };

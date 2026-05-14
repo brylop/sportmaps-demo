@@ -27,7 +27,9 @@ import {
   ClipboardList,
   IdCard,
   FileCheck2,
-  QrCode
+  QrCode,
+  Truck,
+  ShieldCheck
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -44,6 +46,45 @@ export interface NavItem {
 export interface NavGroup {
   title: string;
   items: NavItem[];
+}
+
+/**
+ * "Mi Tienda" — grupo de navegación adicional que se renderiza al final
+ * del sidebar SOLO para usuarios con vendor_profile activo (cualquier rol).
+ * No depende del rol principal. Lo monta AppSidebar.
+ */
+export function getVendorNavGroup(opts: {
+  canSellProducts: boolean;
+  canSellServices: boolean;
+  verificationStatus: 'pending' | 'verified' | 'rejected' | null;
+}): NavGroup {
+  const items: NavItem[] = [
+    { title: 'Panel Tienda', href: '/vendor/dashboard', icon: ShoppingBag },
+  ];
+
+  if (opts.canSellProducts) {
+    items.push({ title: 'Productos',  href: '/vendor/products',  icon: ShoppingBag });
+    items.push({ title: 'Inventario', href: '/inventory',        icon: ClipboardList });
+  }
+  if (opts.canSellServices) {
+    items.push({ title: 'Servicios',  href: '/vendor/services',  icon: Activity });
+    items.push({ title: 'Agenda',     href: '/vendor/appointments', icon: Calendar });
+  }
+  items.push({ title: 'Pedidos',         href: '/orders',           icon: FileText });
+  items.push({ title: 'Inbox',           href: '/vendor/inbox',     icon: MessageSquare });
+  items.push({ title: 'Liquidaciones',   href: '/vendor/payouts',   icon: DollarSign });
+  items.push({ title: 'Envíos',          href: '/vendor/shipping',  icon: Truck });
+  items.push({ title: 'Promociones',     href: '/vendor/promotions', icon: Plus });
+  items.push({
+    title: 'Verificación',
+    href:  '/vendor/onboarding',
+    icon:  FileCheck2,
+    badge: opts.verificationStatus === 'pending' ? 'pendiente'
+         : opts.verificationStatus === 'rejected' ? 'revisar'
+         : undefined,
+  });
+
+  return { title: 'Mi Tienda', items };
 }
 
 /**
@@ -142,7 +183,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
-          { title: 'Mis Estudiantes', href: '/students', icon: Users },
+          { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
       },
@@ -178,7 +219,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Deportistas', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },
@@ -322,7 +363,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Global',
         items: [
-          { title: 'Escuelas',  href: '/admin/clubs',   icon: Building },
+          { title: 'Escuelas',  href: '/admin/schools', icon: Building },
           { title: 'Usuarios',  href: '/admin/users',   icon: Users },
           { title: 'Reportes',  href: '/admin/reports', icon: FileText }
         ]
@@ -349,9 +390,16 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Gestión Global',
         items: [
-          { title: 'Escuelas', href: '/admin/clubs', icon: Building },
+          { title: 'Escuelas', href: '/admin/schools', icon: Building },
           { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Reportes', href: '/admin/reports', icon: FileText }
+        ]
+      },
+      {
+        title: 'Moderación',
+        items: [
+          { title: 'Marketplace',     href: '/admin/marketplace/moderation', icon: ShieldCheck },
+          { title: 'Pagos a vendors', href: '/admin/payouts',                icon: DollarSign }
         ]
       },
       {
@@ -369,7 +417,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Invitaciones', href: '/invitations', icon: Send },
-          { title: 'Estudiantes', href: '/students', icon: Users },
+          { title: 'Deportistas', href: '/students', icon: Users },
           { title: 'Entrenadores', href: '/staff', icon: Users }
         ]
       },

@@ -285,7 +285,7 @@ export default function AttendanceSupervisionPage() {
           id: b.id, session_id: b.session_id,
           start_time: sMap[b.session_id]?.start_time ?? '',
           end_time:   sMap[b.session_id]?.end_time   ?? '',
-          person_name:  b.user_id ? (pMap[b.user_id] ?? 'Atleta') : (cMap[b.child_id] ?? 'Estudiante'),
+          person_name:  b.user_id ? (pMap[b.user_id] ?? 'Atleta') : (cMap[b.child_id] ?? 'Deportista'),
           context_name: sMap[b.session_id]?.name ?? '',
           child_id: b.child_id ?? null, user_id: b.user_id ?? null,
           enrollment_id: b.enrollment_id ?? null,
@@ -870,7 +870,7 @@ export default function AttendanceSupervisionPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar estudiante por nombre..."
+                  placeholder="Buscar deportista por nombre..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -904,12 +904,12 @@ export default function AttendanceSupervisionPage() {
           {/* Roster */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
             {loadingRoster ? (
-              <LoadingSpinner text="Cargando estudiantes..." />
+              <LoadingSpinner text="Cargando deportistas..." />
             ) : filteredRoster.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">
                 <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">
-                  {search ? 'Sin resultados para esa búsqueda' : 'No hay estudiantes en este grupo'}
+                  {search ? 'Sin resultados para esa búsqueda' : 'No hay deportistas en este grupo'}
                 </p>
               </div>
             ) : (

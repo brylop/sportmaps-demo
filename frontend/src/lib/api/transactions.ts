@@ -4,6 +4,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { checkoutAPI, CheckoutPayload } from './checkout';
+import type { QuoteOption } from '@/hooks/useShipping';
 
 export interface ProductOrderPayload {
     productId: string;
@@ -11,6 +12,23 @@ export interface ProductOrderPayload {
     price: number;
     name: string;
     vendorId?: string;
+    vendorProfileId?: string;
+}
+
+export interface ShippingInfo {
+    address: {
+        line1: string;
+        line2?: string;
+        city: string;
+        department: string;
+        postalCode?: string;
+        country?: string;
+    };
+    contactPhone: string;
+    contactEmail: string;
+    customerName: string;
+    quote: QuoteOption;
+    quoteId: string | null;
 }
 
 export interface AppointmentPayload {
@@ -37,10 +55,15 @@ class TransactionAPI {
         items: any[];
         paymentMethod: string;
         reference: string;
+        shipping?: ShippingInfo;
     }): Promise<TransactionResult> {
         try {
-            const { userId, email, items, paymentMethod, reference } = params;
+            const { userId, email, items, paymentMethod, reference, shipping } = params;
             const results: any[] = [];
+
+            // Agrupamos productos en una sola order (el shipping va con esa order).
+            // Si en el futuro hay multi-vendor real, se debe particionar aqui.
+            const productItems = items.filter(i => i.type === 'product');
 
             for (const item of items) {
                 if (item.type === 'enrollment') {
@@ -58,22 +81,6 @@ class TransactionAPI {
                     results.push({ type: 'enrollment', id: res.enrollment_id });
                 }
 
-                if (item.type === 'product') {
-                    const res = await this.createProductOrder({
-                        userId,
-                        email,
-                        paymentMethod,
-                        product: {
-                            productId: item.metadata.productId,
-                            quantity: item.quantity,
-                            price: item.price,
-                            name: item.name,
-                            vendorId: item.metadata.vendorId
-                        }
-                    });
-                    results.push({ type: 'product', id: res.details?.orderId });
-                }
-
                 if (item.type === 'appointment') {
                     const res = await this.createAppointment({
                         userId,
@@ -87,6 +94,26 @@ class TransactionAPI {
                     });
                     results.push({ type: 'appointment', id: res.details?.appointmentId });
                 }
+            }
+
+            // Una sola order que agrupa todos los productos
+            if (productItems.length > 0) {
+                const res = await this.createProductOrder({
+                    userId,
+                    email,
+                    paymentMethod,
+                    reference,
+                    products: productItems.map(item => ({
+                        productId: item.metadata.productId,
+                        quantity: item.quantity,
+                        price: item.price,
+                        name: item.name,
+                        vendorId: item.metadata.vendorId,
+                        vendorProfileId: item.metadata.vendorProfileId,
+                    })),
+                    shipping,
+                });
+                results.push({ type: 'product', id: res.details?.orderId, shipmentId: res.details?.shipmentId });
             }
 
             // Final summary notification
@@ -110,49 +137,121 @@ class TransactionAPI {
         userId: string;
         email: string;
         paymentMethod: string;
-        product: ProductOrderPayload;
+        reference: string;
+        products: ProductOrderPayload[];
+        shipping?: ShippingInfo;
     }): Promise<TransactionResult> {
-        const { userId, email, paymentMethod, product } = params;
+        const { userId, email, paymentMethod, reference, products, shipping } = params;
 
-        // Note: To ensure atomicity (all or nothing), this should move to a PostgreSQL RPC.
-        // For now, we do sequential inserts. If itemError fails, order remains 'pending' (orphan).
+        const subtotal = products.reduce((acc, p) => acc + p.price * p.quantity, 0);
+        const shippingCost = shipping?.quote?.cost ?? 0;
+        const totalAmount = subtotal + shippingCost;
+
+        // Vendor primario para esta orden (multi-vendor real requeriria split).
+        const primaryVendorId = products.find(p => p.vendorId)?.vendorId || null;
+        const primaryVendorProfileId = products.find(p => p.vendorProfileId)?.vendorProfileId || null;
+
+        const shippingAddressJson = shipping
+            ? {
+                line1: shipping.address.line1,
+                line2: shipping.address.line2 || null,
+                city: shipping.address.city,
+                department: shipping.address.department,
+                postal_code: shipping.address.postalCode || null,
+                country: shipping.address.country || 'CO',
+            }
+            : { pending: true };
+
+        const orderInsert: Record<string, unknown> = {
+            user_id: userId,
+            vendor_id: primaryVendorId,
+            total_amount: totalAmount,
+            shipping_cost: shippingCost,
+            tax_total: 0,
+            status: 'pending',
+            shipping_address: shippingAddressJson,
+            contact_email: shipping?.contactEmail || email,
+            contact_phone: shipping?.contactPhone || null,
+            customer_name: shipping?.customerName || null,
+            payment_method: paymentMethod,
+            payment_provider: paymentMethod === 'wompi' ? 'wompi' : paymentMethod,
+            provider_reference: reference,
+            wompi_reference: paymentMethod === 'wompi' ? reference : null,
+            carrier: shipping?.quote?.carrier_code || null,
+            notes: shipping?.quoteId ? `quote_id=${shipping.quoteId}` : null,
+        };
+
         const { data: order, error: orderError } = await supabase
             .from('orders')
-            .insert({
-                user_id: userId,
-                total_amount: product.price * product.quantity,
-                status: 'pending',
-                shipping_address: { pending: true },
-                contact_email: email,
-                payment_method: paymentMethod,
-            })
+            .insert(orderInsert)
             .select()
             .single();
 
         if (orderError) throw orderError;
 
+        const orderItems = products.map(p => ({
+            order_id: order.id,
+            product_id: p.productId,
+            quantity: p.quantity,
+            unit_price: p.price,
+            subtotal: p.price * p.quantity,
+            vendor_id: p.vendorId || null,
+        }));
+
         const { error: itemError } = await supabase
             .from('order_items')
-            .insert({
-                order_id: order.id,
-                product_id: product.productId,
-                quantity: product.quantity,
-                unit_price: product.price,
-            });
+            .insert(orderItems);
 
         if (itemError) throw itemError;
 
-        if (product.vendorId) {
-            await supabase.rpc('notify_user', {
-                p_user_id: product.vendorId,
-                p_title: 'Nueva Venta',
-                p_message: `Vendiste ${product.quantity}x ${product.name}`,
-                p_type: 'sale',
-                p_link: '/orders',
-            });
+        // Crear shipment (uno por orden, agrupa todos los productos).
+        let shipmentId: string | null = null;
+        if (shipping) {
+            const { data: shipment, error: shipmentErr } = await supabase
+                .from('shipments')
+                .insert({
+                    order_id: order.id,
+                    vendor_profile_id: primaryVendorProfileId,
+                    status: 'pending',
+                    carrier: shipping.quote.carrier_code,
+                    carrier_code: shipping.quote.carrier_code,
+                    shipping_cost: shipping.quote.cost,
+                    destination: shippingAddressJson,
+                    estimated_delivery: this.estimateDeliveryDate(shipping.quote.days_max),
+                })
+                .select('id')
+                .single();
+
+            if (shipmentErr) {
+                // No-blocking — la order ya esta creada y el vendor puede crear el shipment despues.
+                console.warn('Shipment insert failed (non-blocking):', shipmentErr);
+            } else {
+                shipmentId = shipment?.id || null;
+            }
         }
 
-        return { success: true, details: { orderId: order.id } };
+        // Notificar a cada vendor (puede haber varios)
+        const vendorIdsNotified = new Set<string>();
+        for (const p of products) {
+            if (p.vendorId && !vendorIdsNotified.has(p.vendorId)) {
+                vendorIdsNotified.add(p.vendorId);
+                await supabase.rpc('notify_user', {
+                    p_user_id: p.vendorId,
+                    p_title: 'Nueva Venta',
+                    p_message: `Vendiste ${p.quantity}x ${p.name}`,
+                    p_type: 'sale',
+                    p_link: '/orders',
+                });
+            }
+        }
+
+        return { success: true, details: { orderId: order.id, shipmentId } };
+    }
+
+    private estimateDeliveryDate(daysMax: number): string {
+        const d = new Date();
+        d.setDate(d.getDate() + daysMax);
+        return d.toISOString().slice(0, 10);
     }
 
     private async createAppointment(params: {

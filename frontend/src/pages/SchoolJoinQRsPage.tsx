@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Plus, QrCode, Save, Trash2, Download, ExternalLink, BarChart3 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import { Loader2, Plus, QrCode, Save, Trash2, Download, ExternalLink, BarChart3, FileImage, FileCode2, FileText } from 'lucide-react';
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,6 +66,8 @@ export default function SchoolJoinQRsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [previewQr, setPreviewQr] = useState<QrRow | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const exportCanvasRef = useRef<HTMLCanvasElement>(null);
+  const exportSvgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -106,24 +108,46 @@ export default function SchoolJoinQRsPage() {
   }
 
   async function save() {
-    if (!schoolId || !form.name) return;
+    if (!schoolId) {
+      toast({ title: 'Falta escuela activa', description: 'No hay schoolId en contexto.', variant: 'destructive' });
+      return;
+    }
+    if (!form.name.trim()) {
+      toast({ title: 'Nombre requerido', description: 'Ingresa un nombre interno para el QR.', variant: 'destructive' });
+      return;
+    }
+    if ((form.target_type === 'team' || form.target_type === 'branch') && !form.target_id) {
+      toast({
+        title: form.target_type === 'team' ? 'Equipo requerido' : 'Sede requerida',
+        description: 'Selecciona la opción específica o cambia a tipo "Abierto".',
+        variant: 'destructive',
+      });
+      return;
+    }
     setSaving(true);
-    const { error } = await supabase.rpc('create_school_join_qr' as any, {
+    const payload = {
       p_school_id:   schoolId,
-      p_name:        form.name,
+      p_name:        form.name.trim(),
       p_target_type: form.target_type,
       p_target_id:   form.target_id || null,
       p_branch_id:   form.branch_id || null,
       p_intro_text:  form.intro_text || null,
-      p_cta_text:    form.cta_text || 'Inscribirme',
+      p_cta_text:    form.cta_text?.trim() || 'Inscribirme',
       p_accept_payments: form.accept_payments,
       p_require_first_payment: form.require_first_payment,
       p_expires_at:  form.expires_at ? new Date(form.expires_at).toISOString() : null,
-      p_slug:        form.slug || null,
-    });
+      p_slug:        form.slug?.trim() || null,
+    };
+    const { data, error } = await supabase.rpc('create_school_join_qr' as any, payload);
     setSaving(false);
-    if (error) return toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    toast({ title: 'QR creado' });
+    if (error) {
+      console.error('[create_school_join_qr] failed', { payload, error });
+      const msg = [error.message, error.details, error.hint].filter(Boolean).join(' — ');
+      toast({ title: 'No se pudo crear el QR', description: msg || 'Error desconocido', variant: 'destructive' });
+      return;
+    }
+    console.log('[create_school_join_qr] ok', data);
+    toast({ title: 'QR creado', description: (data as any)?.slug ? `Slug: ${(data as any).slug}` : undefined });
     setOpen(false);
     await load();
   }
@@ -144,6 +168,54 @@ export default function SchoolJoinQRsPage() {
     if (error) return toast({ title: 'Error', description: error.message, variant: 'destructive' });
     toast({ title: 'QR eliminado' });
     await load();
+  }
+
+  function triggerDownload(blob: Blob, filename: string) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  // PNG 1024×1024 con margen — formato ideal para flyers/Instagram/WhatsApp.
+  function downloadPng(qr: QrRow) {
+    try {
+      const canvas = exportCanvasRef.current;
+      if (!canvas) {
+        toast({ title: 'Abre primero "Ver QR"', description: 'Necesito renderizar el QR para exportarlo.', variant: 'destructive' });
+        return;
+      }
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast({ title: 'No se pudo generar PNG', variant: 'destructive' });
+          return;
+        }
+        triggerDownload(blob, `${qr.slug}-qr-1024.png`);
+      }, 'image/png');
+    } catch (e: any) {
+      console.error('[downloadPng] failed', e);
+      toast({ title: 'No se pudo generar PNG', description: e?.message || 'Error', variant: 'destructive' });
+    }
+  }
+
+  // SVG vectorial — escala a cualquier tamaño sin pérdida (mejor para impresión grande).
+  function downloadSvg(qr: QrRow) {
+    try {
+      const svg = exportSvgRef.current;
+      if (!svg) {
+        toast({ title: 'Abre primero "Ver QR"', description: 'Necesito renderizar el QR para exportarlo.', variant: 'destructive' });
+        return;
+      }
+      const clone = svg.cloneNode(true) as SVGElement;
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const svgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      triggerDownload(blob, `${qr.slug}-qr.svg`);
+    } catch (e: any) {
+      console.error('[downloadSvg] failed', e);
+      toast({ title: 'No se pudo generar SVG', description: e?.message || 'Error', variant: 'destructive' });
+    }
   }
 
   async function downloadPoster(qr: QrRow) {
@@ -364,22 +436,64 @@ export default function SchoolJoinQRsPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{previewQr?.name}</DialogTitle>
-            <DialogDescription>{previewQr ? publicUrl(previewQr) : ''}</DialogDescription>
+            <DialogDescription className="break-all">{previewQr ? publicUrl(previewQr) : ''}</DialogDescription>
           </DialogHeader>
           {previewQr && (
-            <div ref={previewRef} className="flex flex-col items-center gap-3 bg-white p-4 rounded">
-              <QRCodeSVG value={publicUrl(previewQr)} size={240} level="M" />
-              <p className="text-xs text-center text-muted-foreground">{publicUrl(previewQr)}</p>
-            </div>
+            <>
+              <div ref={previewRef} className="flex flex-col items-center gap-3 bg-white p-4 rounded border">
+                <QRCodeSVG
+                  value={publicUrl(previewQr)}
+                  size={240}
+                  level="H"
+                  marginSize={4}
+                />
+                <p className="text-xs text-center text-muted-foreground break-all">{publicUrl(previewQr)}</p>
+              </div>
+
+              {/* Hidden hi-res renders usados para exportar PNG (1024px) y SVG vectorial */}
+              <div className="hidden" aria-hidden="true">
+                <QRCodeCanvas
+                  ref={exportCanvasRef}
+                  value={publicUrl(previewQr)}
+                  size={1024}
+                  level="H"
+                  marginSize={4}
+                />
+                <QRCodeSVG
+                  ref={exportSvgRef}
+                  value={publicUrl(previewQr)}
+                  size={1024}
+                  level="H"
+                  marginSize={4}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <Button variant="outline" onClick={() => downloadPng(previewQr)} className="gap-1 text-xs" title="PNG 1024px — ideal flyers/redes">
+                  <FileImage className="h-4 w-4" />
+                  PNG
+                </Button>
+                <Button variant="outline" onClick={() => downloadSvg(previewQr)} className="gap-1 text-xs" title="SVG vectorial — imprime a cualquier tamaño">
+                  <FileCode2 className="h-4 w-4" />
+                  SVG
+                </Button>
+                <Button variant="outline" onClick={() => downloadPoster(previewQr)} className="gap-1 text-xs" title="Poster A4 listo para imprimir">
+                  <FileText className="h-4 w-4" />
+                  Poster
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground text-center">
+                PNG sirve para WhatsApp/Instagram. SVG es el mejor para impresión grande sin perder calidad.
+              </p>
+            </>
           )}
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button variant="outline" onClick={() => previewQr && window.open(publicUrl(previewQr), '_blank')} className="gap-1">
+            <Button variant="ghost" onClick={() => previewQr && window.open(publicUrl(previewQr), '_blank')} className="gap-1">
               <ExternalLink className="h-4 w-4" />
-              Abrir
+              Abrir landing
             </Button>
-            <Button onClick={() => previewQr && downloadPoster(previewQr)} className="gap-1">
-              <Download className="h-4 w-4" />
-              Poster PDF
+            <Button variant="ghost" onClick={() => { if (previewQr) { navigator.clipboard.writeText(publicUrl(previewQr)); toast({ title: 'Link copiado' }); } }} className="gap-1">
+              Copiar link
             </Button>
           </DialogFooter>
           <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-center">

@@ -45,6 +45,15 @@ export type CardData = {
   fee_status?: 'paid' | 'due_soon' | 'overdue' | 'no_payments' | 'unknown';
   last_paid_at?: string | null;
   next_due?: string | null;
+  last_payment?: {
+    concept?: string | null;
+    amount?: number | null;
+    amount_paid?: number | null;
+    payment_date?: string | null;
+    created_at?: string | null;
+    provider_reference?: string | null;
+    payment_method?: string | null;
+  } | null;
   revoked_at?: string;
   reason?: string;
 };
@@ -170,6 +179,25 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
 
       {/* Bottom: QR + estado */}
       <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 pt-3 bg-black/15 backdrop-blur-[1px]">
+        {show.fee_status && data.last_payment && (feeKey === 'paid' || feeKey === 'due_soon' || feeKey === 'overdue') && (
+          <div className="mb-2 rounded-md bg-white/15 px-2 py-1 text-[10px] text-white/95 leading-tight">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">
+                {data.last_payment.concept || 'Último pago'}
+              </span>
+              {typeof (data.last_payment.amount_paid ?? data.last_payment.amount) === 'number' && (
+                <span className="font-semibold tabular-nums">
+                  {formatCop(data.last_payment.amount_paid ?? data.last_payment.amount!)}
+                </span>
+              )}
+            </div>
+            {(data.last_payment.payment_date || data.last_payment.created_at) && (
+              <p className="text-white/70 text-[9px] mt-0.5">
+                Pagado {new Date((data.last_payment.payment_date || data.last_payment.created_at)!).toLocaleDateString('es-CO')}
+              </p>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3">
           <div className="bg-white p-1.5 rounded-lg">
             <QRCodeSVG value={publicUrl} size={72} level="M" />
@@ -225,6 +253,18 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
 });
 
 AthleteIdCard.displayName = 'AthleteIdCard';
+
+function formatCop(amount: number): string {
+  try {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `$${Math.round(amount).toLocaleString('es-CO')}`;
+  }
+}
 
 function Row({ icon: Icon, label, value }: { icon: typeof ShieldCheck; label: string; value: string }) {
   return (
