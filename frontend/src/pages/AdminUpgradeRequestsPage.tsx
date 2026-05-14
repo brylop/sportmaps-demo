@@ -402,6 +402,19 @@ function RequestCard({
                             )}
                         </p>
                     )}
+                    {/* Metadata details — sale del field notes que la landing/admin
+                        pueden enviar como string libre. Cubre casos donde plan_code
+                        no aplica (otros roles, combos). */}
+                    {(request.metadata as any)?.notes && (
+                        <div className="mt-2 pt-2 border-t border-border/50">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                                Detalle del cliente
+                            </p>
+                            <p className="text-sm whitespace-pre-wrap break-words">
+                                {(request.metadata as any).notes}
+                            </p>
+                        </div>
+                    )}
                     {request.current_plan_code && (
                         <p className="text-muted-foreground text-xs">
                             Plan actual: {ACADEMY_TIERS[request.current_plan_code as TierCode]?.name || request.current_plan_code}
@@ -412,8 +425,8 @@ function RequestCard({
 
                 {request.processed_notes && (
                     <div className="rounded-lg bg-muted/50 p-3 text-sm mb-3">
-                        <p className="text-xs uppercase text-muted-foreground mb-1">Notas</p>
-                        <p>{request.processed_notes}</p>
+                        <p className="text-xs uppercase text-muted-foreground mb-1">Notas internas</p>
+                        <p className="whitespace-pre-wrap break-words">{request.processed_notes}</p>
                     </div>
                 )}
 
