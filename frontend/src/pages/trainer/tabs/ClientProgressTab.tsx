@@ -16,8 +16,6 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip as RechartTooltip,
 } from 'recharts';
-import { BiomechResultCard, BiomechCapture } from '@/components/biomech/BiomechResultCard';
-
 // ── Componente ────────────────────────────────────────────────────────────────
 
 export function ClientProgressTab({
@@ -33,8 +31,6 @@ export function ClientProgressTab({
   const { toast }      = useToast();
   const { schoolId }   = useSchoolContext();
   const [progress,     setProgress]     = useState<any[]>([]);
-  const [captures,     setCaptures]     = useState<BiomechCapture[]>([]);
-  const [loadingCaptures, setLoadingCaptures] = useState(false);
   const [open,         setOpen]         = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
 
@@ -58,18 +54,6 @@ export function ClientProgressTab({
   useEffect(() => {
     fetchProgress();
   }, [clientId, type, schoolId]);
-
-  useEffect(() => {
-    if (!clientId || !session?.access_token) return;
-    setLoadingCaptures(true);
-    fetch(`${EFF_URL}/api/v1/trainer/biomech/captures?client_id=${clientId}`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    })
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setCaptures(data ?? []))
-      .catch(() => {})
-      .finally(() => setLoadingCaptures(false));
-  }, [clientId, session, EFF_URL]);
 
   // ── Derived data ──────────────────────────────────────────────────────────
 
@@ -310,53 +294,6 @@ export function ClientProgressTab({
         </p>
       )}
 
-      {/* Biomecánica */}
-      <div className="space-y-4 pt-2 border-t border-border/30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" />
-            <h4 className="font-bold text-sm">Biomecánica</h4>
-            <span className="text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
-              SportMaps Body
-            </span>
-          </div>
-          {captures.length > 0 && (
-            <span className="text-[10px] text-muted-foreground">
-              {captures.length} captura{captures.length !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
-
-        {loadingCaptures ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-primary" />
-          </div>
-        ) : captures.length === 0 ? (
-          <div className="text-center py-8 border border-dashed rounded-xl text-muted-foreground">
-            <Activity className="mx-auto h-7 w-7 mb-2 opacity-30" />
-            <p className="text-sm font-medium">Sin capturas biomecánicas</p>
-            <p className="text-xs mt-1 opacity-60">
-              Las capturas aparecen cuando el atleta completa un ejercicio con cámara requerida.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {captures.slice(0, 10).map(capture => (
-              <BiomechResultCard
-                key={capture.id}
-                capture={capture}
-                showAnnotate
-                onAnnotate={(captureId) => console.log('Anotar captura:', captureId)}
-              />
-            ))}
-            {captures.length > 10 && (
-              <p className="text-center text-xs text-muted-foreground pt-1">
-                Mostrando las últimas 10 de {captures.length} capturas
-              </p>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
