@@ -251,9 +251,10 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       setBusinessModel(model);
       toast({ title: 'Modelo guardado' });
       onRefresh();
-      // No avanzamos manualmente: el rerender reemplaza el step 'model' por
-      // 'team' o 'plan' en el mismo indice, asi que el usuario queda en el
-      // siguiente paso natural sin cambiar currentStep.
+      // Avanzamos al siguiente paso (team o plan) automaticamente para que
+      // el usuario no se quede preguntandose como seguir. El step 'model'
+      // permanece en STEPS y puede revisitarse via las pills.
+      setCurrentStep(prev => prev + 1);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
@@ -853,6 +854,12 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
     renderStepContent()
   );
 
+  const isLastStep = currentStep >= STEPS.length - 1;
+  // Siguiente queda habilitado solo si el paso actual esta completo. Asi
+  // el usuario no avanza dejando datos atras en pasos required, pero si
+  // puede avanzar en pasos opcionales una vez que los completo o saltó.
+  const canAdvance = isCurrentDone && !isLastStep;
+
   const footer = (
     <>
       <Button variant="ghost" size="sm" onClick={goBack} disabled={currentStep === 0}>
@@ -867,6 +874,16 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         {allRequiredDone && (
           <Button variant="outline" size="sm" onClick={handleFinish}>
             Terminar después <ArrowRight className="h-4 w-4 ml-1" />
+          </Button>
+        )}
+        {!isLastStep && (
+          <Button
+            size="sm"
+            onClick={goNext}
+            disabled={!canAdvance}
+            title={canAdvance ? 'Continuar al siguiente paso' : 'Completa este paso para continuar'}
+          >
+            Siguiente <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         )}
       </div>
