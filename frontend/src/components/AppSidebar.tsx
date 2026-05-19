@@ -86,6 +86,15 @@ export function AppSidebar() {
       case 'personal_trainer':
         navigationRole = 'personal_trainer';
         break;
+      // external_vendor es el rol nuevo que reemplaza al legacy store_owner.
+      // Usan exactamente la misma navegacion de vendor.
+      case 'external_vendor':
+      case 'store_owner':
+        navigationRole = 'store_owner';
+        break;
+      case 'wellness_professional':
+        navigationRole = 'wellness_professional';
+        break;
       default:
         navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
@@ -94,14 +103,30 @@ export function AppSidebar() {
 
   const baseNavigationGroups = getNavigationByRole(navigationRole);
 
-  // Mi Tienda: grupo adicional para usuarios con vendor_profile activo.
-  // Para rol school se requiere addon `store` activo (es addon pago via /mi-plan).
-  // Para coach / external_vendor / wellness / personal_trainer basta el vendor_profile.
+  // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
+  // pero que decidieron sumarle marketplace a su cuenta.
+  //
+  // Roles vendor-primarios (external_vendor, wellness_professional,
+  // personal_trainer, store_owner) NO ven este grupo porque su sidebar
+  // principal ya cubre productos/servicios/pedidos/agenda. Mostrarlo
+  // duplica items y confunde con "Verificacion pendiente" mal posicionado.
+  //
+  // Roles school (school/school_admin/owner) requieren addon `store`
+  // explicito (es upgrade pago via /mi-plan).
+  //
+  // Roles candidatos a ver el grupo: coach (que quiere vender servicios
+  // extra), y school CON addon `store` activo.
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
   const { hasAddon } = useEntitlements();
   const isSchoolRole = effectiveRole === 'school' || effectiveRole === 'school_admin' || effectiveRole === 'owner';
+  const isVendorPrimaryRole = (
+    effectiveRole === 'external_vendor' ||
+    effectiveRole === 'wellness_professional' ||
+    effectiveRole === 'personal_trainer' ||
+    effectiveRole === 'store_owner'
+  );
   const schoolGateOk = !isSchoolRole || hasAddon('store');
-  const showVendorGroup = hasVendorProfile && schoolGateOk;
+  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole;
   const navigationGroups = showVendorGroup
     ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
     : baseNavigationGroups;
