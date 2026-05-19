@@ -47,7 +47,32 @@ export default function DashboardPage() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [showCoachWizard, setShowCoachWizard] = useState(false);
   const [rpcStatus, setRpcStatus] = useState<any>(null);
+  // Fallback directo si el RPC falla o tarda — query bruta a schools por owner.
+  const [fallbackSchool, setFallbackSchool] = useState<{ id: string; onboarding_status: string; business_model?: string } | null>(null);
   const hasAutoOpenedRef = useRef(false);
+
+  // Fallback: si el rol del profile indica escuela, consulta directa a schools.
+  // Garantiza que el wizard aparezca aunque get_onboarding_status() rompa.
+  useEffect(() => {
+    const isSchoolRole = ['school', 'school_admin', 'admin', 'owner', 'super_admin']
+      .includes(profile?.role as string);
+    if (!isSchoolRole || !user?.id) return;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from('schools')
+        .select('id, onboarding_status, business_model')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) {
+        console.warn('[Dashboard] fallback schools query falló:', error);
+        return;
+      }
+      if (data) setFallbackSchool(data);
+    })();
+  }, [profile?.role, user?.id]);
 
   // Show welcome splash if it's the first time
   useEffect(() => {
@@ -397,35 +422,57 @@ export default function DashboardPage() {
       )}
 
       {/* Wizard guiado para escuelas.
-          Relajamos la condicion: basta con que sea rol de escuela y exista
-          una escuela en BD (via rpcStatus.has_school o directamente porque
-          rpcStatus.school_id existe). El RPC puede fallar puntualmente y no
-          queremos que eso bloquee el onboarding. */}
+          Triple fuente: rpcStatus.has_school, rpcStatus.school_id, o
+          fallbackSchool (query directa). Cualquiera prende el wizard. */}
       {(() => {
         const isSchoolRole = ['school', 'school_admin', 'admin', 'owner', 'super_admin']
             .includes(profile?.role as string);
         const hasSchoolInRpc = !!(rpcStatus?.has_school || rpcStatus?.school_id);
-        const isCompleted = onboardingStatus === 'completed';
-        const shouldShow = isSchoolRole && hasSchoolInRpc && !isCompleted;
+        const hasSchoolInFallback = !!fallbackSchool?.id;
+        const hasSchool = hasSchoolInRpc || hasSchoolInFallback;
+        const effectiveOnboardingStatus = onboardingStatus
+          ?? fallbackSchool?.onboarding_status
+          ?? null;
+        const isCompleted = effectiveOnboardingStatus === 'completed';
+        const shouldShow = isSchoolRole && hasSchool && !isCompleted;
 
-        if (!shouldShow && isSchoolRole) {
+        if (isSchoolRole) {
           // eslint-disable-next-line no-console
-          console.log('[Dashboard] Wizard escuela oculto:', {
+          console.log('[Dashboard] gate wizard escuela:', {
+            shouldShow,
             isSchoolRole,
             hasSchoolInRpc,
+            hasSchoolInFallback,
             rpcStatus_has_school: rpcStatus?.has_school,
             rpcStatus_school_id: rpcStatus?.school_id,
-            isCompleted,
+            fallbackSchool_id: fallbackSchool?.id,
+            effectiveOnboardingStatus,
             profile_role: profile?.role,
           });
         }
 
         if (!shouldShow) return null;
 
+        // Compone status para el wizard: prefiere rpcStatus si existe,
+        // si no, sintetiza uno minimo desde fallbackSchool y query basicas.
+        const wizardStatus = rpcStatus ?? {
+          school_id:               fallbackSchool!.id,
+          onboarding_status:       fallbackSchool!.onboarding_status,
+          business_model:          fallbackSchool!.business_model,
+          has_school:              true,
+          has_branches:            false,
+          has_teams:               false,
+          has_plans:               false,
+          has_staff:               false,
+          has_students:            false,
+          payment_setup_completed: false,
+          role:                    profile?.role,
+        };
+
         return (
           <div className="animate-in fade-in slide-in-from-top-4 duration-500">
             <SchoolOnboardingWizard
-              status={rpcStatus!}
+              status={wizardStatus}
               onComplete={() => {
                 setOnboardingStatus('completed');
                 refreshOnboardingData();
