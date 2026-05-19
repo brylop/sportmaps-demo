@@ -3,11 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
 import {
   Select,
   SelectContent,
@@ -17,7 +16,6 @@ import {
 } from '@/components/ui/select';
 import {
   Building,
-  Users,
   UserPlus,
   GraduationCap,
   CreditCard,
@@ -26,7 +24,6 @@ import {
   ChevronLeft,
   Loader2,
   Trophy,
-  Sparkles,
   ArrowRight,
   SkipForward,
   Tag,
@@ -811,119 +808,60 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
     }
   };
 
-  return (
-    <Card className="border-primary/20 shadow-lg overflow-hidden">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 pb-4">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold">Configura tu academia</h2>
-              <p className="text-sm text-muted-foreground">{schoolName || 'Tu Escuela'}</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-2xl font-bold text-primary">{progress}%</span>
-            <div className="w-24 h-2 bg-muted rounded-full mt-1">
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        </div>
+  const shellSteps: ShellStep[] = STEPS.map(s => ({
+    id:          s.id,
+    title:       s.title,
+    description: s.subtitle,
+    icon:        s.icon,
+    done:        isStepDoneById(s.id),
+  }));
 
-        {/* Step indicators */}
-        <div className="flex items-center gap-1 mt-4">
-          {STEPS.map((step, index) => {
-            const done = isStepDone(index);
-            const active = index === currentStep;
-            return (
-              <button
-                key={step.id}
-                onClick={() => setCurrentStep(index)}
-                className={`
-                  flex-1 h-2 rounded-full transition-all duration-300
-                  ${done ? 'bg-primary' : active ? 'bg-primary/50' : 'bg-muted'}
-                `}
-                title={step.title}
-              />
-            );
-          })}
-        </div>
-      </div>
+  const currentStepDef = STEPS[currentStep];
+  const isCurrentDone  = currentStepDef ? isStepDoneById(currentStepDef.id) : false;
 
-      <CardContent className="p-6">
-        {/* Step header */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className={`p-2.5 rounded-xl ${isStepDone(currentStep) ? 'bg-primary/10' : 'bg-muted'}`}>
-            {(() => {
-              const Icon = STEPS[currentStep].icon;
-              return <Icon className={`h-5 w-5 ${isStepDone(currentStep) ? 'text-primary' : 'text-muted-foreground'}`} />;
-            })()}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold">
-                Paso {currentStep + 1}: {STEPS[currentStep].title}
-              </h3>
-              {isStepDone(currentStep) && (
-                <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 text-xs">
-                  Completado
-                </Badge>
-              )}
-              {!STEPS[currentStep].required && !isStepDone(currentStep) && (
-                <Badge variant="outline" className="text-muted-foreground text-xs">
-                  Opcional
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">{STEPS[currentStep].subtitle}</p>
-          </div>
-        </div>
+  const stepBody = isCurrentDone ? (
+    <div className="flex flex-col items-center gap-4 py-6 text-center">
+      <CheckCircle2 className="h-12 w-12 text-primary" />
+      <p className="text-muted-foreground">Este paso ya está completado. Puedes continuar al siguiente.</p>
+      <Button onClick={goNext} disabled={currentStep >= STEPS.length - 1}>
+        Siguiente <ChevronRight className="h-4 w-4 ml-1" />
+      </Button>
+    </div>
+  ) : (
+    renderStepContent()
+  );
 
-        {/* Step already completed message */}
-        {isStepDone(currentStep) ? (
-          <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <CheckCircle2 className="h-12 w-12 text-primary" />
-            <p className="text-muted-foreground">Este paso ya esta completado. Puedes continuar al siguiente.</p>
-            <Button onClick={goNext} disabled={currentStep >= STEPS.length - 1}>
-              Siguiente <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
-        ) : (
-          renderStepContent()
-        )}
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={goBack}
-            disabled={currentStep === 0}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+  const footer = (
+    <>
+      <Button variant="ghost" size="sm" onClick={goBack} disabled={currentStep === 0}>
+        <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+      </Button>
+      <div className="flex items-center gap-2">
+        {currentStepDef && !currentStepDef.required && !isCurrentDone && (
+          <Button variant="ghost" size="sm" onClick={handleSkip}>
+            <SkipForward className="h-4 w-4 mr-1" /> Saltar
           </Button>
+        )}
+        {allRequiredDone && (
+          <Button variant="outline" size="sm" onClick={handleFinish}>
+            Terminar después <ArrowRight className="h-4 w-4 ml-1" />
+          </Button>
+        )}
+      </div>
+    </>
+  );
 
-          <div className="flex items-center gap-2">
-            {!STEPS[currentStep].required && !isStepDone(currentStep) && (
-              <Button variant="ghost" size="sm" onClick={handleSkip}>
-                <SkipForward className="h-4 w-4 mr-1" /> Saltar
-              </Button>
-            )}
-
-            {allRequiredDone && (
-              <Button variant="outline" size="sm" onClick={handleFinish}>
-                Terminar despues <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+  return (
+    <OnboardingShell
+      title={schoolName ? `Configura ${schoolName}` : 'Configura tu academia'}
+      eyebrow="Configuración inicial"
+      steps={shellSteps}
+      currentStep={currentStep}
+      onStepChange={setCurrentStep}
+      footer={footer}
+      variant="card"
+    >
+      {stepBody}
+    </OnboardingShell>
   );
 }

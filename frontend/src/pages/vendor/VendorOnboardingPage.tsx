@@ -9,9 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BankAccountFields } from '@/components/payments/BankAccountFields';
-import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench } from 'lucide-react';
+import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
+import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench, ShieldCheck } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -231,34 +231,38 @@ export default function VendorOnboardingPage() {
         );
     }
 
-    return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-2xl shadow-xl">
-                <CardHeader className="bg-primary/5 border-b pb-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
-                            <Store className="h-6 w-6" />
-                            {hasExistingProfile ? 'Configura tu Tienda' : 'Activar Mi Tienda'}
-                        </h2>
-                        <div className="flex gap-2">
-                            {[1, 2, 3].map(s => (
-                                <div key={s} className={`h-2 w-12 rounded-full ${step >= s ? 'bg-primary' : 'bg-slate-200'}`} />
-                            ))}
-                        </div>
-                    </div>
-                    <CardTitle>
-                        {step === 1 && (hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes')}
-                        {step === 2 && 'Cómo cobras'}
-                        {step === 3 && 'Verificación de identidad'}
-                    </CardTitle>
-                    <CardDescription>
-                        {step === 1 && 'Información básica que aparecerá en tu perfil público.'}
-                        {step === 2 && 'Elige los métodos con los que vas a recibir pagos.'}
-                        {step === 3 && 'Sube un documento (cédula, RUT, Cámara de Comercio o tarjeta profesional) para verificar tu identidad y aparecer destacado.'}
-                    </CardDescription>
-                </CardHeader>
+    const shellSteps: ShellStep[] = [
+        {
+            id: 'business',
+            title: 'Negocio',
+            description: hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes',
+            icon: Store,
+            done: step > 1,
+        },
+        {
+            id: 'payments',
+            title: 'Pagos',
+            description: 'Cómo recibirás los cobros',
+            icon: CreditCard,
+            done: step > 2,
+        },
+        {
+            id: 'verification',
+            title: 'Verificación',
+            description: 'Documento de identidad (opcional)',
+            icon: ShieldCheck,
+            done: false,
+        },
+    ];
 
-                <CardContent className="p-6">
+    return (
+        <OnboardingShell
+            title={hasExistingProfile ? 'Configura tu Tienda' : 'Activar Mi Tienda'}
+            eyebrow="Configuración inicial"
+            steps={shellSteps}
+            currentStep={step - 1}
+            onStepChange={(idx) => idx + 1 <= step && setStep(idx + 1)}
+        >
                     {/* Step 1: ¿Qué vendes? + Info básica */}
                     {step === 1 && (
                         <div className="space-y-5">
@@ -458,8 +462,6 @@ export default function VendorOnboardingPage() {
                             </div>
                         </div>
                     )}
-                </CardContent>
-            </Card>
-        </div>
+        </OnboardingShell>
     );
 }
