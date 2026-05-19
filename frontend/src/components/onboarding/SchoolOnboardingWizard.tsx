@@ -38,6 +38,42 @@ import { emailClient } from '@/lib/email-client';
 type BusinessModel = 'teams' | 'plans' | 'both';
 type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'payments';
 
+/**
+ * Convierte errores tecnicos de Supabase/PostgREST en mensajes que un
+ * administrador no tecnico pueda entender. Lista basada en errores reales
+ * observados en staging.
+ */
+function friendlyError(err: any): string {
+  const msg = String(err?.message || err || '');
+  if (msg.includes('schema cache') && msg.includes('subscription_plans')) {
+    return 'El módulo de planes aún no está disponible. Pídele al administrador que aplique la última actualización.';
+  }
+  if (msg.includes('schema cache') && msg.includes('school_settings')) {
+    return 'La configuración de cobros aún no está disponible. Pídele al administrador que aplique la última actualización.';
+  }
+  if (msg.includes('schema cache')) {
+    return 'Esta función está siendo actualizada. Espera un minuto y vuelve a intentar.';
+  }
+  if (msg.includes('duplicate key') || msg.includes('already exists')) {
+    return 'Ya existe un registro con esos datos.';
+  }
+  if (msg.includes('violates check constraint')) {
+    return 'Alguno de los valores no es válido. Revisa los campos marcados con asterisco.';
+  }
+  if (msg.includes('permission denied') || msg.includes('not authorized')) {
+    return 'No tienes permisos para realizar esta acción.';
+  }
+  if (msg.toLowerCase().includes('network')) {
+    return 'Error de conexión. Verifica tu internet e intenta de nuevo.';
+  }
+  // Fallback: mensaje original sin el prefijo tecnico
+  return msg.replace(/^[A-Za-z]+Error:\s*/i, '') || 'Ocurrió un error. Intenta nuevamente.';
+}
+
+/** Sanitizadores que filtran caracteres no permitidos en tiempo de tecla. */
+const onlyDigits = (v: string) => v.replace(/\D/g, '');
+const onlyLetters = (v: string) => v.replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ \-']/g, '');
+
 interface OnboardingStatus {
   has_school: boolean;
   has_branches: boolean;
@@ -158,13 +194,14 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
 
   // Student form
   const [studentName, setStudentName] = useState('');
+  const [studentIsAdult, setStudentIsAdult] = useState(false);
   const [parentEmail, setParentEmail] = useState('');
   const [parentPhone, setParentPhone] = useState('');
 
-  // Payments form — mismo bloque unificado que trainer/vendor:
-  // Nequi + Banco + Cuenta + WhatsApp. La escuela ademas conserva tipo de cuenta
-  // porque es info que las pasarelas (Wompi/MP) exigen para depositar.
+  // Payments form — bloque unificado school/trainer/vendor:
+  // Nequi + Bre-B + Banco + Cuenta + Tipo + WhatsApp.
   const [nequi,         setNequi]         = useState('');
+  const [brebKey,       setBrebKey]       = useState('');
   const [bankCode,      setBankCode]      = useState('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountType,   setAccountType]   = useState('ahorros');
@@ -231,7 +268,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -256,7 +293,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       // permanece en STEPS y puede revisitarse via las pills.
       setCurrentStep(prev => prev + 1);
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -318,7 +355,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -358,7 +395,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -405,7 +442,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -433,14 +470,15 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
           full_name: studentName.trim(),
           school_id: schoolId,
           team_id: firstTeam?.id || null,
-          parent_email_temp: parentEmail.trim() || null,
-          parent_phone_temp: parentPhone.trim() || null,
+          // Si el atleta es mayor de edad, no se piden datos del padre.
+          parent_email_temp: studentIsAdult ? null : (parentEmail.trim() || null),
+          parent_phone_temp: studentIsAdult ? null : (parentPhone.trim() || null),
         });
 
       if (error) throw error;
 
-      // Enviar email de invitacion al padre si tiene email
-      if (parentEmail.trim()) {
+      // Enviar email de invitacion al padre solo si NO es adulto y hay email
+      if (!studentIsAdult && parentEmail.trim()) {
         const registrationUrl = `${window.location.origin}/register?email=${encodeURIComponent(parentEmail.trim())}&role=parent`;
         try {
           await emailClient.send({
@@ -457,11 +495,17 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         }
       }
 
-      toast({ title: parentEmail.trim() ? 'Atleta registrado e invitacion enviada al padre' : 'Atleta registrado' });
+      toast({
+        title: studentIsAdult
+          ? 'Atleta registrado'
+          : (parentEmail.trim()
+              ? 'Atleta registrado e invitación enviada al padre'
+              : 'Atleta registrado'),
+      });
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -469,8 +513,16 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
 
   const handleSavePayments = async () => {
     if (!schoolId) return;
-    if (!bankCode || !accountNumber.trim()) {
-      toast({ title: 'Selecciona banco y número de cuenta', variant: 'destructive' });
+    // Validacion: minimo un metodo de cobro (Nequi, Bre-B, o cuenta bancaria).
+    const hasBank = !!bankCode && !!accountNumber.trim();
+    const hasNequi = !!nequi.trim();
+    const hasBreb = !!brebKey.trim();
+    if (!hasBank && !hasNequi && !hasBreb) {
+      toast({
+        title: 'Necesitas al menos un método de cobro',
+        description: 'Agrega un número Nequi, una llave Bre-B, o una cuenta bancaria.',
+        variant: 'destructive',
+      });
       return;
     }
     setSaving(true);
@@ -479,10 +531,11 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         .from('school_settings')
         .upsert({
           school_id:           schoolId,
-          bank_name:           bankCode,
-          bank_account_number: accountNumber.trim(),
-          bank_account_type:   accountType,
+          bank_name:           bankCode || null,
+          bank_account_number: accountNumber.trim() || null,
+          bank_account_type:   hasBank ? accountType : null,
           nequi_number:        nequi.trim() || null,
+          breb_key:            brebKey.trim() || null,
           whatsapp_number:     whatsapp.trim() || null,
         }, { onConflict: 'school_id' });
 
@@ -492,7 +545,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
       onRefresh();
       handleFinish();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -732,35 +785,46 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Registra a tu primer deportista. Si tiene padre/madre, recibirán una invitacion.
+              Registra a tu primer deportista. Si es menor de edad necesitamos los datos del padre/madre para enviarles la invitación.
             </p>
             <div className="space-y-2">
               <Label>Nombre del atleta *</Label>
               <Input
-                placeholder="Juan Perez"
+                placeholder="Juan Pérez"
                 value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
+                onChange={(e) => setStudentName(onlyLetters(e.target.value))}
               />
+              <p className="text-[11px] text-muted-foreground">Solo letras. Sin números.</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Email del padre (opcional)</Label>
-                <Input
-                  type="email"
-                  placeholder="padre@email.com"
-                  value={parentEmail}
-                  onChange={(e) => setParentEmail(e.target.value)}
-                />
+
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input accent-primary"
+                checked={studentIsAdult}
+                onChange={(e) => setStudentIsAdult(e.target.checked)}
+              />
+              El atleta es mayor de edad
+            </label>
+
+            {!studentIsAdult && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Email del padre (opcional)</Label>
+                  <Input
+                    type="email"
+                    placeholder="padre@email.com"
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Teléfono del padre (opcional)</Label>
+                  <PhoneInput value={parentPhone} onChange={setParentPhone} placeholder="Número de celular" />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Telefono del padre (opcional)</Label>
-                <Input
-                  placeholder="300 123 4567"
-                  value={parentPhone}
-                  onChange={(e) => setParentPhone(e.target.value)}
-                />
-              </div>
-            </div>
+            )}
+
             <Button onClick={handleCreateStudent} disabled={saving} className="w-full">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <GraduationCap className="h-4 w-4 mr-2" />}
               Registrar Atleta
@@ -772,33 +836,48 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Configura tus datos bancarios para recibir pagos de las familias.
+              Configura cómo vas a recibir pagos de las familias. Mínimo un método.
             </p>
 
             <div className="space-y-2">
               <Label>Número Nequi</Label>
               <Input
                 type="tel"
+                inputMode="numeric"
                 maxLength={10}
                 placeholder="Número de 10 dígitos"
                 value={nequi}
-                onChange={(e) => setNequi(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                onChange={(e) => setNequi(onlyDigits(e.target.value).slice(0, 10))}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Banco *</Label>
+              <Label>Llave Bre-B</Label>
+              <Input
+                placeholder="Celular, email, NIT, CC o alias custom"
+                value={brebKey}
+                onChange={(e) => setBrebKey(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Bre-B es el sistema de pagos inmediatos del Banco de la República. La llave puede ser tu celular, email, NIT, cédula o un alias.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Banco</Label>
               <BankCombobox value={bankCode} onChange={setBankCode} />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Número de cuenta *</Label>
+                <Label>Número de cuenta</Label>
                 <Input
-                  placeholder="123-456789-00"
+                  inputMode="numeric"
+                  placeholder="0000000000"
                   value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
+                  onChange={(e) => setAccountNumber(onlyDigits(e.target.value))}
                 />
+                <p className="text-[11px] text-muted-foreground">Solo números, sin guiones.</p>
               </div>
               <div className="space-y-2">
                 <Label>Tipo de cuenta</Label>
@@ -809,6 +888,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant 
                   <SelectContent>
                     <SelectItem value="ahorros">Ahorros</SelectItem>
                     <SelectItem value="corriente">Corriente</SelectItem>
+                    <SelectItem value="billetera_digital">Billetera digital</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
