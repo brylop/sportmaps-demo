@@ -8,15 +8,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { COLOMBIAN_CITIES, CITY_LABEL } from '@/lib/colombian-cities';
+import { COLOMBIAN_BANKS, BANK_LABEL } from '@/lib/colombian-banks';
 import { useStorage } from '@/hooks/useStorage';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { LocationAutocomplete } from '@/components/events/LocationAutocomplete';
 import { Minus, Plus, Dumbbell, MapPin, Clock, DollarSign, CreditCard, Camera, ChevronRight, ChevronLeft, Check, Search, ChevronsUpDown, Upload, Loader2, Video, Smartphone, Users } from 'lucide-react';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
@@ -59,10 +60,12 @@ export default function TrainerOnboarding() {
   const [expYears, setExpYears] = useState('');
   const [modality, setModality] = useState<'presencial' | 'virtual' | 'ambas'>('presencial');
   const [city, setCity] = useState('');
+  const [cityOpen, setCityOpen] = useState(false);
   const [rate, setRate] = useState('');
   const [rateNotes, setRateNotes] = useState('');
   const [nequi, setNequi] = useState('');
-  const [bank, setBank] = useState('');
+  const [bankCode, setBankCode] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [bio, setBio] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -103,15 +106,20 @@ export default function TrainerOnboarding() {
           experience_years: parseInt(expYears) || null,
         };
       case 2:
-        return { modality, city };
+        return { modality, city: CITY_LABEL[city] || city };
       case 3:
         return {}; // Disponibilidad: se configura por separado en /trainer/availability
       case 4:
         return { rate_per_session: parseFloat(parseNumber(rate)) || null, rate_currency: 'COP', rate_notes: rateNotes };
       case 5:
-        return { 
-          payment_settings: { nequi_number: nequi, bank_name: bank },
-          whatsapp_number: whatsapp
+        return {
+          payment_settings: {
+            nequi_number:        nequi,
+            bank_code:           bankCode,
+            bank_name:           BANK_LABEL[bankCode] || '',
+            bank_account_number: bankAccountNumber,
+          },
+          whatsapp_number: whatsapp,
         };
       case 6:
         return { 
@@ -267,7 +275,11 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Especialidades <span className="text-muted-foreground text-xs">(separadas por coma)</span></label>
-                  <Input value={specialties} onChange={e => setSpecialties(e.target.value)} placeholder="Ej: Porteros, Fuerza, Resistencia..." />
+                  <Input
+                    value={specialties}
+                    onChange={e => setSpecialties(e.target.value.replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñÜü\s,]/g, ''))}
+                    placeholder="Ej: Porteros, Fuerza, Resistencia..."
+                  />
                 </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Años de experiencia</label>
@@ -339,11 +351,50 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Ciudad</label>
-                  <LocationAutocomplete 
-                    value={city} 
-                    onChange={setCity} 
-                    placeholder="Ej: Bogotá" 
-                  />
+                  <Popover open={cityOpen} onOpenChange={setCityOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={cityOpen}
+                        className={cn(
+                          "w-full justify-between font-normal bg-background border-input hover:bg-muted/50",
+                          !city && "text-muted-foreground"
+                        )}
+                      >
+                        <MapPin className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                        {city ? CITY_LABEL[city] || city : "Selecciona tu ciudad..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar ciudad..." className="text-sm h-[38px] w-full" />
+                        <CommandEmpty>No se encontró la ciudad.</CommandEmpty>
+                        <CommandGroup className="max-h-[300px] overflow-y-auto">
+                          {COLOMBIAN_CITIES.map((c) => (
+                            <CommandItem
+                              key={c.value}
+                              value={`${c.label} ${c.department}`}
+                              onSelect={() => {
+                                setCity(c.value);
+                                setCityOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  city === c.value ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <span>{c.label}</span>
+                              <span className="ml-2 text-xs text-muted-foreground">· {c.department}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </>
             )}
@@ -441,12 +492,33 @@ export default function TrainerOnboarding() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Banco / cuenta</label>
-                  <Input 
+                  <label className="text-sm font-medium">Banco</label>
+                  <Select value={bankCode} onValueChange={setBankCode}>
+                    <SelectTrigger className="h-11 bg-background/50 border-border/40 rounded-xl">
+                      <SelectValue placeholder="Selecciona tu banco" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COLOMBIAN_BANKS.map(g => (
+                        <SelectGroup key={g.group}>
+                          <SelectLabel>{g.group}</SelectLabel>
+                          {g.options.map(o => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Número de cuenta</label>
+                  <Input
                     className="h-11 bg-background/50 border-border/40 rounded-xl"
-                    value={bank} 
-                    onChange={e => setBank(e.target.value)} 
-                    placeholder="Banco y número de cuenta..." 
+                    type="text"
+                    inputMode="numeric"
+                    value={bankAccountNumber}
+                    onChange={e => setBankAccountNumber(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123-456789-00"
+                    disabled={!bankCode}
                   />
                 </div>
                 <div className="space-y-2">
