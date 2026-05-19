@@ -396,21 +396,45 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Wizard guiado para escuelas */}
-      {rpcStatus && ['school', 'school_admin', 'admin', 'owner', 'super_admin'].includes(profile.role as string)
-        && onboardingStatus !== 'completed'
-        && rpcStatus.has_school && (
-        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-          <SchoolOnboardingWizard
-            status={rpcStatus}
-            onComplete={() => {
-              setOnboardingStatus('completed');
-              refreshOnboardingData();
-            }}
-            onRefresh={refreshOnboardingData}
-          />
-        </div>
-      )}
+      {/* Wizard guiado para escuelas.
+          Relajamos la condicion: basta con que sea rol de escuela y exista
+          una escuela en BD (via rpcStatus.has_school o directamente porque
+          rpcStatus.school_id existe). El RPC puede fallar puntualmente y no
+          queremos que eso bloquee el onboarding. */}
+      {(() => {
+        const isSchoolRole = ['school', 'school_admin', 'admin', 'owner', 'super_admin']
+            .includes(profile?.role as string);
+        const hasSchoolInRpc = !!(rpcStatus?.has_school || rpcStatus?.school_id);
+        const isCompleted = onboardingStatus === 'completed';
+        const shouldShow = isSchoolRole && hasSchoolInRpc && !isCompleted;
+
+        if (!shouldShow && isSchoolRole) {
+          // eslint-disable-next-line no-console
+          console.log('[Dashboard] Wizard escuela oculto:', {
+            isSchoolRole,
+            hasSchoolInRpc,
+            rpcStatus_has_school: rpcStatus?.has_school,
+            rpcStatus_school_id: rpcStatus?.school_id,
+            isCompleted,
+            profile_role: profile?.role,
+          });
+        }
+
+        if (!shouldShow) return null;
+
+        return (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+            <SchoolOnboardingWizard
+              status={rpcStatus!}
+              onComplete={() => {
+                setOnboardingStatus('completed');
+                refreshOnboardingData();
+              }}
+              onRefresh={refreshOnboardingData}
+            />
+          </div>
+        );
+      })()}
 
       {/* Checklist genérico para otros roles (parent, coach, athlete) */}
       {onboardingSteps.length > 0 && !onboardingSteps.every(s => s.completed) && onboardingStatus !== 'completed'
