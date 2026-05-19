@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useEntitlements } from '@/hooks/useEntitlements';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
 // team asociado, asi que no se puede scopear fiablemente). El componente
@@ -93,10 +94,15 @@ export function AppSidebar() {
 
   const baseNavigationGroups = getNavigationByRole(navigationRole);
 
-  // Mi Tienda: grupo adicional para cualquier usuario con vendor_profile activo,
-  // independiente del rol principal. (coach + tienda, school + tienda, etc.)
+  // Mi Tienda: grupo adicional para usuarios con vendor_profile activo.
+  // Para rol school se requiere addon `store` activo (es addon pago via /mi-plan).
+  // Para coach / external_vendor / wellness / personal_trainer basta el vendor_profile.
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const navigationGroups = hasVendorProfile
+  const { hasAddon } = useEntitlements();
+  const isSchoolRole = effectiveRole === 'school' || effectiveRole === 'school_admin' || effectiveRole === 'owner';
+  const schoolGateOk = !isSchoolRole || hasAddon('store');
+  const showVendorGroup = hasVendorProfile && schoolGateOk;
+  const navigationGroups = showVendorGroup
     ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
     : baseNavigationGroups;
 
