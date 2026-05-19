@@ -29,35 +29,57 @@ import {
   Sparkles,
   ArrowRight,
   SkipForward,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { emailClient } from '@/lib/email-client';
+
+type BusinessModel = 'teams' | 'plans' | 'both';
+type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'payments';
 
 interface OnboardingStatus {
   has_school: boolean;
   has_branches: boolean;
   has_teams: boolean;
+  has_plans?: boolean;
   has_staff: boolean;
   has_students: boolean;
   payment_setup_completed: boolean;
+  business_model?: BusinessModel | null;
   school_id: string | null;
 }
 
 interface WizardStep {
-  id: string;
+  id: StepId;
   title: string;
   subtitle: string;
   icon: React.ElementType;
   required: boolean;
 }
 
-const STEPS: WizardStep[] = [
-  { id: 'branch', title: 'Tu Sede', subtitle: 'Confirma la direccion de tu sede principal', icon: Building, required: true },
-  { id: 'team', title: 'Primer Equipo', subtitle: 'Crea tu primer grupo o equipo deportivo', icon: Trophy, required: true },
-  { id: 'coach', title: 'Entrenador', subtitle: 'Invita a tu primer entrenador', icon: UserPlus, required: false },
-  { id: 'student', title: 'Primer Atleta', subtitle: 'Registra a tu primer deportista', icon: GraduationCap, required: false },
-  { id: 'payments', title: 'Cobros', subtitle: 'Configura como recibir pagos', icon: CreditCard, required: false },
-];
+// Pasos disponibles. El wizard ensambla cuales se muestran segun business_model.
+const STEP_DEFS: Record<StepId, WizardStep> = {
+  branch:   { id: 'branch',   title: 'Tu Sede',           subtitle: 'Confirma la direccion de tu sede principal', icon: Building,      required: true  },
+  model:    { id: 'model',    title: 'Modelo',            subtitle: '¿Como organizas tu academia?',               icon: Layers,        required: true  },
+  team:     { id: 'team',     title: 'Primer Equipo',     subtitle: 'Crea tu primer grupo o equipo deportivo',    icon: Trophy,        required: true  },
+  plan:     { id: 'plan',     title: 'Primer Plan',       subtitle: 'Crea tu primera mensualidad o paquete',      icon: Tag,           required: true  },
+  coach:    { id: 'coach',    title: 'Entrenador',        subtitle: 'Invita a tu primer entrenador',              icon: UserPlus,      required: false },
+  student:  { id: 'student',  title: 'Primer Atleta',     subtitle: 'Registra a tu primer deportista',            icon: GraduationCap, required: false },
+  payments: { id: 'payments', title: 'Cobros',            subtitle: 'Configura como recibir pagos',               icon: CreditCard,    required: false },
+};
+
+const buildSteps = (model: BusinessModel | null): WizardStep[] => {
+  const steps: WizardStep[] = [STEP_DEFS.branch];
+  if (!model) {
+    steps.push(STEP_DEFS.model);
+  } else {
+    if (model === 'teams' || model === 'both') steps.push(STEP_DEFS.team);
+    if (model === 'plans' || model === 'both') steps.push(STEP_DEFS.plan);
+  }
+  steps.push(STEP_DEFS.coach, STEP_DEFS.student, STEP_DEFS.payments);
+  return steps;
+};
 
 interface SchoolOnboardingWizardProps {
   status: OnboardingStatus;
@@ -70,15 +92,40 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const [businessModel, setBusinessModel] = useState<BusinessModel | null>(
+    (status.business_model as BusinessModel | undefined) ?? null,
+  );
+  // Si el RPC trae has_teams o has_plans pero business_model viene null, asumimos
+  // que la escuela ya estaba en marcha con el modelo viejo (equipos).
+  useEffect(() => {
+    if (businessModel) return;
+    if (status.has_teams && status.has_plans) setBusinessModel('both');
+    else if (status.has_plans)                setBusinessModel('plans');
+    else if (status.has_teams)                setBusinessModel('teams');
+  }, [businessModel, status.has_teams, status.has_plans]);
+
+  const STEPS = buildSteps(businessModel);
+
+  const isStepDoneById = useCallback((id: StepId): boolean => {
+    switch (id) {
+      case 'branch':   return !!status.has_branches;
+      case 'model':    return !!businessModel;
+      case 'team':     return !!status.has_teams;
+      case 'plan':     return !!status.has_plans;
+      case 'coach':    return !!status.has_staff;
+      case 'student':  return !!status.has_students;
+      case 'payments': return !!status.payment_setup_completed;
+      default:         return false;
+    }
+  }, [status, businessModel]);
+
   // Determine initial step based on what's already done
   const getInitialStep = useCallback(() => {
-    if (!status.has_branches) return 0;
-    if (!status.has_teams) return 1;
-    if (!status.has_staff) return 2;
-    if (!status.has_students) return 3;
-    if (!status.payment_setup_completed) return 4;
+    for (let i = 0; i < STEPS.length; i++) {
+      if (!isStepDoneById(STEPS[i].id)) return i;
+    }
     return 0;
-  }, [status]);
+  }, [STEPS, isStepDoneById]);
 
   const [currentStep, setCurrentStep] = useState(getInitialStep);
   const [saving, setSaving] = useState(false);
@@ -92,6 +139,12 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   const [teamName, setTeamName] = useState('');
   const [teamSport, setTeamSport] = useState('');
   const [teamPrice, setTeamPrice] = useState('150000');
+
+  // Plan form (mensualidad / paquete)
+  const [planName, setPlanName] = useState('');
+  const [planPrice, setPlanPrice] = useState('120000');
+  const [planBilling, setPlanBilling] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
+  const [planSessions, setPlanSessions] = useState<string>(''); // vacio = ilimitado
 
   // Coach form
   const [coachName, setCoachName] = useState('');
@@ -130,29 +183,16 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
     }
   };
 
-  const completedSteps = [
-    status.has_branches && branchAddress !== '', // Step 0: branch confirmed with address
-    status.has_teams,
-    status.has_staff,
-    status.has_students,
-    status.payment_setup_completed,
-  ];
-
-  // Re-check: if branch exists but no address, it's not truly "complete" for UX
+  // Wrapper indice-based para compatibilidad con codigo de render que itera por index
   const isStepDone = (index: number) => {
-    switch (index) {
-      case 0: return status.has_branches;
-      case 1: return status.has_teams;
-      case 2: return status.has_staff;
-      case 3: return status.has_students;
-      case 4: return status.payment_setup_completed;
-      default: return false;
-    }
+    const step = STEPS[index];
+    return step ? isStepDoneById(step.id) : false;
   };
 
   const completedCount = STEPS.filter((_, i) => isStepDone(i)).length;
   const progress = Math.round((completedCount / STEPS.length) * 100);
-  const allRequiredDone = status.has_branches && status.has_teams;
+  // Solo se considera "todo listo para finalizar" si los pasos required estan hechos.
+  const allRequiredDone = STEPS.filter(s => s.required).every(s => isStepDoneById(s.id));
 
   // ── Step Handlers ──
 
@@ -178,6 +218,92 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       if (error) throw error;
 
       toast({ title: 'Sede actualizada' });
+      onRefresh();
+      goNext();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChooseModel = async (model: BusinessModel) => {
+    if (!schoolId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('schools')
+        .update({ business_model: model })
+        .eq('id', schoolId);
+
+      if (error) throw error;
+
+      setBusinessModel(model);
+      toast({ title: 'Modelo guardado' });
+      onRefresh();
+      // No avanzamos manualmente: el rerender reemplaza el step 'model' por
+      // 'team' o 'plan' en el mismo indice, asi que el usuario queda en el
+      // siguiente paso natural sin cambiar currentStep.
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Crea un subscription_plan tipo school_monthly atado al vendor_profile
+   * del owner de la escuela. Si el owner no tiene vendor_profile aun
+   * (school role ya no auto-crea), lo creamos silenciosamente con
+   * capabilities en false. No abre Mi Tienda — el addon store sigue
+   * siendo lo que decide eso.
+   */
+  const handleCreatePlan = async () => {
+    if (!schoolId || !user) return;
+    if (!planName.trim()) {
+      toast({ title: 'Ingresa el nombre del plan', variant: 'destructive' });
+      return;
+    }
+    if (!planPrice || Number(planPrice) <= 0) {
+      toast({ title: 'Precio inválido', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      // Buscar o crear vendor_profile del owner (capabilities=false para
+      // no activar tienda; solo es contenedor de los planes recurrentes).
+      let { data: vp } = await supabase
+        .from('vendor_profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!vp) {
+        const { data: created, error: rpcErr } = await supabase.rpc('enable_vendor_profile', {
+          p_vendor_type:       'school',
+          p_can_sell_products: false,
+          p_can_sell_services: false,
+          p_display_name:      schoolName || 'Academia',
+        });
+        if (rpcErr) throw rpcErr;
+        vp = created;
+      }
+
+      const { error } = await supabase
+        .from('subscription_plans')
+        .insert({
+          vendor_profile_id: vp!.id,
+          name:              planName.trim(),
+          plan_type:         'school_monthly',
+          price:             Number(planPrice),
+          billing_period:    planBilling,
+          sessions_included: planSessions === '' ? null : Number(planSessions),
+          is_active:         true,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Plan creado' });
       onRefresh();
       goNext();
     } catch (err: any) {
@@ -391,8 +517,9 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   // ── Render Step Content ──
 
   const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
+    const stepId = STEPS[currentStep]?.id;
+    switch (stepId) {
+      case 'branch':
         return (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -428,7 +555,49 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 1:
+      case 'model': {
+        const MODELS: Array<{ key: BusinessModel; title: string; subtitle: string; icon: React.ElementType }> = [
+          { key: 'teams', title: 'Equipos / grupos',     subtitle: 'Fútbol sub-15, natación intermedia, etc.',           icon: Trophy },
+          { key: 'plans', title: 'Planes / membresías',  subtitle: 'Mensualidad gym, paquete 10 clases, curso por mes.', icon: Tag },
+          { key: 'both',  title: 'Ambos',                 subtitle: 'Tengo equipos competitivos y también planes libres.', icon: Layers },
+        ];
+        return (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Elige cómo organizas a tus deportistas. Esto define los siguientes pasos del onboarding.
+            </p>
+            <div className="grid gap-3">
+              {MODELS.map(m => {
+                const Icon = m.icon;
+                const active = businessModel === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleChooseModel(m.key)}
+                    className={`flex items-start gap-3 text-left rounded-lg border p-4 transition-colors hover:bg-muted ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border'}`}
+                  >
+                    <div className="p-2 rounded-md bg-primary/10 shrink-0">
+                      <Icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{m.title}</p>
+                      <p className="text-xs text-muted-foreground">{m.subtitle}</p>
+                    </div>
+                    {active && <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Podrás cambiarlo después en Configuraciones.
+            </p>
+          </div>
+        );
+      }
+
+      case 'team':
         return (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -470,7 +639,59 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 2:
+      case 'plan':
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Crea tu primera mensualidad o paquete. Lo usarás para inscribir a los atletas.
+            </p>
+            <div className="space-y-2">
+              <Label>Nombre del plan *</Label>
+              <Input
+                placeholder="Ej: Mensualidad ilimitada, Paquete 10 clases"
+                value={planName}
+                onChange={(e) => setPlanName(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Precio (COP) *</Label>
+                <Input
+                  type="number"
+                  placeholder="120000"
+                  value={planPrice}
+                  onChange={(e) => setPlanPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Cobro cada</Label>
+                <Select value={planBilling} onValueChange={(v: any) => setPlanBilling(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Mes</SelectItem>
+                    <SelectItem value="quarterly">Trimestre</SelectItem>
+                    <SelectItem value="yearly">Año</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Sesiones</Label>
+                <Input
+                  type="number"
+                  placeholder="Ilimitado"
+                  value={planSessions}
+                  onChange={(e) => setPlanSessions(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button onClick={handleCreatePlan} disabled={saving} className="w-full">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Tag className="h-4 w-4 mr-2" />}
+              Crear Plan
+            </Button>
+          </div>
+        );
+
+      case 'coach':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -502,7 +723,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 3:
+      case 'student':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -542,7 +763,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 4:
+      case 'payments':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">

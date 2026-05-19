@@ -199,7 +199,7 @@ SELECT DISTINCT
     )
   FROM public.schools           s
   JOIN public.school_members    sm ON sm.school_id = s.id
-  JOIN public.vendor_profiles   vp ON vp.user_id   = sm.user_id
+  JOIN public.vendor_profiles   vp ON vp.user_id   = sm.profile_id
  WHERE COALESCE(s.is_demo, false) = true
    AND vp.is_active = true
    AND vp.vendor_type = 'school'
