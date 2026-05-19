@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
+import { PhoneInput } from '@/components/ui/phone-input';
+import { CityCombobox } from '@/components/common/CityCombobox';
+import { BankCombobox } from '@/components/common/BankCombobox';
 import {
   Select,
   SelectContent,
@@ -67,13 +70,12 @@ const STEP_DEFS: Record<StepId, WizardStep> = {
 };
 
 const buildSteps = (model: BusinessModel | null): WizardStep[] => {
-  const steps: WizardStep[] = [STEP_DEFS.branch];
-  if (!model) {
-    steps.push(STEP_DEFS.model);
-  } else {
-    if (model === 'teams' || model === 'both') steps.push(STEP_DEFS.team);
-    if (model === 'plans' || model === 'both') steps.push(STEP_DEFS.plan);
-  }
+  // El paso "Modelo" aparece SIEMPRE (no se autoesconde cuando hay default
+  // 'teams' del backfill). El admin puede volver a este paso desde las pills
+  // para cambiar su organizacion.
+  const steps: WizardStep[] = [STEP_DEFS.branch, STEP_DEFS.model];
+  if (model === 'teams' || model === 'both') steps.push(STEP_DEFS.team);
+  if (model === 'plans' || model === 'both') steps.push(STEP_DEFS.plan);
   steps.push(STEP_DEFS.coach, STEP_DEFS.student, STEP_DEFS.payments);
   return steps;
 };
@@ -82,9 +84,12 @@ interface SchoolOnboardingWizardProps {
   status: OnboardingStatus;
   onComplete: () => void;
   onRefresh: () => void;
+  /** Default 'card' para uso embebido en dashboard.
+   *  Pasar 'full' cuando se usa como pagina standalone en /onboarding/school. */
+  variant?: 'card' | 'full';
 }
 
-export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: SchoolOnboardingWizardProps) {
+export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant = 'card' }: SchoolOnboardingWizardProps) {
   const { schoolId, schoolName } = useSchoolContext();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -103,10 +108,14 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
 
   const STEPS = buildSteps(businessModel);
 
+  // `model` se considera "done" solo si la escuela ya creó al menos un team o
+  // plan, no solo porque schools.business_model tenga valor (puede venir del
+  // default 'teams' del backfill). Asi forzamos al admin a ver el step en su
+  // primer onboarding y confirmar explicitamente como organiza su academia.
   const isStepDoneById = useCallback((id: StepId): boolean => {
     switch (id) {
       case 'branch':   return !!status.has_branches;
-      case 'model':    return !!businessModel;
+      case 'model':    return !!status.has_teams || !!status.has_plans;
       case 'team':     return !!status.has_teams;
       case 'plan':     return !!status.has_plans;
       case 'coach':    return !!status.has_staff;
@@ -114,7 +123,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       case 'payments': return !!status.payment_setup_completed;
       default:         return false;
     }
-  }, [status, businessModel]);
+  }, [status]);
 
   // Determine initial step based on what's already done
   const getInitialStep = useCallback(() => {
@@ -152,10 +161,14 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   const [parentEmail, setParentEmail] = useState('');
   const [parentPhone, setParentPhone] = useState('');
 
-  // Payments form
-  const [bankName, setBankName] = useState('');
+  // Payments form — mismo bloque unificado que trainer/vendor:
+  // Nequi + Banco + Cuenta + WhatsApp. La escuela ademas conserva tipo de cuenta
+  // porque es info que las pasarelas (Wompi/MP) exigen para depositar.
+  const [nequi,         setNequi]         = useState('');
+  const [bankCode,      setBankCode]      = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [accountType, setAccountType] = useState('ahorros');
+  const [accountType,   setAccountType]   = useState('ahorros');
+  const [whatsapp,      setWhatsapp]      = useState('');
 
   // Load existing branch data
   useEffect(() => {
@@ -455,8 +468,8 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
 
   const handleSavePayments = async () => {
     if (!schoolId) return;
-    if (!bankName.trim() || !accountNumber.trim()) {
-      toast({ title: 'Completa los datos bancarios', variant: 'destructive' });
+    if (!bankCode || !accountNumber.trim()) {
+      toast({ title: 'Selecciona banco y número de cuenta', variant: 'destructive' });
       return;
     }
     setSaving(true);
@@ -464,10 +477,12 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       const { error } = await supabase
         .from('school_settings')
         .upsert({
-          school_id: schoolId,
-          bank_name: bankName.trim(),
+          school_id:           schoolId,
+          bank_name:           bankCode,
           bank_account_number: accountNumber.trim(),
-          bank_account_type: accountType,
+          bank_account_type:   accountType,
+          nequi_number:        nequi.trim() || null,
+          whatsapp_number:     whatsapp.trim() || null,
         }, { onConflict: 'school_id' });
 
       if (error) throw error;
@@ -530,19 +545,11 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Ciudad</Label>
-                <Input
-                  placeholder="Bogota"
-                  value={branchCity}
-                  onChange={(e) => setBranchCity(e.target.value)}
-                />
+                <CityCombobox value={branchCity} onChange={setBranchCity} />
               </div>
               <div className="space-y-2">
-                <Label>Telefono</Label>
-                <Input
-                  placeholder="300 123 4567"
-                  value={branchPhone}
-                  onChange={(e) => setBranchPhone(e.target.value)}
-                />
+                <Label>Teléfono</Label>
+                <PhoneInput value={branchPhone} onChange={setBranchPhone} placeholder="Número de celular" />
               </div>
             </div>
             <Button onClick={handleSaveBranch} disabled={saving} className="w-full">
@@ -766,19 +773,28 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
             <p className="text-sm text-muted-foreground">
               Configura tus datos bancarios para recibir pagos de las familias.
             </p>
+
             <div className="space-y-2">
-              <Label>Banco *</Label>
+              <Label>Número Nequi</Label>
               <Input
-                placeholder="Bancolombia, Davivienda, Nequi..."
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
+                type="tel"
+                maxLength={10}
+                placeholder="Número de 10 dígitos"
+                value={nequi}
+                onChange={(e) => setNequi(e.target.value.replace(/\D/g, '').slice(0, 10))}
               />
             </div>
+
+            <div className="space-y-2">
+              <Label>Banco *</Label>
+              <BankCombobox value={bankCode} onChange={setBankCode} />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Numero de cuenta *</Label>
+                <Label>Número de cuenta *</Label>
                 <Input
-                  placeholder="1234567890"
+                  placeholder="123-456789-00"
                   value={accountNumber}
                   onChange={(e) => setAccountNumber(e.target.value)}
                 />
@@ -796,6 +812,12 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
                 </Select>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label>WhatsApp de contacto</Label>
+              <PhoneInput value={whatsapp} onChange={setWhatsapp} placeholder="Número de celular" />
+            </div>
+
             <Button onClick={handleSavePayments} disabled={saving} className="w-full">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CreditCard className="h-4 w-4 mr-2" />}
               Guardar y Finalizar
@@ -859,7 +881,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       currentStep={currentStep}
       onStepChange={setCurrentStep}
       footer={footer}
-      variant="card"
+      variant={variant}
     >
       {stepBody}
     </OnboardingShell>

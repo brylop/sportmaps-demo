@@ -252,6 +252,22 @@ export default function DashboardPage() {
     </div>
   );
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Gate: si es rol de escuela y onboarding sin completar, lo mandamos a
+  // /onboarding/school. Mismo patron que trainer (RequirePersonalTrainer)
+  // y vendor (VendorGuard). Esto bloquea el dashboard hasta que termine.
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    const isSchoolRole = ['school', 'school_admin', 'admin', 'owner']
+      .includes(profile?.role as string);
+    const effectiveStatus = onboardingStatus ?? fallbackSchool?.onboarding_status;
+    const hasSchool = !!(rpcStatus?.has_school || rpcStatus?.school_id || fallbackSchool?.id);
+
+    if (isSchoolRole && hasSchool && effectiveStatus && effectiveStatus !== 'completed') {
+      return <Navigate to="/onboarding/school" replace />;
+    }
+  }
+
   // Dashboard handles empty states via the Quick Start Checklist
 
   // Logic to determine stats to display
