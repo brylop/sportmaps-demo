@@ -14,7 +14,7 @@ import { OnboardingShell, type ShellStep } from '@/components/onboarding/Onboard
 import { CityCombobox } from '@/components/common/CityCombobox';
 import { BankCombobox } from '@/components/common/BankCombobox';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench, ShieldCheck } from 'lucide-react';
+import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -239,29 +239,58 @@ export default function VendorOnboardingPage() {
         );
     }
 
+    // Validacion por step para habilitar Siguiente.
+    const step1Done = !!formData.display_name && !!formData.city;
+    // Step 2: si eligio bank_transfer, exigir bank + tipo + cuenta.
+    const step2BankOk = !paymentMethods.includes('bank_transfer')
+                     || (!!bankData.bank_name && !!bankData.account_type && !!bankData.account_number);
+    const step2Done = step2BankOk;
+
     const shellSteps: ShellStep[] = [
-        {
-            id: 'business',
-            title: 'Negocio',
-            description: hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes',
-            icon: Store,
-            done: step > 1,
-        },
-        {
-            id: 'payments',
-            title: 'Pagos',
-            description: 'Cómo recibirás los cobros',
-            icon: CreditCard,
-            done: step > 2,
-        },
-        {
-            id: 'verification',
-            title: 'Verificación',
-            description: 'Documento de identidad (opcional)',
-            icon: ShieldCheck,
-            done: false,
-        },
+        { id: 'business',     title: 'Negocio',     description: hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes', icon: Store,       done: step > 1 || step1Done },
+        { id: 'payments',     title: 'Pagos',       description: 'Cómo recibirás los cobros',                                         icon: CreditCard,  done: step > 2 },
+        { id: 'verification', title: 'Verificación', description: 'Documento de identidad (opcional)',                                icon: ShieldCheck, done: false },
     ];
+
+    const canAdvance = step === 1 ? step1Done : step === 2 ? step2Done : false;
+
+    const footer = (
+        <>
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setStep(prev => Math.max(1, prev - 1))}
+                disabled={step === 1 || saving}
+            >
+                <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+            </Button>
+            <div className="flex items-center gap-2">
+                {step < 3 && (
+                    <Button
+                        size="sm"
+                        onClick={step === 2 ? saveStep1And2 : () => setStep(step + 1)}
+                        disabled={saving || !canAdvance}
+                        title={canAdvance ? 'Continuar' : 'Completa los campos requeridos'}
+                    >
+                        {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        {step === 2 ? 'Activar y continuar' : 'Siguiente'}
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                )}
+                {step === 3 && (
+                    <>
+                        <Button variant="ghost" size="sm" onClick={() => navigate('/vendor/dashboard')} disabled={saving}>
+                            Omitir por ahora
+                        </Button>
+                        <Button size="sm" onClick={saveStep3} disabled={saving}>
+                            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            {docFile ? 'Enviar y continuar' : 'Ir al dashboard'}
+                        </Button>
+                    </>
+                )}
+            </div>
+        </>
+    );
 
     return (
         <OnboardingShell
@@ -270,6 +299,7 @@ export default function VendorOnboardingPage() {
             steps={shellSteps}
             currentStep={step - 1}
             onStepChange={(idx) => idx + 1 <= step && setStep(idx + 1)}
+            footer={footer}
         >
                     {/* Step 1: ¿Qué vendes? + Info básica */}
                     {step === 1 && (
@@ -357,13 +387,6 @@ export default function VendorOnboardingPage() {
                                 </div>
                             )}
 
-                            <Button
-                                className="w-full"
-                                onClick={() => setStep(2)}
-                                disabled={!formData.display_name || !formData.city}
-                            >
-                                Siguiente: Métodos de pago
-                            </Button>
                         </div>
                     )}
 
@@ -457,13 +480,6 @@ export default function VendorOnboardingPage() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => setStep(1)} className="flex-1">Atrás</Button>
-                                <Button onClick={saveStep1And2} disabled={saving} className="flex-1">
-                                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                    Activar y continuar
-                                </Button>
-                            </div>
                         </div>
                     )}
 
@@ -506,15 +522,6 @@ export default function VendorOnboardingPage() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => navigate('/vendor/dashboard')} className="flex-1">
-                                    Omitir por ahora
-                                </Button>
-                                <Button onClick={saveStep3} disabled={saving} className="flex-1">
-                                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                    {docFile ? 'Enviar y continuar' : 'Ir al dashboard'}
-                                </Button>
-                            </div>
                         </div>
                     )}
         </OnboardingShell>

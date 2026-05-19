@@ -174,6 +174,20 @@ export default function TrainerOnboarding() {
   const progress = ((currentStep - 1) / STEPS.length) * 100;
   const stepInfo = STEPS[currentStep - 1];
 
+  // Validacion por step. Step 3 (disponibilidad) y 6 (perfil) son
+  // opcionales — siempre permiten avanzar. Los demas exigen su data.
+  const stepValid = (() => {
+    switch (currentStep) {
+      case 1: return !!sport;                         // deporte principal obligatorio
+      case 2: return !!city;                          // ciudad obligatoria
+      case 3: return true;                            // disponibilidad se configura despues
+      case 4: return !!rate && Number(rate) > 0;      // tarifa requerida
+      case 5: return !!nequi || !!bankCode;           // al menos un metodo de cobro
+      case 6: return true;                            // perfil opcional, foto/bio recomendadas pero no bloquean
+      default: return true;
+    }
+  })();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center p-4">
       <div className="w-full max-w-2xl">
@@ -549,7 +563,8 @@ export default function TrainerOnboarding() {
             <ChevronLeft className="h-4 w-4" />
             Anterior
           </Button>
-          <Button onClick={handleNext} disabled={isLoading} className="gap-2">
+          <Button onClick={handleNext} disabled={isLoading || !stepValid} className="gap-2"
+                  title={stepValid ? 'Continuar' : 'Completa los campos requeridos para continuar'}>
             {currentStep === 6 ? 'Finalizar' : 'Siguiente'}
             <ChevronRight className="h-4 w-4" />
           </Button>

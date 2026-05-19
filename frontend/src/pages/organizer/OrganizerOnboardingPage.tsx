@@ -147,11 +147,20 @@ export default function OrganizerOnboardingPage() {
     }
   };
 
+  // Validacion por step para habilitar/deshabilitar Siguiente.
+  const step1Done = !!orgData.organization_name && !!orgData.nit && !!orgData.city && selectedSports.length > 0;
+  // Step 2 es opcional pero si se eligio bank_transfer hay que completar bank info.
+  const step2BankOk = !paymentMethods.includes('bank_transfer')
+                   || (!!bankData.bank_name && !!bankData.account_type && !!bankData.account_number);
+  const step2Done = step2BankOk;
+
   const shellSteps: ShellStep[] = [
-    { id: 'organization', title: 'Organización', description: 'Datos básicos y deportes que cubres', icon: Building,    done: step > 1 },
+    { id: 'organization', title: 'Organización', description: 'Datos básicos y deportes que cubres', icon: Building,    done: step > 1 || step1Done },
     { id: 'payments',     title: 'Pagos',        description: 'Cómo recibirás los cobros',         icon: CreditCard,  done: step > 2 },
     { id: 'verification', title: 'Verificación', description: 'Sube un documento legal',           icon: ShieldCheck, done: false },
   ];
+
+  const canAdvance = step === 1 ? step1Done : step === 2 ? step2Done : false;
 
   const footer = (
     <>
@@ -167,7 +176,8 @@ export default function OrganizerOnboardingPage() {
         {step < 3 && (
           <Button
             onClick={step === 2 ? saveProfilePhase1And2 : () => setStep(step + 1)}
-            disabled={loading}
+            disabled={loading || !canAdvance}
+            title={canAdvance ? 'Continuar' : 'Completa los campos requeridos para continuar'}
           >
             {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {step === 2 ? 'Guardar y continuar' : 'Siguiente'}
