@@ -14,8 +14,10 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
-import { COLOMBIAN_CITIES, CITY_LABEL } from '@/lib/colombian-cities';
-import { COLOMBIAN_BANKS, BANK_LABEL } from '@/lib/colombian-banks';
+import { CITY_LABEL } from '@/lib/colombian-cities';
+import { BANK_LABEL } from '@/lib/colombian-banks';
+import { CityCombobox } from '@/components/common/CityCombobox';
+import { BankCombobox } from '@/components/common/BankCombobox';
 import { useStorage } from '@/hooks/useStorage';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { Minus, Plus, Dumbbell, MapPin, Clock, DollarSign, CreditCard, Camera, ChevronRight, ChevronLeft, Check, Search, ChevronsUpDown, Upload, Loader2, Video, Smartphone, Users } from 'lucide-react';
@@ -60,12 +62,10 @@ export default function TrainerOnboarding() {
   const [expYears, setExpYears] = useState('');
   const [modality, setModality] = useState<'presencial' | 'virtual' | 'ambas'>('presencial');
   const [city, setCity] = useState('');
-  const [cityOpen, setCityOpen] = useState(false);
   const [rate, setRate] = useState('');
   const [rateNotes, setRateNotes] = useState('');
   const [nequi, setNequi] = useState('');
   const [bankCode, setBankCode] = useState('');
-  const [bankOpen, setBankOpen] = useState(false);
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [bio, setBio] = useState('');
@@ -352,50 +352,7 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Ciudad</label>
-                  <Popover open={cityOpen} onOpenChange={setCityOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={cityOpen}
-                        className={cn(
-                          "w-full justify-between font-normal bg-background border-input hover:bg-muted/50",
-                          !city && "text-muted-foreground"
-                        )}
-                      >
-                        <MapPin className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                        {city ? CITY_LABEL[city] || city : "Selecciona tu ciudad..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Buscar ciudad..." className="text-sm h-[38px] w-full" />
-                        <CommandEmpty>No se encontró la ciudad.</CommandEmpty>
-                        <CommandGroup className="max-h-[300px] overflow-y-auto">
-                          {COLOMBIAN_CITIES.map((c) => (
-                            <CommandItem
-                              key={c.value}
-                              value={`${c.label} ${c.department}`}
-                              onSelect={() => {
-                                setCity(c.value);
-                                setCityOpen(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  city === c.value ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <span>{c.label}</span>
-                              <span className="ml-2 text-xs text-muted-foreground">· {c.department}</span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  <CityCombobox value={city} onChange={setCity} />
                 </div>
               </>
             )}
@@ -494,59 +451,7 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Banco</label>
-                  <Popover open={bankOpen} onOpenChange={setBankOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={bankOpen}
-                        className={cn(
-                          "w-full h-11 justify-between font-normal bg-background/50 border-border/40 rounded-xl hover:bg-muted/50",
-                          !bankCode && "text-muted-foreground"
-                        )}
-                      >
-                        <CreditCard className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                        {bankCode ? BANK_LABEL[bankCode] || bankCode : "Selecciona tu banco..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-[var(--radix-popover-trigger-width)] p-0"
-                      align="start"
-                      side="bottom"
-                      sideOffset={4}
-                      avoidCollisions={false}
-                    >
-                      <Command>
-                        <CommandInput placeholder="Buscar banco..." className="text-sm h-[38px] w-full" />
-                        <CommandEmpty>No se encontró el banco.</CommandEmpty>
-                        <div className="max-h-[260px] overflow-y-auto">
-                          {COLOMBIAN_BANKS.map((g) => (
-                            <CommandGroup key={g.group} heading={g.group}>
-                              {g.options.map((o) => (
-                                <CommandItem
-                                  key={o.value}
-                                  value={`${o.label} ${g.group}`}
-                                  onSelect={() => {
-                                    setBankCode(o.value);
-                                    setBankOpen(false);
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      bankCode === o.value ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  {o.label}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          ))}
-                        </div>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  <BankCombobox value={bankCode} onChange={setBankCode} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Número de cuenta</label>
