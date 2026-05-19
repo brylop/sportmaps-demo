@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -65,6 +65,7 @@ export default function TrainerOnboarding() {
   const [rateNotes, setRateNotes] = useState('');
   const [nequi, setNequi] = useState('');
   const [bankCode, setBankCode] = useState('');
+  const [bankOpen, setBankOpen] = useState(false);
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [bio, setBio] = useState('');
@@ -493,21 +494,59 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Banco</label>
-                  <Select value={bankCode} onValueChange={setBankCode}>
-                    <SelectTrigger className="h-11 bg-background/50 border-border/40 rounded-xl">
-                      <SelectValue placeholder="Selecciona tu banco" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COLOMBIAN_BANKS.map(g => (
-                        <SelectGroup key={g.group}>
-                          <SelectLabel>{g.group}</SelectLabel>
-                          {g.options.map(o => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  <Popover open={bankOpen} onOpenChange={setBankOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={bankOpen}
+                        className={cn(
+                          "w-full h-11 justify-between font-normal bg-background/50 border-border/40 rounded-xl hover:bg-muted/50",
+                          !bankCode && "text-muted-foreground"
+                        )}
+                      >
+                        <CreditCard className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                        {bankCode ? BANK_LABEL[bankCode] || bankCode : "Selecciona tu banco..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[var(--radix-popover-trigger-width)] p-0"
+                      align="start"
+                      side="bottom"
+                      sideOffset={4}
+                      avoidCollisions={false}
+                    >
+                      <Command>
+                        <CommandInput placeholder="Buscar banco..." className="text-sm h-[38px] w-full" />
+                        <CommandEmpty>No se encontró el banco.</CommandEmpty>
+                        <div className="max-h-[260px] overflow-y-auto">
+                          {COLOMBIAN_BANKS.map((g) => (
+                            <CommandGroup key={g.group} heading={g.group}>
+                              {g.options.map((o) => (
+                                <CommandItem
+                                  key={o.value}
+                                  value={`${o.label} ${g.group}`}
+                                  onSelect={() => {
+                                    setBankCode(o.value);
+                                    setBankOpen(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      bankCode === o.value ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  {o.label}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
                           ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        </div>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Número de cuenta</label>
