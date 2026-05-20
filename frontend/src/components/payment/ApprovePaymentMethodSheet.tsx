@@ -19,7 +19,7 @@ interface ApprovePaymentMethodSheetProps {
 
 export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSuccess }: ApprovePaymentMethodSheetProps) {
   const { user } = useAuth();
-  const { schoolId, schoolProfile } = useSchoolContext();
+  const { schoolId, schoolName } = useSchoolContext();
   const { toast } = useToast();
   
   const [method, setMethod] = useState<'cash' | 'transfer' | null>(null);
@@ -31,31 +31,53 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
     setLoading(true);
 
     try {
+      // ✅ Guard: no aprobar pagos bloqueados por revisión
+      if (payment?.requires_review) {
+        toast({
+          title: 'Pago bloqueado',
+          description: 'Este pago está en revisión. Desbloquearlo primero desde Negocio › Pagos.',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       const reference = `${method.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-      
+
       const { error: updateError } = await supabase.from('payments').update({
         status: 'paid',
         payment_method: method,
-        payment_channel: method === 'cash' ? 'cash' : 'manual',
+        // ✅ 'transfer' en lugar de 'manual' — consistente con RegisterCashPaymentModal
+        payment_channel: method === 'cash' ? 'cash' : 'transfer',
         payment_date: paymentDate,
         approved_by: user.id,
         approved_at: new Date().toISOString(),
         reference: payment.reference || reference,
-        amount_paid: payment.amount
+        amount_paid: payment.amount,
       }).eq('id', payment.id);
 
       if (updateError) throw updateError;
 
-      // Reactivar inscripción vinculada (si existe)
-      let enrollQuery = (supabase.from('enrollments') as any)
+      // ✅ Reactivación de enrollment con lógica correcta por tipo de atleta
+      let enrollQuery = supabase
+        .from('enrollments')
         .update({ status: 'active' })
         .eq('school_id', schoolId)
         .eq('status', 'pending_payment');
 
-      if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
-      else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
-      if (payment.team_id)        enrollQuery = enrollQuery.eq('team_id', payment.team_id);
-      
+      if (payment.child_id) {
+        enrollQuery = enrollQuery.eq('child_id', payment.child_id);
+      } else if (payment.unregistered_athlete_id) {
+        enrollQuery = enrollQuery.eq('unregistered_athlete_id', payment.unregistered_athlete_id);
+      } else if (payment.user_id) {
+        enrollQuery = (enrollQuery as any).eq('user_id', payment.user_id).is('child_id', null);
+      }
+
+      // Solo filtrar por team_id en planes grupales
+      if (payment.team_id) {
+        enrollQuery = enrollQuery.eq('team_id', payment.team_id);
+      }
+
       await enrollQuery;
 
       // Notificar al padre o responsable si tiene cuenta
@@ -64,17 +86,17 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
         await supabase.rpc('notify_user', {
           p_user_id: recipientId,
           p_title: '✅ Pago confirmado',
-          p_message: `${schoolProfile?.name || 'La escuela'} confirmó tu pago de ${formatCurrency(payment.amount)} por ${payment.concept}.`,
+          p_message: `${schoolName || 'La escuela'} confirmó tu pago de ${formatCurrency(payment.amount)} por ${payment.concept}.`,
           p_type: 'success',
-          p_link: '/my-payments'
+          p_link: '/my-payments',
         });
       }
 
       toast({
         title: 'Pago Aprobado',
-        description: 'La transacción ha sido validada correctamente.'
+        description: 'La transacción ha sido validada correctamente.',
       });
-      
+
       onSuccess();
       onOpenChange(false);
     } catch (err: any) {
@@ -82,7 +104,7 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
       toast({
         title: 'Error al aprobar',
         description: err.message,
-        variant: 'destructive'
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -92,7 +114,10 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
   if (!payment) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(val) => {
+      if (!val) setMethod(null);
+      onOpenChange(val);
+    }}>
       <SheetContent side="bottom" className="sm:max-w-md mx-auto rounded-t-2xl px-6 pb-8 pt-6">
         <SheetHeader className="mb-6">
           <SheetTitle>Marcar como pagado</SheetTitle>

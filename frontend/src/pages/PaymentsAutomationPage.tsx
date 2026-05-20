@@ -1432,7 +1432,7 @@ export default function PaymentsAutomationPage() {
                       </div>
                     ) : (
                       <div className="p-4 border rounded-lg border-dashed">
-                        <FileUpload bucket="school-assets" accept="image/*" onUploadComplete={(url) => updateBilling('payment_qr_url', url)} />
+                        <FileUpload bucket="school-assets" path={`qr/${schoolId}`} accept="image/*" onUploadComplete={(url) => updateBilling('payment_qr_url', url)} />
                       </div>
                     )}
                   </div>

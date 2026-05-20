@@ -32,12 +32,6 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Super-admins de plataforma usan /admin, NO el dashboard de escuela
-  if (profile?.role === 'admin' || (profile?.role as string) === 'super_admin') {
-    return <Navigate to="/admin" replace />;
-  }
-
-
   const pendingInviteId = localStorage.getItem('pending_invite_id');
   const inviteUrlId = searchParams.get('invite');
   const [showWelcomeSplash, setShowWelcomeSplash] = useState(false);
@@ -230,9 +224,12 @@ export default function DashboardPage() {
     refreshOnboardingData();
   }, [refreshOnboardingData]);
 
+  // Super-admins de plataforma usan /admin, NO el dashboard de escuela
+  if (profile?.role === 'admin' || (profile?.role as string) === 'super_admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
   // ── Personal Trainer redirect ────────────────────────────────────────────────
-  // If a personal_trainer lands on /dashboard (default post-login redirect),
-  // send them to their own workspace immediately.
   if (profile?.role === 'personal_trainer') {
     return <Navigate to="/trainer/dashboard" replace />;
   }

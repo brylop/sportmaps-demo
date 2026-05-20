@@ -150,6 +150,25 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
 
       // Apply only to the selected pending payment, or create a new one.
       if (selectedPaymentId !== 'new') {
+        // ✅ Guard: no aprobar pagos bloqueados por revisión
+        const { data: existingPaymentData } = await supabase
+          .from('payments' as any)
+          .select('requires_review')
+          .eq('id', selectedPaymentId)
+          .single();
+
+        const existingPayment = existingPaymentData as any;
+
+        if (existingPayment?.requires_review) {
+          toast({
+            title: 'Pago bloqueado',
+            description: 'Este pago está en revisión y no puede procesarse.',
+            variant: 'destructive',
+          });
+          setLoading(false);
+          return;
+        }
+
         const { error: updateError } = await supabase
           .from('payments')
           .update({

@@ -16,6 +16,7 @@ router.get('/training/today', async (req: Request, res: Response) => {
         .select('id, name, status, session_date, custom_notes, blocks, trainer_id, school_id')
         .eq('client_id', athleteId)
         .eq('session_date', today)
+        .or(`visible_from.is.null,visible_from.lte.${today}`)
         .order('created_at'),
 
       supabase
@@ -289,6 +290,17 @@ router.post('/training/session/:planId/complete', async (req: Request, res: Resp
 
     if (error) throw error;
     res.json(data);
+    
+    // ✅ Notificar al PT que el atleta completó/registró la sesión
+    try {
+      await supabase.from('notifications').insert({
+        user_id: plan.trainer_id,
+        title:   '💪 Sesión registrada por el atleta',
+        message: `Un atleta registró los resultados de su sesión. Revisa el historial en Mis Clientes.`,
+        type:    'info',
+        link:    '/trainer/clients',
+      });
+    } catch (_) { /* fire and forget */ }
 
   } catch (err: any) {
     req.log?.error({ err }, 'athlete/training unhandled error');
@@ -514,6 +526,12 @@ router.get('/training/pt-availability', async (req: Request, res: Response) => {
         const slotBookings = bookedByDateTime.get(dateTimeKey) ?? [];
         const myBooking = slotBookings.find(b => b.client_id === clientId);
 
+        // ✅ Regla: mínimo 6h de anticipación (hora Colombia UTC-5)
+        const slotDateTimeCO = new Date(`${loopDateStr}T${slot.start_time.substring(0, 8)}`);
+        const slotUTC = new Date(slotDateTimeCO.getTime() + 5 * 60 * 60 * 1000);
+        const sixHoursFromNow = new Date(Date.now() + 6 * 60 * 60 * 1000);
+        if (slotUTC < sixHoursFromNow) continue;
+
         let is_booked: boolean;
         if (slot.available_for_group_classes && !slot.available_for_personal_classes) {
           const activeCount = slotBookings.filter(b => b.session_type === 'group').length;
@@ -585,6 +603,48 @@ router.post('/training/book-pt-session', async (req: Request, res: Response) => 
     }
 
     res.status(201).json(data);
+
+    // ✅ Notificar al PT que se agendó una sesión
+    try {
+      // Obtener info del enrollment para saber el nombre del cliente
+      const { data: enr } = await supabase
+        .from('enrollments')
+        .select('user_id, child_id, school_id, schools!inner(owner_id)')
+        .eq('id', enrollment_id)
+        .maybeSingle();
+
+      const trainerId = (enr?.schools as any)?.owner_id;
+      if (trainerId) {
+        // Resolver nombre del que agenda
+        let clientName = 'Un cliente';
+        if (enr?.child_id) {
+          const { data: child } = await supabase
+            .from('children').select('full_name').eq('id', enr.child_id).maybeSingle();
+          clientName = child?.full_name ?? clientName;
+        } else if (enr?.user_id) {
+          const { data: profile } = await supabase
+            .from('profiles').select('full_name').eq('id', enr.user_id).maybeSingle();
+          clientName = profile?.full_name ?? clientName;
+        }
+
+        await supabase.from('notifications').insert({
+          user_id: trainerId,
+          title:   '📅 Nueva sesión agendada',
+          message: `${clientName} agendó una sesión para el ${session_date} a las ${session_time.substring(0, 5)}.`,
+          type:    'info',
+          link:    '/trainer/availability',
+        });
+
+        // ✅ Confirmar al atleta/padre que agendó
+        await supabase.from('notifications').insert({
+          user_id: callerId,
+          title:   '📅 Sesión confirmada',
+          message: `Tu sesión del ${session_date} a las ${session_time.substring(0, 5)} fue agendada correctamente.`,
+          type:    'success',
+          link:    '/athlete-payments',
+        });
+      }
+    } catch (_) { /* fire and forget */ }
   } catch (err: any) {
     req.log?.error({ err }, 'athlete/training unhandled error');
     res.status(500).json({ error: 'Error interno del servidor.' });
@@ -601,15 +661,97 @@ router.delete('/training/cancel-pt-session', async (req: Request, res: Response)
 
     if (!planId) return res.status(400).json({ error: 'plan_id es requerido.' });
 
+    // ✅ Obtener info de la sesión para validar ventana
+    const { data: plan } = await supabase
+      .from('trainer_session_plans')
+      .select('id, session_date, session_time, trainer_id, client_id, client_type, enrollment_id, status')
+      .eq('id', planId)
+      .maybeSingle();
+
+    if (!plan) return res.status(404).json({ error: 'Sesión no encontrada.' });
+    if (plan.status === 'completed') return res.status(400).json({ error: 'No se puede cancelar una sesión completada.' });
+
+    // ✅ Validar ventana de 4h (hora Colombia UTC-5)
+    if (plan.session_date && plan.session_time) {
+      const sessionCO  = new Date(`${plan.session_date}T${plan.session_time.substring(0, 8)}`);
+      const sessionUTC = new Date(sessionCO.getTime() + 5 * 60 * 60 * 1000);
+      const hoursUntil = (sessionUTC.getTime() - Date.now()) / 3_600_000;
+
+      if (hoursUntil < 4) {
+        // Fuera de ventana → pending_review, PT decide
+        await supabase
+          .from('trainer_session_plans')
+          .update({
+            status:              'pending_review',
+            cancelled_by:        callerId,
+            cancelled_at:        new Date().toISOString(),
+            cancelled_by_role:   plan.client_type === 'child' ? 'parent' : 'athlete',
+            cancellation_reason: 'outside_window',
+            updated_at:          new Date().toISOString(),
+          })
+          .eq('id', planId);
+
+        // Notificar al PT para que decida
+        await supabase.from('notifications').insert({
+          user_id: plan.trainer_id,
+          title:   '⚠️ Solicitud de cancelación tardía',
+          message: `Un cliente solicitó cancelar la sesión del ${plan.session_date}${plan.session_time ? ` a las ${plan.session_time.substring(0, 5)}` : ''} con menos de 4 horas de anticipación. Decide si devolver el crédito desde el módulo de Disponibilidad.`,
+          type:    'warning',
+          link:    '/trainer/availability',
+        });
+
+        return res.status(400).json({
+          error:   'outside_cancel_window',
+          message: 'La sesión es en menos de 4 horas. Tu entrenador fue notificado y decidirá si devolver el crédito.',
+        });
+      }
+    }
+
+    // ✅ Dentro de ventana — cancelar y devolver crédito
+    await supabase
+      .from('trainer_session_plans')
+      .update({
+        cancelled_by:        callerId,
+        cancelled_at:        new Date().toISOString(),
+        cancelled_by_role:   plan.client_type === 'child' ? 'parent' : 'athlete',
+        cancellation_reason: 'within_window',
+      })
+      .eq('id', planId);
+
     const { data, error } = await supabase.rpc('fn_cancel_pt_session', {
       p_plan_id:   planId,
       p_caller_id: callerId,
     });
 
     if (error) throw error;
-    if (!data?.success) {
-      return res.status(400).json({ error: data?.error ?? 'No se pudo cancelar.' });
-    }
+    if (!data?.success) return res.status(400).json({ error: data?.error ?? 'No se pudo cancelar.' });
+
+    // Notificar al PT de la cancelación
+    try {
+      let clientName = 'Un cliente';
+      if (plan.client_type === 'child') {
+        const { data: child } = await supabase.from('children').select('full_name').eq('id', plan.client_id).maybeSingle();
+        clientName = child?.full_name ?? clientName;
+      } else {
+        const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', plan.client_id).maybeSingle();
+        clientName = profile?.full_name ?? clientName;
+      }
+      await supabase.from('notifications').insert({
+        user_id: plan.trainer_id,
+        title:   '❌ Sesión cancelada',
+        message: `${clientName} canceló la sesión del ${plan.session_date}${plan.session_time ? ` a las ${plan.session_time.substring(0, 5)}` : ''}. El crédito fue devuelto automáticamente.`,
+        type:    'warning',
+        link:    '/trainer/availability',
+      });
+      // Confirmar al atleta/padre
+      await supabase.from('notifications').insert({
+        user_id: callerId,
+        title:   '❌ Sesión cancelada',
+        message: `Tu sesión del ${plan.session_date}${plan.session_time ? ` a las ${plan.session_time.substring(0, 5)}` : ''} fue cancelada. El crédito fue devuelto a tu plan.`,
+        type:    'info',
+        link:    '/athlete-payments',
+      });
+    } catch (_) {}
 
     res.json(data);
   } catch (err: any) {

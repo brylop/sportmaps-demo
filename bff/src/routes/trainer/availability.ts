@@ -3,6 +3,50 @@ import { supabase } from '../../config/supabase';
 
 const router = Router();
 
+// ── Helper: insertar notificación directamente (service role bypasea RLS) ──────
+async function insertNotification(
+  userId: string,
+  title: string,
+  message: string,
+  type: string,
+  link?: string,
+): Promise<void> {
+  await supabase.from('notifications').insert({
+    user_id: userId,
+    title,
+    message,
+    type,
+    link: link ?? null,
+  });
+}
+
+async function notifySessionClient(
+  sessionId: string,
+  title: string,
+  message: string,
+  type: string,
+): Promise<void> {
+  const { data: plan } = await supabase
+    .from('trainer_session_plans')
+    .select('client_id, client_type, enrollment_id')
+    .eq('id', sessionId)
+    .maybeSingle();
+
+  if (!plan) return;
+
+  let recipientId: string | null = null;
+  if (plan.client_type === 'child') {
+    const { data: child } = await supabase
+      .from('children').select('parent_id').eq('id', plan.client_id).maybeSingle();
+    recipientId = child?.parent_id ?? null;
+  } else {
+    recipientId = plan.client_id;
+  }
+
+  if (!recipientId) return;
+  await insertNotification(recipientId, title, message, type, '/athlete-payments');
+}
+
 // GET /api/v1/trainer/availability/schedule
 // Retorna agenda del día: slots disponibles + sesiones agendadas combinadas
 router.get('/availability/schedule', async (req: Request, res: Response) => {
@@ -130,6 +174,21 @@ router.patch('/availability/session/:id/attendance', async (req: Request, res: R
       if (!data?.success) {
         return res.status(400).json({ error: data?.error ?? 'No se pudo completar la sesión.' });
       }
+
+      // ✅ Notificar al cliente que su sesión fue completada
+      supabase.from('trainer_session_plans')
+        .select('session_date')
+        .eq('id', sessionId)
+        .maybeSingle()
+        .then(({ data: s }) => {
+          notifySessionClient(
+            sessionId as string,
+            '✅ Sesión completada',
+            `Tu entrenador marcó tu sesión del ${s?.session_date ?? 'día'} como completada. ¡Buen trabajo!`,
+            'success',
+          ).catch(() => {});
+        });
+
       return res.json({ success: true });
 
     } else {
@@ -233,7 +292,7 @@ router.patch('/availability/session/:id/no-show', async (req: Request, res: Resp
     // Verificar que la sesión existe y pertenece al trainer
     const { data: session, error: fetchErr } = await supabase
       .from('trainer_session_plans')
-      .select('id, status, trainer_id, enrollment_id')
+      .select('id, status, trainer_id, enrollment_id, session_date')
       .eq('id', sessionId)
       .eq('trainer_id', trainerId)
       .maybeSingle();
@@ -270,11 +329,84 @@ router.patch('/availability/session/:id/no-show', async (req: Request, res: Resp
       if (error) throw error;
     }
 
+    // ✅ Notificar al cliente según la acción
+    const sessionDate = (session as any).session_date ?? 'día';
+    if (action === 'return_credit') {
+      notifySessionClient(
+        sessionId as string,
+        '📋 Sesión cancelada — crédito devuelto',
+        `No asististe a tu sesión del ${sessionDate}. Se devolvió el crédito a tu plan.`,
+        'info',
+      ).catch(() => {});
+    } else {
+      notifySessionClient(
+        sessionId as string,
+        '⚠️ Inasistencia registrada',
+        `Tu entrenador registró inasistencia en la sesión del ${sessionDate}. El crédito fue descontado.`,
+        'warning',
+      ).catch(() => {});
+    }
+
     res.json({ success: true, action });
 
   } catch (err: any) {
     (req as any).log?.error({ err }, 'Error handling PT no-show');
     res.status(500).json({ error: 'Error al procesar la inasistencia.' });
+  }
+});
+
+// ==========================================
+// DELETE /api/v1/trainer/availability/session/:id
+// PT cancela una sesión — siempre devuelve crédito
+// ==========================================
+router.delete('/availability/session/:id', async (req: Request, res: Response) => {
+  try {
+    const trainerId = req.user.id;
+    const sessionId = req.params.id;
+
+    const { data: session, error: fetchErr } = await supabase
+      .from('trainer_session_plans')
+      .select('id, status, trainer_id, client_id, client_type, session_date, session_time')
+      .eq('id', sessionId)
+      .eq('trainer_id', trainerId)
+      .maybeSingle();
+
+    if (fetchErr) throw fetchErr;
+    if (!session) return res.status(404).json({ error: 'Sesión no encontrada.' });
+    if (session.status === 'completed') return res.status(400).json({ error: 'No se puede cancelar una sesión completada.' });
+
+    // Siempre devuelve crédito al atleta
+    const { data, error } = await supabase.rpc('fn_cancel_pt_session', {
+      p_plan_id:   sessionId,
+      p_caller_id: trainerId,
+    });
+
+    if (error) throw error;
+
+    // Guardar metadata de cancelación
+    await supabase
+      .from('trainer_session_plans')
+      .update({
+        cancelled_by:        trainerId,
+        cancelled_at:        new Date().toISOString(),
+        cancelled_by_role:   'trainer',
+        cancellation_reason: 'trainer_cancelled',
+        updated_at:          new Date().toISOString(),
+      })
+      .eq('id', sessionId);
+
+    // Notificar al atleta/padre — mensaje especial
+    await notifySessionClient(
+      sessionId as string,
+      '🚫 Sesión cancelada por tu entrenador',
+      `Tu sesión del ${session.session_date}${session.session_time ? ` a las ${session.session_time.substring(0, 5)}` : ''} fue cancelada por tu entrenador. El crédito fue devuelto a tu plan automáticamente.`,
+      'warning',
+    ).catch(() => {});
+
+    res.json({ success: true });
+  } catch (err: any) {
+    (req as any).log?.error({ err }, 'Error cancelling PT session');
+    res.status(500).json({ error: 'Error al cancelar la sesión.' });
   }
 });
 

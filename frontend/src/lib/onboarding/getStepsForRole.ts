@@ -5,7 +5,7 @@ export const getStepsForRole = (role: string, status: any) => {
     switch (role) {
         case USER_ROLES.SCHOOL:
         case USER_ROLES.SCHOOL_ADMIN:
-        case USER_ROLES.ADMIN:
+        case USER_ROLES.ADMIN: {
             // If the user is the Owner (no school created yet)
             if (!status.has_school && role === USER_ROLES.SCHOOL) {
                 return [
@@ -38,6 +38,7 @@ export const getStepsForRole = (role: string, status: any) => {
                 { id: 'setup_payments',  title: 'Cobros',        description: 'Configura cómo recibir pagos.',                   completed: status.payment_setup_completed === true, href: '/dashboard', icon: CreditCard },
             );
             return wizardSteps;
+        }
 
         case USER_ROLES.PARENT: {
             const parentSteps = [];

@@ -645,6 +645,7 @@ router.get('/clients/:clientId/summary', async (req: Request, res: Response) => 
         sessions_completed:  0,
         sessions_scheduled:  0,
         sessions_available:  null,
+        is_unlimited:        false,
         start_date:          null,
         end_date:            null,
         status:              null,

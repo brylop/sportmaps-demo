@@ -93,20 +93,22 @@ export default function TrainerClientProfile() {
   const planName = enrollment.offering_plans?.name || 'A demanda';
 
   const refreshAction = async () => {
-    // Just retrigger data fetch simply
-    const [clientRes, summaryRes] = await Promise.all([
-      fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}?type=${type}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` }
-      }),
-      fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}/summary?type=${type}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` }
-      })
-    ]);
+    try {
+      const [clientRes, summaryRes] = await Promise.all([
+        fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}?type=${type}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` }
+        }),
+        fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}/summary?type=${type}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` }
+        })
+      ]);
 
-    if (clientRes.ok) {
+      if (!clientRes.ok) throw new Error((await clientRes.json()).error);
       const data = await clientRes.json();
       if (summaryRes.ok) data.ptSummary = await summaryRes.json();
       setClientData(data);
+    } catch (err: any) {
+      toast({ title: 'Error al actualizar', description: err.message, variant: 'destructive' });
     }
   };
 

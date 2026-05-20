@@ -22,6 +22,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { createClient } from '@supabase/supabase-js';
 
 const router = Router();
 
@@ -37,7 +38,14 @@ const UnblockSchema = z.object({
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/blocked', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const { data, error } = await supabase
+        const token = req.headers.authorization?.split(' ')[1];
+        const userClient = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_ANON_KEY!,
+            { global: { headers: { Authorization: `Bearer ${token}` } } }
+        );
+
+        const { data, error } = await userClient
             .from('blocked_payments_view')
             .select('*')
             .order('last_failure_at', { ascending: false })
@@ -71,7 +79,15 @@ router.post('/unblock', async (req: AuthenticatedRequest, res: Response) => {
 
         const { kind, id } = parsed.data;
 
-        const { data, error } = await supabase.rpc('unblock_payment', {
+        // ✅ Cliente con JWT del usuario — auth.uid() en el RPC resuelve correctamente
+        const token = req.headers.authorization?.split(' ')[1];
+        const userClient = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_ANON_KEY!,
+            { global: { headers: { Authorization: `Bearer ${token}` } } }
+        );
+
+        const { data, error } = await userClient.rpc('unblock_payment', {
             p_kind: kind,
             p_id: id,
         });

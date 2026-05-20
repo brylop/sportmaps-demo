@@ -38,6 +38,8 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = sidebar;
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
+  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
+  const { hasAddon } = useEntitlements();
 
   if (!profile || !user) return null;
 
@@ -116,8 +118,6 @@ export function AppSidebar() {
   //
   // Roles candidatos a ver el grupo: coach (que quiere vender servicios
   // extra), y school CON addon `store` activo.
-  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const { hasAddon } = useEntitlements();
   const isSchoolRole = effectiveRole === 'school' || effectiveRole === 'school_admin' || effectiveRole === 'owner';
   const isVendorPrimaryRole = (
     effectiveRole === 'external_vendor' ||
