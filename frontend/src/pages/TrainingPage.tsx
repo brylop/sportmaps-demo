@@ -64,12 +64,14 @@ export default function TrainingPage() {
     intensity: 'medium' as 'low' | 'medium' | 'high' | 'max',
     calories_burned: '',
     notes: '',
-    training_date: new Date().toISOString().split('T')[0],
+    training_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()),
   });
+
+  const todayCO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
 
   const resetForm = () => setForm({
     exercise_type: '', duration_minutes: '', intensity: 'medium',
-    calories_burned: '', notes: '', training_date: new Date().toISOString().split('T')[0],
+    calories_burned: '', notes: '', training_date: todayCO(),
   });
 
   const handleCreate = async () => {

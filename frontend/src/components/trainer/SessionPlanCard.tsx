@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, ClipboardList, CheckCircle2, Pencil, Trash2, Clock, MapPin } from 'lucide-react';
+import { ClipboardList, CheckCircle2, Pencil, Trash2, Clock } from 'lucide-react';
 
 interface SessionPlanCardProps {
   plan: {
@@ -27,7 +27,7 @@ const STATUS_CONFIG = {
 
 export function SessionPlanCard({ plan, onComplete, onEdit, onDelete }: SessionPlanCardProps) {
   const status = STATUS_CONFIG[plan.status];
-  const dateObj = new Date(plan.session_date);
+  const dateObj = new Date(plan.session_date + 'T12:00:00');
   const isCompleted = plan.status === 'completed';
 
   return (

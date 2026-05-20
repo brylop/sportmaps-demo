@@ -59,7 +59,7 @@ export function ClientTrainingTab({
   const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
   const [logForm, setLogForm] = useState({
-    training_date:    new Date().toISOString().split('T')[0],
+    training_date:    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()),
     exercise_type:    'Fuerza',
     duration_minutes: '60',
     intensity:        'media',
@@ -106,8 +106,9 @@ export function ClientTrainingTab({
     const noShows    = plans.filter(p => p.status === 'no_show').length;
     const cancelled  = plans.filter(p => p.status === 'cancelled').length;
     const lastDate   = completed[0]?.session_date ?? null;
-    const attendRate = plans.length > 0
-      ? Math.round((completed.length / (plans.length - cancelled)) * 100)
+    const denominator = plans.length - cancelled;
+    const attendRate  = denominator > 0
+      ? Math.round((completed.length / denominator) * 100)
       : null;
     return { completed: completed.length, noShows, cancelled, lastDate, attendRate };
   }, [plans]);
@@ -152,11 +153,14 @@ export function ClientTrainingTab({
           body: JSON.stringify(data),
         });
       }
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error desconocido');
+      }
       toast({ title: '✅ Planificado con éxito' });
       fetchPlans();
-    } catch {
-      toast({ title: 'Error', description: 'No se pudo crear el plan.', variant: 'destructive' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message || 'No se pudo crear el plan.', variant: 'destructive' });
     } finally {
       setIsSaving(false);
     }
