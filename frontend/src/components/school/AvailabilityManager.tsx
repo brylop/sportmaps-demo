@@ -106,7 +106,7 @@ export function AvailabilityManager({ coachId, schoolId }: AvailabilityManagerPr
   const toggleDay = (dayIndex: number) => {
     setOpenDays(prev => {
       const next = new Set(prev);
-      next.has(dayIndex) ? next.delete(dayIndex) : next.add(dayIndex);
+      if (next.has(dayIndex)) { next.delete(dayIndex); } else { next.add(dayIndex); }
       return next;
     });
   };
