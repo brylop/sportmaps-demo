@@ -102,7 +102,6 @@ export function ClientResumenTab({
   const sessionsCompleted = ptSummary?.sessions_completed ?? 0;
   const sessionsAvailable = ptSummary?.sessions_available ?? null;
   const isUnlimited       = ptSummary?.is_unlimited ?? false;
-  const progressPct       = maxSessions ? Math.min(100, (sessionsUsed / maxSessions) * 100) : 0;
 
   // Asistencias — última presente
   const lastAttendance = useMemo(() => {

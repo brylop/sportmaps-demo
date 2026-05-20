@@ -9,9 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { BankAccountFields } from '@/components/payments/BankAccountFields';
-import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
+import { CityCombobox } from '@/components/common/CityCombobox';
+import { BankCombobox } from '@/components/common/BankCombobox';
+import { PhoneInput } from '@/components/ui/phone-input';
+import { Store, Upload, CreditCard, CheckCircle2, Loader2, Package, Wrench, ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -82,6 +85,9 @@ export default function VendorOnboardingPage() {
         bank_name: '', account_type: '', account_number: '',
         account_holder: '', account_document: '',
     });
+    // Pagos adicionales unificados con school/trainer
+    const [nequi, setNequi]       = useState('');
+    const [whatsapp, setWhatsapp] = useState('');
     const [docFile, setDocFile] = useState<File | null>(null);
 
     // Pre-llenar form con datos del vendor_profile si ya existe
@@ -153,7 +159,7 @@ export default function VendorOnboardingPage() {
             }
 
             // Persistir métodos de pago vía BFF (mismo endpoint que ya existía)
-            if (paymentMethods.length > 0) {
+            if (paymentMethods.length > 0 || nequi || whatsapp) {
                 await fetch(`${API_URL}/api/v1/vendor/profile/payment`, {
                     method: 'PUT',
                     headers: {
@@ -162,7 +168,9 @@ export default function VendorOnboardingPage() {
                     },
                     body: JSON.stringify({
                         payment_methods: paymentMethods,
-                        bank_data: paymentMethods.includes('bank_transfer') ? bankData : {},
+                        bank_data:       paymentMethods.includes('bank_transfer') ? bankData : {},
+                        nequi_number:    nequi || null,
+                        whatsapp_number: whatsapp || null,
                     }),
                 }).catch(err => {
                     console.warn('No se pudo guardar payment methods (no bloqueante):', err);
@@ -231,34 +239,68 @@ export default function VendorOnboardingPage() {
         );
     }
 
-    return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-2xl shadow-xl">
-                <CardHeader className="bg-primary/5 border-b pb-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
-                            <Store className="h-6 w-6" />
-                            {hasExistingProfile ? 'Configura tu Tienda' : 'Activar Mi Tienda'}
-                        </h2>
-                        <div className="flex gap-2">
-                            {[1, 2, 3].map(s => (
-                                <div key={s} className={`h-2 w-12 rounded-full ${step >= s ? 'bg-primary' : 'bg-slate-200'}`} />
-                            ))}
-                        </div>
-                    </div>
-                    <CardTitle>
-                        {step === 1 && (hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes')}
-                        {step === 2 && 'Cómo cobras'}
-                        {step === 3 && 'Verificación de identidad'}
-                    </CardTitle>
-                    <CardDescription>
-                        {step === 1 && 'Información básica que aparecerá en tu perfil público.'}
-                        {step === 2 && 'Elige los métodos con los que vas a recibir pagos.'}
-                        {step === 3 && 'Sube un documento (cédula, RUT, Cámara de Comercio o tarjeta profesional) para verificar tu identidad y aparecer destacado.'}
-                    </CardDescription>
-                </CardHeader>
+    // Validacion por step para habilitar Siguiente.
+    const step1Done = !!formData.display_name && !!formData.city;
+    // Step 2: si eligio bank_transfer, exigir bank + tipo + cuenta.
+    const step2BankOk = !paymentMethods.includes('bank_transfer')
+                     || (!!bankData.bank_name && !!bankData.account_type && !!bankData.account_number);
+    const step2Done = step2BankOk;
 
-                <CardContent className="p-6">
+    const shellSteps: ShellStep[] = [
+        { id: 'business',     title: 'Negocio',     description: hasExistingProfile ? 'Datos de tu negocio' : 'Cuéntanos qué vendes', icon: Store,       done: step > 1 || step1Done },
+        { id: 'payments',     title: 'Pagos',       description: 'Cómo recibirás los cobros',                                         icon: CreditCard,  done: step > 2 },
+        { id: 'verification', title: 'Verificación', description: 'Documento de identidad (opcional)',                                icon: ShieldCheck, done: false },
+    ];
+
+    const canAdvance = step === 1 ? step1Done : step === 2 ? step2Done : false;
+
+    const footer = (
+        <>
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setStep(prev => Math.max(1, prev - 1))}
+                disabled={step === 1 || saving}
+            >
+                <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+            </Button>
+            <div className="flex items-center gap-2">
+                {step < 3 && (
+                    <Button
+                        size="sm"
+                        onClick={step === 2 ? saveStep1And2 : () => setStep(step + 1)}
+                        disabled={saving || !canAdvance}
+                        title={canAdvance ? 'Continuar' : 'Completa los campos requeridos'}
+                    >
+                        {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        {step === 2 ? 'Activar y continuar' : 'Siguiente'}
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                )}
+                {step === 3 && (
+                    <>
+                        <Button variant="ghost" size="sm" onClick={() => navigate('/vendor/dashboard')} disabled={saving}>
+                            Omitir por ahora
+                        </Button>
+                        <Button size="sm" onClick={saveStep3} disabled={saving}>
+                            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            {docFile ? 'Enviar y continuar' : 'Ir al dashboard'}
+                        </Button>
+                    </>
+                )}
+            </div>
+        </>
+    );
+
+    return (
+        <OnboardingShell
+            title={hasExistingProfile ? 'Configura tu Tienda' : 'Activar Mi Tienda'}
+            eyebrow="Configuración inicial"
+            steps={shellSteps}
+            currentStep={step - 1}
+            onStepChange={(idx) => idx + 1 <= step && setStep(idx + 1)}
+            footer={footer}
+        >
                     {/* Step 1: ¿Qué vendes? + Info básica */}
                     {step === 1 && (
                         <div className="space-y-5">
@@ -311,12 +353,12 @@ export default function VendorOnboardingPage() {
                                 </div>
                                 <div>
                                     <Label>Ciudad *</Label>
-                                    <Input value={formData.city} onChange={(e) => handleChange('city', e.target.value)} placeholder="Bogotá" />
+                                    <CityCombobox value={formData.city} onChange={(v) => handleChange('city', v)} />
                                 </div>
                             </div>
                             <div>
                                 <Label>Teléfono / WhatsApp</Label>
-                                <Input value={formData.phone} onChange={(e) => handleChange('phone', e.target.value)} placeholder="+57 300 1234567" />
+                                <PhoneInput value={formData.phone} onChange={(v) => handleChange('phone', v)} placeholder="Número de celular" />
                             </div>
                             <div>
                                 <Label>Descripción</Label>
@@ -345,13 +387,6 @@ export default function VendorOnboardingPage() {
                                 </div>
                             )}
 
-                            <Button
-                                className="w-full"
-                                onClick={() => setStep(2)}
-                                disabled={!formData.display_name || !formData.city}
-                            >
-                                Siguiente: Métodos de pago
-                            </Button>
                         </div>
                     )}
 
@@ -374,37 +409,77 @@ export default function VendorOnboardingPage() {
                                 ))}
                             </div>
 
-                            {paymentMethods.includes('bank_transfer') && (
-                                <div className="space-y-3 border-t pt-4">
-                                    <h4 className="text-sm font-medium">Datos para recibir pagos</h4>
-                                    <BankAccountFields
-                                        value={{
-                                            bank_name:       bankData.bank_name,
-                                            account_type:    bankData.account_type,
-                                            account_number:  bankData.account_number,
-                                            account_holder:  bankData.account_holder,
-                                            document_number: bankData.account_document,
-                                        }}
-                                        onChange={(next) => setBankData(p => ({
-                                            ...p,
-                                            bank_name:        next.bank_name,
-                                            account_type:     next.account_type,
-                                            account_number:   next.account_number,
-                                            account_holder:   next.account_holder,
-                                            account_document: next.document_number || '',
-                                        }))}
-                                        showDocumentType={false}
+                            {/* Bloque de pagos unificado con school/trainer: Nequi + Banco + Cuenta + WhatsApp */}
+                            <div className="space-y-3 border-t pt-4">
+                                <h4 className="text-sm font-medium">Datos para recibir pagos</h4>
+
+                                <div className="space-y-2">
+                                    <Label>Número Nequi</Label>
+                                    <Input
+                                        type="tel"
+                                        maxLength={10}
+                                        placeholder="Número de 10 dígitos"
+                                        value={nequi}
+                                        onChange={(e) => setNequi(e.target.value.replace(/\D/g, '').slice(0, 10))}
                                     />
                                 </div>
-                            )}
 
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => setStep(1)} className="flex-1">Atrás</Button>
-                                <Button onClick={saveStep1And2} disabled={saving} className="flex-1">
-                                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                    Activar y continuar
-                                </Button>
+                                {paymentMethods.includes('bank_transfer') && (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label>Banco *</Label>
+                                            <BankCombobox value={bankData.bank_name} onChange={(v) => setBankData(p => ({ ...p, bank_name: v }))} />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-2">
+                                                <Label>Tipo de cuenta *</Label>
+                                                <Select
+                                                    value={bankData.account_type}
+                                                    onValueChange={(val) => setBankData(p => ({ ...p, account_type: val }))}
+                                                >
+                                                    <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="ahorros">Ahorros</SelectItem>
+                                                        <SelectItem value="corriente">Corriente</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Número de cuenta *</Label>
+                                                <Input
+                                                    placeholder="123-456789-00"
+                                                    value={bankData.account_number}
+                                                    onChange={(e) => setBankData(p => ({ ...p, account_number: e.target.value.replace(/\D/g, '') }))}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-2">
+                                                <Label>Titular *</Label>
+                                                <Input
+                                                    placeholder="Nombre completo"
+                                                    value={bankData.account_holder}
+                                                    onChange={(e) => setBankData(p => ({ ...p, account_holder: e.target.value }))}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>CC / NIT *</Label>
+                                                <Input
+                                                    placeholder="900.123.456-7"
+                                                    value={bankData.account_document}
+                                                    onChange={(e) => setBankData(p => ({ ...p, account_document: e.target.value }))}
+                                                />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="space-y-2">
+                                    <Label>WhatsApp de contacto</Label>
+                                    <PhoneInput value={whatsapp} onChange={setWhatsapp} placeholder="Número de celular" />
+                                </div>
                             </div>
+
                         </div>
                     )}
 
@@ -447,19 +522,8 @@ export default function VendorOnboardingPage() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => navigate('/vendor/dashboard')} className="flex-1">
-                                    Omitir por ahora
-                                </Button>
-                                <Button onClick={saveStep3} disabled={saving} className="flex-1">
-                                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                    {docFile ? 'Enviar y continuar' : 'Ir al dashboard'}
-                                </Button>
-                            </div>
                         </div>
                     )}
-                </CardContent>
-            </Card>
-        </div>
+        </OnboardingShell>
     );
 }

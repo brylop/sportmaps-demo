@@ -4,10 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
   CreditCard, CheckCircle2, XCircle, Clock, Calendar, 
-  Download, Plus, AlertTriangle, Eye, Loader2, Info, 
+  Plus, Eye, Loader2, Info, 
   Percent, Zap, User 
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +16,6 @@ import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Progress } from '@/components/ui/progress';
 
 interface Enrollment {
   id: string;
@@ -350,26 +348,14 @@ export default function MyPaymentsPage() {
     }
   };
 
-  const fetchInstallments = async (paymentId: string) => {
-    try {
-      setLoadingInstallments(true);
-      const { data, error } = await supabase
-        .from('payment_installments')
-        .select('*')
-        .eq('payment_id', paymentId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setInstallments(data || []);
-    } catch (err) {
-      console.error('Error fetching installments:', err);
-    } finally {
-      setLoadingInstallments(false);
-    }
-  };
-
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
+
+    // ✅ Short-circuit si ya es URL pública directa
+    if (receiptUrl.startsWith('http')) {
+      setViewingProof({ open: true, url: receiptUrl, concept, amount });
+      return;
+    }
 
     try {
       const cleanPath = normalizeReceiptUrl(receiptUrl);
@@ -762,7 +748,6 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
 }) {
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
-  const isBilled = txn.status === 'approved' || txn.status === 'partial';
 
   return (
     <Card

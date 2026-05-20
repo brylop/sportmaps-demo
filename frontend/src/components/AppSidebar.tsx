@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { getNavigationByRole, getVendorNavGroup } from '@/config/navigation';
 import { UserRole } from '@/types/dashboard';
 import { useVendorProfile } from '@/hooks/useVendorProfile';
+import { useEntitlements } from '@/hooks/useEntitlements';
 // NOTE: SchoolSwitcher esta desactivado hasta que el schema soporte sede
 // end-to-end (falta enrollments.branch_id y varios enrollments no tienen
 // team asociado, asi que no se puede scopear fiablemente). El componente
@@ -37,6 +38,8 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = sidebar;
   const location = useLocation();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
+  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
+  const { hasAddon } = useEntitlements();
 
   if (!profile || !user) return null;
 
@@ -85,6 +88,15 @@ export function AppSidebar() {
       case 'personal_trainer':
         navigationRole = 'personal_trainer';
         break;
+      // external_vendor es el rol nuevo que reemplaza al legacy store_owner.
+      // Usan exactamente la misma navegacion de vendor.
+      case 'external_vendor':
+      case 'store_owner':
+        navigationRole = 'store_owner';
+        break;
+      case 'wellness_professional':
+        navigationRole = 'wellness_professional';
+        break;
       default:
         navigationRole = (effectiveRole as UserRole) || 'athlete';
         break;
@@ -93,10 +105,29 @@ export function AppSidebar() {
 
   const baseNavigationGroups = getNavigationByRole(navigationRole);
 
-  // Mi Tienda: grupo adicional para cualquier usuario con vendor_profile activo,
-  // independiente del rol principal. (coach + tienda, school + tienda, etc.)
-  const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
-  const navigationGroups = hasVendorProfile
+  // Mi Tienda: grupo ADICIONAL para roles que NO son primariamente vendor
+  // pero que decidieron sumarle marketplace a su cuenta.
+  //
+  // Roles vendor-primarios (external_vendor, wellness_professional,
+  // personal_trainer, store_owner) NO ven este grupo porque su sidebar
+  // principal ya cubre productos/servicios/pedidos/agenda. Mostrarlo
+  // duplica items y confunde con "Verificacion pendiente" mal posicionado.
+  //
+  // Roles school (school/school_admin/owner) requieren addon `store`
+  // explicito (es upgrade pago via /mi-plan).
+  //
+  // Roles candidatos a ver el grupo: coach (que quiere vender servicios
+  // extra), y school CON addon `store` activo.
+  const isSchoolRole = effectiveRole === 'school' || effectiveRole === 'school_admin' || effectiveRole === 'owner';
+  const isVendorPrimaryRole = (
+    effectiveRole === 'external_vendor' ||
+    effectiveRole === 'wellness_professional' ||
+    effectiveRole === 'personal_trainer' ||
+    effectiveRole === 'store_owner'
+  );
+  const schoolGateOk = !isSchoolRole || hasAddon('store');
+  const showVendorGroup = hasVendorProfile && schoolGateOk && !isVendorPrimaryRole;
+  const navigationGroups = showVendorGroup
     ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
     : baseNavigationGroups;
 

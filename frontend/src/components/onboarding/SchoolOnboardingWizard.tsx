@@ -3,11 +3,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { OnboardingShell, type ShellStep } from '@/components/onboarding/OnboardingShell';
+import { PhoneInput } from '@/components/ui/phone-input';
+import { CityCombobox } from '@/components/common/CityCombobox';
+import { BankCombobox } from '@/components/common/BankCombobox';
 import {
   Select,
   SelectContent,
@@ -17,7 +19,6 @@ import {
 } from '@/components/ui/select';
 import {
   Building,
-  Users,
   UserPlus,
   GraduationCap,
   CreditCard,
@@ -26,59 +27,147 @@ import {
   ChevronLeft,
   Loader2,
   Trophy,
-  Sparkles,
   ArrowRight,
   SkipForward,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import { SPORTS_LIST } from '@/lib/constants/sportsCatalog';
 import { emailClient } from '@/lib/email-client';
+
+type BusinessModel = 'teams' | 'plans' | 'both';
+type StepId = 'branch' | 'model' | 'team' | 'plan' | 'coach' | 'student' | 'payments';
+
+/**
+ * Convierte errores tecnicos de Supabase/PostgREST en mensajes que un
+ * administrador no tecnico pueda entender. Lista basada en errores reales
+ * observados en staging.
+ */
+function friendlyError(err: any): string {
+  const msg = String(err?.message || err || '');
+  if (msg.includes('schema cache') && msg.includes('subscription_plans')) {
+    return 'El módulo de planes aún no está disponible. Pídele al administrador que aplique la última actualización.';
+  }
+  if (msg.includes('schema cache') && msg.includes('school_settings')) {
+    return 'La configuración de cobros aún no está disponible. Pídele al administrador que aplique la última actualización.';
+  }
+  if (msg.includes('schema cache')) {
+    return 'Esta función está siendo actualizada. Espera un minuto y vuelve a intentar.';
+  }
+  if (msg.includes('duplicate key') || msg.includes('already exists')) {
+    return 'Ya existe un registro con esos datos.';
+  }
+  if (msg.includes('violates check constraint')) {
+    return 'Alguno de los valores no es válido. Revisa los campos marcados con asterisco.';
+  }
+  if (msg.includes('permission denied') || msg.includes('not authorized')) {
+    return 'No tienes permisos para realizar esta acción.';
+  }
+  if (msg.toLowerCase().includes('network')) {
+    return 'Error de conexión. Verifica tu internet e intenta de nuevo.';
+  }
+  // Fallback: mensaje original sin el prefijo tecnico
+  return msg.replace(/^[A-Za-z]+Error:\s*/i, '') || 'Ocurrió un error. Intenta nuevamente.';
+}
+
+/** Sanitizadores que filtran caracteres no permitidos en tiempo de tecla. */
+const onlyDigits = (v: string) => v.replace(/\D/g, '');
+const onlyLetters = (v: string) => v.replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ \-']/g, '');
 
 interface OnboardingStatus {
   has_school: boolean;
   has_branches: boolean;
   has_teams: boolean;
+  has_plans?: boolean;
   has_staff: boolean;
   has_students: boolean;
   payment_setup_completed: boolean;
+  business_model?: BusinessModel | null;
   school_id: string | null;
 }
 
 interface WizardStep {
-  id: string;
+  id: StepId;
   title: string;
   subtitle: string;
   icon: React.ElementType;
   required: boolean;
 }
 
-const STEPS: WizardStep[] = [
-  { id: 'branch', title: 'Tu Sede', subtitle: 'Confirma la direccion de tu sede principal', icon: Building, required: true },
-  { id: 'team', title: 'Primer Equipo', subtitle: 'Crea tu primer grupo o equipo deportivo', icon: Trophy, required: true },
-  { id: 'coach', title: 'Entrenador', subtitle: 'Invita a tu primer entrenador', icon: UserPlus, required: false },
-  { id: 'student', title: 'Primer Atleta', subtitle: 'Registra a tu primer deportista', icon: GraduationCap, required: false },
-  { id: 'payments', title: 'Cobros', subtitle: 'Configura como recibir pagos', icon: CreditCard, required: false },
-];
+// Pasos disponibles. El wizard ensambla cuales se muestran segun business_model.
+const STEP_DEFS: Record<StepId, WizardStep> = {
+  branch:   { id: 'branch',   title: 'Tu Sede',           subtitle: 'Confirma la direccion de tu sede principal', icon: Building,      required: true  },
+  model:    { id: 'model',    title: 'Modelo',            subtitle: '¿Como organizas tu academia?',               icon: Layers,        required: true  },
+  team:     { id: 'team',     title: 'Primer Equipo',     subtitle: 'Crea tu primer grupo o equipo deportivo',    icon: Trophy,        required: true  },
+  plan:     { id: 'plan',     title: 'Primer Plan',       subtitle: 'Crea tu primera mensualidad o paquete',      icon: Tag,           required: true  },
+  coach:    { id: 'coach',    title: 'Entrenador',        subtitle: 'Invita a tu primer entrenador',              icon: UserPlus,      required: false },
+  student:  { id: 'student',  title: 'Primer Atleta',     subtitle: 'Registra a tu primer deportista',            icon: GraduationCap, required: false },
+  payments: { id: 'payments', title: 'Cobros',            subtitle: 'Configura como recibir pagos',               icon: CreditCard,    required: false },
+};
+
+const buildSteps = (model: BusinessModel | null): WizardStep[] => {
+  // El paso "Modelo" aparece SIEMPRE (no se autoesconde cuando hay default
+  // 'teams' del backfill). El admin puede volver a este paso desde las pills
+  // para cambiar su organizacion.
+  const steps: WizardStep[] = [STEP_DEFS.branch, STEP_DEFS.model];
+  if (model === 'teams' || model === 'both') steps.push(STEP_DEFS.team);
+  if (model === 'plans' || model === 'both') steps.push(STEP_DEFS.plan);
+  steps.push(STEP_DEFS.coach, STEP_DEFS.student, STEP_DEFS.payments);
+  return steps;
+};
 
 interface SchoolOnboardingWizardProps {
   status: OnboardingStatus;
   onComplete: () => void;
   onRefresh: () => void;
+  /** Default 'card' para uso embebido en dashboard.
+   *  Pasar 'full' cuando se usa como pagina standalone en /onboarding/school. */
+  variant?: 'card' | 'full';
 }
 
-export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: SchoolOnboardingWizardProps) {
+export function SchoolOnboardingWizard({ status, onComplete, onRefresh, variant = 'card' }: SchoolOnboardingWizardProps) {
   const { schoolId, schoolName } = useSchoolContext();
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const [businessModel, setBusinessModel] = useState<BusinessModel | null>(
+    (status.business_model as BusinessModel | undefined) ?? null,
+  );
+  // Si el RPC trae has_teams o has_plans pero business_model viene null, asumimos
+  // que la escuela ya estaba en marcha con el modelo viejo (equipos).
+  useEffect(() => {
+    if (businessModel) return;
+    if (status.has_teams && status.has_plans) setBusinessModel('both');
+    else if (status.has_plans)                setBusinessModel('plans');
+    else if (status.has_teams)                setBusinessModel('teams');
+  }, [businessModel, status.has_teams, status.has_plans]);
+
+  const STEPS = buildSteps(businessModel);
+
+  // `model` se considera "done" solo si la escuela ya creó al menos un team o
+  // plan, no solo porque schools.business_model tenga valor (puede venir del
+  // default 'teams' del backfill). Asi forzamos al admin a ver el step en su
+  // primer onboarding y confirmar explicitamente como organiza su academia.
+  const isStepDoneById = useCallback((id: StepId): boolean => {
+    switch (id) {
+      case 'branch':   return !!status.has_branches;
+      case 'model':    return !!status.has_teams || !!status.has_plans;
+      case 'team':     return !!status.has_teams;
+      case 'plan':     return !!status.has_plans;
+      case 'coach':    return !!status.has_staff;
+      case 'student':  return !!status.has_students;
+      case 'payments': return !!status.payment_setup_completed;
+      default:         return false;
+    }
+  }, [status]);
+
   // Determine initial step based on what's already done
   const getInitialStep = useCallback(() => {
-    if (!status.has_branches) return 0;
-    if (!status.has_teams) return 1;
-    if (!status.has_staff) return 2;
-    if (!status.has_students) return 3;
-    if (!status.payment_setup_completed) return 4;
+    for (let i = 0; i < STEPS.length; i++) {
+      if (!isStepDoneById(STEPS[i].id)) return i;
+    }
     return 0;
-  }, [status]);
+  }, [STEPS, isStepDoneById]);
 
   const [currentStep, setCurrentStep] = useState(getInitialStep);
   const [saving, setSaving] = useState(false);
@@ -93,19 +182,30 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   const [teamSport, setTeamSport] = useState('');
   const [teamPrice, setTeamPrice] = useState('150000');
 
+  // Plan form (mensualidad / paquete)
+  const [planName, setPlanName] = useState('');
+  const [planPrice, setPlanPrice] = useState('120000');
+  const [planBilling, setPlanBilling] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
+  const [planSessions, setPlanSessions] = useState<string>(''); // vacio = ilimitado
+
   // Coach form
   const [coachName, setCoachName] = useState('');
   const [coachEmail, setCoachEmail] = useState('');
 
   // Student form
   const [studentName, setStudentName] = useState('');
+  const [studentIsAdult, setStudentIsAdult] = useState(false);
   const [parentEmail, setParentEmail] = useState('');
   const [parentPhone, setParentPhone] = useState('');
 
-  // Payments form
-  const [bankName, setBankName] = useState('');
+  // Payments form — bloque unificado school/trainer/vendor:
+  // Nequi + Bre-B + Banco + Cuenta + Tipo + WhatsApp.
+  const [nequi,         setNequi]         = useState('');
+  const [brebKey,       setBrebKey]       = useState('');
+  const [bankCode,      setBankCode]      = useState('');
   const [accountNumber, setAccountNumber] = useState('');
-  const [accountType, setAccountType] = useState('ahorros');
+  const [accountType,   setAccountType]   = useState('ahorros');
+  const [whatsapp,      setWhatsapp]      = useState('');
 
   // Load existing branch data
   useEffect(() => {
@@ -130,29 +230,16 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
     }
   };
 
-  const completedSteps = [
-    status.has_branches && branchAddress !== '', // Step 0: branch confirmed with address
-    status.has_teams,
-    status.has_staff,
-    status.has_students,
-    status.payment_setup_completed,
-  ];
-
-  // Re-check: if branch exists but no address, it's not truly "complete" for UX
+  // Wrapper indice-based para compatibilidad con codigo de render que itera por index
   const isStepDone = (index: number) => {
-    switch (index) {
-      case 0: return status.has_branches;
-      case 1: return status.has_teams;
-      case 2: return status.has_staff;
-      case 3: return status.has_students;
-      case 4: return status.payment_setup_completed;
-      default: return false;
-    }
+    const step = STEPS[index];
+    return step ? isStepDoneById(step.id) : false;
   };
 
   const completedCount = STEPS.filter((_, i) => isStepDone(i)).length;
   const progress = Math.round((completedCount / STEPS.length) * 100);
-  const allRequiredDone = status.has_branches && status.has_teams;
+  // Solo se considera "todo listo para finalizar" si los pasos required estan hechos.
+  const allRequiredDone = STEPS.filter(s => s.required).every(s => isStepDoneById(s.id));
 
   // ── Step Handlers ──
 
@@ -181,7 +268,94 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChooseModel = async (model: BusinessModel) => {
+    if (!schoolId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('schools')
+        .update({ business_model: model })
+        .eq('id', schoolId);
+
+      if (error) throw error;
+
+      setBusinessModel(model);
+      toast({ title: 'Modelo guardado' });
+      onRefresh();
+      // Avanzamos al siguiente paso (team o plan) automaticamente para que
+      // el usuario no se quede preguntandose como seguir. El step 'model'
+      // permanece en STEPS y puede revisitarse via las pills.
+      setCurrentStep(prev => prev + 1);
+    } catch (err: any) {
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Crea un subscription_plan tipo school_monthly atado al vendor_profile
+   * del owner de la escuela. Si el owner no tiene vendor_profile aun
+   * (school role ya no auto-crea), lo creamos silenciosamente con
+   * capabilities en false. No abre Mi Tienda — el addon store sigue
+   * siendo lo que decide eso.
+   */
+  const handleCreatePlan = async () => {
+    if (!schoolId || !user) return;
+    if (!planName.trim()) {
+      toast({ title: 'Ingresa el nombre del plan', variant: 'destructive' });
+      return;
+    }
+    if (!planPrice || Number(planPrice) <= 0) {
+      toast({ title: 'Precio inválido', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      // Buscar o crear vendor_profile del owner (capabilities=false para
+      // no activar tienda; solo es contenedor de los planes recurrentes).
+      let { data: vp } = await supabase
+        .from('vendor_profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!vp) {
+        const { data: created, error: rpcErr } = await supabase.rpc('enable_vendor_profile', {
+          p_vendor_type:       'school',
+          p_can_sell_products: false,
+          p_can_sell_services: false,
+          p_display_name:      schoolName || 'Academia',
+        });
+        if (rpcErr) throw rpcErr;
+        vp = created;
+      }
+
+      const { error } = await supabase
+        .from('subscription_plans')
+        .insert({
+          vendor_profile_id: vp!.id,
+          name:              planName.trim(),
+          plan_type:         'school_monthly',
+          price:             Number(planPrice),
+          billing_period:    planBilling,
+          sessions_included: planSessions === '' ? null : Number(planSessions),
+          is_active:         true,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Plan creado' });
+      onRefresh();
+      goNext();
+    } catch (err: any) {
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -221,7 +395,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -268,7 +442,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -296,14 +470,15 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           full_name: studentName.trim(),
           school_id: schoolId,
           team_id: firstTeam?.id || null,
-          parent_email_temp: parentEmail.trim() || null,
-          parent_phone_temp: parentPhone.trim() || null,
+          // Si el atleta es mayor de edad, no se piden datos del padre.
+          parent_email_temp: studentIsAdult ? null : (parentEmail.trim() || null),
+          parent_phone_temp: studentIsAdult ? null : (parentPhone.trim() || null),
         });
 
       if (error) throw error;
 
-      // Enviar email de invitacion al padre si tiene email
-      if (parentEmail.trim()) {
+      // Enviar email de invitacion al padre solo si NO es adulto y hay email
+      if (!studentIsAdult && parentEmail.trim()) {
         const registrationUrl = `${window.location.origin}/register?email=${encodeURIComponent(parentEmail.trim())}&role=parent`;
         try {
           await emailClient.send({
@@ -320,11 +495,17 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
         }
       }
 
-      toast({ title: parentEmail.trim() ? 'Atleta registrado e invitacion enviada al padre' : 'Atleta registrado' });
+      toast({
+        title: studentIsAdult
+          ? 'Atleta registrado'
+          : (parentEmail.trim()
+              ? 'Atleta registrado e invitación enviada al padre'
+              : 'Atleta registrado'),
+      });
       onRefresh();
       goNext();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -332,8 +513,16 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
 
   const handleSavePayments = async () => {
     if (!schoolId) return;
-    if (!bankName.trim() || !accountNumber.trim()) {
-      toast({ title: 'Completa los datos bancarios', variant: 'destructive' });
+    // Validacion: minimo un metodo de cobro (Nequi, Bre-B, o cuenta bancaria).
+    const hasBank = !!bankCode && !!accountNumber.trim();
+    const hasNequi = !!nequi.trim();
+    const hasBreb = !!brebKey.trim();
+    if (!hasBank && !hasNequi && !hasBreb) {
+      toast({
+        title: 'Necesitas al menos un método de cobro',
+        description: 'Agrega un número Nequi, una llave Bre-B, o una cuenta bancaria.',
+        variant: 'destructive',
+      });
       return;
     }
     setSaving(true);
@@ -341,10 +530,13 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       const { error } = await supabase
         .from('school_settings')
         .upsert({
-          school_id: schoolId,
-          bank_name: bankName.trim(),
-          bank_account_number: accountNumber.trim(),
-          bank_account_type: accountType,
+          school_id:           schoolId,
+          bank_name:           bankCode || null,
+          bank_account_number: accountNumber.trim() || null,
+          bank_account_type:   hasBank ? accountType : null,
+          nequi_number:        nequi.trim() || null,
+          breb_key:            brebKey.trim() || null,
+          whatsapp_number:     whatsapp.trim() || null,
         }, { onConflict: 'school_id' });
 
       if (error) throw error;
@@ -353,7 +545,7 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
       onRefresh();
       handleFinish();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: friendlyError(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -391,8 +583,9 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
   // ── Render Step Content ──
 
   const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
+    const stepId = STEPS[currentStep]?.id;
+    switch (stepId) {
+      case 'branch':
         return (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -406,19 +599,11 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Ciudad</Label>
-                <Input
-                  placeholder="Bogota"
-                  value={branchCity}
-                  onChange={(e) => setBranchCity(e.target.value)}
-                />
+                <CityCombobox value={branchCity} onChange={setBranchCity} />
               </div>
               <div className="space-y-2">
-                <Label>Telefono</Label>
-                <Input
-                  placeholder="300 123 4567"
-                  value={branchPhone}
-                  onChange={(e) => setBranchPhone(e.target.value)}
-                />
+                <Label>Teléfono</Label>
+                <PhoneInput value={branchPhone} onChange={setBranchPhone} placeholder="Número de celular" />
               </div>
             </div>
             <Button onClick={handleSaveBranch} disabled={saving} className="w-full">
@@ -428,7 +613,49 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 1:
+      case 'model': {
+        const MODELS: Array<{ key: BusinessModel; title: string; subtitle: string; icon: React.ElementType }> = [
+          { key: 'teams', title: 'Equipos / grupos',     subtitle: 'Fútbol sub-15, natación intermedia, etc.',           icon: Trophy },
+          { key: 'plans', title: 'Planes / membresías',  subtitle: 'Mensualidad gym, paquete 10 clases, curso por mes.', icon: Tag },
+          { key: 'both',  title: 'Ambos',                 subtitle: 'Tengo equipos competitivos y también planes libres.', icon: Layers },
+        ];
+        return (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Elige cómo organizas a tus deportistas. Esto define los siguientes pasos del onboarding.
+            </p>
+            <div className="grid gap-3">
+              {MODELS.map(m => {
+                const Icon = m.icon;
+                const active = businessModel === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleChooseModel(m.key)}
+                    className={`flex items-start gap-3 text-left rounded-lg border p-4 transition-colors hover:bg-muted ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border'}`}
+                  >
+                    <div className="p-2 rounded-md bg-primary/10 shrink-0">
+                      <Icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{m.title}</p>
+                      <p className="text-xs text-muted-foreground">{m.subtitle}</p>
+                    </div>
+                    {active && <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Podrás cambiarlo después en Configuraciones.
+            </p>
+          </div>
+        );
+      }
+
+      case 'team':
         return (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -470,7 +697,59 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 2:
+      case 'plan':
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Crea tu primera mensualidad o paquete. Lo usarás para inscribir a los atletas.
+            </p>
+            <div className="space-y-2">
+              <Label>Nombre del plan *</Label>
+              <Input
+                placeholder="Ej: Mensualidad ilimitada, Paquete 10 clases"
+                value={planName}
+                onChange={(e) => setPlanName(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Precio (COP) *</Label>
+                <Input
+                  type="number"
+                  placeholder="120000"
+                  value={planPrice}
+                  onChange={(e) => setPlanPrice(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Cobro cada</Label>
+                <Select value={planBilling} onValueChange={(v: any) => setPlanBilling(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Mes</SelectItem>
+                    <SelectItem value="quarterly">Trimestre</SelectItem>
+                    <SelectItem value="yearly">Año</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Sesiones</Label>
+                <Input
+                  type="number"
+                  placeholder="Ilimitado"
+                  value={planSessions}
+                  onChange={(e) => setPlanSessions(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button onClick={handleCreatePlan} disabled={saving} className="w-full">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Tag className="h-4 w-4 mr-2" />}
+              Crear Plan
+            </Button>
+          </div>
+        );
+
+      case 'coach':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -502,39 +781,50 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 3:
+      case 'student':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Registra a tu primer deportista. Si tiene padre/madre, recibirán una invitacion.
+              Registra a tu primer deportista. Si es menor de edad necesitamos los datos del padre/madre para enviarles la invitación.
             </p>
             <div className="space-y-2">
               <Label>Nombre del atleta *</Label>
               <Input
-                placeholder="Juan Perez"
+                placeholder="Juan Pérez"
                 value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
+                onChange={(e) => setStudentName(onlyLetters(e.target.value))}
               />
+              <p className="text-[11px] text-muted-foreground">Solo letras. Sin números.</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Email del padre (opcional)</Label>
-                <Input
-                  type="email"
-                  placeholder="padre@email.com"
-                  value={parentEmail}
-                  onChange={(e) => setParentEmail(e.target.value)}
-                />
+
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input accent-primary"
+                checked={studentIsAdult}
+                onChange={(e) => setStudentIsAdult(e.target.checked)}
+              />
+              El atleta es mayor de edad
+            </label>
+
+            {!studentIsAdult && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Email del padre (opcional)</Label>
+                  <Input
+                    type="email"
+                    placeholder="padre@email.com"
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Teléfono del padre (opcional)</Label>
+                  <PhoneInput value={parentPhone} onChange={setParentPhone} placeholder="Número de celular" />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Telefono del padre (opcional)</Label>
-                <Input
-                  placeholder="300 123 4567"
-                  value={parentPhone}
-                  onChange={(e) => setParentPhone(e.target.value)}
-                />
-              </div>
-            </div>
+            )}
+
             <Button onClick={handleCreateStudent} disabled={saving} className="w-full">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <GraduationCap className="h-4 w-4 mr-2" />}
               Registrar Atleta
@@ -542,28 +832,52 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
           </div>
         );
 
-      case 4:
+      case 'payments':
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Configura tus datos bancarios para recibir pagos de las familias.
+              Configura cómo vas a recibir pagos de las familias. Mínimo un método.
             </p>
+
             <div className="space-y-2">
-              <Label>Banco *</Label>
+              <Label>Número Nequi</Label>
               <Input
-                placeholder="Bancolombia, Davivienda, Nequi..."
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="Número de 10 dígitos"
+                value={nequi}
+                onChange={(e) => setNequi(onlyDigits(e.target.value).slice(0, 10))}
               />
             </div>
+
+            <div className="space-y-2">
+              <Label>Llave Bre-B</Label>
+              <Input
+                placeholder="Celular, email, NIT, CC o alias custom"
+                value={brebKey}
+                onChange={(e) => setBrebKey(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Bre-B es el sistema de pagos inmediatos del Banco de la República. La llave puede ser tu celular, email, NIT, cédula o un alias.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Banco</Label>
+              <BankCombobox value={bankCode} onChange={setBankCode} />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Numero de cuenta *</Label>
+                <Label>Número de cuenta</Label>
                 <Input
-                  placeholder="1234567890"
+                  inputMode="numeric"
+                  placeholder="0000000000"
                   value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
+                  onChange={(e) => setAccountNumber(onlyDigits(e.target.value))}
                 />
+                <p className="text-[11px] text-muted-foreground">Solo números, sin guiones.</p>
               </div>
               <div className="space-y-2">
                 <Label>Tipo de cuenta</Label>
@@ -574,10 +888,17 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
                   <SelectContent>
                     <SelectItem value="ahorros">Ahorros</SelectItem>
                     <SelectItem value="corriente">Corriente</SelectItem>
+                    <SelectItem value="billetera_digital">Billetera digital</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label>WhatsApp de contacto</Label>
+              <PhoneInput value={whatsapp} onChange={setWhatsapp} placeholder="Número de celular" />
+            </div>
+
             <Button onClick={handleSavePayments} disabled={saving} className="w-full">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CreditCard className="h-4 w-4 mr-2" />}
               Guardar y Finalizar
@@ -590,119 +911,76 @@ export function SchoolOnboardingWizard({ status, onComplete, onRefresh }: School
     }
   };
 
-  return (
-    <Card className="border-primary/20 shadow-lg overflow-hidden">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-6 pb-4">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold">Configura tu academia</h2>
-              <p className="text-sm text-muted-foreground">{schoolName || 'Tu Escuela'}</p>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="text-2xl font-bold text-primary">{progress}%</span>
-            <div className="w-24 h-2 bg-muted rounded-full mt-1">
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        </div>
+  const shellSteps: ShellStep[] = STEPS.map(s => ({
+    id:          s.id,
+    title:       s.title,
+    description: s.subtitle,
+    icon:        s.icon,
+    done:        isStepDoneById(s.id),
+  }));
 
-        {/* Step indicators */}
-        <div className="flex items-center gap-1 mt-4">
-          {STEPS.map((step, index) => {
-            const done = isStepDone(index);
-            const active = index === currentStep;
-            return (
-              <button
-                key={step.id}
-                onClick={() => setCurrentStep(index)}
-                className={`
-                  flex-1 h-2 rounded-full transition-all duration-300
-                  ${done ? 'bg-primary' : active ? 'bg-primary/50' : 'bg-muted'}
-                `}
-                title={step.title}
-              />
-            );
-          })}
-        </div>
-      </div>
+  const currentStepDef = STEPS[currentStep];
+  const isCurrentDone  = currentStepDef ? isStepDoneById(currentStepDef.id) : false;
 
-      <CardContent className="p-6">
-        {/* Step header */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className={`p-2.5 rounded-xl ${isStepDone(currentStep) ? 'bg-primary/10' : 'bg-muted'}`}>
-            {(() => {
-              const Icon = STEPS[currentStep].icon;
-              return <Icon className={`h-5 w-5 ${isStepDone(currentStep) ? 'text-primary' : 'text-muted-foreground'}`} />;
-            })()}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold">
-                Paso {currentStep + 1}: {STEPS[currentStep].title}
-              </h3>
-              {isStepDone(currentStep) && (
-                <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 text-xs">
-                  Completado
-                </Badge>
-              )}
-              {!STEPS[currentStep].required && !isStepDone(currentStep) && (
-                <Badge variant="outline" className="text-muted-foreground text-xs">
-                  Opcional
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">{STEPS[currentStep].subtitle}</p>
-          </div>
-        </div>
+  const stepBody = isCurrentDone ? (
+    <div className="flex flex-col items-center gap-4 py-6 text-center">
+      <CheckCircle2 className="h-12 w-12 text-primary" />
+      <p className="text-muted-foreground">Este paso ya está completado. Puedes continuar al siguiente.</p>
+      <Button onClick={goNext} disabled={currentStep >= STEPS.length - 1}>
+        Siguiente <ChevronRight className="h-4 w-4 ml-1" />
+      </Button>
+    </div>
+  ) : (
+    renderStepContent()
+  );
 
-        {/* Step already completed message */}
-        {isStepDone(currentStep) ? (
-          <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <CheckCircle2 className="h-12 w-12 text-primary" />
-            <p className="text-muted-foreground">Este paso ya esta completado. Puedes continuar al siguiente.</p>
-            <Button onClick={goNext} disabled={currentStep >= STEPS.length - 1}>
-              Siguiente <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
-        ) : (
-          renderStepContent()
-        )}
+  const isLastStep = currentStep >= STEPS.length - 1;
+  // Siguiente queda habilitado solo si el paso actual esta completo. Asi
+  // el usuario no avanza dejando datos atras en pasos required, pero si
+  // puede avanzar en pasos opcionales una vez que los completo o saltó.
+  const canAdvance = isCurrentDone && !isLastStep;
 
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={goBack}
-            disabled={currentStep === 0}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+  const footer = (
+    <>
+      <Button variant="ghost" size="sm" onClick={goBack} disabled={currentStep === 0}>
+        <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+      </Button>
+      <div className="flex items-center gap-2">
+        {currentStepDef && !currentStepDef.required && !isCurrentDone && (
+          <Button variant="ghost" size="sm" onClick={handleSkip}>
+            <SkipForward className="h-4 w-4 mr-1" /> Saltar
           </Button>
+        )}
+        {allRequiredDone && (
+          <Button variant="outline" size="sm" onClick={handleFinish}>
+            Terminar después <ArrowRight className="h-4 w-4 ml-1" />
+          </Button>
+        )}
+        {!isLastStep && (
+          <Button
+            size="sm"
+            onClick={goNext}
+            disabled={!canAdvance}
+            title={canAdvance ? 'Continuar al siguiente paso' : 'Completa este paso para continuar'}
+          >
+            Siguiente <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+        )}
+      </div>
+    </>
+  );
 
-          <div className="flex items-center gap-2">
-            {!STEPS[currentStep].required && !isStepDone(currentStep) && (
-              <Button variant="ghost" size="sm" onClick={handleSkip}>
-                <SkipForward className="h-4 w-4 mr-1" /> Saltar
-              </Button>
-            )}
-
-            {allRequiredDone && (
-              <Button variant="outline" size="sm" onClick={handleFinish}>
-                Terminar despues <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+  return (
+    <OnboardingShell
+      title={schoolName ? `Configura ${schoolName}` : 'Configura tu academia'}
+      eyebrow="Configuración inicial"
+      steps={shellSteps}
+      currentStep={currentStep}
+      onStepChange={setCurrentStep}
+      footer={footer}
+      variant={variant}
+    >
+      {stepBody}
+    </OnboardingShell>
   );
 }

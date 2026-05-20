@@ -14,9 +14,12 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
+import { CITY_LABEL } from '@/lib/colombian-cities';
+import { BANK_LABEL } from '@/lib/colombian-banks';
+import { CityCombobox } from '@/components/common/CityCombobox';
+import { BankCombobox } from '@/components/common/BankCombobox';
 import { useStorage } from '@/hooks/useStorage';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { LocationAutocomplete } from '@/components/events/LocationAutocomplete';
 import { Minus, Plus, Dumbbell, MapPin, Clock, DollarSign, CreditCard, Camera, ChevronRight, ChevronLeft, Check, Search, ChevronsUpDown, Upload, Loader2, Video, Smartphone, Users } from 'lucide-react';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
@@ -62,7 +65,8 @@ export default function TrainerOnboarding() {
   const [rate, setRate] = useState('');
   const [rateNotes, setRateNotes] = useState('');
   const [nequi, setNequi] = useState('');
-  const [bank, setBank] = useState('');
+  const [bankCode, setBankCode] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [bio, setBio] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -103,15 +107,20 @@ export default function TrainerOnboarding() {
           experience_years: parseInt(expYears) || null,
         };
       case 2:
-        return { modality, city };
+        return { modality, city: CITY_LABEL[city] || city };
       case 3:
         return {}; // Disponibilidad: se configura por separado en /trainer/availability
       case 4:
         return { rate_per_session: parseFloat(parseNumber(rate)) || null, rate_currency: 'COP', rate_notes: rateNotes };
       case 5:
-        return { 
-          payment_settings: { nequi_number: nequi, bank_name: bank },
-          whatsapp_number: whatsapp
+        return {
+          payment_settings: {
+            nequi_number:        nequi,
+            bank_code:           bankCode,
+            bank_name:           BANK_LABEL[bankCode] || '',
+            bank_account_number: bankAccountNumber,
+          },
+          whatsapp_number: whatsapp,
         };
       case 6:
         return { 
@@ -164,6 +173,20 @@ export default function TrainerOnboarding() {
 
   const progress = ((currentStep - 1) / STEPS.length) * 100;
   const stepInfo = STEPS[currentStep - 1];
+
+  // Validacion por step. Step 3 (disponibilidad) y 6 (perfil) son
+  // opcionales — siempre permiten avanzar. Los demas exigen su data.
+  const stepValid = (() => {
+    switch (currentStep) {
+      case 1: return !!sport;                         // deporte principal obligatorio
+      case 2: return !!city;                          // ciudad obligatoria
+      case 3: return true;                            // disponibilidad se configura despues
+      case 4: return !!rate && Number(rate) > 0;      // tarifa requerida
+      case 5: return !!nequi || !!bankCode;           // al menos un metodo de cobro
+      case 6: return true;                            // perfil opcional, foto/bio recomendadas pero no bloquean
+      default: return true;
+    }
+  })();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center p-4">
@@ -267,7 +290,11 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Especialidades <span className="text-muted-foreground text-xs">(separadas por coma)</span></label>
-                  <Input value={specialties} onChange={e => setSpecialties(e.target.value)} placeholder="Ej: Porteros, Fuerza, Resistencia..." />
+                  <Input
+                    value={specialties}
+                    onChange={e => setSpecialties(e.target.value.replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñÜü\s,]/g, ''))}
+                    placeholder="Ej: Porteros, Fuerza, Resistencia..."
+                  />
                 </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Años de experiencia</label>
@@ -339,11 +366,7 @@ export default function TrainerOnboarding() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Ciudad</label>
-                  <LocationAutocomplete 
-                    value={city} 
-                    onChange={setCity} 
-                    placeholder="Ej: Bogotá" 
-                  />
+                  <CityCombobox value={city} onChange={setCity} />
                 </div>
               </>
             )}
@@ -441,12 +464,19 @@ export default function TrainerOnboarding() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Banco / cuenta</label>
-                  <Input 
+                  <label className="text-sm font-medium">Banco</label>
+                  <BankCombobox value={bankCode} onChange={setBankCode} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Número de cuenta</label>
+                  <Input
                     className="h-11 bg-background/50 border-border/40 rounded-xl"
-                    value={bank} 
-                    onChange={e => setBank(e.target.value)} 
-                    placeholder="Banco y número de cuenta..." 
+                    type="text"
+                    inputMode="numeric"
+                    value={bankAccountNumber}
+                    onChange={e => setBankAccountNumber(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123-456789-00"
+                    disabled={!bankCode}
                   />
                 </div>
                 <div className="space-y-2">
@@ -533,7 +563,8 @@ export default function TrainerOnboarding() {
             <ChevronLeft className="h-4 w-4" />
             Anterior
           </Button>
-          <Button onClick={handleNext} disabled={isLoading} className="gap-2">
+          <Button onClick={handleNext} disabled={isLoading || !stepValid} className="gap-2"
+                  title={stepValid ? 'Continuar' : 'Completa los campos requeridos para continuar'}>
             {currentStep === 6 ? 'Finalizar' : 'Siguiente'}
             <ChevronRight className="h-4 w-4" />
           </Button>

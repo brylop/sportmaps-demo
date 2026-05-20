@@ -770,6 +770,13 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
 
                           {/* Acciones */}
                           <div className="flex items-center gap-2 shrink-0">
+                            {/* Advertencia sin rutina */}
+                            {!isCompleted && sess.status !== 'no_show' && (!sess.blocks || sess.blocks?.length === 0) && (
+                              <div title="Sin rutina asignada" className="h-7 w-7 flex items-center justify-center rounded-full bg-amber-500/10 border border-amber-500/20">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                              </div>
+                            )}
+
                             {/* Botón Asistió */}
                             <Button
                               size="sm"
@@ -784,6 +791,12 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                               }`}
                               onClick={() => {
                                 if (isCompleted || sess.status === 'no_show') return;
+                                if (!sess.blocks || sess.blocks?.length === 0) {
+                                  toast({
+                                    title: '⚠️ Sin rutina asignada',
+                                    description: 'Esta sesión no tiene rutina. Puedes continuar o asignarla desde el perfil del cliente.',
+                                  });
+                                }
                                 updatePTAttendance(
                                   { sessionId: sess.id, status: 'completed' },
                                   { onSuccess: () => toast({ title: '✅ Marcado como Asistió' }) }
@@ -794,7 +807,7 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                               {isCompleted ? 'Asistió' : sess.status === 'no_show' ? 'No asistió' : 'Asistió'}
                             </Button>
 
-                            {/* Botón No asistió — solo si la sesión sigue pendiente */}
+                            {/* Botón No asistió */}
                             {!isCompleted && sess.status !== 'no_show' && (
                               <Button
                                 size="sm"
@@ -805,6 +818,33 @@ export default function CoachAttendancePage({ showPlanSessions = true }: { showP
                               >
                                 <XCircle className="w-3 h-3 mr-1" />
                                 No asistió
+                              </Button>
+                            )}
+
+                            {/* Botón cancelar sesión (PT cancela) */}
+                            {!isCompleted && sess.status !== 'no_show' && sess.status !== 'cancelled' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={updatingPT}
+                                className="h-8 w-8 p-0 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title="Cancelar sesión"
+                                onClick={async () => {
+                                  try {
+                                    const token = await getBearerToken();
+                                    const res = await fetch(`${BFF_URL}/api/v1/trainer/availability/session/${sess.id}`, {
+                                      method: 'DELETE',
+                                      headers: { Authorization: `Bearer ${token}` },
+                                    });
+                                    if (!res.ok) throw new Error((await res.json()).error);
+                                    toast({ title: '🚫 Sesión cancelada', description: 'El crédito fue devuelto al cliente.' });
+                                    queryClient.invalidateQueries({ queryKey: ['coach-pt-sessions'] });
+                                  } catch (err: any) {
+                                    toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                                  }
+                                }}
+                              >
+                                <XCircle className="w-4 h-4" />
                               </Button>
                             )}
                           </div>

@@ -32,6 +32,7 @@ import {
     Apple,
     Smartphone,
     KeyRound,
+    ShoppingBag,
 } from 'lucide-react';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import {
@@ -55,6 +56,7 @@ const ADDON_ICONS: Record<AddonKey, typeof Sparkles> = {
     whatsapp:       MessageSquare,
     wompi:          CreditCard,
     mp:             CreditCard,
+    store:          ShoppingBag,
 };
 
 // ============================================================

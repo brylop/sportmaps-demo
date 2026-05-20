@@ -543,7 +543,7 @@ export function EditChildDialog({ open, onOpenChange, onSuccess, child }: EditCh
                                 />
 
                                 {hasAllergies && (
-                                    <div className="space-y-4 p-4 bg-muted/30 rounded-lg animate-in fade-in zoom-in-95 duration-200">
+                                    <div className="space-y-4 p-4 bg-muted/50 border border-border rounded-lg animate-in fade-in zoom-in-95 duration-200">
                                         <FormField
                                             control={form.control}
                                             name="allergy_type"

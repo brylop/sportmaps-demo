@@ -54,6 +54,18 @@ export default function CheckoutPage() {
   const [shippingOption, setShippingOption] = useState<QuoteOption | null>(null);
   const [shippingQuoteId, setShippingQuoteId] = useState<string | null>(null);
 
+  const enrollments = items.filter((i) => i.type === 'enrollment');
+  const products = items.filter((i) => i.type === 'product');
+  const appointments = items.filter((i) => i.type === 'appointment');
+
+  const hasProducts = products.length > 0;
+
+  // Peso total estimado para la cotizacion (500 g por unidad por defecto)
+  const estimatedWeightGrams = useMemo(
+    () => Math.max(products.reduce((acc, p) => acc + 500 * p.quantity, 0), 100),
+    [products],
+  );
+
   // Guest flow: si no esta autenticado, redirigir a login con redirect de vuelta
   if (!user) {
     navigate('/login?redirect=/checkout', { replace: true });
@@ -67,18 +79,6 @@ export default function CheckoutPage() {
       minimumFractionDigits: 0,
     }).format(price);
   };
-
-  const enrollments = items.filter((i) => i.type === 'enrollment');
-  const products = items.filter((i) => i.type === 'product');
-  const appointments = items.filter((i) => i.type === 'appointment');
-
-  const hasProducts = products.length > 0;
-
-  // Peso total estimado para la cotizacion (500 g por unidad por defecto)
-  const estimatedWeightGrams = useMemo(
-    () => Math.max(products.reduce((acc, p) => acc + 500 * p.quantity, 0), 100),
-    [products],
-  );
 
   // Vendor primario (el primer producto define la zona de origen)
   const primaryVendorProfileId = products[0]?.metadata?.vendorProfileId;

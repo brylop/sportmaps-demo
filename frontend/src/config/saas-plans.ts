@@ -43,7 +43,8 @@ export type AddonKey =
   | 'whitelabel'
   | 'whatsapp'
   | 'wompi'
-  | 'mp';
+  | 'mp'
+  | 'store';
 
 export type FeatureKey =
   // Núcleo Academia
@@ -310,6 +311,16 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     priceCents: 9_000_000,
     setupCents: 0,
     includedIn: ['elite'],
+    salesLed: false,
+  },
+  store: {
+    key: 'store',
+    name: 'Tienda escolar',
+    description:
+      'Vende uniformes, kits, mercancía y servicios desde la escuela. Productos, variantes, envíos y cobros integrados.',
+    priceCents: 4_900_000,
+    setupCents: 0,
+    includedIn: [],
     salesLed: false,
   },
 };

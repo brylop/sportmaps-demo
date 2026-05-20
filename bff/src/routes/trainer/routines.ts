@@ -202,6 +202,14 @@ router.post('/routines/:routineId/use', async (req: Request, res: Response) => {
         });
 
         if (error) throw error;
+
+        if (data?.plan_id) {
+            await supabase
+                .from('trainer_session_plans')
+                .update({ visible_from: session_date })
+                .eq('id', data.plan_id);
+        }
+
         res.json(data);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error using routine to create session plan');
@@ -224,7 +232,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
 
         let query = supabase
             .from('trainer_session_plans')
-            .select('id, name, session_date, status, client_id, client_type, blocks, custom_notes, results, routine_id, created_at')
+            .select('id, name, session_date, visible_from, status, client_id, client_type, blocks, custom_notes, results, routine_id, created_at')
             .eq('school_id', schoolId)
             .eq('trainer_id', trainerId);
 
@@ -240,7 +248,8 @@ router.get('/session-plans', async (req: Request, res: Response) => {
         // Enriquecer con nombre del cliente
         if (!data || data.length === 0) return res.json([]);
 
-        const adultIds  = [...new Set(data.filter((p: any) => p.client_type === 'registered').map((p: any) => p.client_id))];
+        const ADULT_TYPES = ['registered', 'adult'];
+        const adultIds  = [...new Set(data.filter((p: any) => ADULT_TYPES.includes(p.client_type)).map((p: any) => p.client_id))];
         const childIds  = [...new Set(data.filter((p: any) => p.client_type === 'child').map((p: any) => p.client_id))];
 
         const [profilesRes, childrenRes] = await Promise.all([
@@ -256,7 +265,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
         const childMap   = new Map((childrenRes.data || []).map((c: any) => [c.id, { full_name: c.full_name, avatar_url: null }]));
 
         const enriched = data.map((plan: any) => {
-            const info = plan.client_type === 'registered'
+            const info = ADULT_TYPES.includes(plan.client_type)
                 ? profileMap.get(plan.client_id)
                 : childMap.get(plan.client_id);
             return {
@@ -311,14 +320,17 @@ router.post('/session-plans', async (req: Request, res: Response) => {
         const { id: trainerId } = req.user;
         const { schoolId } = req;
         const {
-            client_id, client_type, session_date, session_time,
+            client_id, client_type: rawClientType, session_date, session_time,
             name, blocks, custom_notes,
             enrollment_id: enrollmentIdFromBody,
         } = req.body;
 
-        if (!client_id || !client_type || !session_date) {
+        if (!client_id || !rawClientType || !session_date) {
             return res.status(400).json({ error: 'client_id, client_type y session_date son requeridos.' });
         }
+
+        // ✅ Normalizar 'adult' → 'registered' (valor legacy del frontend)
+        const client_type = rawClientType === 'adult' ? 'registered' : rawClientType;
 
         // Prevención de duplicados: mismo trainer + cliente + fecha (+ hora si aplica)
         let dupQuery = supabase
@@ -376,12 +388,31 @@ router.post('/session-plans', async (req: Request, res: Response) => {
                 name:          name                ?? 'Sesión sin nombre',
                 blocks:        blocks              ?? [],
                 custom_notes,
-                status: 'assigned',
+                status:        'assigned',
+                visible_from:  session_date,
             })
             .select()
             .single();
 
         if (error) throw error;
+
+        // ✅ Descontar crédito del enrollment si el plan tiene max_sessions
+        if (resolvedEnrollmentId && ['registered', 'child', 'unregistered'].includes(client_type)) {
+            const { data: enr } = await supabase
+                .from('enrollments')
+                .select('sessions_used, offering_plans(max_sessions)')
+                .eq('id', resolvedEnrollmentId)
+                .maybeSingle();
+
+            const maxSessions = (enr as any)?.offering_plans?.max_sessions;
+            if (enr && maxSessions !== null && maxSessions !== undefined) {
+                await supabase
+                    .from('enrollments')
+                    .update({ sessions_used: ((enr as any).sessions_used ?? 0) + 1 })
+                    .eq('id', resolvedEnrollmentId);
+            }
+        }
+
         res.status(201).json(data);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error creating trainer session plan');

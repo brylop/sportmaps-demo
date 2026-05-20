@@ -160,6 +160,12 @@ export default function AthletePaymentsPage() {
   const handleShowProof = async (receiptUrl: string, concept: string, amount: number) => {
     if (!receiptUrl) return;
 
+    // ✅ Short-circuit si ya es URL pública directa
+    if (receiptUrl.startsWith('http')) {
+      setViewingProof({ open: true, url: receiptUrl, concept, amount });
+      return;
+    }
+
     try {
       const cleanPath = normalizeReceiptUrl(receiptUrl);
       const { data, error } = await supabase.storage

@@ -168,14 +168,16 @@ router.put('/profile/verification', async (req: Request, res: Response) => {
                 .select('id')
                 .in('role', ['admin', 'owner', 'super_admin']);
 
-            for (const a of admins || []) {
-                await supabase.rpc('notify_user', {
-                    p_user_id: a.id,
-                    p_title: 'Nuevo vendor para verificar',
-                    p_message: `"${data.display_name || 'Vendor'}" subió su documento de verificación.`,
-                    p_type: 'vendor_verification_pending',
-                    p_link: '/admin/marketplace/moderation',
-                }).then(() => {}, () => {});
+            const notificationRows = (admins || []).map(a => ({
+                user_id: a.id,
+                title: 'Nuevo vendor para verificar',
+                message: `"${data.display_name || 'Vendor'}" subió su documento de verificación.`,
+                type: 'vendor_verification_pending',
+                link: '/admin/marketplace/moderation',
+            }));
+
+            if (notificationRows.length > 0) {
+                await supabase.from('notifications').insert(notificationRows);
             }
         } catch (notifErr) {
             req.log?.warn({ err: notifErr }, 'Admin notify failed (non-blocking)');

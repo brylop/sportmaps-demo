@@ -9,6 +9,9 @@ import { Store, Sparkles, ArrowRight } from 'lucide-react';
 // (external_vendor / wellness_professional / personal_trainer reciben
 //  vendor_profile automatico en signup — no necesitan CTA).
 //
+// Roles de escuela (school / school_admin / owner) necesitan PAGAR el
+// addon `store` desde /mi-plan — no abren tienda libre como coach.
+//
 // athlete/parent quedan FUERA: el flujo C2C (segunda mano deportiva)
 // esta diferido a un release posterior. Cuando se abra, agregarlos aqui.
 const ELIGIBLE_ROLES = new Set([
@@ -18,6 +21,10 @@ const ELIGIBLE_ROLES = new Set([
     'staff',
     'owner', // owner de escuela puede activar tienda
 ]);
+
+// Para estos roles el CTA lleva a /mi-plan (tienda es addon pago) en vez de
+// /vendor/onboarding (alta libre de tienda).
+const PAID_STORE_ROLES = new Set(['school', 'school_admin', 'owner']);
 
 interface Props {
     /** Si true, renderiza version compacta (banner horizontal) en lugar de card destacado. */
@@ -36,7 +43,10 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
     if (!ELIGIBLE_ROLES.has(profile.role as string)) return null;
     if (hasVendorProfile) return null; // ya activa, no mostrar CTA
 
-    const ctaLabel = isInactive ? 'Reactivar Mi Tienda' : label;
+    const isPaidStore = PAID_STORE_ROLES.has(profile.role as string);
+    const ctaLabel = isInactive
+        ? 'Reactivar Mi Tienda'
+        : (isPaidStore ? 'Activar tienda escolar' : label);
 
     if (compact) {
         return (
@@ -58,7 +68,7 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                     size="sm"
                     variant="default"
                     className="bg-purple-600 hover:bg-purple-700 text-white shrink-0"
-                    onClick={() => navigate('/vendor/onboarding')}
+                    onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
                 >
                     {ctaLabel}
                     <ArrowRight className="ml-1.5 h-4 w-4" />
@@ -88,7 +98,7 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                             {(profile.role === 'school' || profile.role === 'school_admin') && ' Vende uniformes, kits y mercancía de tu escuela.'}
                         </p>
                         <Button
-                            onClick={() => navigate('/vendor/onboarding')}
+                            onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
                             className="bg-purple-600 hover:bg-purple-700 text-white"
                         >
                             {ctaLabel}

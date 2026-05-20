@@ -1,63 +1,129 @@
 import React from 'react';
-import { CheckCircle2, Circle, ArrowRight } from 'lucide-react';
+import { CheckCircle2, Circle, ArrowRight, Sparkles } from 'lucide-react';
 import { OnboardingStep } from '../../types/dashboard';
+import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 
 interface Props {
     steps: OnboardingStep[];
     onStepClick: (step: OnboardingStep) => void;
+    /** Titulo grande. Default "Configura tu cuenta". */
+    title?: string;
+    /** Subtitulo de detalle. Default "Completa estos pasos para activar todas las funciones". */
+    subtitle?: string;
 }
 
-export const DashboardChecklist: React.FC<Props> = ({ steps, onStepClick }) => {
-    const completedCount = steps.filter(s => s.completed).length;
+/**
+ * Checklist visual unificado con el estilo del OnboardingShell (trainer,
+ * school, vendor, organizer). A diferencia de esos wizards, aqui los
+ * pasos NO son secuenciales: athletes/parents/coaches pueden completar
+ * en cualquier orden y cada step abre la pagina correspondiente.
+ *
+ * Mismo lenguaje visual: badge eyebrow "Configuracion inicial", h1
+ * grande, progress bar arriba, pills clickeables por step, card
+ * blanca con sombra. Asi todos los roles ven la misma estructura.
+ */
+export const DashboardChecklist: React.FC<Props> = ({
+    steps,
+    onStepClick,
+    title = 'Configura tu cuenta',
+    subtitle = 'Completa estos pasos para activar todas las funciones.',
+}) => {
+    const completedCount = steps.filter((s) => s.completed).length;
     const progress = Math.round((completedCount / steps.length) * 100);
+    const nextStep = steps.find((s) => !s.completed);
 
     if (steps.length === 0) return null;
 
     return (
-        <div className="bg-white dark:bg-[#0f1a14] rounded-xl shadow-sm dark:shadow-lg border border-slate-200 dark:border-emerald-800/50 p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Configuración de tu cuenta</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Completa estos pasos para activar todas las funciones.</p>
+        <div className="space-y-6">
+            {/* Header al estilo OnboardingShell */}
+            <div className="text-center">
+                <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-full px-4 py-1.5 mb-4">
+                    <Sparkles className="h-3 w-3 text-primary" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-primary">
+                        Configuración inicial
+                    </span>
                 </div>
-                <div className="text-right">
-                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{progress}%</span>
-                    <div className="w-32 h-2 bg-slate-100 dark:bg-slate-700 rounded-full mt-1">
-                        <div
-                            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                            style={{ width: `${progress}%` }}
-                        />
-                    </div>
-                </div>
+                <h2 className="text-2xl md:text-3xl font-bold tracking-tight mb-2">{title}</h2>
+                <p className="text-sm text-muted-foreground">
+                    {nextStep
+                        ? <>Siguiente paso: <span className="font-medium text-foreground">{nextStep.title}</span></>
+                        : subtitle}
+                </p>
             </div>
 
-            <div className="grid gap-3">
-                {steps.map((step) => (
-                    <button
-                        key={step.id}
-                        onClick={() => onStepClick(step)}
-                        className={`flex items-center justify-between p-4 rounded-lg border transition-all ${step.completed
-                            ? 'bg-slate-50 dark:bg-[#0a1f12] border-slate-200 dark:border-emerald-900/40 opacity-75'
-                            : 'bg-white dark:bg-[#0a1f12] border-emerald-200 dark:border-emerald-800/40 hover:border-emerald-400 dark:hover:border-emerald-600 shadow-sm'
-                            }`}
-                    >
-                        <div className="flex items-center gap-4">
-                            {step.completed ? (
-                                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                            ) : (
-                                <Circle className="w-6 h-6 text-emerald-400 dark:text-emerald-700" />
-                            )}
-                            <div className="text-left">
-                                <p className={`font-semibold ${step.completed ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-900 dark:text-white'}`}>
-                                    {step.title}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">{step.description}</p>
-                            </div>
-                        </div>
-                        {!step.completed && <ArrowRight className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />}
-                    </button>
-                ))}
+            {/* Progress bar */}
+            <div className="flex items-center gap-3 max-w-2xl mx-auto">
+                <Progress value={progress} className="h-1.5 flex-1" />
+                <span className="text-sm font-semibold text-primary tabular-nums">{progress}%</span>
             </div>
+
+            {/* Step pills clickeables */}
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+                {steps.map((step) => {
+                    const Icon = (step as any).icon;
+                    const isCurrent = step.id === nextStep?.id;
+                    return (
+                        <button
+                            key={step.id}
+                            type="button"
+                            onClick={() => onStepClick(step)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 cursor-pointer ${
+                                isCurrent
+                                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30'
+                                    : step.completed
+                                    ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                            }`}
+                        >
+                            {step.completed ? <CheckCircle2 className="h-3 w-3" /> : Icon ? <Icon className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                            <span className="hidden sm:inline">{step.title}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Lista detallada de pasos en card unificado */}
+            <Card className="shadow-xl border-border/50 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-400">
+                <CardContent className="p-4 md:p-6 space-y-3">
+                    {steps.map((step) => {
+                        const Icon = (step as any).icon;
+                        return (
+                            <button
+                                key={step.id}
+                                onClick={() => onStepClick(step)}
+                                className={`w-full flex items-center justify-between gap-4 p-4 rounded-lg border transition-all text-left ${
+                                    step.completed
+                                        ? 'bg-muted/30 border-border opacity-70'
+                                        : 'bg-background border-primary/20 hover:border-primary/50 hover:bg-primary/5 shadow-sm'
+                                }`}
+                            >
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                        step.completed ? 'bg-primary/10' : 'bg-primary/10'
+                                    }`}>
+                                        {step.completed ? (
+                                            <CheckCircle2 className="h-5 w-5 text-primary" />
+                                        ) : Icon ? (
+                                            <Icon className="h-5 w-5 text-primary" />
+                                        ) : (
+                                            <Circle className="h-5 w-5 text-primary" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className={`font-semibold ${step.completed ? 'line-through text-muted-foreground' : ''}`}>
+                                            {step.title}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">{step.description}</p>
+                                    </div>
+                                </div>
+                                {!step.completed && <ArrowRight className="h-5 w-5 text-primary shrink-0" />}
+                            </button>
+                        );
+                    })}
+                </CardContent>
+            </Card>
         </div>
     );
 };

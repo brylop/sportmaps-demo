@@ -82,7 +82,6 @@ router.get('/biomech/captures', async (req: Request, res: Response) => {
             .eq('school_id', schoolId);
 
         const planIds = (plans ?? []).map((p: any) => p.id);
-        if (planIds.length === 0) return res.json([]);
 
         let query = supabase
             .from('biomech_captures')
@@ -92,10 +91,15 @@ router.get('/biomech/captures', async (req: Request, res: Response) => {
                 duration_seconds, source, created_at, updated_at,
                 biomech_analyses ( id, rep_count, metrics, flags, summary, quality_rating, processed_at )
             `)
-            .eq('school_id', schoolId)
-            .in('session_plan_id', planIds);
+            .eq('school_id', schoolId);
 
-        if (client_id)       query = query.eq('athlete_id', client_id as string);
+        if (client_id) {
+            query = query.eq('athlete_id', client_id as string);
+        } else {
+            if (planIds.length === 0) return res.json([]);
+            query = query.in('session_plan_id', planIds);
+        }
+
         if (session_plan_id) query = query.eq('session_plan_id', session_plan_id as string);
         if (analyzer_code)   query = query.eq('analyzer_code', analyzer_code as string);
         if (status)          query = query.eq('status', status as string);

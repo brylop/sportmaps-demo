@@ -130,6 +130,7 @@ const WellnessPatientsPage = lazy(() => import("./pages/WellnessPatientsPage"));
 const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
+const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
@@ -273,6 +274,9 @@ const App = () => (
                     <Route path="/privacy" element={<Navigate to="/politica-de-privacidad" replace />} />
                     <Route path="/checkout" element={
                       <ProtectedRoute><CheckoutPage /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/school" element={
+                      <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
                       <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>

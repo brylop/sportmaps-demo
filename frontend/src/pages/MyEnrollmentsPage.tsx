@@ -1276,7 +1276,7 @@ function PTPrimarySessionsTab({ enrollment, creditsLeft, isUnlimited, planName, 
               <p className="text-xs font-medium">Selecciona una fecha para ver disponibilidad</p>
             </div>
           ) : availability.length === 0 ? (
-            <EmptyCenter icon={Calendar} title="Sin disponibilidad" desc="No hay horarios que coincidan con tu filtro para este día." color="amber" />
+            <EmptyCenter icon={Calendar} title="Sin disponibilidad" desc="No hay horarios disponibles para este día. Recuerda que las sesiones deben agendarse con al menos 6 horas de anticipación." color="amber" />
           ) : (
             <div className="space-y-6">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground capitalize px-1">
@@ -1679,8 +1679,17 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
   const { data: secondary, isLoading: l2 } = useMySecondaryBookings(childId);
   const { mutate: cancelP, isPending: cp } = useCancelBooking(childId);
   const { mutate: cancelS, isPending: cs } = useCancelSecondaryBooking(childId);
+  const { mutate: cancelPT, isPending: cpt } = useCancelPTSession(childId);
   const { toast } = useToast();
-  const [cancelling, setCancelling] = useState<{ id: string; type: 'p' | 's'; label: string } | null>(null);
+
+  // ✅ Distinguir cancelación normal vs PT
+  const [cancelling, setCancelling] = useState<{
+    id: string;
+    type: 'p' | 's' | 'pt';
+    label: string;
+    sessionDate?: string;
+    sessionTime?: string;
+  } | null>(null);
 
   if (l1 || l2) return <SkeletonList />;
 
@@ -1777,7 +1786,13 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
 
                           {!isPast && !s.finalized && b.status === 'confirmed' && (
                             <Button variant="ghost" size="sm"
-                              onClick={() => setCancelling({ id: b.id, type: isPrimary ? 'p' : 's', label: fmtDateShort(dateStr) })}
+                              onClick={() => setCancelling({
+                                id: b.id,
+                                type: isPrimary ? (isPT ? 'pt' : 'p') : 's',
+                                label: fmtDateShort(dateStr),
+                                sessionDate: dateStr,
+                                sessionTime: s.start_time,
+                              })}
                               className="shrink-0 h-9 w-9 p-0 rounded-full hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
                               <XCircle className="h-4 w-4" />
                             </Button>
@@ -1798,31 +1813,57 @@ function MyBookingsTab({ hasSecondary, secLabel, filter = 'all', childId, allBoo
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <XCircle className="h-5 w-5" />
-              Cancelar reserva
+              Cancelar {cancelling?.type === 'pt' ? 'sesión PT' : 'reserva'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Estás seguro de cancelar tu reserva del <span className="font-bold text-foreground">{cancelling?.label}</span>? 
-              El cupo se liberará y el crédito será devuelto a tu plan automáticamente.
+              {cancelling?.type === 'pt'
+                ? <>¿Cancelar tu sesión del <span className="font-bold text-foreground">{cancelling.label}</span>? Si faltan menos de 4 horas, tu entrenador decidirá si devuelve el crédito.</>
+                : <>¿Estás seguro de cancelar tu reserva del <span className="font-bold text-foreground">{cancelling?.label}</span>? El cupo se liberará y el crédito será devuelto a tu plan automáticamente.</>
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="rounded-xl border-border/50">Cerrar</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl font-bold" disabled={cp || cs}
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl font-bold"
+              disabled={cp || cs || cpt}
               onClick={() => {
                 if (!cancelling) return;
-                const fn = cancelling.type === 'p' ? cancelP : cancelS;
-                (fn as any)(cancelling.id, {
-                  onSuccess: () => { 
-                    toast({ title: '✅ Reserva cancelada', description: 'El cupo ha sido liberado.' }); 
-                    setCancelling(null); 
-                  },
-                  onError: (err: any) => { 
-                    toast({ title: 'Error', description: err.message, variant: 'destructive' }); 
-                    setCancelling(null); 
-                  },
-                });
+
+                if (cancelling.type === 'pt') {
+                  cancelPT(cancelling.id, {
+                    onSuccess: () => {
+                      toast({ title: '✅ Sesión cancelada', description: 'El crédito fue devuelto a tu plan.' });
+                      setCancelling(null);
+                    },
+                    onError: (err: any) => {
+                      // Fuera de ventana — mostrar mensaje especial
+                      if (err?.message?.includes('outside_cancel_window') || err?.status === 400) {
+                        toast({
+                          title: '⏰ Cancelación solicitada',
+                          description: 'Tu solicitud fue enviada al entrenador. Él decidirá si devuelve el crédito.',
+                        });
+                      } else {
+                        toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                      }
+                      setCancelling(null);
+                    },
+                  });
+                } else {
+                  const fn = cancelling.type === 'p' ? cancelP : cancelS;
+                  (fn as any)(cancelling.id, {
+                    onSuccess: () => {
+                      toast({ title: '✅ Reserva cancelada', description: 'El cupo ha sido liberado.' });
+                      setCancelling(null);
+                    },
+                    onError: (err: any) => {
+                      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+                      setCancelling(null);
+                    },
+                  });
+                }
               }}>
-              {(cp || cs) ? 'Cancelando...' : 'Sí, cancelar reserva'}
+              {(cp || cs || cpt) ? 'Cancelando...' : 'Sí, cancelar'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

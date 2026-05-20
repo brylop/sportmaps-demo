@@ -237,7 +237,7 @@ export function BiomechCaptureModal({
       recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = false;
 
       try {
-        // @ts-ignore
+        // @ts-expect-error — mediapipe types not bundled
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
