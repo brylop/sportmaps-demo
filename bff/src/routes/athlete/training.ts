@@ -8,7 +8,7 @@ const router = Router();
 router.get('/training/today', async (req: Request, res: Response) => {
   try {
     const athleteId = req.user.id;
-    const today     = new Date().toISOString().split('T')[0];
+    const today     = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
     const [sessionsRes, logsRes] = await Promise.all([
       supabase
