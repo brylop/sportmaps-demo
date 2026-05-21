@@ -10,6 +10,7 @@ export interface MarketplaceFilters {
   city?: string;
   price_max?: number;
   service_type?: string;
+  modality?: string;
   order_by?: 'newest' | 'price_asc' | 'price_desc' | 'name';
   page?: number;
   limit?: number;
@@ -23,11 +24,16 @@ export interface MarketplaceItem {
   price: number;
   image_url: string | null;
   category: string;
+  subcategory?: string | null;
   stock?: number;
   duration_minutes?: number;
   tax_rate: number;
   has_variants?: boolean;
   has_variations?: boolean;
+  modality?: string[];
+  target_audience?: string[];
+  includes?: string[];
+  cancellation_policy_hours?: number;
   vendor_name: string;
   vendor_slug: string;
   vendor_city: string;
@@ -51,6 +57,7 @@ async function fetchMarketplace(filters: MarketplaceFilters, token?: string): Pr
   if (filters.city) params.set('city', filters.city);
   if (filters.price_max) params.set('price_max', String(filters.price_max));
   if (filters.service_type) params.set('service_type', filters.service_type);
+  if (filters.modality) params.set('modality', filters.modality);
   if (filters.order_by) params.set('order_by', filters.order_by);
   if (filters.page) params.set('page', String(filters.page));
   if (filters.limit) params.set('limit', String(filters.limit));

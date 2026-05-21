@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
 
@@ -38,6 +39,8 @@ const STATUS_BADGE: Record<string, { label: string; cls: string; icon: typeof Sh
 
 export default function MyAthleteCardsPage() {
   const { toast } = useToast();
+  const { profile } = useAuth();
+  const isAthlete = profile?.role === 'athlete';
   const [rows, setRows] = useState<MyCardRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [previewToken, setPreviewToken] = useState<string | null>(null);
@@ -125,7 +128,9 @@ export default function MyAthleteCardsPage() {
           Mis carnets
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Carnets digitales de los atletas a tu cargo. Cada uno con el branding de su escuela.
+          {isAthlete
+            ? 'Tus carnets digitales deportivos, con el branding de cada escuela donde entrenas.'
+            : 'Carnets digitales de los atletas a tu cargo. Cada uno con el branding de su escuela.'}
         </p>
       </header>
 
@@ -137,7 +142,9 @@ export default function MyAthleteCardsPage() {
             <AlertCircle className="h-10 w-10" />
             <p className="font-medium">Aún no tienes carnets emitidos</p>
             <p className="text-sm max-w-md">
-              La escuela debe emitir el carnet de tu hijo/a. Contáctala si necesitas uno.
+              {isAthlete
+                ? 'Tu escuela aún no te emite el carnet. Contáctala si necesitas uno.'
+                : 'La escuela debe emitir el carnet de tu hijo/a. Contáctala si necesitas uno.'}
             </p>
           </CardContent>
         </Card>

@@ -106,34 +106,48 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Mi Calendario', href: '/calendar', icon: Calendar }
+          { title: 'Mi Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
+          ...(SHOW_EXPLORE ? [{ title: 'Explorar', href: '/explorar', icon: MapPin }] : []),
         ]
       },
       {
-        title: 'Rendimiento',
+        title: 'Mi Rendimiento',
         items: [
           { title: 'Estadísticas', href: '/stats', icon: BarChart3 },
           { title: 'Objetivos', href: '/goals', icon: Target },
           { title: 'Entrenamientos', href: '/training', icon: Activity }
         ]
       },
-      ...(SHOW_EXPLORE ? [{
-        title: 'Explorar',
-        items: [
-          { title: 'Explorar', href: '/explorar', icon: MapPin },
-        ]
-      }] : []),
       {
-        title: 'Mi Actividad',
+        title: 'Actividad Deportiva',
         items: [
           { title: 'Mis Inscripciones', href: '/enrollments', icon: Trophy },
           { title: 'Mis Eventos', href: '/my-event-registrations', icon: Calendar },
-          { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
-          { title: 'Mis Pagos', href: '/athlete-payments', icon: DollarSign },
+        ]
+      },
+      {
+        title: 'Bienestar',
+        items: [
+          { title: 'Explorar Bienestar', href: '/wellness', icon: Heart },
+          { title: 'Mis Citas', href: '/wellness/appointments', icon: Calendar },
+        ]
+      },
+      {
+        title: 'Tienda',
+        items: [
+          { title: 'Catálogo', href: '/shop', icon: ShoppingBag },
+        ]
+      },
+      {
+        title: 'Documentos',
+        items: [
           { title: 'Mis Carnets', href: '/my-cards', icon: IdCard },
-          { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
-          { title: 'Tienda Deportiva', href: '/shop', icon: ShoppingBag },
-          { title: 'Bienestar', href: '/wellness', icon: Heart },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },

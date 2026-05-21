@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, ShoppingCart, Clock, MapPin, ChevronLeft, ChevronRight, Store, Heart, Filter, Star } from 'lucide-react';
+import { Search, ShoppingCart, Clock, MapPin, ChevronLeft, ChevronRight, Store, Heart, Filter, Star, Video, Home, Layers, CheckCircle2 } from 'lucide-react';
 
 const SERVICE_TYPES = [
   { value: 'Fisioterapia', label: 'Fisioterapia' },
@@ -18,6 +18,20 @@ const SERVICE_TYPES = [
   { value: 'Medicina_Deportiva', label: 'Medicina Deportiva' },
   { value: 'Entrenamiento', label: 'Entrenamiento' },
 ];
+
+const MODALITIES = [
+  { value: 'presencial', label: 'Presencial', icon: MapPin },
+  { value: 'virtual',    label: 'Virtual',    icon: Video },
+  { value: 'domicilio',  label: 'A domicilio', icon: Home },
+  { value: 'hibrido',    label: 'Hibrido',    icon: Layers },
+];
+
+const MODALITY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  presencial: MapPin,
+  virtual:    Video,
+  domicilio:  Home,
+  hibrido:    Layers,
+};
 
 function MarketplaceItemCard({ item, onAddToCart }: { item: MarketplaceItem; onAddToCart: (item: MarketplaceItem) => void }) {
   const navigate = useNavigate();
@@ -43,9 +57,25 @@ function MarketplaceItemCard({ item, onAddToCart }: { item: MarketplaceItem; onA
             Verificado
           </Badge>
         )}
+        {item.type === 'service' && (item.modality?.length ?? 0) > 0 && (
+          <div className="absolute bottom-2 left-2 flex gap-1 flex-wrap max-w-[calc(100%-1rem)]">
+            {item.modality!.slice(0, 2).map(m => {
+              const Icon = MODALITY_ICONS[m];
+              return (
+                <Badge key={m} className="bg-background/90 text-foreground gap-1 text-[10px] px-1.5 py-0.5">
+                  {Icon && <Icon className="h-2.5 w-2.5" />} {m}
+                </Badge>
+              );
+            })}
+          </div>
+        )}
       </div>
       <CardContent className="p-4 space-y-2">
         <h3 className="font-semibold text-sm line-clamp-2 group-hover:text-primary transition-colors">{item.name}</h3>
+
+        {item.subcategory && (
+          <p className="text-xs text-muted-foreground italic">{item.subcategory}</p>
+        )}
 
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Store className="h-3 w-3" />
@@ -62,6 +92,11 @@ function MarketplaceItemCard({ item, onAddToCart }: { item: MarketplaceItem; onA
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
             <span>{item.duration_minutes} min</span>
+            {(item.includes?.length ?? 0) > 0 && (
+              <span className="ml-2 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Incluye {item.includes!.length}
+              </span>
+            )}
           </div>
         )}
 
@@ -173,24 +208,41 @@ export default function MarketplacePage() {
             </Select>
 
             {(filters.type === 'services' || filters.type === 'all') && (
-              <Select
-                value={filters.service_type || '__all__'}
-                onValueChange={(v) => updateFilters({ service_type: v === '__all__' ? undefined : v })}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Tipo de servicio" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos los tipos</SelectItem>
-                  {SERVICE_TYPES.map(st => (
-                    <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                <Select
+                  value={filters.service_type || '__all__'}
+                  onValueChange={(v) => updateFilters({ service_type: v === '__all__' ? undefined : v })}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Tipo de servicio" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Todos los tipos</SelectItem>
+                    {SERVICE_TYPES.map(st => (
+                      <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={filters.modality || '__all__'}
+                  onValueChange={(v) => updateFilters({ modality: v === '__all__' ? undefined : v })}
+                >
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="Modalidad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Cualquier modalidad</SelectItem>
+                    {MODALITIES.map(m => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
             )}
 
-            {filters.q && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearchInput(''); updateFilters({ q: undefined }); }}>
+            {(filters.q || filters.modality || filters.service_type) && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearchInput(''); updateFilters({ q: undefined, modality: undefined, service_type: undefined }); }}>
                 Limpiar filtros
               </Button>
             )}
