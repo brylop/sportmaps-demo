@@ -38,6 +38,7 @@ interface EntitlementsResponse {
     has_whatsapp: boolean;
     has_wompi: boolean;
     has_mp: boolean;
+    has_store?: boolean;
 }
 
 // ============================================================
@@ -103,6 +104,7 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
         whatsapp: false,
         wompi: false,
         mp: false,
+        store: false,
     },
     daysLeftInTrial: null,
     isTrialActive: false,
@@ -182,6 +184,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
                 whatsapp: data.has_whatsapp,
                 wompi: data.has_wompi,
                 mp: data.has_mp,
+                store: data.has_store ?? false,
             },
             daysLeftInTrial,
             isTrialActive,

@@ -61,6 +61,7 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 has_whatsapp:         false,
                 has_wompi:            false,
                 has_mp:               false,
+                has_store:            false,
             });
         }
 

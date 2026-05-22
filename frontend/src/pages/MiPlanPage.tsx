@@ -93,9 +93,11 @@ export default function MiPlanPage() {
         );
     }
 
+    const currentTier = ACADEMY_TIERS[ent.plan.code];
     const isStaging = import.meta.env.VITE_APP_ENV === 'staging';
     const activeAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => ent.addons[k] && (!isStaging || k !== 'biomech'));
     const inactiveAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => !ent.addons[k] && (!isStaging || k !== 'biomech'));
+
 
     /**
      * Construye el URL de la landing y le agrega el access_token de
