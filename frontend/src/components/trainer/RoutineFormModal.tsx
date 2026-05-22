@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { BlockBuilder, ExerciseBlock } from './BlockBuilder';
 import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import {
@@ -80,6 +81,7 @@ function detectAnalyzerCode(block: any): string | null {
 }
 
 export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: RoutineFormModalProps) {
+  const ent = useEntitlements();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<any>({
     name: '',
@@ -343,6 +345,14 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                         // Si ya tiene configuración biomecánica, no sobreescribir
                         if (b.analyzer_required !== undefined) return b;
 
+                        // Si no tiene el addon habilitado, no auto-detectar
+                        if (!ent.addons?.biomech) {
+                          return {
+                            ...b,
+                            analyzer_required: false,
+                          };
+                        }
+
                         const detected = detectAnalyzerCode(b);
                         if (!detected) return b;
 
@@ -364,7 +374,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                 </div>
 
                 {/* ── Configuración Biomecánica por Bloque ──────────────────────── */}
-                {formData.blocks.length > 0 && (
+                {ent.addons?.biomech && formData.blocks.length > 0 && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                       <Badge

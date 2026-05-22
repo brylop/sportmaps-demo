@@ -64,6 +64,10 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
             });
         }
 
+        if (process.env.NODE_ENV === 'staging') {
+            data.has_biomech = false;
+        }
+
         return res.json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error en GET /me/entitlements');

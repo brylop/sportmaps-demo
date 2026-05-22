@@ -17,6 +17,7 @@ import {
 import { BiomechCaptureModal } from '@/components/biomech/BiomechCaptureModal';
 import { useBodyMetrics } from '@/hooks/useAthleteData';
 import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 interface Block {
@@ -108,6 +109,7 @@ function weightDisplay(block: Block): string {
 
 // ── Componente ───────────────────────────────────────────────────────────────
 export function SessionExecution({ session, onClose, onCompleted }: SessionExecutionProps) {
+  const ent = useEntitlements();
   const { toast } = useToast();
   const blocks = normalizeBlocks(session.blocks);
 
@@ -490,7 +492,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                         )}
 
                         {/* ✅ Captura biomecánica */}
-                        {block.analyzer_required && block.analyzer_code && (
+                        {ent.addons?.biomech && block.analyzer_required && block.analyzer_code && (
                           <div className="pt-3 p-4 bg-primary/5 rounded-xl border border-primary/20 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -605,7 +607,7 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
     </Dialog>
 
     {/* ✅ Modal de captura biomecánica */}
-    {biomechBlock && (
+    {ent.addons?.biomech && biomechBlock && (
       <BiomechCaptureModal
         open={!!biomechBlock}
         onClose={() => setBiomechBlock(null)}
