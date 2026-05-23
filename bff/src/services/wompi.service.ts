@@ -258,9 +258,261 @@ export async function assertUserNotBlocked(userId: string): Promise<void> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Wompi recurrente con payment_source — flujo MIT (Merchant Initiated Tx)
+//
+// Docs: https://docs.wompi.co/docs/colombia/fuentes-de-pago/
+//
+// 3 pasos:
+//   A. fetchAcceptanceTokens()           — GET /merchants/:pub (JWT Habeas Data)
+//   B. createPaymentSource(...)          — POST /v1/payment_sources (ID permanente)
+//   C. createTransactionWithPaymentSource — POST /v1/transactions con recurrent:true
+//
+// Importante:
+//   - Acceptance tokens son JWT con TTL. Cacheamos en memoria con TTL conservador
+//     (5 min) y refrescamos en error de aceptacion.
+//   - payment_source_id es entero permanente; se guarda en
+//     payment_tokens.provider_payment_source_id.
+//   - recurrent:true (COF / Credential On File) solo aplica a VISA/MC con RBM.
+//     Sin este flag, el banco emisor puede declinar el cobro MIT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AcceptanceTokens {
+    acceptanceToken: string;
+    personalDataAuthToken: string;
+    acceptancePermalink: string;
+    personalDataPermalink: string;
+    fetchedAt: number;
+}
+
+let _acceptanceCache: AcceptanceTokens | null = null;
+const ACCEPTANCE_TTL_MS = 5 * 60 * 1000;
+
+function getWompiBaseUrl(): string {
+    const env = (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase();
+    return env === 'production' ? WOMPI_BASE_URL_PROD : WOMPI_BASE_URL_SANDBOX;
+}
+
+/**
+ * Obtiene los dos JWT de aceptacion (Habeas Data + politica) desde Wompi.
+ * Los dos son requeridos al crear payment_source y transactions con datos
+ * personales del usuario.
+ *
+ * Cachea por 5 min. Pasar `force=true` para refrescar tras un error de
+ * aceptacion (el JWT pudo haber expirado).
+ */
+export async function fetchAcceptanceTokens(force = false): Promise<{ ok: true; tokens: AcceptanceTokens } | { ok: false; error: string }> {
+    if (!force && _acceptanceCache && Date.now() - _acceptanceCache.fetchedAt < ACCEPTANCE_TTL_MS) {
+        return { ok: true, tokens: _acceptanceCache };
+    }
+
+    const publicKey = process.env.WOMPI_PUBLIC_KEY;
+    if (!publicKey) return { ok: false, error: 'WOMPI_PUBLIC_KEY no configurado' };
+
+    try {
+        const res = await fetch(`${getWompiBaseUrl()}/merchants/${publicKey}`);
+        if (!res.ok) return { ok: false, error: `merchants endpoint ${res.status}` };
+        const json = await res.json();
+        const presigned = json?.data?.presigned_acceptance;
+        const personal = json?.data?.presigned_personal_data_auth;
+        if (!presigned?.acceptance_token || !personal?.acceptance_token) {
+            return { ok: false, error: 'missing_acceptance_tokens_in_merchant_response' };
+        }
+        _acceptanceCache = {
+            acceptanceToken: presigned.acceptance_token,
+            personalDataAuthToken: personal.acceptance_token,
+            acceptancePermalink: presigned.permalink ?? '',
+            personalDataPermalink: personal.permalink ?? '',
+            fetchedAt: Date.now(),
+        };
+        return { ok: true, tokens: _acceptanceCache };
+    } catch (err: any) {
+        return { ok: false, error: err.message || 'fetchAcceptanceTokens error' };
+    }
+}
+
+/**
+ * Crea un payment_source permanente a partir de un token efimero de tarjeta.
+ * El token efimero (`tok_prod_...`) viene del Widget tras un cobro exitoso
+ * o de POST /v1/tokens/cards. El payment_source_id (entero) que devolvemos
+ * se guarda en payment_tokens.provider_payment_source_id y sirve para
+ * cobros MIT indefinidamente (hasta que la tarjeta expire o sea void).
+ *
+ * Requiere los DOS acceptance_tokens — pasarselos desde pending_card_saves
+ * (los que el usuario vio y acepto en el modal).
+ */
+export async function createPaymentSource(params: {
+    cardToken: string;                  // tok_prod_... efimero
+    customerEmail: string;
+    acceptanceToken: string;
+    personalDataAuthToken: string;
+    type?: 'CARD' | 'NEQUI' | 'DAVIPLATA' | 'BANCOLOMBIA_TRANSFER';
+}): Promise<{ ok: true; paymentSourceId: number; status: string } | { ok: false; error: string; statusCode?: number }> {
+    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+
+    try {
+        const res = await fetch(`${getWompiBaseUrl()}/payment_sources`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${privateKey}`,
+            },
+            body: JSON.stringify({
+                type: params.type ?? 'CARD',
+                token: params.cardToken,
+                customer_email: params.customerEmail,
+                acceptance_token: params.acceptanceToken,
+                accept_personal_auth: params.personalDataAuthToken,
+            }),
+        });
+
+        if (!res.ok) {
+            const errBody = await res.text();
+            return { ok: false, statusCode: res.status, error: `payment_source_failed: ${errBody.slice(0, 300)}` };
+        }
+
+        const json = await res.json();
+        const data = json?.data;
+        if (!data?.id || typeof data.id !== 'number') {
+            return { ok: false, error: 'no_payment_source_id_in_response' };
+        }
+
+        return { ok: true, paymentSourceId: data.id, status: data.status ?? 'AVAILABLE' };
+    } catch (err: any) {
+        return { ok: false, error: err.message || 'createPaymentSource error' };
+    }
+}
+
+/**
+ * Cobra usando un payment_source_id permanente (MIT / cobro recurrente).
+ *
+ * Diferencia clave vs createTransactionWithToken:
+ *   - Manda `payment_source_id` (entero) en lugar de `payment_method.token`.
+ *   - Manda `recurrent: true` — flag COF (Credential On File). Sin esto, el
+ *     banco emisor puede declinar como "transaccion no autorizada".
+ *
+ * Maneja el caso 422 "reference already exists" (idempotencia anti
+ * doble-click / re-fire del cron): busca la tx original y devuelve SU estado.
+ */
+export async function createTransactionWithPaymentSource(params: {
+    paymentSourceId: number;
+    amountInCents: number;
+    reference: string;
+    customerEmail: string;
+    installments?: number;
+}): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string; statusCode?: number }> {
+    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+
+    try {
+        const signature = signIntegrity({
+            reference: params.reference,
+            amountInCents: params.amountInCents,
+        });
+
+        const res = await fetch(`${getWompiBaseUrl()}/transactions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${privateKey}`,
+            },
+            body: JSON.stringify({
+                amount_in_cents: params.amountInCents,
+                currency: 'COP',
+                signature,
+                customer_email: params.customerEmail,
+                reference: params.reference,
+                payment_source_id: params.paymentSourceId,
+                payment_method: { installments: params.installments ?? 1 },
+                recurrent: true,
+            }),
+        });
+
+        // Idempotencia: si reference ya existe (422), buscar tx original.
+        if (res.status === 422) {
+            const errBody = await res.text();
+            const isDupRef = errBody.includes('reference') && /already|duplicat|exists/i.test(errBody);
+            if (isDupRef) {
+                const existing = await fetchTransactionByReference(params.reference);
+                if (existing) {
+                    return { ok: true, transactionId: existing.id, status: existing.status };
+                }
+            }
+            return { ok: false, statusCode: 422, error: `validation: ${errBody.slice(0, 300)}` };
+        }
+
+        if (!res.ok) {
+            const errBody = await res.text();
+            return { ok: false, statusCode: res.status, error: `tx_failed: ${errBody.slice(0, 300)}` };
+        }
+
+        const json = await res.json();
+        const tx = json?.data;
+        if (!tx?.id) return { ok: false, error: 'no_tx_id_in_response' };
+
+        return { ok: true, transactionId: tx.id, status: tx.status };
+    } catch (err: any) {
+        return { ok: false, error: err.message || 'createTransactionWithPaymentSource error' };
+    }
+}
+
+/**
+ * Busca una transaccion por reference (no por id). Wompi expone esto en
+ * GET /v1/transactions?reference=... — usado para reconciliar cuando un
+ * 422 "duplicate reference" nos hace pensar que ya cobramos.
+ */
+async function fetchTransactionByReference(reference: string): Promise<{ id: string; status: string } | null> {
+    try {
+        const res = await fetch(`${getWompiBaseUrl()}/transactions?reference=${encodeURIComponent(reference)}`);
+        if (!res.ok) return null;
+        const json = await res.json();
+        const arr = Array.isArray(json?.data) ? json.data : [];
+        if (arr.length === 0) return null;
+        // Si hay varias (raro), preferir APPROVED, luego PENDING
+        const approved = arr.find((t: any) => t.status === 'APPROVED');
+        const pending = arr.find((t: any) => t.status === 'PENDING');
+        const pick = approved ?? pending ?? arr[0];
+        return { id: pick.id, status: pick.status };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Desactiva un payment_source en Wompi (PUT /v1/payment_sources/:id/void).
+ * Lo llamamos al borrar la tarjeta para que el provider tampoco la pueda
+ * usar — defense-in-depth si nuestro RLS o backend fallaran.
+ */
+export async function voidPaymentSource(paymentSourceId: number): Promise<{ ok: true } | { ok: false; error: string }> {
+    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+
+    try {
+        const res = await fetch(`${getWompiBaseUrl()}/payment_sources/${paymentSourceId}/void`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${privateKey}`,
+            },
+            body: JSON.stringify({ status: 'VOIDED' }),
+        });
+        if (!res.ok) {
+            const errBody = await res.text();
+            return { ok: false, error: `void_failed: ${errBody.slice(0, 200)}` };
+        }
+        return { ok: true };
+    } catch (err: any) {
+        return { ok: false, error: err.message || 'voidPaymentSource error' };
+    }
+}
+
 /**
  * Crea una transaccion en Wompi usando un token previamente capturado.
  * Usado por el cron de auto-cobro para suscripciones con autopay.
+ *
+ * @deprecated para autopay — usar createTransactionWithPaymentSource. Esta
+ * funcion sigue para flujos one-shot legacy / fallback.
  *
  * Wompi flow para "merchant initiated transactions":
  *  1. Obtener acceptance_token desde GET /merchants/:public_key

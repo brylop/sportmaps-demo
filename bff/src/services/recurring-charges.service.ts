@@ -23,9 +23,8 @@ import {
     generateMpReference,
 } from './mercadopago.service';
 import {
-    createTransactionWithToken,
+    createTransactionWithPaymentSource,
     copToCents,
-    generateReference,
 } from './wompi.service';
 import type { PaymentProvider } from './payment-provider.resolver';
 
@@ -45,6 +44,7 @@ interface DueSubscription {
     provider_token: string | null;
     provider_customer_id: string | null;
     provider_card_id: string | null;
+    provider_payment_source_id: number | null;
     user_email: string | null;
 }
 
@@ -176,14 +176,37 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
             }
         }
     } else {
-        // Wompi autopay aun no soportado. El "token" capturado por el webhook
-        // actual es el token efimero del Widget (~15 min TTL), no un
-        // payment_source_id permanente. Hasta que tengamos el contrato de
-        // operador tecnologico con Wompi y podamos llamar POST /payment_sources,
-        // el cobro recurrente con Wompi no es posible. Suspendemos la sub
-        // (failed_attempts++) para evitar reintentos infinitos del mismo error.
-        providerReference = generateReference('subscription');
-        errorMsg = 'wompi_autopay_not_supported_yet';
+        // Wompi autopay via payment_source_id (POST /v1/payment_sources).
+        // Reference deterministica por (sub, mes): si el cron se re-dispara
+        // a mitad de proceso, Wompi devuelve 422 "duplicate reference" y la
+        // funcion del service captura ese caso buscando la tx original.
+        // Eso garantiza idempotencia real (no solo idempotency_key del
+        // record_recurring_attempt, sino TAMBIEN en Wompi).
+        const periodKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const subShort = sub.subscription_id.slice(0, 8);
+        providerReference = `SUB-${subShort}-${periodKey}`;
+
+        if (!sub.provider_payment_source_id) {
+            errorMsg = 'wompi_payment_source_missing';
+        } else if (!sub.user_email) {
+            errorMsg = 'user_email_missing';
+        } else {
+            const res = await createTransactionWithPaymentSource({
+                paymentSourceId: sub.provider_payment_source_id,
+                amountInCents: copToCents(Number(sub.amount)),
+                reference: providerReference,
+                customerEmail: sub.user_email,
+                installments: 1,
+            });
+            rawResponse = res;
+            if (res.ok) {
+                providerPaymentId = res.transactionId;
+                chargeOk = res.status === 'APPROVED';
+                if (!chargeOk) errorMsg = `wompi_status_${res.status}`;
+            } else {
+                errorMsg = res.error;
+            }
+        }
     }
 
     const paymentId = await insertRecurringPayment({

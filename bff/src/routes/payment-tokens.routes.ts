@@ -13,6 +13,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { voidPaymentSource, fetchAcceptanceTokens } from '../services/wompi.service';
 
 const router = Router();
 router.use(requireAuth);
@@ -79,11 +80,25 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
             .update({ is_active: false, is_default: false, updated_at: nowIso })
             .eq('id', tokenId)
             .eq('user_id', req.user.id)
-            .select()
+            .select('id, payment_provider, provider_payment_source_id')
             .single();
 
         if (error || !data) {
             return res.status(404).json({ ok: false, error: 'Token no encontrado.' });
+        }
+
+        // Defense in depth: si es Wompi con payment_source permanente, VOIDearlo
+        // tambien en el provider. Si falla la llamada al provider NO bloqueamos
+        // al user — la tarjeta ya esta is_active=false localmente y el cron no
+        // intentara cobrarla.
+        if (data.payment_provider === 'wompi' && data.provider_payment_source_id) {
+            const voidRes = await voidPaymentSource(Number(data.provider_payment_source_id));
+            if (!voidRes.ok) {
+                req.log?.warn(
+                    { err: voidRes.error, tokenId, paymentSourceId: data.provider_payment_source_id },
+                    'voidPaymentSource failed at provider (non-blocking)',
+                );
+            }
         }
 
         // Si alguna subscription (SaaS escuela) usaba este token, deshabilitar autopay
@@ -186,6 +201,79 @@ router.post('/subscriptions/:id/auto-renew', async (req: AuthenticatedRequest, r
     } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
     }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /acceptance/wompi — devuelve los 2 acceptance tokens + permalinks PDF
+//
+// El frontend lo llama al abrir el modal de "guardar tarjeta" para mostrar
+// los checkboxes obligatorios de Habeas Data + politica de pagos. Los JWT
+// devueltos se mandan despues en POST /save-intent.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get('/acceptance/wompi', async (_req: AuthenticatedRequest, res: Response) => {
+    const r = await fetchAcceptanceTokens();
+    if (!r.ok) {
+        return res.status(502).json({ ok: false, error: r.error });
+    }
+    return res.json({
+        ok: true,
+        data: {
+            acceptance_token: r.tokens.acceptanceToken,
+            personal_data_auth_token: r.tokens.personalDataAuthToken,
+            acceptance_permalink: r.tokens.acceptancePermalink,
+            personal_data_permalink: r.tokens.personalDataPermalink,
+        },
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /save-intent — el padre opto por guardar tarjeta + acepto Habeas Data
+//
+// Llamar ANTES de abrir el Widget de Wompi. Registra el consent ligado al
+// `reference` que se mostrara al provider. Cuando el webhook procese
+// APPROVED, lee este consent y crea el payment_source permanente.
+//
+// Sin esta llamada, NO guardamos tarjeta (respeta opt-in del usuario y deja
+// prueba durable de aceptacion legal).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SaveIntentSchema = z.object({
+    reference: z.string().min(4).max(120),
+    paymentProvider: z.enum(['wompi', 'mercadopago']).default('wompi'),
+    acceptanceToken: z.string().min(10),
+    personalDataAuthToken: z.string().min(10),
+    acceptancePermalink: z.string().url().optional(),
+    personalDataPermalink: z.string().url().optional(),
+});
+
+router.post('/save-intent', async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = SaveIntentSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ ok: false, error: 'invalid_body', details: parsed.error.issues });
+    }
+
+    // IP y UA para auditoria forense. trust proxy=1 esta seteado en index.ts
+    const ip = (req.ip || req.socket?.remoteAddress || '').toString();
+    const ua = req.get('user-agent') || '';
+
+    const { data, error } = await supabase.rpc('register_card_save_intent', {
+        p_reference: parsed.data.reference,
+        p_user_id: req.user.id,
+        p_payment_provider: parsed.data.paymentProvider,
+        p_acceptance_token: parsed.data.acceptanceToken,
+        p_personal_data_auth_token: parsed.data.personalDataAuthToken,
+        p_acceptance_permalink: parsed.data.acceptancePermalink ?? null,
+        p_personal_data_permalink: parsed.data.personalDataPermalink ?? null,
+        p_ip_address: ip || null,
+        p_user_agent: ua || null,
+    });
+
+    if (error) {
+        req.log?.error({ err: error, reference: parsed.data.reference }, 'register_card_save_intent failed');
+        return res.status(500).json({ ok: false, error: 'register_failed' });
+    }
+    return res.json(data);
 });
 
 export default router;
