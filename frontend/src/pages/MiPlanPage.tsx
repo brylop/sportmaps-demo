@@ -94,7 +94,7 @@ export default function MiPlanPage() {
     }
 
     const currentTier = ACADEMY_TIERS[ent.plan.code];
-    const isStaging = import.meta.env.VITE_APP_ENV === 'staging';
+    const isStaging = import.meta.env.VITE_APP_ENV === 'staging' || (typeof window !== 'undefined' && window.location.hostname.includes('staging'));
     const activeAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => ent.addons[k] && (!isStaging || k !== 'biomech'));
     const inactiveAddons = (Object.keys(ent.addons) as AddonKey[]).filter((k) => !ent.addons[k] && (!isStaging || k !== 'biomech'));
 

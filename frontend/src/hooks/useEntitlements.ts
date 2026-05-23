@@ -178,7 +178,7 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
             addons: {
                 tournaments: data.has_tournaments,
                 access_control: data.has_access_control,
-                biomech: import.meta.env.VITE_APP_ENV === 'staging' ? false : data.has_biomech,
+                biomech: (import.meta.env.VITE_APP_ENV === 'staging' || (typeof window !== 'undefined' && window.location.hostname.includes('staging'))) ? false : data.has_biomech,
                 nutrition: data.has_nutrition,
                 whitelabel: data.has_whitelabel,
                 whatsapp: data.has_whatsapp,
