@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap, Upload, Video } from 'lucide-react';
+import { Loader2, Camera, CheckCircle2, AlertTriangle, Square, Activity, RefreshCw, Zap, Upload, Video, SwitchCamera } from 'lucide-react';
 import { bffClient } from '@/lib/api/bffClient';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -147,24 +147,28 @@ export function BiomechCaptureModal({
   const [finalFlags,   setFinalFlags]   = useState<BiomechCaptureResult['flags']>([]);
   const [errorMsg,     setErrorMsg]     = useState('');
   const [captureSource, setCaptureSource] = useState<'camera' | 'upload'>('camera');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const facingModeRef = useRef<'user' | 'environment'>('user');
+  facingModeRef.current = facingMode;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [initKey, setInitKey] = useState(0);
 
   const meta = ANALYZER_META[analyzerCode] ?? { label: analyzerCode, tip: '' };
 
-  const drawSkeleton = useCallback((ctx: CanvasRenderingContext2D, lms: Frame, w: number, h: number) => {
+  const drawSkeleton = useCallback((ctx: CanvasRenderingContext2D, lms: Frame, w: number, h: number, mirror: boolean) => {
     const keyIdxs = KEY_LANDMARKS[analyzerCode] ?? [];
+    const xCoord = (x: number) => mirror ? (1-x)*w : x*w;
     ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,220,120,0.75)';
     for (const [a, b] of SKELETON_CONNECTIONS) {
       const lA = lms[a]; const lB = lms[b];
       if (!lA || !lB || (lA.visibility??1) < 0.3 || (lB.visibility??1) < 0.3) continue;
-      ctx.beginPath(); ctx.moveTo((1-lA.x)*w, lA.y*h); ctx.lineTo((1-lB.x)*w, lB.y*h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xCoord(lA.x), lA.y*h); ctx.lineTo(xCoord(lB.x), lB.y*h); ctx.stroke();
     }
     for (let i = 0; i < lms.length; i++) {
       const lm = lms[i];
       if (!lm || (lm.visibility??1) < 0.3) continue;
       const isKey = keyIdxs.includes(i);
-      ctx.beginPath(); ctx.arc((1-lm.x)*w, lm.y*h, isKey ? 5 : 3, 0, 2*Math.PI);
+      ctx.beginPath(); ctx.arc(xCoord(lm.x), lm.y*h, isKey ? 5 : 3, 0, 2*Math.PI);
       ctx.fillStyle = isKey ? '#00dc78' : 'rgba(255,255,255,0.45)'; ctx.fill();
       if (isKey) { ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=1; ctx.stroke(); }
     }
@@ -191,9 +195,14 @@ export function BiomechCaptureModal({
       const ctx = canvas.getContext('2d');
       if (!ctx) { rafRef.current = requestAnimationFrame(detect); return; }
       canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+      const mirror = facingModeRef.current === 'user';
       ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+      if (mirror) {
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+      } else {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
       ctx.restore();
       const nowMs = performance.now();
       if (video.currentTime !== lastVideoTime.current) {
@@ -202,7 +211,7 @@ export function BiomechCaptureModal({
           const result = lm.detectForVideo(video, nowMs);
           if (result.landmarks?.length > 0) {
             const landmarks: Frame = result.landmarks[0];
-            drawSkeleton(ctx, landmarks, canvas.width, canvas.height);
+            drawSkeleton(ctx, landmarks, canvas.width, canvas.height, mirror);
             if (isRecordingRef.current) {
               frameCountRef.current++;
               if (frameCountRef.current % SAMPLE_EVERY_N_FRAMES === 0) recordedFrames.current.push([...landmarks]);
@@ -237,7 +246,6 @@ export function BiomechCaptureModal({
       recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = false;
 
       try {
-        // @ts-expect-error — mediapipe types not bundled
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm',
@@ -259,7 +267,7 @@ export function BiomechCaptureModal({
         landmarkerRef.current = landmarker;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         });
 
@@ -292,7 +300,7 @@ export function BiomechCaptureModal({
       clearTimeout(timeoutId);
       cleanup();
     };
-  }, [open, initKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initKey, facingMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const processAndSend = async () => {
     try {
@@ -312,7 +320,12 @@ export function BiomechCaptureModal({
     }
   };
 
-  const handleClose = () => { cleanup(); setModalState('loading'); setFinalMetrics({}); setFinalFlags([]); setErrorMsg(''); onClose(); };
+  const handleClose = () => { cleanup(); setModalState('loading'); setFinalMetrics({}); setFinalFlags([]); setErrorMsg(''); setFacingMode('user'); onClose(); };
+  const handleSwitchCamera = useCallback(() => {
+    cleanup();
+    setModalState('loading');
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  }, [cleanup]);
   const handleStartRecording = () => { recordedFrames.current = []; frameCountRef.current = 0; isRecordingRef.current = true; recordingStart.current = performance.now(); setCountdown(MAX_RECORDING_SECONDS); setModalState('recording'); };
 
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -455,6 +468,15 @@ export function BiomechCaptureModal({
               </div>
             )}
             <div className="relative rounded-2xl overflow-hidden bg-black border border-border/40 shadow-xl aspect-video">
+              {modalState === 'ready' && captureSource === 'camera' && (
+                <button
+                  onClick={handleSwitchCamera}
+                  className="absolute top-3 right-3 z-10 h-9 w-9 rounded-full bg-black/60 border border-white/20 flex items-center justify-center hover:bg-black/80 transition-colors"
+                  title={facingMode === 'user' ? 'Cambiar a cámara trasera' : 'Cambiar a cámara frontal'}
+                >
+                  <SwitchCamera className="h-4 w-4 text-white" />
+                </button>
+              )}
               <video
                 ref={videoRef}
                 autoPlay

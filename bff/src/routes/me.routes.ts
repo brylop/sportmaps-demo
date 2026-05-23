@@ -61,7 +61,12 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 has_whatsapp:         false,
                 has_wompi:            false,
                 has_mp:               false,
+                has_store:            false,
             });
+        }
+
+        if (process.env.NODE_ENV === 'staging') {
+            data.has_biomech = false;
         }
 
         return res.json(data);

@@ -12,8 +12,13 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     try {
         const {
             q, type = 'all', category, city, price_max,
-            service_type, page = '1', limit = '24', order_by = 'newest'
+            service_type, modality, page = '1', limit = '24', order_by = 'newest'
         } = req.query;
+
+        const VALID_MODALITIES = ['presencial', 'virtual', 'domicilio', 'hibrido'];
+        const modalityParam = typeof modality === 'string' && VALID_MODALITIES.includes(modality)
+            ? modality
+            : null;
 
         const { data, error } = await supabase.rpc('search_marketplace', {
             p_query: (q as string) || null,
@@ -22,6 +27,7 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
             p_city: (city as string) || null,
             p_price_max: price_max ? parseFloat(price_max as string) : null,
             p_service_type: (service_type as string) || null,
+            p_modality: modalityParam,
             p_page: parseInt(page as string, 10),
             p_limit: Math.min(parseInt(limit as string, 10), 100),
             p_order_by: order_by as string,

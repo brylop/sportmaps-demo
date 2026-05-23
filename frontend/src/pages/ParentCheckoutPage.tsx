@@ -6,13 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload, Eye, EyeOff, Copy } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Shield, AlertCircle, Download, Users, CreditCard, Upload, Eye, EyeOff, Copy, Maximize2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { BillingDetailsForm } from '@/components/billing/BillingDetailsForm';
@@ -51,6 +52,7 @@ export default function ParentCheckoutPage() {
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
+  const [showFullQr, setShowFullQr] = useState(false);
 
   const amount = parseInt(searchParams.get('amount') || '150000');
   const concept = searchParams.get('concept') || 'Mensualidad Octubre 2024';
@@ -638,8 +640,23 @@ export default function ParentCheckoutPage() {
 
                           {bankDetails.payment_qr_url && (
                             <div className="mt-3 text-center flex flex-col items-center">
-                              <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
-                              <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-24 h-24 rounded-lg object-cover shadow-sm border" />
+                              <p className="text-xs font-semibold mb-2 text-muted-foreground">O escanea este QR:</p>
+                              <div 
+                                className="relative group cursor-pointer overflow-hidden rounded-lg border shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
+                                onClick={(e) => { e.stopPropagation(); setShowFullQr(true); }}
+                              >
+                                <img 
+                                  src={bankDetails.payment_qr_url} 
+                                  alt="QR de Pago" 
+                                  className="w-24 h-24 object-cover" 
+                                />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="text-[10px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <Maximize2 className="h-3 w-3" /> Ampliar
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground mt-1 block">Clic para ampliar 🔍</span>
                             </div>
                           )}
                           
@@ -672,6 +689,57 @@ export default function ParentCheckoutPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showFullQr} onOpenChange={setShowFullQr}>
+        <DialogContent className="sm:max-w-md max-w-[90vw] rounded-xl p-6 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md border border-primary/20 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <DialogHeader className="w-full text-center mb-2">
+            <DialogTitle className="text-lg font-bold text-foreground">QR de Pago</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Escanea este código desde la app de tu banco para realizar la transferencia a la escuela
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-[60vh] overflow-hidden">
+            <img 
+              src={bankDetails?.payment_qr_url || ''} 
+              alt="Código QR de Pago Completo" 
+              className="max-w-full max-h-[50vh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
+            />
+          </div>
+          
+          <div className="flex gap-3 w-full mt-6">
+            <Button 
+              variant="outline" 
+              className="flex-1 border-primary/20 hover:bg-primary/5 text-xs h-9" 
+              onClick={async () => {
+                try {
+                  const response = await fetch(bankDetails?.payment_qr_url || '');
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `qr-pago-${schoolName.toLowerCase().replace(/\s+/g, '-')}.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                  toast({ title: "Código QR descargado" });
+                } catch (e) {
+                  window.open(bankDetails?.payment_qr_url || '', '_blank');
+                }
+              }}
+            >
+              <Download className="h-4 w-4 mr-2 text-primary" /> Descargar QR
+            </Button>
+            <Button 
+              className="flex-1 text-xs h-9" 
+              onClick={() => setShowFullQr(false)}
+            >
+              Cerrar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -8,7 +8,7 @@ function urlBase64ToUint8Array(base64: string) {
   return Uint8Array.from([...binary].map(c => c.charCodeAt(0)));
 }
 
-export async function subscribeToPush(userId: string, schoolId?: string) {
+export async function subscribeToPush(userId: string) {
   if (!('PushManager' in window)) {
     console.warn('[PWA] Push Notifications no soportadas en este navegador.');
     return null;
@@ -34,7 +34,6 @@ export async function subscribeToPush(userId: string, schoolId?: string) {
     }
     const { error } = await supabase.from('push_subscriptions').upsert({
       user_id:    userId,
-      school_id:  schoolId ?? null,
       endpoint,
       p256dh:     keys.p256dh,
       auth:       keys.auth,

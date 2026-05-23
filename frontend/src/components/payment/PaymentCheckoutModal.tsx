@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +81,7 @@ export function PaymentCheckoutModal({
   const [hasCompleteDianData, setHasCompleteDianData] = useState<boolean>(true);
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
   const [bankDetails, setBankDetails] = useState<any>(null);
+  const [showFullQr, setShowFullQr] = useState(false);
 
   // ── Periodo (mes/año) que cubre este pago ────────────────────────────────
   // Calculado por la RPC `next_unpaid_period`. Se usa para marcar el pago
@@ -760,8 +761,23 @@ export function PaymentCheckoutModal({
                     )}
                     {bankDetails?.payment_qr_url && (
                       <div className="mt-3 text-center flex flex-col items-center">
-                        <p className="text-xs font-semibold mb-2">O escanea este QR:</p>
-                        <img src={bankDetails.payment_qr_url} alt="QR de Pago" className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg object-cover shadow-sm border" />
+                        <p className="text-xs font-semibold mb-2 text-muted-foreground">O escanea este QR:</p>
+                        <div 
+                          className="relative group cursor-pointer overflow-hidden rounded-lg border shadow-sm transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
+                          onClick={(e) => { e.stopPropagation(); setShowFullQr(true); }}
+                        >
+                          <img 
+                            src={bankDetails.payment_qr_url} 
+                            alt="QR de Pago" 
+                            className="w-28 h-28 sm:w-32 sm:h-32 object-cover" 
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <span className="text-[10px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Maximize2 className="h-3 w-3" /> Ampliar
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground mt-1 block">Clic para ampliar 🔍</span>
                       </div>
                     )}
                   </AlertDescription>
@@ -953,6 +969,57 @@ export function PaymentCheckoutModal({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <Dialog open={showFullQr} onOpenChange={setShowFullQr}>
+      <DialogContent className="sm:max-w-md max-w-[90vw] rounded-xl p-6 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md border border-primary/20 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <DialogHeader className="w-full text-center mb-2">
+          <DialogTitle className="text-lg font-bold text-foreground">QR de Pago</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Escanea este código desde la app de tu banco para realizar la transferencia a la escuela
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="bg-white p-4 rounded-xl border shadow-inner flex items-center justify-center max-w-full max-h-[60vh] overflow-hidden">
+          <img 
+            src={bankDetails?.payment_qr_url || ''} 
+            alt="Código QR de Pago Completo" 
+            className="max-w-full max-h-[50vh] object-contain rounded-lg transition-transform duration-300 hover:scale-105"
+          />
+        </div>
+        
+        <div className="flex gap-3 w-full mt-6">
+          <Button 
+            variant="outline" 
+            className="flex-1 border-primary/20 hover:bg-primary/5 text-xs h-9" 
+            onClick={async () => {
+              try {
+                const response = await fetch(bankDetails?.payment_qr_url || '');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `qr-pago-${(concept || 'pago').toLowerCase().replace(/\s+/g, '-')}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                toast({ title: "Código QR descargado" });
+              } catch (e) {
+                window.open(bankDetails?.payment_qr_url || '', '_blank');
+              }
+            }}
+          >
+            <Download className="h-4 w-4 mr-2 text-primary" /> Descargar QR
+          </Button>
+          <Button 
+            className="flex-1 text-xs h-9" 
+            onClick={() => setShowFullQr(false)}
+          >
+            Cerrar
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

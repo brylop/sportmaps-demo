@@ -78,8 +78,8 @@ export default function MyEventRegistrationsPage() {
   const loadRegistrations = async () => {
     setLoading(true);
     try {
-      const data = await bffClient.get<MyRegistration[]>('/api/v1/events/my-registrations/list');
-      setRegistrations(data);
+      const data = await bffClient.get<MyRegistration[] | null>('/api/v1/events/my-registrations/list');
+      setRegistrations(Array.isArray(data) ? data : []);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {

@@ -28,7 +28,9 @@ export function QuickUseRoutineModal({ open, onClose, routineId, routineName, on
   const [loadingClients, setLoadingClients] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<any>(null);
-  const [sessionDate, setSessionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [sessionDate, setSessionDate] = useState(
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date())
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {

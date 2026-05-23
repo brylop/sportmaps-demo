@@ -6,13 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, ShoppingCart, Clock, MapPin, Store, Star, CheckCircle } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Clock, MapPin, Store, Star, CheckCircle, CheckCircle2, Video, Home as HomeIcon, Layers, Users, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { ShareButton } from '@/components/marketplace/ShareButton';
 import { ReviewList } from '@/components/reviews/ReviewList';
 import { QuestionsList } from '@/components/reviews/QuestionsList';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const MODALITY_META: Record<string, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+  presencial: { label: 'Presencial',  icon: MapPin },
+  virtual:    { label: 'Virtual',     icon: Video },
+  domicilio:  { label: 'A domicilio', icon: HomeIcon },
+  hibrido:    { label: 'Hibrido',     icon: Layers },
+};
 
 export default function MarketplaceDetailPage() {
   const { type, id } = useParams<{ type: string; id: string }>();
@@ -130,9 +137,78 @@ export default function MarketplaceDetailPage() {
             )}
 
             {type === 'service' && data.duration_minutes && (
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span>Duracion: {data.duration_minutes} minutos</span>
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <span className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  {data.duration_minutes} minutos
+                </span>
+                {data.subcategory && (
+                  <Badge variant="outline">{data.subcategory}</Badge>
+                )}
+              </div>
+            )}
+
+            {type === 'service' && (data.modality?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Modalidad</p>
+                <div className="flex flex-wrap gap-2">
+                  {data.modality.map((m: string) => {
+                    const meta = MODALITY_META[m];
+                    if (!meta) return null;
+                    const Icon = meta.icon;
+                    return (
+                      <Badge key={m} variant="secondary" className="gap-1">
+                        <Icon className="h-3 w-3" /> {meta.label}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {type === 'service' && (data.includes?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Que incluye esta sesion</p>
+                <ul className="space-y-1.5">
+                  {data.includes.map((item: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {type === 'service' && (data.target_audience?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Para quien es
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {data.target_audience.map((a: string) => (
+                    <Badge key={a} variant="outline">{a}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {type === 'service' && data.requirements && (
+              <div>
+                <p className="text-sm font-medium mb-1 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" /> Requisitos previos
+                </p>
+                <p className="text-sm text-muted-foreground">{data.requirements}</p>
+              </div>
+            )}
+
+            {type === 'service' && data.cancellation_policy_hours != null && (
+              <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/40 rounded-md p-3">
+                <ShieldCheck className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  Politica de cancelacion: <strong>{data.cancellation_policy_hours}h</strong> de anticipacion.
+                  Cancelaciones tardias pueden generar penalizacion.
+                </span>
               </div>
             )}
 
