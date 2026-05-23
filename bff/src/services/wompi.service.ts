@@ -87,6 +87,11 @@ export function signIntegrity(payload: WompiSignaturePayload): string {
  *   2. Concatenar: <values...> + timestamp + WOMPI_EVENTS_SECRET
  *   3. SHA256 = signature.checksum
  */
+// Ventana maxima de antiguedad permitida para webhooks de Wompi.
+// Previene replay attacks: aunque un atacante capture un webhook valido
+// con su checksum correcto, si lo replays >5 min despues lo rechazamos.
+const WEBHOOK_MAX_AGE_SECONDS = 300;
+
 export function validateWebhookChecksum(body: any): boolean {
     const eventsSecret = process.env.WOMPI_EVENTS_SECRET;
     if (!eventsSecret) {
@@ -101,6 +106,13 @@ export function validateWebhookChecksum(body: any): boolean {
     if (!signature?.checksum || !Array.isArray(signature?.properties)) {
         return false;
     }
+
+    // Validacion de antiguedad (anti-replay). Wompi manda timestamp en
+    // unix seconds. Si esta fuera de la ventana, rechazamos.
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    const ageSeconds = Math.abs(Date.now() / 1000 - ts);
+    if (ageSeconds > WEBHOOK_MAX_AGE_SECONDS) return false;
 
     const values: string[] = [];
     for (const prop of signature.properties) {
@@ -126,6 +138,29 @@ export function validateWebhookChecksum(body: any): boolean {
     const received = String(signature.checksum);
     if (received.length !== expected.length) return false;
     return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+}
+
+/**
+ * Saneamos el cuerpo de error de Wompi antes de loguear/devolver. Wompi
+ * puede incluir customer_email, card_holder o acceptance_token en sus
+ * mensajes de error — eso es PII / data sensible que no debe terminar en
+ * logs o respuestas HTTP del BFF.
+ */
+function sanitizeWompiErrorBody(body: string): string {
+    let s = body;
+    // Pares JSON tipo "campo":"valor" — enmascaramos el valor
+    const sensitiveKeys = [
+        'customer_email', 'card_holder', 'holder_name',
+        'acceptance_token', 'accept_personal_auth', 'personal_data_auth',
+        'phone_number', 'cellphone',
+    ];
+    for (const key of sensitiveKeys) {
+        const re = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`, 'gi');
+        s = s.replace(re, `"${key}":"<redacted>"`);
+    }
+    // Tokens largos sueltos (>20 chars alphanum) — heuristic redact
+    s = s.replace(/\b(tok_[A-Za-z0-9_]{16,}|eyJ[A-Za-z0-9._-]{20,})\b/g, '<token_redacted>');
+    return s;
 }
 
 /**
@@ -369,7 +404,7 @@ export async function createPaymentSource(params: {
 
         if (!res.ok) {
             const errBody = await res.text();
-            return { ok: false, statusCode: res.status, error: `payment_source_failed: ${errBody.slice(0, 300)}` };
+            return { ok: false, statusCode: res.status, error: `payment_source_failed: ${sanitizeWompiErrorBody(errBody).slice(0, 300)}` };
         }
 
         const json = await res.json();
@@ -439,12 +474,12 @@ export async function createTransactionWithPaymentSource(params: {
                     return { ok: true, transactionId: existing.id, status: existing.status };
                 }
             }
-            return { ok: false, statusCode: 422, error: `validation: ${errBody.slice(0, 300)}` };
+            return { ok: false, statusCode: 422, error: `validation: ${sanitizeWompiErrorBody(errBody).slice(0, 300)}` };
         }
 
         if (!res.ok) {
             const errBody = await res.text();
-            return { ok: false, statusCode: res.status, error: `tx_failed: ${errBody.slice(0, 300)}` };
+            return { ok: false, statusCode: res.status, error: `tx_failed: ${sanitizeWompiErrorBody(errBody).slice(0, 300)}` };
         }
 
         const json = await res.json();
@@ -499,7 +534,7 @@ export async function voidPaymentSource(paymentSourceId: number): Promise<{ ok: 
         });
         if (!res.ok) {
             const errBody = await res.text();
-            return { ok: false, error: `void_failed: ${errBody.slice(0, 200)}` };
+            return { ok: false, error: `void_failed: ${sanitizeWompiErrorBody(errBody).slice(0, 200)}` };
         }
         return { ok: true };
     } catch (err: any) {
@@ -576,7 +611,7 @@ export async function createTransactionWithToken(params: {
 
         if (!txRes.ok) {
             const errBody = await txRes.text();
-            return { ok: false, error: `wompi_tx_failed: ${errBody.slice(0, 300)}` };
+            return { ok: false, error: `wompi_tx_failed: ${sanitizeWompiErrorBody(errBody).slice(0, 300)}` };
         }
 
         const txJson = await txRes.json();

@@ -18,11 +18,26 @@ import { voidPaymentSource, fetchAcceptanceTokens } from '../services/wompi.serv
 const router = Router();
 router.use(requireAuth);
 
+/**
+ * Enmascara el holder_name: deja primera palabra + inicial de las siguientes.
+ * "PEDRO PEREZ GOMEZ" → "PEDRO P. G."
+ *
+ * El holder_name completo solo se necesita server-side para reconciliacion.
+ * En el cliente alcanza el masked + last_four para que el padre reconozca
+ * "esa es mi tarjeta".
+ */
+function maskHolderName(name: string | null | undefined): string | null {
+    if (!name) return null;
+    const parts = name.trim().split(/\s+/);
+    if (parts.length <= 1) return parts[0] ?? null;
+    return `${parts[0]} ${parts.slice(1).map(p => p[0] + '.').join(' ')}`;
+}
+
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     try {
         const { data, error } = await supabase
             .from('payment_tokens')
-            .select('id, payment_method_type, last_four, brand, holder_name, is_default, is_active, expires_at, created_at')
+            .select('id, payment_method_type, last_four, brand, holder_name, payment_provider, is_default, is_active, expires_at, created_at')
             .eq('user_id', req.user.id)
             .eq('is_active', true)
             .order('is_default', { ascending: false })
@@ -32,7 +47,13 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
             return res.status(500).json({ ok: false, error: 'Error obteniendo tokens.' });
         }
 
-        return res.json({ ok: true, data: data || [] });
+        // Enmascarar holder_name antes de devolver — privacidad (A7).
+        const masked = (data || []).map(t => ({
+            ...t,
+            holder_name: maskHolderName(t.holder_name),
+        }));
+
+        return res.json({ ok: true, data: masked });
     } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
     }
@@ -40,29 +61,18 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 
 router.post('/:id/set-default', async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const tokenId = req.params.id;
-
-        // Verificar ownership
-        const { data: token } = await supabase
-            .from('payment_tokens')
-            .select('id')
-            .eq('id', tokenId)
-            .eq('user_id', req.user.id)
-            .single();
-
-        if (!token) {
-            return res.status(404).json({ ok: false, error: 'Token no encontrado.' });
+        // RPC atomico: en una sola transaccion marca este + desmarca el resto.
+        // Reemplaza los 2 UPDATE separados anteriores (race "nadie default").
+        const { data, error } = await supabase.rpc('set_default_payment_token', {
+            p_token_id: req.params.id,
+        });
+        if (error) {
+            return res.status(500).json({ ok: false, error: 'Error actualizando.' });
         }
-
-        // Desmarcar otros + marcar este
-        await supabase.from('payment_tokens').update({ is_default: false }).eq('user_id', req.user.id);
-        const { error } = await supabase
-            .from('payment_tokens')
-            .update({ is_default: true, updated_at: new Date().toISOString() })
-            .eq('id', tokenId);
-
-        if (error) return res.status(500).json({ ok: false, error: 'Error actualizando.' });
-
+        if (!data?.ok) {
+            const status = data?.error === 'token_not_found' ? 404 : 400;
+            return res.status(status).json({ ok: false, error: data?.error || 'unknown' });
+        }
         return res.json({ ok: true });
     } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
@@ -247,10 +257,31 @@ const SaveIntentSchema = z.object({
     personalDataPermalink: z.string().url().optional(),
 });
 
+// Cap de tarjetas activas por usuario. Configurable via env; default 5.
+// Anti card-testing fraud — un atacante con cuenta valida no debe poder
+// crear cientos de tokens probando numeros robados.
+const MAX_ACTIVE_PAYMENT_TOKENS_PER_USER = Number(process.env.MAX_ACTIVE_PAYMENT_TOKENS_PER_USER ?? 5);
+
 router.post('/save-intent', async (req: AuthenticatedRequest, res: Response) => {
     const parsed = SaveIntentSchema.safeParse(req.body);
     if (!parsed.success) {
         return res.status(400).json({ ok: false, error: 'invalid_body', details: parsed.error.issues });
+    }
+
+    // Cap por usuario — si ya tiene >= N tokens activos, bloquear el intent.
+    // El cap se chequea aqui (antes del consent) porque el actual flujo
+    // crea el payment_token recien en el webhook tras APPROVED. Sin chequeo
+    // aqui, el padre podria avanzar y solo enterarse del bloqueo despues
+    // del cobro real — mala UX y posibles cobros sin tarjeta guardable.
+    const { data: tokenCount } = await supabase.rpc('count_active_payment_tokens', {
+        p_user_id: req.user.id,
+    });
+    if (typeof tokenCount === 'number' && tokenCount >= MAX_ACTIVE_PAYMENT_TOKENS_PER_USER) {
+        return res.status(409).json({
+            ok: false,
+            error: 'max_active_tokens_reached',
+            message: `Ya tienes ${tokenCount} tarjetas guardadas (maximo ${MAX_ACTIVE_PAYMENT_TOKENS_PER_USER}). Elimina una antes de agregar otra.`,
+        });
     }
 
     // IP y UA para auditoria forense. trust proxy=1 esta seteado en index.ts

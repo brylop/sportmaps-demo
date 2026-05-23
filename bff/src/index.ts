@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -32,6 +33,7 @@ import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
 import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
+import { requireCsrfHeader } from './middlewares/csrfHeader';
 import systemRouter from './routes/system';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
@@ -92,7 +94,36 @@ const paymentLimiter = rateLimit({
     message: { error: 'Límite de operaciones de pago alcanzado. Intenta en 1 minuto.' },
 });
 
+// Cap especifico para alta/baja de tarjetas — anti card-testing fraud.
+// Un atacante con cuenta valida que prueba numeros robados con micropagos
+// puede crear muchos tokens rapidamente; este limit corta ese vector.
+const cardAlterLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: process.env.NODE_ENV === 'production' ? 10 : 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const userId = (req as any).user?.id;
+        return userId ? `card-alter-user-${userId}` : `card-alter-ip-${req.ip}`;
+    },
+    message: { error: 'Demasiadas operaciones sobre tus tarjetas guardadas. Intenta en 1 hora.' },
+});
+
 // ── Middlewares globales ──────────────────────────────────────────────────────
+//
+// helmet: setea cabeceras de seguridad sanas por defecto (HSTS, nosniff,
+// frameguard DENY, X-DNS-Prefetch-Control, etc.).
+//   - crossOriginEmbedderPolicy desactivado: rompe iframes legitimos (Wompi).
+//   - contentSecurityPolicy desactivado: el BFF sirve JSON, no HTML — CSP
+//     lo controla el frontend (Vercel).
+//   - hsts: 1 anio, includeSubDomains. Solo aplica si servimos sobre HTTPS
+//     (Render lo hace).
+app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
+}));
+
 app.use((_req: Request, res: Response, next: NextFunction) => {
     // Prevent profile leaking by disabling all caching for API responses
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -204,8 +235,9 @@ app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
-app.use('/api/v1/payment-tokens', generalLimiter, paymentTokensRouter);
-app.use('/api/v1/recurring', paymentLimiter, recurringRouter);
+// payment-tokens y recurring: state-changing → CSRF header + cap especifico
+app.use('/api/v1/payment-tokens', cardAlterLimiter, requireCsrfHeader, paymentTokensRouter);
+app.use('/api/v1/recurring', paymentLimiter, requireCsrfHeader, recurringRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
