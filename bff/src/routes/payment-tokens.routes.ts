@@ -71,11 +71,12 @@ router.post('/:id/set-default', async (req: AuthenticatedRequest, res: Response)
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
     try {
         const tokenId = req.params.id;
+        const nowIso = new Date().toISOString();
 
-        // Soft-delete: desactivar (mantenemos referencia historica para suscripciones)
+        // Soft-delete: desactivar (mantenemos referencia historica para auditoria)
         const { data, error } = await supabase
             .from('payment_tokens')
-            .update({ is_active: false, is_default: false, updated_at: new Date().toISOString() })
+            .update({ is_active: false, is_default: false, updated_at: nowIso })
             .eq('id', tokenId)
             .eq('user_id', req.user.id)
             .select()
@@ -85,14 +86,38 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
             return res.status(404).json({ ok: false, error: 'Token no encontrado.' });
         }
 
-        // Si alguna subscription usaba este token, deshabilitar autopay
+        // Si alguna subscription (SaaS escuela) usaba este token, deshabilitar autopay
         await supabase
             .from('subscriptions')
             .update({ auto_renew: false, payment_token_id: null })
             .eq('user_id', req.user.id)
             .eq('payment_token_id', tokenId);
 
-        return res.json({ ok: true });
+        // CRITICO: cancelar tambien recurring_subscriptions (autopay padre->escuela).
+        // El FK ON DELETE RESTRICT no se dispara con soft-delete, asi que sin esto
+        // el cron seguira intentando cobrar manana con una tarjeta is_active=false.
+        const { error: rsErr, count: rsCount } = await supabase
+            .from('recurring_subscriptions')
+            .update({
+                status: 'cancelled',
+                cancelled_at: nowIso,
+                cancelled_reason: 'payment_token_deleted_by_user',
+                updated_at: nowIso,
+            }, { count: 'exact' })
+            .eq('user_id', req.user.id)
+            .eq('payment_token_id', tokenId)
+            .in('status', ['active', 'paused', 'suspended']);
+
+        if (rsErr) {
+            // Log pero no fallar: la tarjeta ya quedo desactivada; un cron de
+            // mantenimiento puede reconciliar las subs huerfanas.
+            req.log?.error(
+                { err: rsErr, tokenId, userId: req.user.id },
+                'recurring_subscriptions cancel failed after token delete',
+            );
+        }
+
+        return res.json({ ok: true, cancelled_recurring_subscriptions: rsCount ?? 0 });
     } catch (err: any) {
         return res.status(500).json({ ok: false, error: err.message || 'Error interno.' });
     }
