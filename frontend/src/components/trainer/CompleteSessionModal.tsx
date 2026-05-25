@@ -41,12 +41,17 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
         performance_note: plan.results?.performance_note || '',
         blocks_results: (plan.blocks || []).map((block: any, index: number) => {
           const setsCount = parseInt(block.sets) || (block.type === 'strength' ? 3 : 1);
-          const sets = Array.from({ length: setsCount }).map((_, i) => ({
-            set_number: i + 1,
-            reps: block.reps || '',
-            weight: block.weight || '',
-            completed: true
-          }));
+          const sets = Array.from({ length: setsCount }).map((_, i) => {
+            const configRow = block.set_config?.[i];
+            return {
+              set_number:   i + 1,
+              reps:         configRow?.reps    || block.reps    || '',
+              weight:       configRow?.weight  || block.weight  || '',
+              completed:    true,
+              is_drop_set:  configRow?.is_drop_set || false,
+              drops:        configRow?.drops        || [],
+            };
+          });
 
           return {
             block_index: index,
@@ -76,6 +81,18 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
   const updateBlockResult = (index: number, updates: any) => {
     const newBlockResults = [...results.blocks_results];
     newBlockResults[index] = { ...newBlockResults[index], ...updates };
+    setResults({ ...results, blocks_results: newBlockResults });
+  };
+
+  const updateDropResult = (blockIndex: number, setIndex: number, dropIndex: number, updates: any) => {
+    const newBlockResults = [...results.blocks_results];
+    const blockResult = { ...newBlockResults[blockIndex] };
+    const newSets = [...(blockResult.sets || [])];
+    const newDrops = [...(newSets[setIndex]?.drops || [])];
+    newDrops[dropIndex] = { ...newDrops[dropIndex], ...updates };
+    newSets[setIndex] = { ...newSets[setIndex], drops: newDrops };
+    blockResult.sets = newSets;
+    newBlockResults[blockIndex] = blockResult;
     setResults({ ...results, blocks_results: newBlockResults });
   };
 
@@ -183,49 +200,58 @@ export function CompleteSessionModal({ open, onClose, plan, onCompleted, isLoadi
                             <div className="col-span-5 text-[9px] uppercase font-black text-muted-foreground">Peso Real</div>
                             <div className="col-span-2 text-[9px] uppercase font-black text-muted-foreground text-center">OK</div>
                           </div>
-                          
-                          {(result.sets || []).map((set: any, sIdx: number) => (
-                            <div key={sIdx} className="grid grid-cols-12 gap-2 items-center bg-background/40 p-1.5 rounded-lg border border-border/20">
-                              <div className="col-span-1 flex justify-center">
-                                <Badge variant="secondary" className="h-5 w-5 p-0 flex items-center justify-center text-[10px] rounded-md bg-primary/10 text-primary border-none">
-                                  {sIdx + 1}
-                                </Badge>
+                                              {(result.sets || []).map((set: any, sIdx: number) => (
+                            <div key={sIdx} className={`rounded-lg border border-border/20 overflow-hidden ${set.is_drop_set ? 'bg-primary/5 border-primary/20' : 'bg-background/40'}`}>
+                              {/* Fila principal de la serie */}
+                              <div className="grid grid-cols-12 gap-2 items-center p-1.5">
+                                <div className="col-span-1 flex justify-center">
+                                  <Badge variant="secondary" className="h-5 w-5 p-0 flex items-center justify-center text-[10px] rounded-md bg-primary/10 text-primary border-none">
+                                    {sIdx + 1}
+                                  </Badge>
+                                </div>
+                                {set.is_drop_set ? (
+                                  <div className="col-span-10 flex items-center gap-1.5">
+                                    <span className="text-[9px] font-black uppercase tracking-widest bg-primary/10 text-primary px-2 py-0.5 rounded-full border border-primary/20">Drop Set</span>
+                                    <span className="text-[10px] text-muted-foreground">— ver drops ↓</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="col-span-4">
+                                      <Input placeholder={block.reps} value={set.reps} onChange={(e) => updateSetResult(index, sIdx, { reps: e.target.value })} className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold" />
+                                    </div>
+                                    <div className="col-span-5 flex gap-1">
+                                      <Input placeholder={block.weight} value={set.weight} onChange={(e) => updateSetResult(index, sIdx, { weight: e.target.value })} className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold flex-1" />
+                                      <Select value={set.weight_unit || result.weight_unit || 'kg'} onValueChange={(val) => updateSetResult(index, sIdx, { weight_unit: val })}>
+                                        <SelectTrigger className="w-[50px] h-8 text-[9px] font-black px-1 border-none bg-background/30"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="kg" className="text-[9px]">KG</SelectItem>
+                                          <SelectItem value="lb" className="text-[9px]">LB</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </>
+                                )}
+                                <div className="col-span-2 flex justify-center">
+                                  <Checkbox checked={set.completed} onCheckedChange={(checked) => updateSetResult(index, sIdx, { completed: !!checked })} className="h-4 w-4 rounded-md border-primary/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground" />
+                                </div>
                               </div>
-                              <div className="col-span-4">
-                                <Input 
-                                  placeholder={block.reps}
-                                  value={set.reps}
-                                  onChange={(e) => updateSetResult(index, sIdx, { reps: e.target.value })}
-                                  className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold"
-                                />
-                              </div>
-                              <div className="col-span-5 flex gap-1">
-                                <Input 
-                                  placeholder={block.weight}
-                                  value={set.weight}
-                                  onChange={(e) => updateSetResult(index, sIdx, { weight: e.target.value })}
-                                  className="h-8 text-xs bg-background/50 border-none focus-visible:ring-1 focus-visible:ring-primary/30 font-bold flex-1"
-                                />
-                                <Select 
-                                  value={set.weight_unit || result.weight_unit || 'kg'} 
-                                  onValueChange={(val) => updateSetResult(index, sIdx, { weight_unit: val })}
-                                >
-                                  <SelectTrigger className="w-[50px] h-8 text-[9px] font-black px-1 border-none bg-background/30">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="kg" className="text-[9px]">KG</SelectItem>
-                                    <SelectItem value="lb" className="text-[9px]">LB</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="col-span-2 flex justify-center">
-                                <Checkbox 
-                                  checked={set.completed}
-                                  onCheckedChange={(checked) => updateSetResult(index, sIdx, { completed: !!checked })}
-                                  className="h-4 w-4 rounded-md border-primary/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                                />
-                              </div>
+
+                              {/* Sub-filas de drops */}
+                              {set.is_drop_set && (set.drops || []).map((drop: any, dIdx: number) => (
+                                <div key={dIdx} className="grid grid-cols-12 gap-2 items-center px-1.5 pb-1">
+                                  <div className="col-span-1 flex justify-center">
+                                    <span className="text-[10px] text-primary/50 font-black">↳{dIdx + 1}</span>
+                                  </div>
+                                  <div className="col-span-4">
+                                    <Input placeholder={drop.reps || block.reps} value={drop.reps || ''} onChange={(e) => updateDropResult(index, sIdx, dIdx, { reps: e.target.value })} className="h-7 text-xs bg-background/50 border-primary/20 focus-visible:ring-1 focus-visible:ring-primary/30 font-bold" />
+                                  </div>
+                                  <div className="col-span-5 flex gap-1">
+                                    <Input type="number" placeholder={drop.weight || block.weight} value={drop.weight || ''} onChange={(e) => updateDropResult(index, sIdx, dIdx, { weight: e.target.value })} className="h-7 text-xs bg-background/50 border-primary/20 focus-visible:ring-1 focus-visible:ring-primary/30 font-bold flex-1" />
+                                    <span className="text-[9px] text-muted-foreground self-center px-1">{result.weight_unit || 'kg'}</span>
+                                  </div>
+                                  <div className="col-span-2" />
+                                </div>
+                              ))}
                             </div>
                           ))}
                           
