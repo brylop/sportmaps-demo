@@ -45,6 +45,14 @@ interface Block {
   // ✅ Biomecánica
   analyzer_required?: boolean;
   analyzer_code?:     'hack_squat' | 'incline_press' | 'row';
+  set_type?:  'normal' | 'drop_set' | 'piramidal_asc' | 'piramidal_desc' | null;
+  set_config?: Array<{
+    reps?:         string | null;
+    weight?:       string | null;
+    rest_seconds?: number | null;
+    is_drop_set?:  boolean;
+    drops?:        Array<{ reps?: string | null; weight?: string | null }> | null;
+  }> | null;
 }
 
 interface SessionExecutionProps {
@@ -64,6 +72,7 @@ interface SetResult {
   reps_completed: number | '';
   weight_kg:      number | '';
   rpe:            number | '';
+  drops_results?: Array<{ reps_completed: number | ''; weight_kg: number | '' }>;
 }
 
 // ── Config de tipos de bloque ────────────────────────────────────────────────
@@ -122,23 +131,35 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
   const [setResults, setSetResults] = useState<Record<number, SetResult[]>>(
     () => Object.fromEntries(
       blocks.map((b, i) => {
-        // Reps: usar el valor del bloque si es numérico
-        const defaultReps = b.reps && /^\d+$/.test(String(b.reps).trim())
-          ? parseInt(b.reps, 10) as number
-          : '' as const;
-        // Peso: usar el valor del bloque si es número puro
-        const rawWeight   = String(b.weight ?? '').trim();
-        const defaultWeight = /^\d+(\.\d+)?$/.test(rawWeight)
-          ? parseFloat(rawWeight) as number
-          : '' as const;
         const count = b.sets ?? 3;
         return [
           i,
-          Array.from({ length: count }, () => ({
-            reps_completed: defaultReps,
-            weight_kg:      defaultWeight,
-            rpe:            '' as const,
-          })),
+          Array.from({ length: count }, (_, setIdx) => {
+            const configRow = b.set_config?.[setIdx];
+            const repsStr   = configRow?.reps   ?? b.reps;
+            const weightStr = configRow?.weight ?? b.weight;
+
+            const defaultReps: number | '' =
+              repsStr && /^\d+$/.test(String(repsStr).trim())
+                ? parseInt(String(repsStr), 10) : '';
+            const rawWeight = String(weightStr ?? '').trim();
+            const defaultWeight: number | '' =
+              /^\d+(\.\d+)?$/.test(rawWeight) ? parseFloat(rawWeight) : '';
+
+            // Drop set: inicializar drops_results pre-poblados
+            if (configRow?.is_drop_set && configRow?.drops?.length) {
+              return {
+                reps_completed: '' as const,
+                weight_kg:      '' as const,
+                rpe:            '' as const,
+                drops_results: configRow.drops.map(d => ({
+                  reps_completed: d.reps && /^\d+$/.test(String(d.reps)) ? parseInt(String(d.reps), 10) : '' as const,
+                  weight_kg:      d.weight && /^\d+(\.\d+)?$/.test(String(d.weight ?? '')) ? parseFloat(String(d.weight)) : '' as const,
+                })),
+              };
+            }
+            return { reps_completed: defaultReps, weight_kg: defaultWeight, rpe: '' as const };
+          }),
         ];
       })
     )
@@ -155,6 +176,18 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
     setSetResults(prev => {
       const blockSets = [...(prev[blockIdx] ?? [])];
       blockSets[setIdx] = { ...blockSets[setIdx], [field]: value };
+      return { ...prev, [blockIdx]: blockSets };
+    });
+  };
+
+  const updateDropResult = (blockIdx: number, setIdx: number, dropIdx: number, field: 'reps_completed' | 'weight_kg', value: number | '') => {
+    setSetResults(prev => {
+      const blockSets = [...(prev[blockIdx] ?? [])];
+      const set = { ...blockSets[setIdx] };
+      const drops = [...(set.drops_results ?? [])];
+      drops[dropIdx] = { ...drops[dropIdx], [field]: value };
+      set.drops_results = drops;
+      blockSets[setIdx] = set;
       return { ...prev, [blockIdx]: blockSets };
     });
   };
@@ -346,6 +379,15 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                             <span className="font-black text-base leading-none">{block.sets}</span>
                           </div>
                         )}
+                        {block.set_type && block.set_type !== 'normal' && (
+                          <div className="hidden sm:flex items-center">
+                            <span className="text-[8px] font-black uppercase tracking-widest bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {block.set_type === 'drop_set'       ? 'Drop Set'    :
+                               block.set_type === 'piramidal_asc'  ? 'Piramidal ↑' :
+                               block.set_type === 'piramidal_desc' ? 'Piramidal ↓' : ''}
+                            </span>
+                          </div>
+                        )}
                         {rf.includes('reps') && block.reps && (
                           <div className="hidden sm:flex flex-col items-center">
                             <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Reps</span>
@@ -358,10 +400,17 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                             <span className="font-black text-base leading-none">{block.duration_minutes}<span className="text-xs font-normal"> min</span></span>
                           </div>
                         )}
-                        {rf.includes('weight') && wt && (
+                        {rf.includes('weight') && wt && !block.set_config?.some(s => s.is_drop_set) && (
                           <div className="hidden sm:flex flex-col items-center">
                             <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Peso</span>
                             <span className="font-black text-base leading-none">{wt}</span>
+                          </div>
+                        )}
+                        {block.set_config?.some(s => s.is_drop_set) && (
+                          <div className="hidden sm:flex items-center">
+                            <span className="text-[8px] font-black uppercase tracking-widest bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
+                              Drop Set
+                            </span>
                           </div>
                         )}
                         {isOpen
@@ -531,34 +580,73 @@ export function SessionExecution({ session, onClose, onCompleted }: SessionExecu
                               {rf.includes('weight') && <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest text-center">Peso (kg)</span>}
                               {rf.includes('rpe')    && <span className="text-[10px] uppercase font-black text-muted-foreground tracking-widest text-center">RPE 1–10</span>}
                             </div>
-                            {sets.map((s, setIdx) => (
-                              <div key={setIdx} className="flex items-center gap-3">
-                                <span className="text-sm font-black text-primary w-6 shrink-0 text-center">{setIdx + 1}</span>
-                                <div className="flex-1" style={{ display: 'grid', gridTemplateColumns: `repeat(${rf.length}, 1fr)`, gap: '0.75rem' }}>
-                                  {rf.includes('reps') && (
-                                    <NumberStepper
-                                      value={s.reps_completed}
-                                      onChange={val => updateSet(blockIdx, setIdx, 'reps_completed', val)}
-                                      min={0} max={999} step={1}
-                                    />
-                                  )}
-                                  {rf.includes('weight') && (
-                                    <NumberStepper
-                                      value={s.weight_kg}
-                                      onChange={val => updateSet(blockIdx, setIdx, 'weight_kg', val)}
-                                      min={0} max={500} step={1}
-                                    />
-                                  )}
-                                  {rf.includes('rpe') && (
-                                    <NumberStepper
-                                      value={s.rpe}
-                                      onChange={val => updateSet(blockIdx, setIdx, 'rpe', val)}
-                                      min={1} max={10} step={1}
-                                    />
-                                  )}
+                            {sets.map((s, setIdx) => {
+                              const configRow = block.set_config?.[setIdx];
+                              const isDropSet = configRow?.is_drop_set && (s.drops_results?.length ?? 0) > 0;
+
+                              if (isDropSet) {
+                                return (
+                                  <div key={setIdx} className="space-y-1.5">
+                                    {/* Label de la serie drop */}
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-black text-primary w-6 text-center">{setIdx + 1}</span>
+                                      <span className="text-[9px] font-black uppercase tracking-widest bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">Drop Set</span>
+                                    </div>
+                                    {/* Drops */}
+                                    {(s.drops_results ?? []).map((drop, dropIdx) => (
+                                      <div key={dropIdx} className="flex items-center gap-3 pl-8">
+                                        <span className="text-[10px] text-primary/50 font-black shrink-0">↳ {dropIdx + 1}</span>
+                                        <div className="flex-1 grid grid-cols-2 gap-3">
+                                          {rf.includes('reps') && (
+                                            <NumberStepper
+                                              value={drop.reps_completed}
+                                              onChange={val => updateDropResult(blockIdx, setIdx, dropIdx, 'reps_completed', val)}
+                                              min={0} max={999} step={1}
+                                            />
+                                          )}
+                                          {rf.includes('weight') && (
+                                            <NumberStepper
+                                              value={drop.weight_kg}
+                                              onChange={val => updateDropResult(blockIdx, setIdx, dropIdx, 'weight_kg', val)}
+                                              min={0} max={500} step={1}
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                    {/* RPE compartido para toda la serie drop */}
+                                    {rf.includes('rpe') && (
+                                      <div className="flex items-center gap-3 pl-8">
+                                        <span className="text-[10px] text-muted-foreground font-bold shrink-0">RPE</span>
+                                        <NumberStepper
+                                          value={s.rpe}
+                                          onChange={val => updateSet(blockIdx, setIdx, 'rpe', val)}
+                                          min={1} max={10} step={1}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              // Serie normal
+                              return (
+                                <div key={setIdx} className="flex items-center gap-3">
+                                  <span className="text-sm font-black text-primary w-6 shrink-0 text-center">{setIdx + 1}</span>
+                                  <div className="flex-1" style={{ display: 'grid', gridTemplateColumns: `repeat(${rf.length}, 1fr)`, gap: '0.75rem' }}>
+                                    {rf.includes('reps') && (
+                                      <NumberStepper value={s.reps_completed} onChange={val => updateSet(blockIdx, setIdx, 'reps_completed', val)} min={0} max={999} step={1} />
+                                    )}
+                                    {rf.includes('weight') && (
+                                      <NumberStepper value={s.weight_kg} onChange={val => updateSet(blockIdx, setIdx, 'weight_kg', val)} min={0} max={500} step={1} />
+                                    )}
+                                    {rf.includes('rpe') && (
+                                      <NumberStepper value={s.rpe} onChange={val => updateSet(blockIdx, setIdx, 'rpe', val)} min={1} max={10} step={1} />
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           /* Bloque de tiempo — solo info, sin registro por sets */
