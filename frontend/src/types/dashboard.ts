@@ -14,6 +14,7 @@ export interface StatCardProps {
   splitValue?: string | number;
   splitTitle?: string;
   splitIcon?: React.ComponentType<{ className?: string }>;
+  href?: string;
 }
 
 export interface ActivityItem {
