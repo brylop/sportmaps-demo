@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings } from 'lucide-react';
+import { Home, Calendar, MessageSquare, User, Compass, Users, CreditCard, Baby, Settings, Trophy, Activity } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -33,9 +33,8 @@ const getNavigationItemsForRole = (role: string) => {
     case 'athlete':
       return [
         { href: '/dashboard', label: 'Inicio', icon: Home },
-        ...(SHOW_EXPLORE ? [{ href: '/explorar', label: 'Explorar', icon: Compass }] : []),
-        { href: '/calendar', label: 'Agenda', icon: Calendar },
-        { href: '/messages', label: 'Chat', icon: MessageSquare },
+        { href: '/enrollments', label: 'Mis inscripciones', icon: Trophy },
+        { href: '/training', label: 'Entrenamientos', icon: Activity },
         { href: '/profile', label: 'Perfil', icon: User },
       ];
     default:
