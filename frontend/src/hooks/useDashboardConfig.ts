@@ -100,30 +100,34 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               title: 'Entrenamientos',
               value: stats.completedActivities || 0,
               description: 'Este mes',
-              icon: Activity
+              icon: Activity,
+              href: '/training'
             },
             {
               title: 'Nivel actual',
               value: stats.activeEnrollments > 0 ? 'Activo' : 'Sin nivel',
               description: stats.activeEnrollments > 0 ? 'En progreso' : 'Inscríbete para empezar',
-              icon: TrendingUp
+              icon: TrendingUp,
+              href: '/stats'
             },
             {
               title: 'Próxima sesión',
               value: stats.upcomingEvents > 0 ? `${stats.upcomingEvents}` : '—',
               description: stats.upcomingEvents > 0 ? 'Eventos esta semana' : 'Sin sesiones programadas',
-              icon: Calendar
+              icon: Calendar,
+              href: '/calendar'
             },
             {
               title: 'Pagos pendientes',
               value: stats.pendingPayments || 0,
               description: stats.pendingPayments === 0 ? 'Al día ✓' : 'Requieren atención',
-              icon: TrendingUp
+              icon: TrendingUp,
+              href: '/athlete-payments'
             }
           ],
           activities: [],
           quickActions: [
-            { label: 'Explorar Escuelas', icon: Target, href: '/explore', variant: 'default' },
+            { label: 'Entrenamientos', icon: Activity, href: '/training', variant: 'default' },
             { label: 'Mi Calendario', icon: Calendar, href: '/calendar', variant: 'outline' },
             { label: 'Mis Inscripciones', icon: Trophy, href: '/enrollments', variant: 'outline' },
             { label: 'Estadísticas', icon: BarChart3, href: '/stats', variant: 'outline' }
