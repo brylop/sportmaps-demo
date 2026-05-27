@@ -343,7 +343,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="my-payments" element={
-                        <ProtectedRoute allowedRoles={['parent']}>
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
