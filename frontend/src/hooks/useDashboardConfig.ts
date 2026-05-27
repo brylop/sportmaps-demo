@@ -115,7 +115,7 @@ export function useDashboardConfig(role: UserRole, statsData?: DashboardStats): 
               value: stats.upcomingEvents > 0 ? `${stats.upcomingEvents}` : '—',
               description: stats.upcomingEvents > 0 ? 'Eventos esta semana' : 'Sin sesiones programadas',
               icon: Calendar,
-              href: '/calendar'
+              href: '/enrollments'
             },
             {
               title: 'Pagos pendientes',
