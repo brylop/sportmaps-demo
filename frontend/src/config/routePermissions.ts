@@ -78,7 +78,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
 
     // ── Parent ──
     '/children': { allowedRoles: ['parent'], description: 'Mis hijos' },
-    '/my-payments': { allowedRoles: ['parent'], description: 'Mis pagos' },
+    '/my-payments': { allowedRoles: ['parent', 'athlete'], description: 'Mis pagos' },
     '/children/:id/progress': { allowedRoles: ['parent'], description: 'Progreso del hijo' },
     '/children/:id/attendance': { allowedRoles: ['parent'], description: 'Asistencia del hijo' },
     '/academic-progress': { allowedRoles: ['parent'], description: 'Progreso deportivo' },
