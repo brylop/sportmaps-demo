@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Dumbbell, Calendar, Clock, Flame, Plus, Play, Trash2,
-  Loader2, User, ChevronRight, Timer, CheckCircle2,
+  Loader2, User, ChevronRight, Timer, CheckCircle2, TrendingUp,
 } from 'lucide-react';
 
 const intensityConfig = {
@@ -260,55 +260,84 @@ export default function TrainingPage() {
             <User className="h-5 w-5 text-primary" />
             Sesiones de hoy
           </h2>
-          {ptSessions.map(session => (
-            <Card
-              key={session.id}
-              className={`border-2 transition-colors ${
-                session.status === 'completed'
-                  ? 'border-green-500/40 bg-green-500/5'
-                  : 'border-primary/40 bg-primary/5'
-              }`}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <Dumbbell className="h-5 w-5 text-primary" />
+          {ptSessions.map(session => {
+            const isCompleted = session.status === 'completed';
+            const isInProgress = session.status === 'in_progress';
+
+            return (
+              <Card
+                key={session.id}
+                className={`border-2 transition-all duration-300 ${
+                  isCompleted
+                    ? 'border-green-500/30 bg-green-500/5'
+                    : isInProgress
+                    ? 'border-amber-500/30 bg-amber-500/5 shadow-md shadow-amber-500/5'
+                    : 'border-primary/20 bg-primary/5 hover:border-primary/30'
+                }`}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                        isCompleted
+                          ? 'bg-green-500/10 text-green-600'
+                          : isInProgress
+                          ? 'bg-amber-500/10 text-amber-600'
+                          : 'bg-primary/10 text-primary'
+                      }`}>
+                        <Dumbbell className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold truncate text-foreground">{session.name}</p>
+                          {isInProgress && (
+                            <Badge variant="outline" className="text-[8px] uppercase font-black tracking-widest bg-amber-500/10 text-amber-600 border-amber-500/20">
+                              En progreso
+                            </Badge>
+                          )}
+                        </div>
+                        {session.trainer_profiles && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            💪 {session.trainer_profiles.display_name}
+                          </p>
+                        )}
+                        {session.custom_notes && (
+                          <p className="text-xs text-muted-foreground mt-1 italic leading-tight">
+                            "{session.custom_notes}"
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold truncate">{session.name}</p>
-                      {session.trainer_profiles && (
-                        <p className="text-xs text-muted-foreground">
-                          💪 {session.trainer_profiles.display_name}
-                        </p>
-                      )}
-                      {session.custom_notes && (
-                        <p className="text-xs text-muted-foreground mt-0.5 italic">
-                          "{session.custom_notes}"
-                        </p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isCompleted ? (
+                        <Badge className="bg-green-500/20 text-green-700 border-green-500/30 font-black tracking-wide text-xs">
+                          ✅ Completada
+                        </Badge>
+                      ) : isInProgress ? (
+                        <Button
+                          size="sm"
+                          className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold h-9 rounded-xl shadow-md shadow-amber-500/10 transition-all hover:scale-[1.02]"
+                          onClick={() => setExecutingSession(session)}
+                        >
+                          <TrendingUp className="h-3.5 w-3.5 animate-pulse" />
+                          Continuar
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="gap-1.5 bg-primary hover:bg-primary/95 text-primary-foreground font-bold h-9 rounded-xl shadow-md shadow-primary/10 transition-all hover:scale-[1.02]"
+                          onClick={() => setExecutingSession(session)}
+                        >
+                          <Play className="h-3.5 w-3.5 fill-current" />
+                          Iniciar
+                        </Button>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {session.status === 'completed' ? (
-                      <Badge className="bg-green-500/20 text-green-700 border-green-500/30">
-                        ✅ Completada
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={() => setExecutingSession(session)}
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                        Iniciar
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

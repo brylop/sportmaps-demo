@@ -18,6 +18,7 @@ import { SessionPlanCard } from '@/components/trainer/SessionPlanCard';
 import { SessionPlanModal } from '@/components/trainer/SessionPlanModal';
 import { CompleteSessionModal } from '@/components/trainer/CompleteSessionModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SessionExecution } from '@/components/athlete/SessionExecution';
 
 interface ClientTrainingTabProps {
   clientId:   string;
@@ -29,9 +30,10 @@ interface ClientTrainingTabProps {
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const SESSION_STATUS: Record<string, { label: string; color: string; icon: any }> = {
-  completed: { label: 'Completada', color: 'bg-green-500/10 text-green-600 border-green-500/20',  icon: CheckCircle2   },
-  cancelled: { label: 'Cancelada',  color: 'bg-muted text-muted-foreground border-border/30',     icon: XCircle        },
-  no_show:   { label: 'No asistió', color: 'bg-red-500/10 text-red-500 border-red-500/20',        icon: AlertTriangle  },
+  in_progress: { label: 'En progreso',  color: 'bg-amber-500/10 text-amber-600 border-amber-500/20',  icon: TrendingUp  },
+  completed:   { label: 'Completada',   color: 'bg-green-500/10 text-green-600 border-green-500/20',  icon: CheckCircle2 },
+  cancelled:   { label: 'Cancelada',    color: 'bg-muted text-muted-foreground border-border/30',     icon: XCircle     },
+  no_show:     { label: 'No asistió',   color: 'bg-red-500/10 text-red-500 border-red-500/20',        icon: AlertTriangle },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ export function ClientTrainingTab({
   const [openCompleteModal, setOpenCompleteModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [isSaving,     setIsSaving]     = useState(false);
+  const [executingPlan, setExecutingPlan] = useState<any | null>(null);
 
   const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
@@ -208,7 +211,7 @@ export function ClientTrainingTab({
     maxima:  'bg-red-500/10 text-red-500',
   };
 
-  const nextPlans = plans.filter(p => p.status === 'assigned' || p.status === 'draft');
+  const nextPlans = plans.filter(p => p.status === 'assigned' || p.status === 'draft' || p.status === 'in_progress');
   const pastPlans = plans.filter(p => ['completed', 'cancelled', 'no_show'].includes(p.status));
 
   return (
@@ -281,6 +284,7 @@ export function ClientTrainingTab({
               onComplete={(p) => { setSelectedPlan(p); setOpenCompleteModal(true); }}
               onEdit={(p) => { setSelectedPlan(p); setOpenPlanModal(true); }}
               onDelete={handleDeletePlan}
+              onContinue={(p) => setExecutingPlan(p)}
             />
           ))}
         </div>
@@ -439,6 +443,22 @@ export function ClientTrainingTab({
         onCompleted={handleCompleteSession}
         isLoading={isSaving}
       />
+
+      {executingPlan && (
+        <SessionExecution
+          session={{
+            ...executingPlan,
+            blocks: executingPlan.blocks ?? [],
+            execution_progress: executingPlan.execution_progress ?? null,
+          }}
+          onClose={() => setExecutingPlan(null)}
+          onCompleted={() => {
+            setExecutingPlan(null);
+            fetchPlans();
+            onUpdate();
+          }}
+        />
+      )}
     </div>
   );
 }

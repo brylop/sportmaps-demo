@@ -232,7 +232,7 @@ router.get('/session-plans', async (req: Request, res: Response) => {
 
         let query = supabase
             .from('trainer_session_plans')
-            .select('id, name, session_date, visible_from, status, client_id, client_type, blocks, custom_notes, results, routine_id, created_at')
+            .select('id, name, session_date, visible_from, status, client_id, client_type, blocks, custom_notes, results, routine_id, created_at, execution_progress, trainer_feedback')
             .eq('school_id', schoolId)
             .eq('trainer_id', trainerId);
 
@@ -526,6 +526,66 @@ router.delete('/session-plans/:planId', async (req: Request, res: Response) => {
     } catch (err) {
         (req as any).log?.error({ err }, 'Error deleting trainer session plan');
         res.status(500).json({ error: 'Error al eliminar el plan.' });
+    }
+});
+
+/**
+ * PATCH /trainer/session-plans/:planId/progress
+ * Guarda progreso parcial de la sesión.
+ */
+router.patch('/session-plans/:planId/progress', async (req: Request, res: Response) => {
+    try {
+        const { planId } = req.params;
+        const { execution_progress } = req.body;
+
+        const { data, error } = await supabase
+            .from('trainer_session_plans')
+            .update({
+                execution_progress,
+                status: 'in_progress', // transición assigned → in_progress
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', planId)
+            .in('status', ['assigned', 'in_progress']) // no tocar completed/cancelled
+            .select('id, status, execution_progress')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        (req as any).log?.error({ err }, 'Error saving session progress');
+        res.status(500).json({ error: 'Error al guardar progreso parcial.' });
+    }
+});
+
+/**
+ * PATCH /trainer/session-plans/:planId/feedback
+ * Guarda feedback del entrenador sobre el desempeño del cliente.
+ */
+router.patch('/session-plans/:planId/feedback', async (req: Request, res: Response) => {
+    try {
+        const { planId } = req.params;
+        const { note, rating } = req.body;
+
+        const trainer_feedback = {
+            note:       note   ?? null,
+            rating:     rating ?? null,
+            updated_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+        };
+
+        const { data, error } = await supabase
+            .from('trainer_session_plans')
+            .update({ trainer_feedback, updated_at: new Date().toISOString() })
+            .eq('id', planId)
+            .select('id, trainer_feedback')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        (req as any).log?.error({ err }, 'Error saving session feedback');
+        res.status(500).json({ error: 'Error al guardar feedback.' });
     }
 });
 

@@ -24,6 +24,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
 import { useUpdatePTAttendance, useHandleNoShow } from '@/hooks/useAthleteSessionBookings';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
@@ -189,6 +190,7 @@ function PlanInfoCard({ plan }: { plan: PlanInfo }) {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function CoachAttendancePage({ showPlanSessions = true }: { showPlanSessions?: boolean }) {
+  useActiveWorkPage();
   const { user, profile } = useAuth();
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();

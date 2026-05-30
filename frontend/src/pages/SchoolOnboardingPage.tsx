@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { SchoolOnboardingWizard } from '@/components/onboarding/SchoolOnboardingWizard';
 import { Loader2 } from 'lucide-react';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 /**
  * /onboarding/school — pagina standalone fullscreen.
@@ -19,6 +20,7 @@ import { Loader2 } from 'lucide-react';
  * de estado del DashboardPage.
  */
 export default function SchoolOnboardingPage() {
+    useActiveWorkPage();
     const { user, profile } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -37,13 +39,13 @@ export default function SchoolOnboardingPage() {
         }
 
         // 2. Fallback: query directa a schools (cubre 404 del RPC).
-        const { data: school } = await supabase
+        const { data: school } = await (supabase
             .from('schools')
             .select('id, onboarding_status, business_model')
             .eq('owner_id', user.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .maybeSingle();
+            .maybeSingle() as any);
 
         if (!school) {
             // No tiene escuela todavia: el usuario deberia ir primero a /setup/school

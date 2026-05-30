@@ -27,6 +27,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { QuickUseRoutineModal } from '@/components/trainer/QuickUseRoutineModal';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 // Campos que renderiza cada tipo de bloque (mismo criterio que BlockBuilder)
 const BLOCK_FIELDS: Record<string, string[]> = {
@@ -50,6 +51,7 @@ const BLOCK_ICONS: Record<string, { icon: any; color: string; label: string }> =
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
 export default function TrainerRoutineDetail() {
+  useActiveWorkPage();
   const { routineId } = useParams();
   const { session } = useAuth();
   const token = session?.access_token;

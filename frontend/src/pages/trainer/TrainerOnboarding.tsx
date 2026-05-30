@@ -21,6 +21,7 @@ import { BankCombobox } from '@/components/common/BankCombobox';
 import { useStorage } from '@/hooks/useStorage';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { Minus, Plus, Dumbbell, MapPin, Clock, DollarSign, CreditCard, Camera, ChevronRight, ChevronLeft, Check, Search, ChevronsUpDown, Upload, Loader2, Video, Smartphone, Users } from 'lucide-react';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
 
@@ -47,6 +48,7 @@ async function callBff(path: string, method: string, body: any, token: string) {
 }
 
 export default function TrainerOnboarding() {
+  useActiveWorkPage();
   const { session, trainerSchoolId, trainerOnboardingStatus } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
