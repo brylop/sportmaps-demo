@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { supabase } from '@/integrations/supabase/client';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -95,6 +96,9 @@ export function ProgramFormDialog({
       facility_id: program?.facility_id || undefined,
     },
   });
+
+  const { formState: { isDirty } } = form;
+  useUnsavedChanges(`program-form-${program?.id || 'new'}`, isDirty);
 
   useEffect(() => {
     if (open && schoolId) {

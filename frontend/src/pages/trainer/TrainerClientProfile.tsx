@@ -35,17 +35,20 @@ export default function TrainerClientProfile() {
     if (!clientId || clientId === 'null' || !type || !['adult', 'child', 'unregistered'].includes(type) || !session?.access_token) return;
 
     const fetchClientData = async () => {
-      setLoading(true);
+      if (!clientData) {
+        setLoading(true);
+      }
       try {
+        const token = session.access_token;
         const [clientRes, sessionRes, summaryRes] = await Promise.all([
           fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}?type=${type}`, {
-            headers: { Authorization: `Bearer ${session.access_token}` }
+            headers: { Authorization: `Bearer ${token}` }
           }),
           fetch(`${EFF_URL}/api/v1/trainer/availability/schedule?date=${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date())}`, {
-            headers: { Authorization: `Bearer ${session.access_token}` }
+            headers: { Authorization: `Bearer ${token}` }
           }),
           fetch(`${EFF_URL}/api/v1/trainer/clients/${clientId}/summary?type=${type}`, {
-            headers: { Authorization: `Bearer ${session.access_token}` }
+            headers: { Authorization: `Bearer ${token}` }
           })
         ]);
 
@@ -73,7 +76,7 @@ export default function TrainerClientProfile() {
     };
 
     fetchClientData();
-  }, [clientId, type, session, navigate, toast]);
+  }, [clientId, type, session?.access_token, navigate, toast]);
 
   if (loading) {
     return (

@@ -10,8 +10,10 @@ import { classesAPI, Class } from '@/lib/api/classes';
 import { CreateClassModal } from '@/components/classes/CreateClassModal';
 import { EnrollStudentModal } from '@/components/classes/EnrollStudentModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { useActiveWorkPage } from '@/hooks/useActiveWorkPage';
 
 export default function ProgramsManagementPage() {
+  useActiveWorkPage();
   const { profile } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const [classes, setClasses] = useState<Class[]>([]);

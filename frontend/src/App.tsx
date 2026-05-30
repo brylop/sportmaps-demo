@@ -18,6 +18,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { InstallBanner } from "./pwa/InstallBanner";
 import { UpdateBanner } from "./pwa/UpdateBanner";
 import { IdleTimer } from "@/components/auth/IdleTimer";
+import { IdleConfigProvider } from "@/contexts/IdleConfigContext";
 
 
 // ─── Skeleton de carga global ─────────────────────────────────────────────────
@@ -240,9 +241,10 @@ const AuthenticatedLayout = () => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <AuthProvider>
-        <IdleTimer />
-        <SchoolProvider>
+      <IdleConfigProvider>
+        <AuthProvider>
+          <IdleTimer />
+          <SchoolProvider>
 
           <ThemeProvider>
             <ErrorBoundary>
@@ -728,9 +730,10 @@ const App = () => (
           </ErrorBoundary>
         </ThemeProvider>
       </SchoolProvider>
-    </AuthProvider>
-  </TooltipProvider>
-</QueryClientProvider>
+        </AuthProvider>
+      </IdleConfigProvider>
+    </TooltipProvider>
+  </QueryClientProvider>
 );
 
 export default App;

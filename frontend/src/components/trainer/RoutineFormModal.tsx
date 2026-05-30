@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 
 interface RoutineFormModalProps {
   open: boolean;
@@ -98,6 +99,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
   });
 
   const [tagInput, setTagInput] = useState('');
+  const { markDirty, markClean } = useUnsavedChanges('routine-form-modal');
 
   useEffect(() => {
     if (routine) {
@@ -158,6 +160,11 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
       });
     }
     setStep(1);
+    if (open) {
+      markDirty();
+    } else {
+      markClean();
+    }
   }, [routine, open]);
 
 
@@ -176,11 +183,12 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
   const handleSubmit = async () => {
     if (!formData.name.trim()) return;
     await onSave(formData);
+    markClean();
     onClose();
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) markClean(); onClose(); }}>
       <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 overflow-hidden border-primary/20 shadow-2xl">
         <DialogHeader className="p-6 border-b shrink-0 bg-primary/5">
           <div className="flex items-center gap-3">
@@ -520,7 +528,7 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
 
         <DialogFooter className="p-6 border-t bg-muted/20 shrink-0">
           <div className="flex justify-between w-full">
-            <Button variant="ghost" onClick={onClose} disabled={isLoading} className="font-bold">Cancelar</Button>
+            <Button variant="ghost" onClick={() => { markClean(); onClose(); }} disabled={isLoading} className="font-bold">Cancelar</Button>
             
             <div className="flex gap-2">
               {step === 1 ? (
