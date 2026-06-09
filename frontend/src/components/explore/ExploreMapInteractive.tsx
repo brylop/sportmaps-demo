@@ -30,15 +30,16 @@ L.Icon.Default.mergeOptions({
 });
 
 // ── Tipos visibles en el mapa ────────────────────────────────────────────────
-type EntityType = 'academy' | 'club' | 'institute' | 'federation' | 'association';
+type EntityType = 'academy' | 'club' | 'institute' | 'federation' | 'association' | 'facility';
 
 // Pin colors + emoji por tipo
-const TYPE_META: Record<EntityType, { color: string; emoji: string; label: string; group: 'schools' | 'gov' }> = {
+const TYPE_META: Record<EntityType, { color: string; emoji: string; label: string; group: 'schools' | 'gov' | 'facility' }> = {
   academy:     { color: '#248223', emoji: '🎓', label: 'Escuelas',      group: 'schools' },
   club:        { color: '#0ea5e9', emoji: '⚽', label: 'Clubes',        group: 'schools' },
   institute:   { color: '#8b5cf6', emoji: '🏛️', label: 'Institutos',    group: 'gov' },
   federation:  { color: '#f59e0b', emoji: '🏅', label: 'Federaciones',  group: 'gov' },
   association: { color: '#ef4444', emoji: '🤝', label: 'Asociaciones',  group: 'gov' },
+  facility:    { color: '#64748b', emoji: '🏟️', label: 'Instalaciones', group: 'facility' },
 };
 
 function makeIcon(type: EntityType) {
@@ -199,13 +200,14 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
     institute: true,
     federation: true,
     association: true,
+    facility: true,
   });
 
   const { data: all = [], isLoading } = useExploreSchools({ query, city, sport });
 
   // Marker count por tipo (para mostrar en leyenda incluso si está apagado)
   const countsByType = useMemo(() => {
-    const c: Record<EntityType, number> = { academy: 0, club: 0, institute: 0, federation: 0, association: 0 };
+    const c: Record<EntityType, number> = { academy: 0, club: 0, institute: 0, federation: 0, association: 0, facility: 0 };
     all.forEach((m) => { c[m.schoolType] = (c[m.schoolType] || 0) + 1; });
     return c;
   }, [all]);
@@ -222,6 +224,7 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
     institute: makeIcon('institute'),
     federation: makeIcon('federation'),
     association: makeIcon('association'),
+    facility: makeIcon('facility'),
   }), []);
 
   const askLocation = () => {
@@ -287,11 +290,13 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
             {markers.map((m) => {
               const meta = TYPE_META[m.schoolType];
               const isGov = meta.group === 'gov';
+              const isFacility = meta.group === 'facility';
+              const isInfoOnly = isGov || isFacility;
               return (
                 <Marker key={m.id} position={[m.lat, m.lng]} icon={icons[m.schoolType]}>
                   <Popup minWidth={240}>
                     <div className="space-y-2 max-w-[260px]">
-                      {m.cover_image_url && !isGov && (
+                      {m.cover_image_url && !isInfoOnly && (
                         <img
                           src={m.cover_image_url}
                           alt={m.name}
@@ -344,7 +349,11 @@ export function ExploreMapInteractive({ category, query, city, sport }: ExploreM
                         <p className="text-[11px] text-muted-foreground truncate">✉️ {m.email}</p>
                       )}
 
-                      {isGov ? (
+                      {isFacility ? (
+                        <p className="text-[10px] text-muted-foreground italic border-t pt-1.5">
+                          Instalación deportiva — información pública (sin programas asociados).
+                        </p>
+                      ) : isGov ? (
                         <p className="text-[10px] text-muted-foreground italic border-t pt-1.5">
                           Entidad gubernamental — solo información pública.
                         </p>
