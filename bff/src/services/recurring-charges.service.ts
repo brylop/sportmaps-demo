@@ -26,19 +26,22 @@ import {
     createTransactionWithPaymentSource,
     copToCents,
 } from './wompi.service';
-import type { PaymentProvider } from './payment-provider.resolver';
+import { resolveProvider, type PaymentProvider } from './payment-provider.resolver';
 
 const MP_NOTIFICATION_URL = process.env.MP_NOTIFICATION_URL
     ?? `${process.env.BFF_PUBLIC_URL ?? ''}/api/v1/webhooks/mercadopago`;
 
 interface DueSubscription {
     subscription_id: string;
-    school_id: string;
+    school_id: string | null;
+    vendor_profile_id: string | null;
+    subscription_plan_id: string | null;
     user_id: string;
     child_id: string | null;
     amount: number;
     currency: string;
     concept: string;
+    billing_period: string | null;
     payment_token_id: string;
     payment_provider: PaymentProvider;
     provider_token: string | null;
@@ -55,14 +58,17 @@ export interface RunResult {
     errors: Array<{ subscriptionId: string; error: string }>;
 }
 
-/**
- * Carga el access_token y demas credenciales del provider para una escuela.
- * Si la escuela ya no tiene ese provider habilitado, retorna null.
- */
-async function loadSchoolProviderCreds(schoolId: string, provider: PaymentProvider): Promise<{
+interface ProviderCreds {
     accessToken: string;
     publicKey: string;
-} | null> {
+}
+
+/**
+ * Carga el access_token del provider para una escuela. Si la escuela ya no
+ * tiene ese provider habilitado, retorna null y el cobro falla con
+ * 'school_provider_disabled'.
+ */
+async function loadSchoolProviderCreds(schoolId: string, provider: PaymentProvider): Promise<ProviderCreds | null> {
     const { data, error } = await supabase
         .from('school_payment_providers')
         .select('access_token, public_key, enabled')
@@ -76,70 +82,193 @@ async function loadSchoolProviderCreds(schoolId: string, provider: PaymentProvid
 }
 
 /**
- * Inserta un payment registrando el resultado del cobro recurrente.
- * Devuelve el id del payment para vincularlo al attempt.
+ * Carga el access_token del provider para un vendor del marketplace.
+ *
+ * `vendor_payment_providers.vendor_id` apunta a `auth.users(id)` (el dueno
+ * del vendor_profile), no al vendor_profile.id. Resolvemos el user_id antes
+ * de consultar el resolver para que el lookup acierte.
+ *
+ * Si el vendor no tiene config propia, el resolver cae al marketplace
+ * global (Wompi/MP de SportMaps) y la plata entra a la cuenta SportMaps
+ * — luego se distribuye al vendor via vendor_payouts.
  */
-async function insertRecurringPayment(args: {
+async function loadVendorProviderCreds(vendorProfileId: string, provider: PaymentProvider): Promise<ProviderCreds | null> {
+    const { data: vp } = await supabase
+        .from('vendor_profiles')
+        .select('user_id')
+        .eq('id', vendorProfileId)
+        .maybeSingle();
+
+    const ownerUserId = (vp as any)?.user_id as string | undefined;
+    if (!ownerUserId) return null;
+
+    const resolved = await resolveProvider({ vendorId: ownerUserId, preferredProvider: provider });
+    if (!resolved?.accessToken) return null;
+    if (resolved.provider !== provider) return null;
+    return { accessToken: resolved.accessToken, publicKey: resolved.publicKey };
+}
+
+/**
+ * Inserta el registro contable del cobro recurrente.
+ *
+ * - School mode (sub.school_id no nulo): fila en `payments`, vinculada a
+ *   parent/child/school. Es la tabla que ven los staff de la escuela.
+ * - Vendor mode (sub.vendor_profile_id no nulo): fila en
+ *   `marketplace_transactions` con checkout_type='subscription', que es
+ *   el ledger unificado que alimenta vendor_payouts.
+ *
+ * Devuelve el id de la fila creada (payment_id o marketplace_transaction_id
+ * segun el caso) para vincularlo al recurring_charge_attempts. En vendor
+ * mode `payment_id` en attempts queda NULL (esa columna apunta a payments).
+ */
+async function insertRecurringLedgerRow(args: {
     sub: DueSubscription;
     status: 'paid' | 'failed';
     providerPaymentId: string | null;
     providerReference: string;
-}): Promise<string | null> {
+}): Promise<{ paymentId: string | null; marketplaceTxId: string | null }> {
     const { sub, status, providerPaymentId, providerReference } = args;
 
+    // ─── School mode ─────────────────────────────────────────────────
+    if (sub.school_id) {
+        const { data, error } = await supabase
+            .from('payments')
+            .insert({
+                school_id: sub.school_id,
+                parent_id: sub.user_id,
+                child_id: sub.child_id,
+                concept: sub.concept,
+                amount: sub.amount,
+                amount_paid: status === 'paid' ? sub.amount : null,
+                due_date: new Date().toISOString().slice(0, 10),
+                payment_date: status === 'paid' ? new Date().toISOString().slice(0, 10) : null,
+                status,
+                payment_type: 'subscription',
+                payment_method: 'card',
+                payment_provider: sub.payment_provider,
+                provider_reference: providerReference,
+                provider_transaction_id: providerPaymentId,
+                wompi_id: sub.payment_provider === 'wompi' ? providerPaymentId : null,
+            })
+            .select('id')
+            .single();
+
+        if (error) {
+            console.error('[recurring-charges] insert payment failed:', error.message);
+            return { paymentId: null, marketplaceTxId: null };
+        }
+        return { paymentId: data?.id ?? null, marketplaceTxId: null };
+    }
+
+    // ─── Vendor mode ─────────────────────────────────────────────────
+    const grossAmount = Number(sub.amount);
     const { data, error } = await supabase
-        .from('payments')
+        .from('marketplace_transactions')
         .insert({
-            school_id: sub.school_id,
-            parent_id: sub.user_id,
-            child_id: sub.child_id,
-            concept: sub.concept,
-            amount: sub.amount,
-            amount_paid: status === 'paid' ? sub.amount : null,
-            due_date: new Date().toISOString().slice(0, 10),
-            payment_date: status === 'paid' ? new Date().toISOString().slice(0, 10) : null,
-            status,
-            payment_type: 'subscription',
-            payment_method: 'card',
+            checkout_type: 'subscription',
+            user_id: sub.user_id,
+            vendor_profile_id: sub.vendor_profile_id,
+            // gross = monto cobrado. platform_fee / take_rate se calcula en
+            // otra tanda — por ahora net = gross y los payouts pueden
+            // descontar comision via reglas separadas.
+            gross_amount: grossAmount,
+            platform_fee: 0,
+            gateway_fee: 0,
+            tax_amount: 0,
+            net_amount: grossAmount,
+            currency: sub.currency,
             payment_provider: sub.payment_provider,
             provider_reference: providerReference,
             provider_transaction_id: providerPaymentId,
-            // wompi_id se mantiene por compat: solo si es wompi
-            wompi_id: sub.payment_provider === 'wompi' ? providerPaymentId : null,
+            wompi_reference: sub.payment_provider === 'wompi' ? providerReference : null,
+            wompi_transaction_id: sub.payment_provider === 'wompi' ? providerPaymentId : null,
+            payment_method: 'card',
+            status: status === 'paid' ? 'paid' : 'failed',
+            paid_at: status === 'paid' ? new Date().toISOString() : null,
+            description: sub.concept,
+            metadata: {
+                source: 'recurring_subscription',
+                subscription_id: sub.subscription_id,
+                subscription_plan_id: sub.subscription_plan_id,
+                billing_period: sub.billing_period,
+            },
         })
         .select('id')
         .single();
 
     if (error) {
-        console.error('[recurring-charges] insert payment failed:', error.message);
-        return null;
+        console.error('[recurring-charges] insert marketplace_transaction failed:', error.message);
+        return { paymentId: null, marketplaceTxId: null };
     }
-    return data?.id ?? null;
+    return { paymentId: null, marketplaceTxId: data?.id ?? null };
 }
 
 /**
  * Cobra una sola sub. Aislada para que un fallo no tumbe al resto del batch.
+ *
+ * Bifurcacion school vs vendor:
+ *   - school mode: credenciales de school_payment_providers; ledger -> payments.
+ *   - vendor mode: credenciales de vendor_payment_providers (o marketplace
+ *     global como fallback); ledger -> marketplace_transactions.
+ *
+ * Idempotency key depende del billing_period (semanal usa la semana ISO,
+ * mensual el YYYY-MM, etc) para que un re-run dentro del mismo ciclo no
+ * cobre dos veces.
  */
 async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: string }> {
-    // Idempotency key estable por (sub, periodo): si Edge Function se re-dispara, MP/Wompi
-    // ignoran el segundo intento.
+    const isVendorMode = !!sub.vendor_profile_id;
+
+    // Periodo para idempotencia: el slice depende del billing_period para
+    // que weekly y monthly no compartan la misma key dentro del mismo mes.
+    const now = new Date();
+    let periodKey: string;
+    switch (sub.billing_period) {
+        case 'weekly':
+        case 'biweekly': {
+            // ISO week number — simple aproximacion suficiente para idempotencia
+            const start = new Date(now.getFullYear(), 0, 1).getTime();
+            const days = Math.floor((now.getTime() - start) / (24 * 60 * 60 * 1000));
+            const week = Math.floor(days / 7);
+            periodKey = `${now.getFullYear()}-W${week}`;
+            break;
+        }
+        case 'quarterly': {
+            const quarter = Math.floor(now.getMonth() / 3) + 1;
+            periodKey = `${now.getFullYear()}-Q${quarter}`;
+            break;
+        }
+        case 'yearly':
+            periodKey = `${now.getFullYear()}`;
+            break;
+        default:
+            periodKey = now.toISOString().slice(0, 7); // YYYY-MM
+    }
+
     const idempotencyKey = crypto
         .createHash('sha256')
-        .update(`${sub.subscription_id}:${new Date().toISOString().slice(0, 7)}`)
+        .update(`${sub.subscription_id}:${periodKey}`)
         .digest('hex');
 
-    const creds = await loadSchoolProviderCreds(sub.school_id, sub.payment_provider);
+    // Cargar credenciales segun el modo de la sub.
+    const creds = isVendorMode
+        ? await loadVendorProviderCreds(sub.vendor_profile_id as string, sub.payment_provider)
+        : await loadSchoolProviderCreds(sub.school_id as string, sub.payment_provider);
+
     if (!creds) {
+        const errCode = isVendorMode ? 'vendor_provider_disabled' : 'school_provider_disabled';
+        const errMsg = isVendorMode
+            ? `Vendor no tiene ${sub.payment_provider} habilitado ni marketplace global configurado`
+            : `Escuela ya no tiene ${sub.payment_provider} habilitado`;
         await supabase.rpc('record_recurring_attempt', {
             p_subscription_id: sub.subscription_id,
             p_status: 'failed',
             p_amount: sub.amount,
             p_payment_provider: sub.payment_provider,
-            p_error_code: 'school_provider_disabled',
-            p_error_message: `Escuela ya no tiene ${sub.payment_provider} habilitado`,
+            p_error_code: errCode,
+            p_error_message: errMsg,
             p_idempotency_key: idempotencyKey,
         });
-        return { ok: false, error: 'school_provider_disabled' };
+        return { ok: false, error: errCode };
     }
 
     let providerPaymentId: string | null = null;
@@ -149,7 +278,7 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
     let providerReference: string;
 
     if (sub.payment_provider === 'mercadopago') {
-        providerReference = generateMpReference('subscription');
+        providerReference = generateMpReference(isVendorMode ? 'vendor_sub' : 'subscription');
         if (!sub.provider_customer_id || !sub.provider_card_id) {
             errorMsg = 'mp_token_missing_customer_or_card';
         } else if (!sub.user_email) {
@@ -177,14 +306,14 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
         }
     } else {
         // Wompi autopay via payment_source_id (POST /v1/payment_sources).
-        // Reference deterministica por (sub, mes): si el cron se re-dispara
+        // Reference deterministica por (sub, periodo): si el cron se re-dispara
         // a mitad de proceso, Wompi devuelve 422 "duplicate reference" y la
         // funcion del service captura ese caso buscando la tx original.
-        // Eso garantiza idempotencia real (no solo idempotency_key del
-        // record_recurring_attempt, sino TAMBIEN en Wompi).
-        const periodKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+        // Eso garantiza idempotencia real (no solo via idempotency_key, sino
+        // TAMBIEN en Wompi). El periodKey ya esta calculado arriba segun
+        // billing_period (weekly/monthly/etc).
         const subShort = sub.subscription_id.slice(0, 8);
-        providerReference = `SUB-${subShort}-${periodKey}`;
+        providerReference = `${isVendorMode ? 'VSUB' : 'SUB'}-${subShort}-${periodKey}`;
 
         if (!sub.provider_payment_source_id) {
             errorMsg = 'wompi_payment_source_missing';
@@ -209,7 +338,7 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
         }
     }
 
-    const paymentId = await insertRecurringPayment({
+    const ledger = await insertRecurringLedgerRow({
         sub,
         status: chargeOk ? 'paid' : 'failed',
         providerPaymentId,
@@ -226,7 +355,10 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
         p_error_message: errorMsg,
         p_idempotency_key: idempotencyKey,
         p_raw_response: rawResponse,
-        p_payment_id: paymentId,
+        // payment_id apunta a payments — solo poblado en school mode.
+        // Para vendor mode el ledger es marketplace_transactions; se rastrea
+        // via attempts.raw_response y los logs del runner.
+        p_payment_id: ledger.paymentId,
     });
 
     return chargeOk ? { ok: true } : { ok: false, error: errorMsg ?? 'unknown' };
@@ -261,4 +393,37 @@ export async function runDueRecurringCharges(limit = 50): Promise<RunResult> {
     }
 
     return result;
+}
+
+/**
+ * Cobra UNA sub especifica si esta vencida. La usa el endpoint
+ * POST /recurring/subscriptions para disparar el primer cobro sincronamente
+ * justo despues de crear una sub en vendor mode (next_charge_at = now()).
+ *
+ * Si la sub no esta vencida o ya fue tomada por el cron (SKIP LOCKED),
+ * devuelve `{ ok: true, skipped: true }` y el cron la procesara en el
+ * siguiente tick. No es un error.
+ */
+export async function chargeRecurringSubscriptionById(subId: string): Promise<{
+    ok: boolean;
+    skipped?: boolean;
+    error?: string;
+}> {
+    const { data, error } = await supabase.rpc('claim_single_due_recurring_subscription', { p_sub_id: subId });
+    if (error) {
+        throw new Error(`claim_single_due_recurring_subscription failed: ${error.message}`);
+    }
+
+    const subs = (data ?? []) as DueSubscription[];
+    if (subs.length === 0) {
+        return { ok: true, skipped: true };
+    }
+
+    try {
+        const res = await chargeOne(subs[0]);
+        return res;
+    } catch (err: any) {
+        console.error('[recurring-charges] chargeRecurringSubscriptionById threw', err);
+        return { ok: false, error: err?.message ?? 'exception' };
+    }
 }

@@ -166,6 +166,7 @@ const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMar
 const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
 const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
 const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
+const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscribersPage"));
 const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
@@ -620,6 +621,7 @@ const App = () => (
                         <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
                         <Route path="vendor/inbox" element={<VendorInboxPage />} />
                         <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/subscribers" element={<VendorSubscribersPage />} />
                         <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
                         <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
                       </Route>

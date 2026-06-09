@@ -81,6 +81,7 @@ export type MpSource =
     | 'service'
     | 'event'
     | 'subscription'
+    | 'vendor_sub'
     | 'cart'
     | 'marketplace_pay'
     | 'session_booking';
@@ -90,6 +91,7 @@ const PREFIX_MAP: Record<MpSource, string> = {
     service: 'SVC',
     event: 'EVT',
     subscription: 'SUB',
+    vendor_sub: 'VSUB',
     cart: 'CART',
     marketplace_pay: 'MKT',
     session_booking: 'BKG',

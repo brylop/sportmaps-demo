@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Users, Calendar, DollarSign, Clock, ArrowRight, TrendingUp, Star } from 'lucide-react';
+import { Users, Calendar, DollarSign, Clock, ArrowRight, TrendingUp, Star, Repeat } from 'lucide-react';
 
 export default function TrainerDashboard() {
   const { trainerProfile, trainerSchoolId } = useTrainerContext();
@@ -115,10 +115,11 @@ export default function TrainerDashboard() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Accesos rápidos</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[
             { label: 'Gestionar disponibilidad', href: '/trainer/availability', icon: Calendar },
             { label: 'Ver mis planes', href: '/trainer/plans', icon: TrendingUp },
+            { label: 'Mis suscriptores', href: '/vendor/subscribers', icon: Repeat },
             { label: 'Editar mi perfil', href: '/trainer/profile', icon: Star },
           ].map((action) => (
             <Link key={action.href} to={action.href}>
