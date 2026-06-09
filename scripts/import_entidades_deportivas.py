@@ -23,6 +23,7 @@ Outputs (idempotentes, UPSERT por external_school_imports):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -31,6 +32,11 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import Optional
+
+
+def _hash8(s: str) -> str:
+    """Hash MD5 truncado a 8 chars — unicidad garantizada de external_ref."""
+    return hashlib.md5(s.encode("utf-8")).hexdigest()[:8]
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
@@ -199,7 +205,7 @@ def parse_institutos() -> list[dict]:
 
             out.append({
                 "kind": "instituto",
-                "ext_ref": f"INST-{sheet_name[:3].upper()}-{slugify(ente)[:30]}",
+                "ext_ref": f"INST-{sheet_name[:3].upper()}-{slugify(ente)[:30]}-{_hash8(ente)}",
                 "name": ente,
                 "acronym": acronimo,
                 "city": depto_ciudad,
@@ -247,7 +253,7 @@ def parse_federaciones() -> list[dict]:
 
         out.append({
             "kind": "federacion",
-            "ext_ref": f"FED-{slugify(nombre)[:40]}",
+            "ext_ref": f"FED-{slugify(nombre)[:40]}-{_hash8(nombre)}",
             "name": nombre.title(),
             "acronym": None,
             "city": domicilio,
@@ -285,7 +291,7 @@ def parse_asociaciones() -> list[dict]:
 
         out.append({
             "kind": "asociacion",
-            "ext_ref": f"ASOC-{slugify(nombre)[:40]}",
+            "ext_ref": f"ASOC-{slugify(nombre)[:40]}-{_hash8(nombre)}",
             "name": nombre.title(),
             "acronym": None,
             "city": ciudad,
@@ -314,9 +320,17 @@ def write_sql(records: list[dict]) -> None:
         "",
     ]
 
+    # Mapeo kind -> school_type (ya no son todos 'academy')
+    KIND_TO_TYPE = {
+        "instituto":  "institute",
+        "federacion": "federation",
+        "asociacion": "association",
+    }
+
     for rec in records:
-        slug = slugify(rec["name"]) + "-" + rec["ext_ref"][:8].lower()
+        slug = slugify(rec["name"]) + "-" + _hash8(rec["ext_ref"])
         sports = [rec["sport"]] if rec.get("sport") else ["Multideporte"]
+        school_type = KIND_TO_TYPE.get(rec["kind"], "academy")
         raw = json.dumps({
             "kind": rec["kind"],
             "acronym": rec.get("acronym"),
@@ -338,7 +352,7 @@ def write_sql(records: list[dict]) -> None:
         lines.append("    ) VALUES (")
         lines.append(f"      {sql_str(rec['name'])},")
         lines.append(f"      {sql_str(rec['description'])},")
-        lines.append("      'academy',")
+        lines.append(f"      '{school_type}',")
         lines.append(f"      {sql_str(rec.get('city') or 'Colombia')},")
         lines.append(f"      {sql_str(rec.get('address'))},")
         lines.append(f"      {sql_str(rec.get('phone'))},")
@@ -388,6 +402,12 @@ def write_ts(records: list[dict]) -> None:
         "",
         "export const entidadesDeportivasOficiales: MapLocation[] = [",
     ]
+    # Mapeo kind -> entityType del landing (para filtros UI)
+    KIND_TO_ENTITY_TYPE = {
+        "instituto":  "institute",
+        "federacion": "federation",
+        "asociacion": "association",
+    }
     for rec in records:
         if not rec.get("lat") or not rec.get("lng"):
             continue
@@ -396,10 +416,12 @@ def write_ts(records: list[dict]) -> None:
         city = (rec.get("city") or "Colombia").replace("'", "\\'")
         desc = (rec.get("description") or "").replace("'", "\\'")[:180]
         addr = (rec.get("address") or "").replace("'", "\\'")
+        entity_type = KIND_TO_ENTITY_TYPE.get(rec["kind"], "academy")
         lines.append("  {")
         lines.append(f"    id: '{rec['ext_ref'].lower()}',")
         lines.append(f"    name: '{name}',")
         lines.append("    type: 'academy',")
+        lines.append(f"    entityType: '{entity_type}',")
         lines.append(f"    sport: '{sport}',")
         lines.append(f"    lat: {rec['lat']:.7f},")
         lines.append(f"    lng: {rec['lng']:.7f},")
