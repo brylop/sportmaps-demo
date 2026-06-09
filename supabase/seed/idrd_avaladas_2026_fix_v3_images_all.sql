@@ -209,36 +209,11 @@ UPDATE public.schools s
 
 
 -- ============================================================
--- 4. Verificacion
+-- 4. Verificacion (correr aparte si querés ver counts)
 -- ============================================================
-
-DO $$
-DECLARE
-    v_total int;
-    v_with_cover int;
-    v_with_logo int;
-    v_idrd_visible int;
-BEGIN
-    SELECT COUNT(*) INTO v_total FROM public.schools;
-    SELECT COUNT(*) INTO v_with_cover FROM public.schools WHERE cover_image_url IS NOT NULL;
-    SELECT COUNT(*) INTO v_with_logo FROM public.schools WHERE logo_url IS NOT NULL;
-
-    SELECT COUNT(*) INTO v_idrd_visible
-      FROM public.schools s
-      JOIN public.external_school_imports e ON e.school_id = s.id
-      JOIN public.school_settings ss ON ss.school_id = s.id AND ss.public_profile_enabled = true
-      JOIN public.school_branches b ON b.school_id = s.id AND b.is_main AND b.lat IS NOT NULL
-     WHERE e.source = 'idrd_bogota_2026'
-       AND NOT s.is_demo
-       AND s.onboarding_status != 'pending';
-
-    RAISE NOTICE '─────────────────────────────────────';
-    RAISE NOTICE 'Total schools en DB: %', v_total;
-    RAISE NOTICE 'Con cover_image_url: %', v_with_cover;
-    RAISE NOTICE 'Con logo_url: %', v_with_logo;
-    RAISE NOTICE 'IDRD que pasan TODOS los filtros del mapa: %', v_idrd_visible;
-    RAISE NOTICE '─────────────────────────────────────';
-END $$;
+-- SELECT COUNT(*) FROM public.schools;
+-- SELECT COUNT(*) FROM public.schools WHERE cover_image_url IS NOT NULL;
+-- SELECT COUNT(*) FROM public.schools WHERE logo_url IS NOT NULL;
 
 
 COMMIT;

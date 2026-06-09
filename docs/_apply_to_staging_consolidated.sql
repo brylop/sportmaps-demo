@@ -1,14 +1,6 @@
 -- ============================================================
 -- SPORTMAPS — Apply-to-staging CONSOLIDADO (junio 2026)
---
--- Pega TODO este archivo en SQL Editor de Supabase staging y ejecuta
--- de una vez. Idempotente (todos los bloques son DO$$ con check).
---
--- Contiene en orden:
---   1. IDRD fix v2 (cleanup branches duplicadas + 3 escuelas faltantes)
---   2. IDRD fix v3 (imagenes Unsplash a TODAS las schools)
---   3. deportebogota_directorio_2026 (82 clubes WP REST + scrape)
---   4. entidades_deportivas_2025_2026 (151 Institutos+Federaciones+Asoc)
+-- v2 sin RAISE NOTICE (parsing problemas en SQL Editor Supabase)
 -- ============================================================
 
 
@@ -65,16 +57,10 @@ to_delete AS (
 DELETE FROM public.school_branches
  WHERE id IN (SELECT id FROM to_delete);
 
--- Verificacion post-cleanup (info en NOTICE)
-DO $$
-DECLARE v_remaining int;
-BEGIN
-    SELECT COUNT(*) INTO v_remaining
-      FROM public.school_branches b
-      JOIN public.external_school_imports e ON e.school_id = b.school_id
-     WHERE e.source = 'idrd_bogota_2026';
-    RAISE NOTICE 'Branches IDRD post-cleanup: %', v_remaining;
-END $$;
+-- Verificacion post-cleanup (manual: correr la query aparte)
+-- SELECT COUNT(*) FROM public.school_branches b
+--   JOIN public.external_school_imports e ON e.school_id = b.school_id
+--  WHERE e.source = 'idrd_bogota_2026';
 
 
 -- ============================================================
@@ -272,38 +258,15 @@ UPDATE public.schools s
 
 
 -- ============================================================
--- 4. Verificacion final (NOTICE — para revisar en logs)
+-- 4. Verificacion final (correr queries aparte, fuera del COMMIT)
 -- ============================================================
-
-DO $$
-DECLARE
-    v_total int;
-    v_with_branch int;
-    v_with_cover int;
-    v_with_logo int;
-BEGIN
-    SELECT COUNT(*) INTO v_total
-      FROM public.external_school_imports WHERE source = 'idrd_bogota_2026';
-    SELECT COUNT(DISTINCT b.school_id) INTO v_with_branch
-      FROM public.school_branches b
-      JOIN public.external_school_imports e ON e.school_id = b.school_id
-     WHERE e.source = 'idrd_bogota_2026' AND b.lat IS NOT NULL;
-    SELECT COUNT(*) INTO v_with_cover
-      FROM public.schools s
-      JOIN public.external_school_imports e ON e.school_id = s.id
-     WHERE e.source = 'idrd_bogota_2026' AND s.cover_image_url IS NOT NULL;
-    SELECT COUNT(*) INTO v_with_logo
-      FROM public.schools s
-      JOIN public.external_school_imports e ON e.school_id = s.id
-     WHERE e.source = 'idrd_bogota_2026' AND s.logo_url IS NOT NULL;
-
-    RAISE NOTICE '─────────────────────────────────────';
-    RAISE NOTICE 'IDRD totales en DB: % (esperado 70)', v_total;
-    RAISE NOTICE 'Con branch (visible en mapa): % (esperado ~69)', v_with_branch;
-    RAISE NOTICE 'Con cover_image_url: % (esperado 70)', v_with_cover;
-    RAISE NOTICE 'Con logo_url: % (esperado 70)', v_with_logo;
-    RAISE NOTICE '─────────────────────────────────────';
-END $$;
+-- SELECT COUNT(*) FROM public.external_school_imports WHERE source = 'idrd_bogota_2026';
+-- SELECT COUNT(DISTINCT b.school_id) FROM public.school_branches b
+--   JOIN public.external_school_imports e ON e.school_id = b.school_id
+--  WHERE e.source = 'idrd_bogota_2026' AND b.lat IS NOT NULL;
+-- SELECT COUNT(*) FROM public.schools s
+--   JOIN public.external_school_imports e ON e.school_id = s.id
+--  WHERE e.source = 'idrd_bogota_2026' AND s.cover_image_url IS NOT NULL;
 
 
 COMMIT;
@@ -523,36 +486,11 @@ UPDATE public.schools s
 
 
 -- ============================================================
--- 4. Verificacion
+-- 4. Verificacion (correr aparte si querés ver counts)
 -- ============================================================
-
-DO $$
-DECLARE
-    v_total int;
-    v_with_cover int;
-    v_with_logo int;
-    v_idrd_visible int;
-BEGIN
-    SELECT COUNT(*) INTO v_total FROM public.schools;
-    SELECT COUNT(*) INTO v_with_cover FROM public.schools WHERE cover_image_url IS NOT NULL;
-    SELECT COUNT(*) INTO v_with_logo FROM public.schools WHERE logo_url IS NOT NULL;
-
-    SELECT COUNT(*) INTO v_idrd_visible
-      FROM public.schools s
-      JOIN public.external_school_imports e ON e.school_id = s.id
-      JOIN public.school_settings ss ON ss.school_id = s.id AND ss.public_profile_enabled = true
-      JOIN public.school_branches b ON b.school_id = s.id AND b.is_main AND b.lat IS NOT NULL
-     WHERE e.source = 'idrd_bogota_2026'
-       AND NOT s.is_demo
-       AND s.onboarding_status != 'pending';
-
-    RAISE NOTICE '─────────────────────────────────────';
-    RAISE NOTICE 'Total schools en DB: %', v_total;
-    RAISE NOTICE 'Con cover_image_url: %', v_with_cover;
-    RAISE NOTICE 'Con logo_url: %', v_with_logo;
-    RAISE NOTICE 'IDRD que pasan TODOS los filtros del mapa: %', v_idrd_visible;
-    RAISE NOTICE '─────────────────────────────────────';
-END $$;
+-- SELECT COUNT(*) FROM public.schools;
+-- SELECT COUNT(*) FROM public.schools WHERE cover_image_url IS NOT NULL;
+-- SELECT COUNT(*) FROM public.schools WHERE logo_url IS NOT NULL;
 
 
 COMMIT;
