@@ -60,6 +60,7 @@ import {
 } from 'lucide-react';
 import { ServiceBookingModal } from '@/components/marketplace/ServiceBookingModal';
 import { UnifiedExploreMap } from '@/components/marketplace/UnifiedExploreMap';
+import { ExploreMapInteractive } from '@/components/explore/ExploreMapInteractive';
 
 // ── Category config ──────────────────────────────────────────────────────────
 
@@ -787,32 +788,16 @@ export default function ExplorarGlobalPage() {
       </div>
 
       {/* ── Map View ────────────────────────────────────────────────────────── */}
+      {/* Reemplazado UnifiedExploreMap (rota — RPC search_explore_map usa
+          columnas inexistentes s.lat/active/rating) por ExploreMapInteractive
+          que lee directo de school_branches + schools + school_settings. */}
       {viewMode === 'map' && (
         <div className="container mx-auto px-4 py-6 max-w-7xl">
-          <UnifiedExploreMap
+          <ExploreMapInteractive
             category={filters.category}
             query={filters.q}
             city={filters.city}
             sport={filters.sport}
-            serviceType={filters.service_type}
-            onServiceClick={(marker) => {
-              handleBook({
-                id: marker.id,
-                item_type: 'service',
-                name: marker.name,
-                description: null,
-                price: marker.price,
-                currency: 'COP',
-                image_url: null,
-                service_type: marker.service_type,
-                duration_minutes: marker.duration_minutes,
-                vendor_name: marker.vendor_name || '',
-                vendor_slug: marker.vendor_slug,
-                vendor_city: marker.vendor_city || null,
-                vendor_verified: marker.vendor_verified || false,
-                created_at: '',
-              });
-            }}
           />
         </div>
       )}
