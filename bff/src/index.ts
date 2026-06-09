@@ -70,6 +70,9 @@ import athleteBiomechRouter from './routes/athlete/biomech';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
 import upgradeRequestsRouter from './routes/upgrade-requests.routes';
+import schoolsRouter from './routes/schools.routes';
+import customDomainsRouter from './routes/custom-domains.routes';
+import devicesRouter from './routes/devices.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -225,6 +228,15 @@ app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
 app.use('/api/v1/me', generalLimiter, meRouter);
 app.use('/api/v1/upgrade-requests', generalLimiter, upgradeRequestsRouter);
+// Schools: branding (white-label), settings. Rate-limit propio del router
+// (10/hora por escuela en branding). generalLimiter actua como segundo cap.
+app.use('/api/v1/schools', generalLimiter, schoolsRouter);
+// Dominios propios (Fase 5 — Enterprise) — montado tambien bajo /schools
+// para alinear con el modelo "recurso de la escuela".
+app.use('/api/v1/schools', generalLimiter, customDomainsRouter);
+// Devices (Fase 6.1 — base mobile). Web/PWA tambien lo usa para tracking
+// de adopcion. CSRF se aplica dentro del router para state-changing.
+app.use('/api/v1/devices', generalLimiter, devicesRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);

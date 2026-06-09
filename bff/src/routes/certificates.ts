@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole } from '../middlewares/authMiddleware';
+import { resolveSchoolBranding } from '../utils/schoolBrandingResolver';
 
 const router = Router();
 
@@ -69,6 +70,16 @@ async function generateCertificatePdf(opts: {
     const body = renderTemplate(template.body_template ?? '', vars);
     const qrPng = await QRCode.toBuffer(verifyUrl, { width: 140, margin: 0 });
 
+    // ── Resolver branding con feature gate por tier ──
+    // resolveSchoolBranding aplica el mismo gate que emails/PDFs frontend:
+    // - free tier      → defaults SportMaps (verde) y forzar watermark
+    // - pro+/enterprise → branding propio (color, logo si lo hay)
+    // Nota: school.name se preserva sanitizado en branding.schoolName, pero
+    // como PDFKit no parsea HTML (es texto plano), volvemos a usar el name
+    // del snapshot tal cual — PDFKit no es vulnerable a HTML injection.
+    const branding = await resolveSchoolBranding(school?.id ?? null);
+    const schoolNameForPdf = school?.name ?? snapshot?.school?.name ?? 'Constancia';
+
     return await new Promise<Buffer>((resolve, reject) => {
         const doc = new PDFDocument({ size: 'A4', margin: 60 });
         const chunks: Buffer[] = [];
@@ -76,14 +87,13 @@ async function generateCertificatePdf(opts: {
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
 
-        // ── Header band
-        const branding = snapshot?.school?.branding ?? school?.branding_settings ?? {};
-        const accent: string = branding.primary_color || '#0ea5e9';
+        // ── Header band (color primario validado y con feature gate) ──
+        const accent = branding.primaryColor; // ya validado hex en resolver
         doc.rect(0, 0, doc.page.width, 90).fill(accent);
 
         // School name (white on band)
         doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold')
-           .text(school?.name ?? snapshot?.school?.name ?? 'Constancia', 60, 32, {
+           .text(schoolNameForPdf, 60, 32, {
                 width: doc.page.width - 120, align: 'left',
             });
 

@@ -12,6 +12,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
@@ -137,8 +138,10 @@ export default function ParentCheckoutPage() {
     fetchSchoolSettings();
   }, [schoolName, schoolIdParam]);
 
-  const handleDownloadReceipt = () => {
-    downloadReceipt({
+  const pdfBranding = usePdfBranding();
+
+  const handleDownloadReceipt = async () => {
+    await downloadReceipt({
       receiptNumber,
       date: new Date().toLocaleDateString('es-CO'),
       customerName: user?.user_metadata?.full_name || 'Cliente',
@@ -149,8 +152,9 @@ export default function ParentCheckoutPage() {
       paymentType: 'monthly',
       schoolName,
       studentName,
-      logoUrl: schoolBranding?.logo_url,
-      brandingSettings: schoolBranding?.branding_settings,
+      // Feature gate aplicado en usePdfBranding (free -> null + defaults)
+      logoUrl: pdfBranding.logoUrl,
+      brandingSettings: pdfBranding.brandingSettings,
       receiptUrl: manualReceiptUrl,
     });
   };

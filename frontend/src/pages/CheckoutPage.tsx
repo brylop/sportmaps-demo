@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { transactionsAPI, type ShippingInfo } from '@/lib/api/transactions';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
 import { getUserFriendlyError } from '@/lib/error-translator';
@@ -228,8 +229,10 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleDownloadReceipt = () => {
-    downloadReceipt({
+  const pdfBranding = usePdfBranding();
+
+  const handleDownloadReceipt = async () => {
+    await downloadReceipt({
       receiptNumber,
       date: new Date().toLocaleDateString('es-CO'),
       customerName: user?.user_metadata?.full_name || 'Cliente',
@@ -238,10 +241,12 @@ export default function CheckoutPage() {
       amount: getTotal(),
       paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'one_time',
-      schoolName: items[0]?.metadata.schoolName,
+      // Prioridad: schoolName del item (puede ser diferente al activo si compraron a otra escuela)
+      schoolName: items[0]?.metadata.schoolName ?? pdfBranding.schoolName ?? undefined,
       teamName: items[0]?.name,
-      logoUrl: schoolBranding?.logo_url,
-      brandingSettings: schoolBranding?.branding_settings,
+      // Feature gate aplicado en usePdfBranding (free -> null + defaults)
+      logoUrl: pdfBranding.logoUrl,
+      brandingSettings: pdfBranding.brandingSettings,
     });
   };
 

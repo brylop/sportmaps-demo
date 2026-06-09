@@ -30,6 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { downloadReceipt } from '@/lib/receipt-generator';
+import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { transactionsAPI } from '@/lib/api/transactions';
 import { maskSensitive } from '@/lib/utils';
 import { Eye, EyeOff, Copy } from 'lucide-react';
@@ -98,19 +99,22 @@ export function PaymentModal({ open, onOpenChange, item, onSuccess }: PaymentMod
     }).format(amount);
   };
 
-  const handleDownloadReceipt = () => {
-    downloadReceipt({
+  const pdfBranding = usePdfBranding();
+
+  const handleDownloadReceipt = async () => {
+    await downloadReceipt({
       receiptNumber,
       date: new Date().toLocaleDateString(),
       customerName: profile?.full_name || 'Cliente',
       concept: `Pago: ${item.name}`,
       description: item.description || `Pago por ${item.name}`,
-      schoolName: item.schoolName || 'SportMaps',
+      schoolName: item.schoolName || pdfBranding.schoolName || 'SportMaps',
       amount: item.amount,
       paymentMethod,
       paymentType,
-      logoUrl: schoolBranding?.logo_url,
-      brandingSettings: schoolBranding?.branding_settings,
+      // Feature gate aplicado en usePdfBranding (free -> null + defaults)
+      logoUrl: pdfBranding.logoUrl,
+      brandingSettings: pdfBranding.brandingSettings,
     });
   };
 

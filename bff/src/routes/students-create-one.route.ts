@@ -393,13 +393,23 @@ router.post(
             invite = inviteData;
             invitationSent = true;
             const { emailClient } = await import('../utils/emailClient');
-            const { EmailTemplates } = await import('../utils/emailTemplates');
+            const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
             const link = `${origin}/register?email=${encodeURIComponent(data.parent_email)}&role=parent&invite=${invite.id}`;
-            emailClient.send({
-              to: data.parent_email,
-              subject: `Invitación a SportMaps — ${schoolName}`,
-              html: EmailTemplates.invitation(data.parent_name, data.full_name, schoolName, link),
-            }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
+            try {
+              const tpl = await BrandedEmailTemplates.invitation({
+                parentName: data.parent_name,
+                childName: data.full_name,
+                schoolId,
+                inviteLink: link,
+              });
+              emailClient.send({
+                to: data.parent_email,
+                subject: tpl.subject,
+                html: tpl.html,
+              }).catch((e: any) => req.log?.error({ email: data.parent_email, err: e }, 'Fallo email'));
+            } catch (e: any) {
+              req.log?.error({ email: data.parent_email, err: e }, 'Fallo template branded');
+            }
           }
         }
 
@@ -668,15 +678,25 @@ router.post(
           return res.status(500).json({ error: invErr?.message || 'Error creando invitación.' });
         }
 
-        // Fire-and-forget email
+        // Fire-and-forget email branded por escuela
         const { emailClient } = await import('../utils/emailClient');
-        const { EmailTemplates } = await import('../utils/emailTemplates');
+        const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
         const link = `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite.id}`;
-        emailClient.send({
-          to:      data.email,
-          subject: `Invitación a SportMaps — ${schoolName}`,
-          html:    EmailTemplates.invitation(data.email.split('@')[0], '', schoolName, link),
-        }).catch((e: any) => req.log?.error({ email: data.email, err: e }, 'Fallo email invitación'));
+        try {
+          const tpl = await BrandedEmailTemplates.invitation({
+            parentName: data.email.split('@')[0],
+            childName: '',
+            schoolId,
+            inviteLink: link,
+          });
+          emailClient.send({
+            to: data.email,
+            subject: tpl.subject,
+            html: tpl.html,
+          }).catch((e: any) => req.log?.error({ email: data.email, err: e }, 'Fallo email invitación'));
+        } catch (e: any) {
+          req.log?.error({ email: data.email, err: e }, 'Fallo template branded');
+        }
 
         return res.status(201).json({
           success: true,
@@ -823,13 +843,24 @@ router.post(
                 .update({ invitation_id: invite.id }).eq('id', uaId);
 
               invitationSent = true;
-              const { emailClient }    = await import('../utils/emailClient');
-              const { EmailTemplates } = await import('../utils/emailTemplates');
+              const { emailClient }          = await import('../utils/emailClient');
+              const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
               const link = `${origin}/register?email=${encodeURIComponent(data.email)}&role=athlete&invite=${invite.id}`;
-              emailClient.send({
-                to: data.email, subject: `Invitación a SportMaps — ${schoolName}`,
-                html: EmailTemplates.invitation(data.full_name, '', schoolName, link),
-              }).catch((e: any) => req.log?.error({ err: e }, 'Fallo email'));
+              try {
+                const tpl = await BrandedEmailTemplates.invitation({
+                  parentName: data.full_name,
+                  childName: '',
+                  schoolId,
+                  inviteLink: link,
+                });
+                emailClient.send({
+                  to: data.email,
+                  subject: tpl.subject,
+                  html: tpl.html,
+                }).catch((e: any) => req.log?.error({ err: e }, 'Fallo email'));
+              } catch (e: any) {
+                req.log?.error({ err: e }, 'Fallo template branded');
+              }
             }
           }
         }
