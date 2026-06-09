@@ -1,5 +1,5 @@
 -- ============================================================
--- SPORTMAPS — Apply-to-staging CONSOLIDADO v3 (junio 2026)
+-- SPORTMAPS — Apply-to-staging CONSOLIDADO v3.1 (junio 2026)
 -- Aplicar TODO en SQL Editor staging. Idempotente.
 -- ============================================================
 
@@ -4236,6 +4236,52 @@ WHERE e.source = 'idrd_bogota_2026'
 -- ============================================================
 -- 3. BLOQUEAR SIGNUPS EN ENTIDADES NO-ESCUELA (RLS + trigger)
 -- ============================================================
+
+-- 3.0 — Reemplazar create_default_school_subscription para que NO cree
+--       trial automatico en gov entities (institute/federation/association).
+--       Sin esto, el INSERT en schools dispara el trigger AFTER INSERT que
+--       intenta crear school_subscriptions, lo cual es bloqueado por nuestro
+--       trigger nuevo prevent_gov_entity_subscription_trg y todo falla.
+--       Solucion: early return en la funcion default si la nueva school es gov.
+
+CREATE OR REPLACE FUNCTION public.create_default_school_subscription()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $body$
+BEGIN
+    -- Skip: entidades gubernamentales no son SaaS, no tienen trial ni plan.
+    IF NEW.school_type IN ('institute', 'federation', 'association') THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.school_subscriptions (
+        school_id,
+        plan_code,
+        tier,
+        status,
+        billing_cycle,
+        trial_ends_at,
+        metadata
+    ) VALUES (
+        NEW.id,
+        'starter',
+        'free',
+        'trialing',
+        'monthly',
+        now() + interval '30 days',
+        jsonb_build_object(
+            'created_via',   'signup_trigger',
+            'trial_started', to_jsonb(now())
+        )
+    )
+    ON CONFLICT (school_id) DO NOTHING;
+
+    RETURN NEW;
+END;
+$body$;
+
 
 -- 3.A — Función helper: ¿este school_id es una entidad gubernamental?
 CREATE OR REPLACE FUNCTION public.is_gov_entity(p_school_id uuid)
