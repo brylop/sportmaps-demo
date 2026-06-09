@@ -91,6 +91,9 @@ interface ExploreMapInteractiveProps {
 }
 
 // ── Hook que trae las escuelas con lat/lng desde Supabase (sin RPC rota) ─────
+// Estrategia: 2 queries simples en paralelo + merge client-side.
+// Evita problemas de !inner en relaciones cuando una tabla puede no tener fila
+// (school_settings es opcional, por ejemplo).
 function useExploreSchools(filters: {
   query?: string;
   city?: string;
@@ -99,66 +102,74 @@ function useExploreSchools(filters: {
   return useQuery({
     queryKey: ['explore-map-schools', filters],
     queryFn: async (): Promise<SchoolMarker[]> => {
-      // JOIN schools + school_branches (lat/lng) + school_settings (public_profile_enabled)
-      let queryBuilder = supabase
-        .from('school_branches')
-        .select(`
-          lat,
-          lng,
-          address,
-          school:schools!inner (
-            id,
-            name,
-            description,
-            sports,
-            logo_url,
-            cover_image_url,
-            verified,
-            is_demo,
-            onboarding_status,
-            city,
-            school_settings!inner ( public_profile_enabled )
-          )
-        `)
-        .eq('is_main', true)
-        .eq('status', 'active')
-        .not('lat', 'is', null)
-        .not('lng', 'is', null);
+      // 1. Escuelas elegibles (no demo, onboarding completed)
+      const { data: schoolsData, error: schoolsError } = await supabase
+        .from('schools')
+        .select('id, name, description, sports, logo_url, cover_image_url, verified, city, is_demo, onboarding_status')
+        .eq('is_demo', false)
+        .neq('onboarding_status', 'pending');
 
-      const { data, error } = await queryBuilder;
-      if (error) {
-        console.error('[ExploreMap] query error:', error);
+      if (schoolsError) {
+        console.error('[ExploreMap] schools query error:', schoolsError);
         return [];
       }
 
-      const rows = (data || []) as any[];
+      const schoolIds = (schoolsData || []).map((s: any) => s.id);
+      if (schoolIds.length === 0) return [];
+
+      // 2. Branches main con lat/lng (en paralelo con settings)
+      const [branchesRes, settingsRes] = await Promise.all([
+        supabase
+          .from('school_branches')
+          .select('school_id, lat, lng, address, is_main, status')
+          .in('school_id', schoolIds)
+          .eq('is_main', true)
+          .eq('status', 'active')
+          .not('lat', 'is', null)
+          .not('lng', 'is', null),
+        supabase
+          .from('school_settings')
+          .select('school_id, public_profile_enabled')
+          .in('school_id', schoolIds)
+          .eq('public_profile_enabled', true),
+      ]);
+
+      if (branchesRes.error) console.warn('[ExploreMap] branches error:', branchesRes.error);
+      if (settingsRes.error) console.warn('[ExploreMap] settings error:', settingsRes.error);
+
+      const branchBySchool = new Map<string, any>();
+      (branchesRes.data || []).forEach((b: any) => {
+        if (!branchBySchool.has(b.school_id)) branchBySchool.set(b.school_id, b);
+      });
+
+      const publicSchoolIds = new Set<string>((settingsRes.data || []).map((s: any) => s.school_id));
+
       const markers: SchoolMarker[] = [];
+      for (const s of (schoolsData as any[])) {
+        if (!publicSchoolIds.has(s.id)) continue;     // No public profile
+        const b = branchBySchool.get(s.id);
+        if (!b) continue;                              // No branch con lat/lng
 
-      for (const row of rows) {
-        const s = row.school;
-        if (!s) continue;
-        // Re-aplicar los mismos filtros que la view school_public_profile
-        if (s.is_demo) continue;
-        if (s.onboarding_status === 'pending') continue;
-        const ss = Array.isArray(s.school_settings) ? s.school_settings[0] : s.school_settings;
-        if (!ss?.public_profile_enabled) continue;
+        // Filtros UI client-side
+        const qLower = (filters.query || '').toLowerCase();
+        if (qLower && !String(s.name || '').toLowerCase().includes(qLower)) continue;
 
-        // Filtros adicionales del UI
-        if (filters.query && !String(s.name).toLowerCase().includes(filters.query.toLowerCase())) continue;
-        if (filters.city && !String(s.city || '').toLowerCase().includes(filters.city.toLowerCase())) continue;
-        if (filters.sport) {
-          const sportLower = filters.sport.toLowerCase();
-          const has = (s.sports || []).some((sp: string) => sp.toLowerCase().includes(sportLower));
+        const cityLower = (filters.city || '').toLowerCase();
+        if (cityLower && !String(s.city || '').toLowerCase().includes(cityLower)) continue;
+
+        const sportLower = (filters.sport || '').toLowerCase();
+        if (sportLower) {
+          const has = (s.sports || []).some((sp: string) => String(sp).toLowerCase().includes(sportLower));
           if (!has) continue;
         }
 
         markers.push({
           id: s.id,
           name: s.name,
-          lat: Number(row.lat),
-          lng: Number(row.lng),
+          lat: Number(b.lat),
+          lng: Number(b.lng),
           city: s.city,
-          address: row.address,
+          address: b.address,
           sports: Array.isArray(s.sports) ? s.sports : [],
           logo_url: s.logo_url,
           cover_image_url: s.cover_image_url,
@@ -167,6 +178,7 @@ function useExploreSchools(filters: {
         });
       }
 
+      console.log(`[ExploreMap] ${markers.length} markers loaded (from ${schoolsData?.length || 0} schools)`);
       return markers;
     },
     staleTime: 3 * 60 * 1000,
@@ -205,12 +217,12 @@ export function ExploreMapInteractive({
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [centerOnUser, setCenterOnUser] = useState(false);
 
-  // Solo cargamos schools por ahora (categoria 'schools' o 'all').
-  // Trainers/events se pueden sumar despues con el mismo patron.
-  const shouldLoad = category === 'all' || category === 'schools';
+  // Siempre cargamos escuelas — el filtro de "categoria" del URL no debe
+  // ocultar los pines del tab Mapa (el user ya esta en el tab Mapa, queremos
+  // mostrarle TODAS las escuelas siempre). Trainers/events se pueden sumar
+  // despues con el mismo patron.
   const { data: schools = [], isLoading } = useExploreSchools({ query, city, sport });
-
-  const markers = useMemo(() => (shouldLoad ? schools : []), [shouldLoad, schools]);
+  const markers = schools;
 
   // User geolocation
   const askLocation = () => {
