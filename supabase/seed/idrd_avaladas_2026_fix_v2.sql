@@ -229,18 +229,29 @@ INSERT INTO _sport_images (sport, cover_url, logo_url) VALUES
      'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&q=80');
 
 -- UPDATE: por cada escuela IDRD, tomar el primer sport (sports[1]) y aplicar el mapping.
+-- Se usa CTE para evitar problemas de scope con LATERAL en subquery escalar.
+WITH school_first_sport AS (
+    SELECT s.id AS school_id,
+           (s.sports)[1] AS first_sport      -- primer elemento del array
+      FROM public.schools s
+      JOIN public.external_school_imports e ON e.school_id = s.id
+     WHERE e.source = 'idrd_bogota_2026'
+),
+sport_resolved AS (
+    SELECT sfs.school_id,
+           COALESCE(si.cover_url, def.cover_url) AS cover_url,
+           COALESCE(si.logo_url,  def.logo_url)  AS logo_url
+      FROM school_first_sport sfs
+      CROSS JOIN _sport_images def
+      LEFT JOIN _sport_images si ON si.sport = sfs.first_sport
+     WHERE def.sport = '_default'
+)
 UPDATE public.schools s
-   SET cover_image_url = COALESCE(s.cover_image_url, COALESCE(si.cover_url, def.cover_url)),
-       logo_url        = COALESCE(s.logo_url,        COALESCE(si.logo_url,  def.logo_url)),
+   SET cover_image_url = COALESCE(s.cover_image_url, sr.cover_url),
+       logo_url        = COALESCE(s.logo_url,        sr.logo_url),
        updated_at      = now()
-  FROM public.external_school_imports e
-  LEFT JOIN _sport_images si ON si.sport = (
-      SELECT sp FROM public.schools s2 WHERE s2.id = e.school_id
-      CROSS JOIN LATERAL unnest(s2.sports) sp LIMIT 1
-  )
-  LEFT JOIN _sport_images def ON def.sport = '_default'
- WHERE e.source = 'idrd_bogota_2026'
-   AND s.id = e.school_id;
+  FROM sport_resolved sr
+ WHERE s.id = sr.school_id;
 
 
 -- ============================================================
