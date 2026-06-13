@@ -1815,5 +1815,100 @@
   "calle 70a - 17-27, bogota, colombia": {
     "lat": 4.655984,
     "lng": -74.0602796
+  },
+  "antonio nariño, bogotá, colombia": {
+    "lat": 4.6256951,
+    "lng": -74.0872914,
+    "display_name": "Antonio Nariño, Avenida Calle 23, Gran América, UPZs de Bogotá, Localidad Teusaquillo, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 111321, Colombia"
+  },
+  "barrios unidos, bogotá, colombia": {
+    "lat": 4.655352,
+    "lng": -74.077592,
+    "display_name": "Suzuki Motor de Colombia S.A, Avenida Carrera 30, 7 de Agosto, UPZs de Bogotá, Localidad Barrios Unidos, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 111221, Colombia"
+  },
+  "bosa, bogotá, colombia": {
+    "lat": 4.5968789,
+    "lng": -74.1809427,
+    "display_name": "Estación Bosa, TransMilenio, Casabianca, UPZs de Bogotá, Localidad Ciudad Bolivar, Soacha ciudad, Bogotá, Soacha, Bogotá, Distrito Capital, RAP (Especial) Central, 111921, Colombia"
+  },
+  "chapinero, bogotá, colombia": {
+    "lat": 4.636585,
+    "lng": -74.0650204,
+    "display_name": "UPZs Localidad Chapinero, Localidad Chapinero, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "ciudad bolívar, bogotá, colombia": {
+    "lat": 4.56819,
+    "lng": -74.1540483,
+    "display_name": "Ciudad Bolívar, UPZs de Bogotá, Localidad Ciudad Bolivar, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 111941, Colombia"
+  },
+  "engativá, bogotá, colombia": {
+    "lat": 4.7140581,
+    "lng": -74.1386323,
+    "display_name": "UPZs Localidad Engativá, Localidad Engativá, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "fontibón, bogotá, colombia": {
+    "lat": 4.6732943,
+    "lng": -74.1447464,
+    "display_name": "Fontibón, UPZs de Bogotá, Localidad Fontibón, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110921, Colombia"
+  },
+  "kennedy, bogotá, colombia": {
+    "lat": 4.6317782,
+    "lng": -74.1538873,
+    "display_name": "Kennedy, UPZs de Bogotá, Localidad Kennedy, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110851, Colombia"
+  },
+  "la candelaria, bogotá, colombia": {
+    "lat": 4.6843605,
+    "lng": -74.0511562,
+    "display_name": "La Candelaria, Transversal 18, UPZs de Bogotá, Localidad Chapinero, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110221, Colombia"
+  },
+  "los mártires, bogotá, colombia": {
+    "lat": 4.6024664,
+    "lng": -74.0846098,
+    "display_name": "Los Mártires, UPZs de Bogotá, Localidad Los Mártires, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 111411, Colombia"
+  },
+  "puente aranda, bogotá, colombia": {
+    "lat": 4.6344035,
+    "lng": -74.1083568,
+    "display_name": "UPZs Localidad Puente Aranda, Localidad Puente Aranda, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "rafael uribe uribe, bogotá, colombia": {
+    "lat": 4.5733208,
+    "lng": -74.1220602,
+    "display_name": "Rafael Uribe Uribe, UPZs de Bogotá, Localidad Rafael Uribe Uribe, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 111821, Colombia"
+  },
+  "san cristóbal, bogotá, colombia": {
+    "lat": 4.568535,
+    "lng": -74.0944791,
+    "display_name": "San Cristobal, UPZs de Bogotá, Localidad San Cristóbal, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110421, Colombia"
+  },
+  "santa fe, bogotá, colombia": {
+    "lat": 4.6017892,
+    "lng": -74.0791799,
+    "display_name": "Santa Fé, UPZs de Bogotá, Localidad Santa Fé, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110321, Colombia"
+  },
+  "suba, bogotá, colombia": {
+    "lat": 4.7501539,
+    "lng": -74.088074,
+    "display_name": "UPZs Localidad Suba, Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "teusaquillo, bogotá, colombia": {
+    "lat": 4.6286663,
+    "lng": -74.0752959,
+    "display_name": "UPZs Localidad Teusaquillo, Localidad Teusaquillo, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "tunjuelito, bogotá, colombia": {
+    "lat": 4.5584337,
+    "lng": -74.1284975,
+    "display_name": "UPZs Localidad Tunjuelito, Localidad Tunjuelito, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "usaquén, bogotá, colombia": {
+    "lat": 4.6930109,
+    "lng": -74.0316832,
+    "display_name": "UPZs Localidad Usaquén, Localidad Usaquén, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+  },
+  "usme, bogotá, colombia": {
+    "lat": 4.5081097,
+    "lng": -74.1143194,
+    "display_name": "Usme, UPZs de Bogotá, Localidad Usme, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, 110541, Colombia"
   }
 }
