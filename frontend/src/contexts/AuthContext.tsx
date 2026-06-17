@@ -23,6 +23,7 @@ interface UserProfile {
   school_name?: string;
   onboarding_completed?: boolean;
   onboarding_started?: boolean;
+  needs_role_selection?: boolean;
   preferences?: any;
   created_at: string;
   updated_at: string;
@@ -38,6 +39,7 @@ interface AuthContextType {
   trainerOnboardingStatus: string | null;
   signUp: (email: string, password: string, userData: Partial<UserProfile>) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: (redirectTo?: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>, options?: { silent?: boolean }) => Promise<void>;
 }
@@ -149,7 +151,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           bio: null,
           date_of_birth: userData.date_of_birth || null,
           sportmaps_points: 0,
-          subscription_tier: 'free'
+          subscription_tier: 'free',
+          // Si no se proporcionó rol explícito (p. ej. login OAuth donde el
+          // trigger aún no creó el perfil), marcar para forzar selección de rol.
+          needs_role_selection: !userData.role,
         })
         .select()
         .maybeSingle();
@@ -341,6 +346,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signInWithGoogle = async (redirectTo: string = '/dashboard') => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}${redirectTo}`,
+          queryParams: {
+            // Forzar selector de cuenta para evitar reusar sesión Google anterior.
+            prompt: 'select_account',
+          },
+        },
+      });
+
+      if (error) throw error;
+      // En éxito el navegador navega a Google; el resto del flujo lo maneja
+      // onAuthStateChange al volver a la app.
+    } catch (error: unknown) {
+      console.error('Error with Google sign-in:', error);
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     const cleanupClientState = () => {
       // Clear demo session storage
@@ -450,6 +477,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     trainerOnboardingStatus,
     signUp,
     signIn,
+    signInWithGoogle,
     signOut,
     updateProfile,
   }), [user, profile, session, loading, isPersonalTrainer, trainerSchoolId, trainerOnboardingStatus]);

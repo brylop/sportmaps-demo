@@ -31,6 +31,17 @@ export function ProtectedRoute({ children, allowedRoles, skipOnboardingCheck = f
     return <Navigate to="/login" replace />;
   }
 
+  // Selección de rol diferida: usuarios que entraron por OAuth (Google) sin
+  // rol asignado deben elegirlo antes de usar la app. skipOnboardingCheck
+  // exime a la propia pantalla de selección para evitar bucle de redirección.
+  if (
+    !skipOnboardingCheck &&
+    profile?.needs_role_selection &&
+    location.pathname !== '/onboarding/role'
+  ) {
+    return <Navigate to="/onboarding/role" replace />;
+  }
+
   // Allow access even without profile - it will be created automatically
   if (allowedRoles && profile) {
     const hasAllowedProfileRole = allowedRoles.includes(profile.role as any);

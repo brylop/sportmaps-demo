@@ -84,7 +84,7 @@ router.put(
     requireCsrfHeader,
     brandingLimiter,
     async (req: Request, res: Response) => {
-        const schoolIdParam = req.params.id;
+        const schoolIdParam = req.params.id as string;
 
         // Forzar coincidencia entre param y header x-school-id resuelto por requireAuth.
         // Anti-IDOR: super-admin puede cambiar otra escuela enviando x-school-id especifico,
