@@ -66,10 +66,11 @@ export function getDevicePlatformInfo(): DevicePlatformInfo {
         platform,
         deviceId,
         appVersion,
-        osVersion: navigator.userAgent, // simplificado para web; Capacitor da OS real
-        deviceModel: navigator.platform,
-        locale: navigator.language,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // El BFF valida os_version max 64 chars; el UA suele superarlo → truncar.
+        osVersion: navigator.userAgent.slice(0, 64), // simplificado para web; Capacitor da OS real
+        deviceModel: navigator.platform.slice(0, 128),
+        locale: navigator.language.slice(0, 16),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone.slice(0, 64),
     };
 }
 
