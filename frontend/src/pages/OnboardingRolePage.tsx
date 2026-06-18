@@ -26,6 +26,10 @@ function routeForRole(role: string): string {
   if (role === 'personal_trainer') return '/trainer/onboarding';
   if (role === 'store_owner') return '/vendor/onboarding';
   if (role === 'organizer') return '/organizer/onboarding';
+  if (role === 'athlete') return '/onboarding/athlete';
+  if (role === 'parent') return '/onboarding/parent';
+  if (role === 'coach') return '/onboarding/coach';
+  if (role === 'wellness_professional') return '/onboarding/wellness';
   return '/dashboard';
 }
 

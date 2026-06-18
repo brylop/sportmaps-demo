@@ -133,6 +133,10 @@ const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
+const AthleteOnboarding = lazy(() => import("./pages/onboarding/AthleteOnboarding"));
+const ParentOnboarding = lazy(() => import("./pages/onboarding/ParentOnboarding"));
+const CoachOnboarding = lazy(() => import("./pages/onboarding/CoachOnboarding"));
+const WellnessOnboarding = lazy(() => import("./pages/onboarding/WellnessOnboarding"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
@@ -284,6 +288,18 @@ const App = () => (
                     } />
                     <Route path="/onboarding/school" element={
                       <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/athlete" element={
+                      <ProtectedRoute><AthleteOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/parent" element={
+                      <ProtectedRoute><ParentOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/coach" element={
+                      <ProtectedRoute><CoachOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/wellness" element={
+                      <ProtectedRoute><WellnessOnboarding /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
                       <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>

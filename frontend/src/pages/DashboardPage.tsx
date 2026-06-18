@@ -265,6 +265,25 @@ export default function DashboardPage() {
     }
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Gate: roles "persona" (athlete, parent, coach, wellness_professional) deben
+  // completar su onboarding full-screen una vez. Bandera: profiles.onboarding_completed.
+  // Usuarios existentes ya fueron marcados completados (migración 20260617000003),
+  // así que esto solo afecta a nuevos registros (default onboarding_completed=false).
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    const PERSON_ONBOARDING: Record<string, string> = {
+      athlete: '/onboarding/athlete',
+      parent: '/onboarding/parent',
+      coach: '/onboarding/coach',
+      wellness_professional: '/onboarding/wellness',
+    };
+    const dest = PERSON_ONBOARDING[profile.role as string];
+    if (dest && profile.onboarding_completed === false) {
+      return <Navigate to={dest} replace />;
+    }
+  }
+
   // Dashboard handles empty states via the Quick Start Checklist
 
   // Logic to determine stats to display
