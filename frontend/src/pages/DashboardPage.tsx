@@ -468,21 +468,6 @@ export default function DashboardPage() {
         const isCompleted = effectiveOnboardingStatus === 'completed';
         const shouldShow = isSchoolRole && hasSchool && !isCompleted;
 
-        if (isSchoolRole) {
-          // eslint-disable-next-line no-console
-          console.log('[Dashboard] gate wizard escuela:', {
-            shouldShow,
-            isSchoolRole,
-            hasSchoolInRpc,
-            hasSchoolInFallback,
-            rpcStatus_has_school: rpcStatus?.has_school,
-            rpcStatus_school_id: rpcStatus?.school_id,
-            fallbackSchool_id: fallbackSchool?.id,
-            effectiveOnboardingStatus,
-            profile_role: profile?.role,
-          });
-        }
-
         if (!shouldShow) return null;
 
         // Compone status para el wizard: prefiere rpcStatus si existe,

@@ -4,7 +4,7 @@ self.__precacheManifest = [].concat(self.__WB_MANIFEST || []);
 
 // IMPORTANTE: subir esta versión purga caches viejos (incluido el shell HTML
 // y assets envenenados con text/html) en el evento 'activate'.
-const CACHE_NAME = 'sportmaps-v2'
+const CACHE_NAME = 'sportmaps-v3'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -63,6 +63,14 @@ self.addEventListener('fetch', (event) => {
         })
     )
     return
+  }
+
+  // No interceptar peticiones cross-origin (BFF en onrender, Google, etc.).
+  // El SW solo gestiona assets/navegación de ESTE origen; meterse con APIs de
+  // terceros puede fabricar 503 sintéticos si el fetch falla un instante.
+  // (Supabase ya se manejó arriba con su propia estrategia.)
+  if (url.origin !== self.location.origin) {
+    return;
   }
 
   // Assets estáticos → cache first
