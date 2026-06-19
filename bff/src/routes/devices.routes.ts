@@ -53,27 +53,40 @@ router.post(
         const ua = req.headers['user-agent'] || null;
 
         try {
-            const { data, error } = await supabase.rpc('register_user_device', {
-                p_device_id:     body.device_id,
-                p_platform:      body.platform,
-                p_push_token:    body.push_token ?? null,
-                p_push_provider: body.push_provider ?? null,
-                p_app_version:   body.app_version ?? null,
-                p_os_version:    body.os_version ?? null,
-                p_device_model:  body.device_model ?? null,
-                p_locale:        body.locale ?? null,
-                p_timezone:      body.timezone ?? null,
-                p_user_agent:    ua,
-            });
+            // Upsert directo con el service_role + req.user.id (de requireAuth).
+            // NO usamos el RPC register_user_device porque depende de auth.uid(),
+            // que es NULL cuando el BFF llama con el cliente service_role → siempre
+            // devolvía { ok:false, error:'auth_required' }. Solo incluimos los
+            // campos opcionales presentes para no pisar valores previos (replica
+            // el COALESCE del RPC).
+            const row: Record<string, any> = {
+                user_id:        req.user.id,
+                device_id:      body.device_id,
+                platform:       body.platform,
+                user_agent:     ua,
+                last_seen_at:   new Date().toISOString(),
+                revoked_at:     null,
+                revoked_reason: null,
+            };
+            if (body.push_token != null)    row.push_token    = body.push_token;
+            if (body.push_provider != null) row.push_provider = body.push_provider;
+            if (body.app_version != null)   row.app_version   = body.app_version;
+            if (body.os_version != null)    row.os_version    = body.os_version;
+            if (body.device_model != null)  row.device_model  = body.device_model;
+            if (body.locale != null)        row.locale        = body.locale;
+            if (body.timezone != null)      row.timezone      = body.timezone;
+
+            const { data, error } = await supabase
+                .from('user_devices')
+                .upsert(row, { onConflict: 'user_id,device_id' })
+                .select('id')
+                .single();
 
             if (error) {
-                req.log?.error({ err: error }, 'register_user_device RPC failed');
+                req.log?.error({ err: error }, 'user_devices upsert failed');
                 return res.status(500).json({ error: 'server_error', detail: error.message });
             }
-            if (!data?.ok) {
-                return res.status(400).json(data);
-            }
-            return res.json(data);
+            return res.json({ ok: true, id: data?.id });
         } catch (err: any) {
             req.log?.error({ err }, 'Error POST /devices/register');
             return res.status(500).json({ error: 'server_error' });
@@ -89,14 +102,21 @@ router.delete(
         const deviceId = req.params.deviceId;
         const reason = (req.query.reason as string) || 'user_logout';
         try {
-            const { data, error } = await supabase.rpc('revoke_user_device', {
-                p_device_id: deviceId,
-                p_reason: reason,
-            });
+            // Update directo con req.user.id (mismo motivo que /register: el RPC
+            // revoke_user_device depende de auth.uid(), NULL con service_role).
+            const { error } = await supabase
+                .from('user_devices')
+                .update({
+                    revoked_at: new Date().toISOString(),
+                    revoked_reason: reason,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('user_id', req.user.id)
+                .eq('device_id', deviceId);
             if (error) {
                 return res.status(500).json({ error: 'server_error', detail: error.message });
             }
-            return res.json(data);
+            return res.json({ ok: true });
         } catch (err: any) {
             req.log?.error({ err }, 'Error DELETE /devices/:id');
             return res.status(500).json({ error: 'server_error' });
