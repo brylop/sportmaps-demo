@@ -68,13 +68,24 @@ export default function SchoolJoinQRsPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
   const exportSvgRef = useRef<SVGSVGElement>(null);
+  const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!schoolId) return;
     void load();
     void loadOptions();
+    // Logo de la escuela para incrustarlo en el centro del QR (branding).
+    supabase.from('schools').select('logo_url').eq('id', schoolId).single()
+      .then(({ data }) => setSchoolLogo((data as any)?.logo_url ?? null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId]);
+
+  // Logo centrado en el QR. Nivel H (30% corrección) tolera el overlay.
+  // crossOrigin para no "tintar" el canvas y poder exportar PNG.
+  const logoSettings = (size: number) =>
+    schoolLogo
+      ? { src: schoolLogo, height: Math.round(size * 0.22), width: Math.round(size * 0.22), excavate: true, crossOrigin: 'anonymous' as const }
+      : undefined;
 
   async function load() {
     if (!schoolId) return;
@@ -446,6 +457,7 @@ export default function SchoolJoinQRsPage() {
                   size={240}
                   level="H"
                   marginSize={4}
+                  imageSettings={logoSettings(240)}
                 />
                 <p className="text-xs text-center text-muted-foreground break-all">{publicUrl(previewQr)}</p>
               </div>
@@ -458,6 +470,7 @@ export default function SchoolJoinQRsPage() {
                   size={1024}
                   level="H"
                   marginSize={4}
+                  imageSettings={logoSettings(1024)}
                 />
                 <QRCodeSVG
                   ref={exportSvgRef}
@@ -465,6 +478,7 @@ export default function SchoolJoinQRsPage() {
                   size={1024}
                   level="H"
                   marginSize={4}
+                  imageSettings={logoSettings(1024)}
                 />
               </div>
 

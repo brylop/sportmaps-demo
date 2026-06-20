@@ -83,8 +83,8 @@ export default function JoinSchoolPublicPage() {
   }
 
   const branding = useMemo(() => data?.school?.branding_settings || {}, [data]);
-  const accent: string = branding.primary_color || '#0ea5e9';
-  const secondary: string = branding.secondary_color || '#1e40af';
+  const accent: string = branding.primary_color || '#248223';
+  const secondary: string = branding.secondary_color || '#FB9F1E';
 
   if (loading) {
     return (
