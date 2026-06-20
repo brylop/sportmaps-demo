@@ -580,7 +580,11 @@ export default function PaymentsAutomationPage() {
   const rawHistoryPayments = payments.filter(p => {
     const provider = (p as any).payment_provider;
     const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
-    if (p.status === 'pending') return isGatewayPayment;
+    // pending SIN pasarela = "por cobrar" (p.ej. inscripción por QR esperando
+    // que el padre pague el primer mes). La escuela DEBE verlo en el historial.
+    // pending CON pasarela = gateway procesando (read-only). Ambos se muestran.
+    if (p.status === 'pending') return true;
+    // awaiting_approval de transferencia manual ya está en "Validación de Cobros".
     if (p.status === 'awaiting_approval') return isGatewayPayment;
     return true;
   });
