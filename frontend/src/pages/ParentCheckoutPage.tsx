@@ -55,8 +55,14 @@ export default function ParentCheckoutPage() {
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [showFullQr, setShowFullQr] = useState(false);
 
-  const amount = parseInt(searchParams.get('amount') || '150000');
-  const concept = searchParams.get('concept') || 'Mensualidad Octubre 2024';
+  // Si venimos del QR de inscripción, el pago YA existe (payment_id). Lo cargamos
+  // como fuente de verdad (monto/concepto reales) y al pagar lo ACTUALIZAMOS en vez
+  // de crear uno nuevo → evita el pago duplicado sin comprobante.
+  const paymentIdParam = searchParams.get('payment_id');
+  const [qrPayment, setQrPayment] = useState<{ amount: number; concept: string; child_id: string | null; team_id: string | null } | null>(null);
+
+  const amount = qrPayment?.amount ?? parseInt(searchParams.get('amount') || '150000');
+  const concept = qrPayment?.concept ?? (searchParams.get('concept') || 'Mensualidad Octubre 2024');
   const studentName = searchParams.get('student') || 'Juan Vargas';
   const schoolName = searchParams.get('school') || 'Spirit All Stars';
   const teamName = searchParams.get('team') || '';
@@ -138,6 +144,16 @@ export default function ParentCheckoutPage() {
     fetchSchoolSettings();
   }, [schoolName, schoolIdParam]);
 
+  // Cargar el pago preexistente del QR como fuente de verdad (monto/concepto/ids)
+  useEffect(() => {
+    if (!paymentIdParam) return;
+    supabase.from('payments')
+      .select('amount, concept, child_id, team_id')
+      .eq('id', paymentIdParam)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setQrPayment(data as any); });
+  }, [paymentIdParam]);
+
   const pdfBranding = usePdfBranding();
 
   const handleDownloadReceipt = async () => {
@@ -159,8 +175,8 @@ export default function ParentCheckoutPage() {
     });
   };
 
-  const childId = searchParams.get('child_id');
-  const teamId = searchParams.get('team_id');
+  const childId = qrPayment?.child_id ?? searchParams.get('child_id');
+  const teamId = qrPayment?.team_id ?? searchParams.get('team_id');
 
   // Periodo objetivo (solo si es mensualidad y hay hijo)
   const isMensualidad = /mensual/i.test(concept);
@@ -202,22 +218,13 @@ export default function ParentCheckoutPage() {
     const periodMonth = isMensualidad && nextPeriod ? nextPeriod.month : null;
     const periodLabel = isMensualidad && nextPeriod ? nextPeriod.label : null;
 
-    const { error: insertError } = await supabase.from('payments').insert({
-      parent_id: user?.id,
-      child_id: childId || null,
-      team_id: teamId || null,
-      amount,
-      // Si tenemos label del periodo, usarlo en lugar del concept libre del
-      // query string (mas consistente con la fuente de verdad de la BD).
-      concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
+    // Campos que se setean al pagar (comunes a insertar y actualizar).
+    const mutableFields = {
       // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
       status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
       payment_date: new Date().toISOString().split('T')[0],
-      due_date: new Date().toISOString().split('T')[0],
       receipt_number: reference,
-      payment_type: 'one_time',
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
-      school_id: schoolId,
       receipt_url: manualReceiptUrl,
       period_year:  periodYear,
       period_month: periodMonth,
@@ -228,14 +235,33 @@ export default function ParentCheckoutPage() {
       ocr_bank:      manualOcrResult?.extractedBank      ?? null,
       ocr_reference: manualOcrResult?.extractedReference ?? null,
       ocr_provider:  manualOcrResult?.provider           ?? null,
-      // Respuesta cruda del LLM (string JSON o texto). Util para auditoria
-      // cuando hay disputa sobre lo que extrajo el OCR. Se guarda como
-      // jsonb: el postgrest acepta tanto el objeto parseado como un string
-      // (lo trata como JSON string si no es objeto valido).
       ocr_raw_response: manualOcrResult?.rawResponse
         ? safeParseJson(manualOcrResult.rawResponse) ?? manualOcrResult.rawResponse
         : null,
-    } as any);
+    };
+
+    let insertError;
+    if (paymentIdParam) {
+      // Vino del QR: ACTUALIZA el pago ya creado (no duplicar). Conserva
+      // amount/concept/child/school del pago original.
+      ({ error: insertError } = await supabase.from('payments')
+        .update({ ...mutableFields, updated_at: new Date().toISOString() } as any)
+        .eq('id', paymentIdParam));
+    } else {
+      ({ error: insertError } = await supabase.from('payments').insert({
+        parent_id: user?.id,
+        child_id: childId || null,
+        team_id: teamId || null,
+        amount,
+        // Si tenemos label del periodo, usarlo en lugar del concept libre del
+        // query string (mas consistente con la fuente de verdad de la BD).
+        concept: periodLabel ? `Mensualidad ${periodLabel}` : concept,
+        due_date: new Date().toISOString().split('T')[0],
+        payment_type: 'one_time',
+        school_id: schoolId,
+        ...mutableFields,
+      } as any));
+    }
 
     if (insertError) {
       console.error('Error inserting payment:', insertError);
