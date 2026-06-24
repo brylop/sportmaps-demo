@@ -697,9 +697,9 @@ export default function PaymentsAutomationPage() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   <Clock className="h-5 w-5 text-amber-600 shrink-0" />
-                  Validación de Cobros
+                  Cobros por Aprobar
                 </CardTitle>
-                <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+                <CardDescription>Confirma los cobros pendientes: inscripciones por QR y transferencias reportadas.</CardDescription>
               </div>
               <div className="w-full sm:w-auto">
                 <Input
@@ -757,7 +757,13 @@ export default function PaymentsAutomationPage() {
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
-                            <div className="mt-1"><OcrMatchBadge payment={payment} /></div>
+                            <div className="mt-1">
+                              {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -787,7 +793,7 @@ export default function PaymentsAutomationPage() {
                           <TableHead>Deportista / Programa</TableHead>
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
-                          <TableHead>OCR</TableHead>
+                          <TableHead>Origen</TableHead>
                           <TableHead>Comprobante</TableHead>
                           <TableHead className="text-right">Acciones</TableHead>
                         </TableRow>
@@ -829,7 +835,11 @@ export default function PaymentsAutomationPage() {
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
                             <TableCell>
-                              <OcrMatchBadge payment={payment} />
+                              {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               {payment.receipt_url ? (
@@ -837,7 +847,7 @@ export default function PaymentsAutomationPage() {
                                   <Eye className="h-3 w-3" /> Ver
                                 </Button>
                               ) : (
-                                <span className="text-xs text-muted-foreground italic">Sin comprobante</span>
+                                <span className="text-xs text-muted-foreground">—</span>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
