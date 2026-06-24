@@ -62,6 +62,16 @@ export default function JoinSchoolPublicPage() {
   const [monthlyFee, setMonthlyFee] = useState<string>('0');
   const [submitting, setSubmitting] = useState(false);
 
+  // Hijos existentes del padre (para ELEGIR en vez de crear uno nuevo).
+  const [existingChildren, setExistingChildren] = useState<{ id: string; full_name: string; date_of_birth: string | null }[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string>('new');
+
+  useEffect(() => {
+    if (!user) { setExistingChildren([]); return; }
+    supabase.from('children').select('id, full_name, date_of_birth').eq('parent_id', user.id)
+      .then(({ data }) => setExistingChildren((data as any) || []));
+  }, [user]);
+
   useEffect(() => {
     if (!slug) return;
     void load();
@@ -158,20 +168,24 @@ export default function JoinSchoolPublicPage() {
 
   async function handleSubmitChild() {
     if (!user) return toast({ title: 'Debes iniciar sesión', variant: 'destructive' });
-    if (!childName || !childDob) return toast({ title: 'Completa nombre y fecha de nacimiento', variant: 'destructive' });
+    const useExisting = selectedChildId !== 'new';
+    if (!useExisting && (!childName || !childDob)) {
+      return toast({ title: 'Completa nombre y fecha de nacimiento', variant: 'destructive' });
+    }
 
     setSubmitting(true);
     const { data: res, error } = await supabase.rpc('submit_qr_signup' as any, {
       p_slug:           slug,
       p_team_id:        chosenTeamId || null,
       p_branch_id:      null,
-      p_child_full_name: childName,
-      p_child_dob:      childDob,
-      p_child_doc_type: childDocType,
-      p_child_doc_number: childDocNumber || null,
-      p_child_gender:   childGender || null,
+      p_child_full_name: useExisting ? null : childName,
+      p_child_dob:      useExisting ? null : childDob,
+      p_child_doc_type: useExisting ? null : childDocType,
+      p_child_doc_number: useExisting ? null : (childDocNumber || null),
+      p_child_gender:   useExisting ? null : (childGender || null),
       p_phone:          parentPhone || null,
       p_monthly_fee:    Number(monthlyFee) || 0,
+      p_existing_child_id: useExisting ? selectedChildId : null,
     });
     setSubmitting(false);
     if (error) {
@@ -320,7 +334,38 @@ export default function JoinSchoolPublicPage() {
             {/* PASO 3 — Datos del atleta (siempre, ya logueado) */}
             {step === 'child' && (
               <div className="space-y-4">
-                <h2 className="font-bold text-lg">Datos del atleta</h2>
+                <h2 className="font-bold text-lg">¿A quién inscribes?</h2>
+
+                {existingChildren.length > 0 && (
+                  <div className="space-y-2">
+                    {existingChildren.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setSelectedChildId(c.id)}
+                        className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === c.id ? 'border-2' : 'border-muted hover:border-muted-foreground/40'}`}
+                        style={selectedChildId === c.id ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
+                      >
+                        <span className="font-semibold text-sm">{c.full_name}</span>
+                        {c.date_of_birth && (
+                          <span className="block text-xs text-muted-foreground">
+                            {new Date(c.date_of_birth + 'T12:00:00').toLocaleDateString('es-CO')}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedChildId('new')}
+                      className={`w-full text-left border rounded-lg p-3 transition-all ${selectedChildId === 'new' ? 'border-2' : 'border-dashed border-muted hover:border-muted-foreground/40'}`}
+                      style={selectedChildId === 'new' ? { borderColor: accent, boxShadow: `0 0 0 2px ${accent}33` } : undefined}
+                    >
+                      <span className="font-semibold text-sm">+ Agregar nuevo atleta</span>
+                    </button>
+                  </div>
+                )}
+
+                {selectedChildId === 'new' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="md:col-span-2">
                     <Label>Nombre completo *</Label>
@@ -359,6 +404,7 @@ export default function JoinSchoolPublicPage() {
                     <Input value={childDocNumber} onChange={(e) => setChildDocNumber(e.target.value)} />
                   </div>
                 </div>
+                )}
 
                 {data.require_first_payment && (
                   <div className="pt-4 border-t">
