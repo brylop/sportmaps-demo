@@ -460,7 +460,7 @@ export default function PaymentsAutomationPage() {
         let enrollQuery = (supabase.from('enrollments') as any)
           .update({ status: 'active' })
           .eq('school_id', schoolId)
-          .eq('status', 'pending_payment');
+          .eq('status', 'pending');
 
         if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
         else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
@@ -556,11 +556,14 @@ export default function PaymentsAutomationPage() {
   // y Wompi NO aparecen aqui — los valida el gateway automaticamente y se
   // marcan paid via webhook. Si se mostraran aqui, la escuela podria aprobar
   // por error un pago que MP / Wompi todavia esta procesando.
-  const rawPendingPayments = payments.filter(p =>
-    p.status === 'awaiting_approval'
-    && (p as any).payment_provider !== 'mercadopago'
-    && (p as any).payment_provider !== 'wompi'
-  );
+  const rawPendingPayments = payments.filter(p => {
+    const provider = (p as any).payment_provider;
+    const isGateway = provider === 'mercadopago' || provider === 'wompi';
+    // Aprobables a mano: transferencia reportada (awaiting_approval) o
+    // inscripción por QR "por cobrar" (pending sin pasarela). Los de pasarela
+    // NO se aprueban a mano — los confirma el webhook automáticamente.
+    return !isGateway && (p.status === 'awaiting_approval' || p.status === 'pending');
+  });
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
     const term = pendingSearch.toLowerCase();
@@ -580,11 +583,10 @@ export default function PaymentsAutomationPage() {
   const rawHistoryPayments = payments.filter(p => {
     const provider = (p as any).payment_provider;
     const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
-    // pending SIN pasarela = "por cobrar" (p.ej. inscripción por QR esperando
-    // que el padre pague el primer mes). La escuela DEBE verlo en el historial.
-    // pending CON pasarela = gateway procesando (read-only). Ambos se muestran.
-    if (p.status === 'pending') return true;
-    // awaiting_approval de transferencia manual ya está en "Validación de Cobros".
+    // pending/awaiting_approval SIN pasarela → ya están en "Validación de Cobros"
+    // (la escuela los aprueba). En historial solo los de pasarela (read-only,
+    // gateway-managed). Evita que el mismo cobro aparezca en dos listas.
+    if (p.status === 'pending') return isGatewayPayment;
     if (p.status === 'awaiting_approval') return isGatewayPayment;
     return true;
   });
