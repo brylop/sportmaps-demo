@@ -244,7 +244,7 @@ export function FileUpload({
               <AlertDescription>
                 <p className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4" />
-                  Comprobante verificado y listo para enviar
+                  Comprobante cargado ✓ — falta confirmar abajo
                 </p>
                 <div className="space-y-1.5">
 

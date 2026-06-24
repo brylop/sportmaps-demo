@@ -710,9 +710,21 @@ export default function ParentCheckoutPage() {
                 </RadioGroup>
 
                 {paymentFlow !== 'mercadopago' && (
-                  <Button className="w-full mt-6" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
-                    {processing ? 'Procesando...' : `Pagar ${formatPrice(amount)}`}
-                  </Button>
+                  <>
+                    {paymentFlow === 'manual' && manualReceiptUrl && (
+                      <div className="mt-4 flex items-start gap-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
+                        <span className="font-bold whitespace-nowrap">Falta 1 paso:</span>
+                        <span>tu comprobante está cargado pero <strong>aún no se ha enviado</strong>. Pulsa el botón de abajo para enviarlo a la escuela.</span>
+                      </div>
+                    )}
+                    <Button className="w-full mt-4" onClick={handlePayment} disabled={processing || (!canPayOnline && !canPayManual)}>
+                      {processing
+                        ? 'Procesando...'
+                        : paymentFlow === 'manual'
+                          ? (manualReceiptUrl ? 'Enviar comprobante y registrar pago' : `Registrar pago de ${formatPrice(amount)}`)
+                          : `Pagar ${formatPrice(amount)}`}
+                    </Button>
+                  </>
                 )}
               </>
             )}
