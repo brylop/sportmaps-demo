@@ -398,12 +398,12 @@ export default function SchoolJoinQRsPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="open">
-                      {businessModel === 'plans' ? 'Abierto (cualquier plan)' : businessModel === 'both' ? 'Abierto (equipos y planes)' : 'Abierto (cualquier equipo)'}
+                      {teams.length > 0 && plans.length > 0 ? 'Abierto (equipos y planes)' : plans.length > 0 ? 'Abierto (cualquier plan)' : 'Abierto (cualquier equipo)'}
                     </SelectItem>
-                    {(businessModel === 'teams' || businessModel === 'both') && (
+                    {teams.length > 0 && (
                       <SelectItem value="team">Equipo específico</SelectItem>
                     )}
-                    {(businessModel === 'plans' || businessModel === 'both') && (
+                    {plans.length > 0 && (
                       <SelectItem value="plan">Plan específico</SelectItem>
                     )}
                     <SelectItem value="branch">Sede específica</SelectItem>
