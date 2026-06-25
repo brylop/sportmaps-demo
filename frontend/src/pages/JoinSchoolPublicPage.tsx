@@ -21,9 +21,12 @@ type LandingData = {
   cta_text?: string;
   accept_payments?: boolean;
   require_first_payment?: boolean;
-  target_type?: 'open' | 'team' | 'program' | 'branch';
+  target_type?: 'open' | 'team' | 'branch' | 'plan';
   target?: any;
   options?: Array<{ id: string; name: string; sport: string; branch_id: string | null; price_monthly?: number | null }>;
+  plans?: Array<{ id: string; name: string; description?: string | null; price_monthly?: number | null; billing_period?: string; sessions_included?: number | null }>;
+  business_model?: 'teams' | 'plans' | 'both';
+  fixed_amount?: number | null;
   school?: {
     id: string; name: string; slug: string | null;
     logo_url: string | null; cover_image_url: string | null; branding_settings: any;
@@ -45,6 +48,7 @@ export default function JoinSchoolPublicPage() {
   const [step, setStep] = useState<Step>('menu');
   const [intent, setIntent] = useState<'inscribir' | 'pagar'>('inscribir');
   const [chosenTeamId, setChosenTeamId] = useState<string>('');
+  const [chosenPlanId, setChosenPlanId] = useState<string>('');
 
   // Auth
   const [authTab, setAuthTab] = useState<'login' | 'register'>('register');
@@ -91,19 +95,32 @@ export default function JoinSchoolPublicPage() {
     if ((r as any).target_type === 'team' && (r as any).target?.id) {
       setChosenTeamId((r as any).target.id);
     }
+    if ((r as any).target_type === 'plan' && (r as any).target?.id) {
+      setChosenPlanId((r as any).target.id);
+    }
   }
 
   const branding = useMemo(() => data?.school?.branding_settings || {}, [data]);
   const accent: string = branding.primary_color || '#248223';
   const secondary: string = branding.secondary_color || '#FB9F1E';
 
-  // Precio del primer mes: del EQUIPO (no lo teclea el padre). El servidor lo
-  // re-valida en submit_qr_signup.
+  // Precio del primer pago: del EQUIPO o PLAN (no lo teclea el padre), y si el QR
+  // tiene monto fijo/promo, ese manda. El servidor re-valida en submit_qr_signup.
+  // Prioridad: promo (fixed_amount) > plan > equipo.
   const selectedTeamPrice = useMemo(() => {
+    const fixed = Number((data as any)?.fixed_amount) || 0;
+    if (fixed > 0) return fixed;
+    // Plan: target directo o elegido de la lista
+    if ((data as any)?.target?.kind === 'plan') return Number((data as any).target.monthly_fee) || 0;
+    if (chosenPlanId) {
+      const p = data?.plans?.find((o) => o.id === chosenPlanId);
+      if (p) return Number((p as any).price_monthly) || 0;
+    }
+    // Equipo: target directo o elegido de la lista
     if ((data as any)?.target?.kind === 'team') return Number((data as any).target.monthly_fee) || 0;
     const t = data?.options?.find((o) => o.id === chosenTeamId);
     return Number((t as any)?.price_monthly) || 0;
-  }, [data, chosenTeamId]);
+  }, [data, chosenTeamId, chosenPlanId]);
 
   useEffect(() => { setMonthlyFee(String(selectedTeamPrice)); }, [selectedTeamPrice]);
 
@@ -202,6 +219,7 @@ export default function JoinSchoolPublicPage() {
       p_phone:          parentPhone || null,
       p_monthly_fee:    Number(monthlyFee) || 0,
       p_existing_child_id: useExisting ? selectedChildId : null,
+      p_plan_id:        chosenPlanId || null,
     });
     setSubmitting(false);
     if (error) {
@@ -284,33 +302,59 @@ export default function JoinSchoolPublicPage() {
             {/* PASO 1 — Elegir equipo (si aplica) */}
             {step === 'choose' && (
               <>
-                {data.target_type === 'team' && data.target ? (
+                {(data.target_type === 'team' || data.target_type === 'plan') && data.target ? (
                   <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-muted-foreground">Equipo asignado</p>
+                      <p className="text-xs text-muted-foreground">{data.target_type === 'plan' ? 'Plan asignado' : 'Equipo asignado'}</p>
                       <p className="font-bold">{data.target.name}</p>
-                      {data.target.sport && <p className="text-xs">{data.target.sport}</p>}
+                      {data.target_type === 'plan'
+                        ? <p className="text-xs">{data.target.sessions_included == null ? 'Ilimitado' : `${data.target.sessions_included} sesiones`}</p>
+                        : data.target.sport && <p className="text-xs">{data.target.sport}</p>}
                       {selectedTeamPrice > 0 && (
-                        <p className="text-xs font-semibold mt-1" style={{ color: accent }}>{fmtCOP(selectedTeamPrice)}/mes</p>
+                        <p className="text-xs font-semibold mt-1" style={{ color: accent }}>{fmtCOP(selectedTeamPrice)}{data.fixed_amount ? ' (promo)' : ''}</p>
                       )}
                     </div>
                     <ShieldCheck className="h-6 w-6 text-green-600" />
                   </div>
-                ) : data.options && data.options.length > 0 ? (
-                  <div>
-                    <Label>Selecciona el equipo</Label>
-                    <Select value={chosenTeamId} onValueChange={setChosenTeamId}>
-                      <SelectTrigger><SelectValue placeholder="Elige un equipo" /></SelectTrigger>
-                      <SelectContent>
-                        {data.options.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}{t.sport ? ` · ${t.sport}` : ''}{t.price_monthly ? ` · ${fmtCOP(Number(t.price_monthly))}` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
+                ) : (
+                  <>
+                    {data.options && data.options.length > 0 && (
+                      <div>
+                        <Label>Selecciona el equipo</Label>
+                        <Select value={chosenTeamId} onValueChange={(v) => { setChosenTeamId(v); setChosenPlanId(''); }}>
+                          <SelectTrigger><SelectValue placeholder="Elige un equipo" /></SelectTrigger>
+                          <SelectContent>
+                            {data.options.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {t.name}{t.sport ? ` · ${t.sport}` : ''}{t.price_monthly ? ` · ${fmtCOP(Number(t.price_monthly))}` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {data.plans && data.plans.length > 0 && (
+                      <div>
+                        <Label>Selecciona el plan</Label>
+                        <Select value={chosenPlanId} onValueChange={(v) => { setChosenPlanId(v); setChosenTeamId(''); }}>
+                          <SelectTrigger><SelectValue placeholder="Elige un plan" /></SelectTrigger>
+                          <SelectContent>
+                            {data.plans.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}{p.price_monthly ? ` · ${fmtCOP(Number(p.price_monthly))}` : ''}{p.sessions_included == null ? ' · ilimitado' : ` · ${p.sessions_included} ses.`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {data.fixed_amount != null && data.fixed_amount > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                        Precio promocional: <strong style={{ color: accent }}>{fmtCOP(Number(data.fixed_amount))}</strong>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {user && profile && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm flex items-center gap-2">
@@ -321,7 +365,11 @@ export default function JoinSchoolPublicPage() {
 
                 <Button
                   onClick={continueAfterChoose}
-                  disabled={data.target_type !== 'team' && !chosenTeamId && (data.options?.length ?? 0) > 0}
+                  disabled={
+                    data.target_type !== 'team' && data.target_type !== 'plan' &&
+                    !chosenTeamId && !chosenPlanId &&
+                    ((data.options?.length ?? 0) > 0 || (data.plans?.length ?? 0) > 0)
+                  }
                   className="w-full gap-2"
                   style={{ backgroundColor: accent }}
                 >

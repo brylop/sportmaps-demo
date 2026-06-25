@@ -19,7 +19,7 @@ type QrRow = {
   id: string;
   slug: string;
   name: string;
-  target_type: 'open' | 'team' | 'program' | 'branch';
+  target_type: 'open' | 'team' | 'branch' | 'plan';
   target_id: string | null;
   target_name?: string | null;
   intro_text: string | null;
@@ -35,10 +35,19 @@ type QrRow = {
   updated_at: string;
   branch_id: string | null;
   branch_name?: string | null;
+  fixed_amount?: number | null;
 };
 
 type Team = { id: string; name: string };
 type Branch = { id: string; name: string };
+type Plan = {
+  id: string;
+  name: string;
+  price: number;
+  billing_period: string;
+  sessions_included: number | null;
+};
+type BusinessModel = 'teams' | 'plans' | 'both';
 
 const FORM_DEFAULT = {
   name: '',
@@ -51,6 +60,16 @@ const FORM_DEFAULT = {
   require_first_payment: true,
   expires_at: '',
   slug: '',
+  fixed_amount: '',
+};
+
+const fmtCOP = (n: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+
+const planLabel = (p: Plan) => {
+  const period = ({ weekly: 'sem', biweekly: 'quinc', monthly: 'mes', quarterly: 'trim', yearly: 'año' } as Record<string, string>)[p.billing_period] || p.billing_period;
+  const sessions = p.sessions_included == null ? 'ilimitado' : `${p.sessions_included} sesiones`;
+  return `${p.name} · ${fmtCOP(p.price)}/${period} · ${sessions}`;
 };
 
 export default function SchoolJoinQRsPage() {
@@ -64,6 +83,8 @@ export default function SchoolJoinQRsPage() {
   const [saving, setSaving] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [businessModel, setBusinessModel] = useState<BusinessModel>('teams');
   const [previewQr, setPreviewQr] = useState<QrRow | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -105,12 +126,16 @@ export default function SchoolJoinQRsPage() {
 
   async function loadOptions() {
     if (!schoolId) return;
-    const [{ data: t }, { data: b }] = await Promise.all([
+    const [{ data: t }, { data: b }, { data: sch }, { data: pl }] = await Promise.all([
       supabase.from('teams').select('id, name').eq('school_id', schoolId).order('name'),
       supabase.from('school_branches').select('id, name').eq('school_id', schoolId).order('name'),
+      supabase.from('schools').select('business_model').eq('id', schoolId).single(),
+      supabase.rpc('list_school_plans' as any, { p_school_id: schoolId }),
     ]);
     setTeams((t as Team[]) || []);
     setBranches((b as Branch[]) || []);
+    setBusinessModel(((sch as any)?.business_model as BusinessModel) || 'teams');
+    setPlans((pl as Plan[]) || []);
   }
 
   function startNew() {
@@ -127,9 +152,9 @@ export default function SchoolJoinQRsPage() {
       toast({ title: 'Nombre requerido', description: 'Ingresa un nombre interno para el QR.', variant: 'destructive' });
       return;
     }
-    if ((form.target_type === 'team' || form.target_type === 'branch') && !form.target_id) {
+    if ((form.target_type === 'team' || form.target_type === 'branch' || form.target_type === 'plan') && !form.target_id) {
       toast({
-        title: form.target_type === 'team' ? 'Equipo requerido' : 'Sede requerida',
+        title: form.target_type === 'team' ? 'Equipo requerido' : form.target_type === 'plan' ? 'Plan requerido' : 'Sede requerida',
         description: 'Selecciona la opción específica o cambia a tipo "Abierto".',
         variant: 'destructive',
       });
@@ -148,6 +173,7 @@ export default function SchoolJoinQRsPage() {
       p_require_first_payment: form.require_first_payment,
       p_expires_at:  form.expires_at ? new Date(form.expires_at).toISOString() : null,
       p_slug:        form.slug?.trim() || null,
+      p_fixed_amount: form.fixed_amount ? Number(form.fixed_amount) : null,
     };
     const { data, error } = await supabase.rpc('create_school_join_qr' as any, payload);
     setSaving(false);
@@ -303,6 +329,7 @@ export default function SchoolJoinQRsPage() {
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       <p>Target: <span className="capitalize">{qr.target_type}</span>{qr.target_name ? ` · ${qr.target_name}` : ''}</p>
                       {qr.branch_name && <p>Sede: {qr.branch_name}</p>}
+                      {qr.fixed_amount != null && <p className="text-amber-600 font-medium">Promo: {fmtCOP(qr.fixed_amount)}</p>}
                       <p>Pago primer mes: {qr.require_first_payment ? 'Sí' : 'No'}</p>
                     </div>
 
@@ -370,8 +397,15 @@ export default function SchoolJoinQRsPage() {
                 <Select value={form.target_type} onValueChange={(v) => setForm({ ...form, target_type: v as any, target_id: '' })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="open">Abierto (cualquier equipo)</SelectItem>
-                    <SelectItem value="team">Equipo específico</SelectItem>
+                    <SelectItem value="open">
+                      {businessModel === 'plans' ? 'Abierto (cualquier plan)' : businessModel === 'both' ? 'Abierto (equipos y planes)' : 'Abierto (cualquier equipo)'}
+                    </SelectItem>
+                    {(businessModel === 'teams' || businessModel === 'both') && (
+                      <SelectItem value="team">Equipo específico</SelectItem>
+                    )}
+                    {(businessModel === 'plans' || businessModel === 'both') && (
+                      <SelectItem value="plan">Plan específico</SelectItem>
+                    )}
                     <SelectItem value="branch">Sede específica</SelectItem>
                   </SelectContent>
                 </Select>
@@ -387,6 +421,21 @@ export default function SchoolJoinQRsPage() {
                   </Select>
                 </div>
               )}
+              {form.target_type === 'plan' && (
+                <div>
+                  <Label>Plan</Label>
+                  <Select value={form.target_id} onValueChange={(v) => setForm({ ...form, target_id: v })}>
+                    <SelectTrigger><SelectValue placeholder="Elige" /></SelectTrigger>
+                    <SelectContent>
+                      {plans.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No tienes planes activos. Créalos en tu catálogo.</div>
+                      ) : (
+                        plans.map((p) => <SelectItem key={p.id} value={p.id}>{planLabel(p)}</SelectItem>)
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {form.target_type === 'branch' && (
                 <div>
                   <Label>Sede</Label>
@@ -398,6 +447,21 @@ export default function SchoolJoinQRsPage() {
                   </Select>
                 </div>
               )}
+            </div>
+
+            <div>
+              <Label>Monto fijo / promo (opcional)</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={form.fixed_amount}
+                onChange={(e) => setForm({ ...form, fixed_amount: e.target.value })}
+                placeholder="Ej: 50000 — sobrescribe el precio del equipo/plan"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Déjalo vacío para usar el precio del {businessModel === 'plans' ? 'plan' : 'equipo/plan'}. Úsalo solo para campañas u ofertas puntuales.
+              </p>
             </div>
             <div>
               <Label>Texto introductorio</Label>
