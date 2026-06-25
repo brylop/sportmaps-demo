@@ -187,7 +187,9 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
-  
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 10;
+
   // Filtros Validación (Pendientes)
   const [pendingSearch, setPendingSearch] = useState('');
 
@@ -197,6 +199,9 @@ export default function PaymentsAutomationPage() {
 
   // Equipos activos para filtros
   const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
+
+  // Reset de la paginación del historial cuando cambian los filtros
+  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter]);
 
   useEffect(() => {
     const teamsMap = new Map();
@@ -601,6 +606,9 @@ export default function PaymentsAutomationPage() {
     const teamMatch = historyTeamFilter === 'all' || p.team?.name === historyTeamFilter || p.team_id === historyTeamFilter;
     return searchMatch && statusMatch && teamMatch;
   });
+
+  const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
+  const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
@@ -1082,7 +1090,7 @@ export default function PaymentsAutomationPage() {
               <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
                 {historyPayments.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">No hay historial disponible.</p>
-                ) : historyPayments.map((payment) => {
+                ) : pagedHistory.map((payment) => {
                   const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                   return (
                     <div key={payment.id} className="border rounded-lg p-4 space-y-2">
@@ -1139,7 +1147,7 @@ export default function PaymentsAutomationPage() {
                   <TableBody>
                     {historyPayments.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
-                    ) : historyPayments.map((payment) => {
+                    ) : pagedHistory.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
                         <TableRow key={payment.id}>
@@ -1183,6 +1191,19 @@ export default function PaymentsAutomationPage() {
                   </TableBody>
                 </Table>
               </div>
+              {historyTotalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-3 mt-2 border-t text-sm">
+                  <span className="text-muted-foreground">
+                    Página {historyPage} de {historyTotalPages} · {historyPayments.length} transacciones
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={historyPage <= 1}
+                      onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>Anterior</Button>
+                    <Button variant="outline" size="sm" disabled={historyPage >= historyTotalPages}
+                      onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Siguiente</Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
