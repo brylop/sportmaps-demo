@@ -31,7 +31,7 @@ type LandingData = {
   payment_info?: any;
 };
 
-type Step = 'choose' | 'auth' | 'child' | 'done';
+type Step = 'menu' | 'choose' | 'auth' | 'child' | 'done';
 
 export default function JoinSchoolPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -42,7 +42,8 @@ export default function JoinSchoolPublicPage() {
   const [data, setData] = useState<LandingData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [step, setStep] = useState<Step>('choose');
+  const [step, setStep] = useState<Step>('menu');
+  const [intent, setIntent] = useState<'inscribir' | 'pagar'>('inscribir');
   const [chosenTeamId, setChosenTeamId] = useState<string>('');
 
   // Auth
@@ -145,6 +146,7 @@ export default function JoinSchoolPublicPage() {
       return toast({ title: 'No pudimos iniciar sesión', description: error.message, variant: 'destructive' });
     }
     toast({ title: 'Bienvenido de vuelta' });
+    if (intent === 'pagar') { navigate('/my-payments'); return; }
     setStep('child');
   }
 
@@ -171,6 +173,7 @@ export default function JoinSchoolPublicPage() {
         }
       }
       toast({ title: 'Cuenta creada' });
+      if (intent === 'pagar') { navigate('/my-payments'); return; }
       setStep('child');
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message || 'No se pudo registrar', variant: 'destructive' });
@@ -243,8 +246,39 @@ export default function JoinSchoolPublicPage() {
       <div className="max-w-2xl mx-auto px-6 py-8">
         <Card>
           <CardContent className="pt-6 space-y-6">
-            {data.intro_text && step === 'choose' && (
+            {data.intro_text && (step === 'menu' || step === 'choose') && (
               <p className="text-base text-muted-foreground">{data.intro_text}</p>
+            )}
+
+            {/* PASO 0 — Menú universal: ¿qué quieres hacer? */}
+            {step === 'menu' && (
+              <div className="space-y-3">
+                <p className="text-base font-semibold">¿Qué quieres hacer?</p>
+
+                <button
+                  type="button"
+                  onClick={() => { setIntent('inscribir'); setStep('choose'); }}
+                  className="w-full text-left border rounded-xl p-4 transition-all hover:border-primary/50 flex items-center gap-3"
+                >
+                  <UserPlus className="h-5 w-5 shrink-0" style={{ color: accent }} />
+                  <div>
+                    <p className="font-bold text-sm">Inscribir un atleta</p>
+                    <p className="text-xs text-muted-foreground">Registrar a alguien nuevo y pagar el primer mes</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setIntent('pagar'); if (user) navigate('/my-payments'); else setStep('auth'); }}
+                  className="w-full text-left border rounded-xl p-4 transition-all hover:border-primary/50 flex items-center gap-3"
+                >
+                  <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: accent }} />
+                  <div>
+                    <p className="font-bold text-sm">Pagar mensualidad</p>
+                    <p className="text-xs text-muted-foreground">Ya soy parte de la escuela</p>
+                  </div>
+                </button>
+              </div>
             )}
 
             {/* PASO 1 — Elegir equipo (si aplica) */}
@@ -294,6 +328,7 @@ export default function JoinSchoolPublicPage() {
                   {user ? 'Continuar' : (data.cta_text || 'Inscribirme')}
                   <ArrowRight className="h-4 w-4" />
                 </Button>
+                <Button variant="ghost" onClick={() => setStep('menu')} className="w-full">Volver</Button>
               </>
             )}
 
