@@ -34,7 +34,16 @@ type LandingData = {
   payment_info?: any;
 };
 
-type Step = 'menu' | 'choose' | 'auth' | 'child' | 'done';
+type Step = 'menu' | 'choose' | 'auth' | 'child' | 'pay' | 'done';
+
+type PayChild = {
+  child_id: string;
+  full_name: string;
+  monthly_fee: number;
+  pending: { payment_id: string; amount: number; concept: string; due_date: string } | null;
+  has_current_month: boolean;
+};
+type PayTargets = { school_id: string; school_name: string; children: PayChild[] };
 
 export default function JoinSchoolPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -49,6 +58,11 @@ export default function JoinSchoolPublicPage() {
   const [intent, setIntent] = useState<'inscribir' | 'pagar'>('inscribir');
   const [chosenTeamId, setChosenTeamId] = useState<string>('');
   const [chosenPlanId, setChosenPlanId] = useState<string>('');
+
+  // Fase 3 — pagar mensualidad: hijos del padre en ESTA escuela + sus cobros
+  const [payTargets, setPayTargets] = useState<PayTargets | null>(null);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payActing, setPayActing] = useState<string | null>(null);
 
   // Auth
   const [authTab, setAuthTab] = useState<'login' | 'register'>('register');
@@ -170,7 +184,7 @@ export default function JoinSchoolPublicPage() {
       return toast({ title: 'No pudimos iniciar sesión', description: error.message, variant: 'destructive' });
     }
     toast({ title: 'Bienvenido de vuelta' });
-    if (intent === 'pagar') { navigate('/my-payments'); return; }
+    if (intent === 'pagar') { setStep('pay'); void loadPayTargets(); return; }
     setStep('child');
   }
 
@@ -197,13 +211,41 @@ export default function JoinSchoolPublicPage() {
         }
       }
       toast({ title: 'Cuenta creada' });
-      if (intent === 'pagar') { navigate('/my-payments'); return; }
+      if (intent === 'pagar') { setStep('pay'); void loadPayTargets(); return; }
       setStep('child');
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message || 'No se pudo registrar', variant: 'destructive' });
     } finally {
       setAuthLoading(false);
     }
+  }
+
+  // Fase 3 — cargar los hijos del padre en ESTA escuela y sus cobros
+  async function loadPayTargets() {
+    setPayLoading(true);
+    const { data: res, error } = await supabase.rpc('get_qr_pay_targets' as any, { p_slug: slug });
+    setPayLoading(false);
+    if (error) {
+      return toast({ title: 'No se pudo cargar tus cobros', description: error.message, variant: 'destructive' });
+    }
+    setPayTargets(res as PayTargets);
+  }
+
+  // Pagar un cobro pendiente existente
+  function payPending(paymentId: string, childId: string) {
+    navigate(`/parent-checkout?payment_id=${paymentId}&school_id=${payTargets?.school_id}&child_id=${childId}&qr_id=${data?.qr_id}`);
+  }
+
+  // Generar (o reutilizar) la mensualidad del mes y pagarla
+  async function payMonthly(childId: string) {
+    setPayActing(childId);
+    const { data: res, error } = await supabase.rpc('generate_qr_monthly_charge' as any, { p_slug: slug, p_child_id: childId });
+    setPayActing(null);
+    if (error) {
+      return toast({ title: 'No se pudo generar la mensualidad', description: error.message, variant: 'destructive' });
+    }
+    const r = res as any;
+    navigate(`/parent-checkout?payment_id=${r.payment_id}&school_id=${payTargets?.school_id}&child_id=${childId}&qr_id=${data?.qr_id}`);
   }
 
   async function handleSubmitChild() {
@@ -294,7 +336,7 @@ export default function JoinSchoolPublicPage() {
 
                 <button
                   type="button"
-                  onClick={() => { setIntent('pagar'); if (user) navigate('/my-payments'); else setStep('auth'); }}
+                  onClick={() => { setIntent('pagar'); if (user) { setStep('pay'); void loadPayTargets(); } else setStep('auth'); }}
                   className="w-full text-left border rounded-xl p-4 transition-all hover:border-primary/50 flex items-center gap-3"
                 >
                   <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: accent }} />
@@ -443,6 +485,73 @@ export default function JoinSchoolPublicPage() {
                   Volver
                 </Button>
               </Tabs>
+            )}
+
+            {/* PASO 2b — Pagar mensualidad (cobros de ESTA escuela) */}
+            {step === 'pay' && (
+              <div className="space-y-4">
+                <h2 className="font-bold text-lg">Pagar en {payTargets?.school_name || data.school?.name}</h2>
+
+                {payLoading ? (
+                  <div className="py-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
+                ) : !payTargets || payTargets.children.length === 0 ? (
+                  <div className="space-y-3 text-center py-4">
+                    <p className="text-sm text-muted-foreground">
+                      No encontramos atletas tuyos inscritos en esta escuela.
+                    </p>
+                    <Button
+                      onClick={() => { setIntent('inscribir'); setStep('choose'); }}
+                      className="w-full gap-2"
+                      style={{ backgroundColor: accent }}
+                    >
+                      <UserPlus className="h-4 w-4" /> Inscribir un atleta
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {payTargets.children.map((c) => (
+                      <div key={c.child_id} className="border rounded-xl p-4">
+                        <p className="font-bold">{c.full_name}</p>
+                        {c.pending ? (
+                          <>
+                            <p className="text-xs text-muted-foreground mt-0.5">{c.pending.concept}</p>
+                            <p className="text-lg font-bold mt-1" style={{ color: accent }}>{fmtCOP(Number(c.pending.amount))}</p>
+                            <Button
+                              onClick={() => payPending(c.pending!.payment_id, c.child_id)}
+                              className="w-full gap-2 mt-2"
+                              style={{ backgroundColor: accent }}
+                            >
+                              Pagar ahora <ArrowRight className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : c.monthly_fee > 0 ? (
+                          <>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {c.has_current_month ? 'Mensualidad del mes' : 'Generar mensualidad del mes en curso'}
+                            </p>
+                            <p className="text-lg font-bold mt-1" style={{ color: accent }}>{fmtCOP(Number(c.monthly_fee))}</p>
+                            <Button
+                              onClick={() => payMonthly(c.child_id)}
+                              disabled={payActing === c.child_id}
+                              className="w-full gap-2 mt-2"
+                              style={{ backgroundColor: accent }}
+                            >
+                              {payActing === c.child_id && <Loader2 className="h-4 w-4 animate-spin" />}
+                              Pagar mensualidad <ArrowRight className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <p className="text-xs text-amber-600 mt-1">
+                            Sin cuota configurada. Pídele a la escuela que genere el cobro.
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Button variant="ghost" onClick={() => setStep('menu')} className="w-full">Volver</Button>
+              </div>
             )}
 
             {/* PASO 3 — Datos del atleta (siempre, ya logueado) */}
