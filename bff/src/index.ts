@@ -35,6 +35,7 @@ import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './r
 import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
 import { requireCsrfHeader } from './middlewares/csrfHeader';
 import systemRouter from './routes/system';
+import whatsappWebhookRouter from './routes/whatsapp';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
@@ -194,7 +195,14 @@ app.use(cors({
     },
     credentials: true,
 }));
-app.use(express.json({ limit: '5mb' }));
+// El `verify` callback guarda el RAW body para validar firmas HMAC sobre los
+// bytes exactos (necesario para el webhook de WhatsApp: X-Hub-Signature-256).
+app.use(express.json({
+    limit: '5mb',
+    verify: (req, _res, buf) => {
+        (req as any).rawBody = buf;
+    },
+}));
 app.use(pinoHttp({
     customProps: (req) => ({ requestId: req.id }),
     // En producción no loguear bodies completos (pueden tener PII)
@@ -221,6 +229,9 @@ app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
+// Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:
+// Meta puede ráfagar; el control real es la firma HMAC + idempotencia por wa_message_id.
+app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 app.use('/api/v1/payments/mp', paymentLimiter, mpPaymentsRouter);
 app.use('/api/v1/payment-providers', generalLimiter, paymentProvidersRouter);

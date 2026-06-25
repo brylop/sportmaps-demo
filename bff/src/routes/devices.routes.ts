@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { supabase } from '../config/supabase';
 import { requireAuth } from '../middlewares/authMiddleware';
 import { requireCsrfHeader } from '../middlewares/csrfHeader';
+import { sendToUser } from '../services/push.service';
 
 const router = Router();
 
@@ -119,6 +120,30 @@ router.delete(
             return res.json({ ok: true });
         } catch (err: any) {
             req.log?.error({ err }, 'Error DELETE /devices/:id');
+            return res.status(500).json({ error: 'server_error' });
+        }
+    },
+);
+
+// POST /api/v1/devices/test-push → envia un push de prueba a los propios
+// dispositivos nativos del caller. Util para verificar la config FCM end-to-end.
+// Rate-limit reusa deviceLimiter (5/min) para no abusar.
+router.post(
+    '/test-push',
+    requireAuth,
+    requireCsrfHeader,
+    deviceLimiter,
+    async (req: Request, res: Response) => {
+        try {
+            const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 100) : 'SportMaps';
+            const body  = typeof req.body?.body  === 'string' ? req.body.body.slice(0, 240)  : 'Push de prueba ✅';
+            const result = await sendToUser(req.user.id, { title, body, data: { type: 'test' } });
+            if (!result.enabled) {
+                return res.status(503).json({ ok: false, error: 'push_not_configured' });
+            }
+            return res.json({ ok: true, ...result });
+        } catch (err: any) {
+            req.log?.error({ err }, 'Error POST /devices/test-push');
             return res.status(500).json({ error: 'server_error' });
         }
     },
