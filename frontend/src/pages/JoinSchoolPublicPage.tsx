@@ -23,10 +23,10 @@ type LandingData = {
   require_first_payment?: boolean;
   target_type?: 'open' | 'team' | 'program' | 'branch';
   target?: any;
-  options?: Array<{ id: string; name: string; sport: string; branch_id: string | null }>;
+  options?: Array<{ id: string; name: string; sport: string; branch_id: string | null; price_monthly?: number | null }>;
   school?: {
     id: string; name: string; slug: string | null;
-    logo_url: string | null; branding_settings: any;
+    logo_url: string | null; cover_image_url: string | null; branding_settings: any;
   };
   payment_info?: any;
 };
@@ -95,6 +95,19 @@ export default function JoinSchoolPublicPage() {
   const branding = useMemo(() => data?.school?.branding_settings || {}, [data]);
   const accent: string = branding.primary_color || '#248223';
   const secondary: string = branding.secondary_color || '#FB9F1E';
+
+  // Precio del primer mes: del EQUIPO (no lo teclea el padre). El servidor lo
+  // re-valida en submit_qr_signup.
+  const selectedTeamPrice = useMemo(() => {
+    if ((data as any)?.target?.kind === 'team') return Number((data as any).target.monthly_fee) || 0;
+    const t = data?.options?.find((o) => o.id === chosenTeamId);
+    return Number((t as any)?.price_monthly) || 0;
+  }, [data, chosenTeamId]);
+
+  useEffect(() => { setMonthlyFee(String(selectedTeamPrice)); }, [selectedTeamPrice]);
+
+  const fmtCOP = (n: number) =>
+    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 
   if (loading) {
     return (
@@ -203,7 +216,15 @@ export default function JoinSchoolPublicPage() {
 
   return (
     <div className="min-h-screen" style={{ background: `linear-gradient(160deg, ${accent}11 0%, ${secondary}11 100%)` }}>
-      <div className="text-white px-6 py-8" style={{ background: `linear-gradient(120deg, ${accent}, ${secondary})` }}>
+      <div
+        className="relative text-white px-6 py-8 bg-cover bg-center"
+        style={
+          data.school?.cover_image_url
+            // Portada de la escuela con overlay del gradiente de marca para legibilidad del texto blanco.
+            ? { backgroundImage: `linear-gradient(120deg, ${accent}cc, ${secondary}cc), url(${data.school.cover_image_url})` }
+            : { background: `linear-gradient(120deg, ${accent}, ${secondary})` }
+        }
+      >
         <div className="max-w-2xl mx-auto flex items-center gap-4">
           {data.school?.logo_url ? (
             <img src={data.school.logo_url} alt="" className="h-16 w-16 rounded-xl bg-white/95 object-contain p-1" />
@@ -235,6 +256,9 @@ export default function JoinSchoolPublicPage() {
                       <p className="text-xs text-muted-foreground">Equipo asignado</p>
                       <p className="font-bold">{data.target.name}</p>
                       {data.target.sport && <p className="text-xs">{data.target.sport}</p>}
+                      {selectedTeamPrice > 0 && (
+                        <p className="text-xs font-semibold mt-1" style={{ color: accent }}>{fmtCOP(selectedTeamPrice)}/mes</p>
+                      )}
                     </div>
                     <ShieldCheck className="h-6 w-6 text-green-600" />
                   </div>
@@ -246,7 +270,7 @@ export default function JoinSchoolPublicPage() {
                       <SelectContent>
                         {data.options.map((t) => (
                           <SelectItem key={t.id} value={t.id}>
-                            {t.name} {t.sport ? `· ${t.sport}` : ''}
+                            {t.name}{t.sport ? ` · ${t.sport}` : ''}{t.price_monthly ? ` · ${fmtCOP(Number(t.price_monthly))}` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -408,15 +432,12 @@ export default function JoinSchoolPublicPage() {
 
                 {data.require_first_payment && (
                   <div className="pt-4 border-t">
-                    <Label>Cuota mensual del plan</Label>
-                    <Input
-                      type="number"
-                      value={monthlyFee}
-                      onChange={(e) => setMonthlyFee(e.target.value)}
-                      placeholder="120000"
-                    />
+                    <Label>Cuota a pagar</Label>
+                    <div className="mt-1 text-2xl font-bold" style={{ color: accent }}>
+                      {selectedTeamPrice > 0 ? fmtCOP(selectedTeamPrice) : 'La definirá la escuela'}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Después serás redirigido al checkout para realizar el primer pago.
+                      Definida por el equipo. Luego serás redirigido al checkout para el primer pago.
                     </p>
                   </div>
                 )}
