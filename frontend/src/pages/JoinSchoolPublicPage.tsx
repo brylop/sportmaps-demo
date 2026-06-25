@@ -305,11 +305,11 @@ export default function JoinSchoolPublicPage() {
                 {(data.target_type === 'team' || data.target_type === 'plan') && data.target ? (
                   <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-muted-foreground">{data.target_type === 'plan' ? 'Plan asignado' : 'Equipo asignado'}</p>
-                      <p className="font-bold">{data.target.name}</p>
+                      <p className="text-xs text-slate-500">{data.target_type === 'plan' ? 'Plan asignado' : 'Equipo asignado'}</p>
+                      <p className="font-bold text-slate-900">{data.target.name}</p>
                       {data.target_type === 'plan'
-                        ? <p className="text-xs">{data.target.sessions_included == null ? 'Ilimitado' : `${data.target.sessions_included} sesiones`}</p>
-                        : data.target.sport && <p className="text-xs">{data.target.sport}</p>}
+                        ? <p className="text-xs text-slate-600">{data.target.sessions_included == null ? 'Ilimitado' : `${data.target.sessions_included} sesiones`}</p>
+                        : data.target.sport && <p className="text-xs text-slate-600">{data.target.sport}</p>}
                       {selectedTeamPrice > 0 && (
                         <p className="text-xs font-semibold mt-1" style={{ color: accent }}>{fmtCOP(selectedTeamPrice)}{data.fixed_amount ? ' (promo)' : ''}</p>
                       )}
@@ -349,7 +349,7 @@ export default function JoinSchoolPublicPage() {
                       </div>
                     )}
                     {data.fixed_amount != null && data.fixed_amount > 0 && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
                         Precio promocional: <strong style={{ color: accent }}>{fmtCOP(Number(data.fixed_amount))}</strong>
                       </div>
                     )}
@@ -357,8 +357,8 @@ export default function JoinSchoolPublicPage() {
                 )}
 
                 {user && profile && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm flex items-center gap-2 text-green-900">
+                    <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
                     <span>Sesión activa: <strong>{profile.full_name || user.email}</strong></span>
                   </div>
                 )}
