@@ -127,6 +127,13 @@ export default function JoinSchoolPublicPage() {
   const fmtCOP = (n: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n);
 
+  // Saneo de inputs: nombres solo letras/espacios/acentos; documento dígitos
+  // (alfanumérico solo para pasaporte). Evita "151541" en el nombre o "thdfhfg"
+  // en el número de documento.
+  const sanitizeName = (s: string) => s.replace(/[^\p{L}\p{M}\s.'’-]/gu, '');
+  const sanitizeDoc = (s: string, type: string) =>
+    type === 'PAS' ? s.replace(/[^A-Za-z0-9]/g, '').toUpperCase() : s.replace(/\D/g, '');
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -391,11 +398,11 @@ export default function JoinSchoolPublicPage() {
                 <TabsContent value="register" className="space-y-3 pt-3">
                   <div>
                     <Label>Nombre completo *</Label>
-                    <Input value={parentName} onChange={(e) => setParentName(e.target.value)} />
+                    <Input value={parentName} onChange={(e) => setParentName(sanitizeName(e.target.value))} autoCapitalize="words" />
                   </div>
                   <div>
                     <Label>Teléfono</Label>
-                    <Input value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} />
+                    <Input value={parentPhone} inputMode="tel" onChange={(e) => setParentPhone(e.target.value.replace(/[^\d+\s-]/g, ''))} />
                   </div>
                   <div>
                     <Label>Email *</Label>
@@ -476,7 +483,7 @@ export default function JoinSchoolPublicPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="md:col-span-2">
                     <Label>Nombre completo *</Label>
-                    <Input value={childName} onChange={(e) => setChildName(e.target.value)} />
+                    <Input value={childName} onChange={(e) => setChildName(sanitizeName(e.target.value))} autoCapitalize="words" />
                   </div>
                   <div>
                     <Label>Fecha de nacimiento *</Label>
@@ -508,7 +515,11 @@ export default function JoinSchoolPublicPage() {
                   </div>
                   <div>
                     <Label>Número de documento</Label>
-                    <Input value={childDocNumber} onChange={(e) => setChildDocNumber(e.target.value)} />
+                    <Input
+                      value={childDocNumber}
+                      inputMode={childDocType === 'PAS' ? 'text' : 'numeric'}
+                      onChange={(e) => setChildDocNumber(sanitizeDoc(e.target.value, childDocType))}
+                    />
                   </div>
                 </div>
                 )}

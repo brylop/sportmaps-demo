@@ -36,6 +36,13 @@ export default function ParentCheckoutPage() {
   const { schoolBranding } = useSchoolContext();
   const { toast } = useToast();
 
+  // Copiar un dato de pago (siempre disponible, también en móvil donde no hay hover).
+  const copyField = (value: string | null | undefined, label: string) => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value);
+    toast({ title: `${label} copiado`, description: value });
+  };
+
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'mercadopago' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -603,67 +610,59 @@ export default function ParentCheckoutPage() {
                             {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
                             
                             {bankDetails.bank_account_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Número:</strong> {showSensitive ? bankDetails.bank_account_number : maskSensitive(bankDetails.bank_account_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_account_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.bank_account_number, 'Número'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.nequi_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Nequi:</strong> {showSensitive ? bankDetails.nequi_number : maskSensitive(bankDetails.nequi_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.nequi_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.nequi_number, 'Nequi'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.daviplata_number && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>Daviplata:</strong> {showSensitive ? bankDetails.daviplata_number : maskSensitive(bankDetails.daviplata_number)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.daviplata_number); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.daviplata_number, 'Daviplata'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
-                            
+
                             {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
                             {bankDetails.bank_titular_id && (
-                              <div className="flex justify-between items-center group">
+                              <div className="flex justify-between items-center gap-2">
                                 <p><strong>NIT/CC:</strong> {showSensitive ? bankDetails.bank_titular_id : maskSensitive(bankDetails.bank_titular_id)}</p>
-                                {showSensitive && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-4 w-4 opacity-0 group-hover:opacity-100" 
-                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(bankDetails.bank_titular_id); }}
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 shrink-0 font-sans"
+                                  onClick={(e) => { e.stopPropagation(); copyField(bankDetails.bank_titular_id, 'NIT/CC'); }}
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copiar
+                                </Button>
                               </div>
                             )}
                           </div>
