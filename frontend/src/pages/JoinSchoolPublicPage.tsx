@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertCircle, MapPin, ArrowRight, ShieldCheck, LogIn, UserPlus, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,7 @@ type PayTargets = { school_id: string; school_name: string; children: PayChild[]
 
 export default function JoinSchoolPublicPage() {
   const { slug } = useParams<{ slug: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, profile } = useAuth();
@@ -97,6 +98,17 @@ export default function JoinSchoolPublicPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // Al volver de Google (redirect con ?do=pagar|inscribir), retomar el flujo.
+  useEffect(() => {
+    const doIntent = searchParams.get('do');
+    if (!doIntent || !user || !data?.found) return;
+    searchParams.delete('do');
+    setSearchParams(searchParams, { replace: true });
+    if (doIntent === 'pagar') { setIntent('pagar'); setStep('pay'); void loadPayTargets(); }
+    else if (doIntent === 'inscribir') { setIntent('inscribir'); setStep('choose'); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, data]);
 
   async function load() {
     setLoading(true);
@@ -483,7 +495,7 @@ export default function JoinSchoolPublicPage() {
                 </TabsContent>
 
                 <AuthDivider />
-                <GoogleSignInButton redirectTo={`/join/${slug}`} />
+                <GoogleSignInButton redirectTo={`/join/${slug}?do=${intent}`} />
 
                 <Button variant="ghost" onClick={() => setStep(intent === 'pagar' ? 'menu' : 'choose')} className="w-full mt-2">
                   Volver
