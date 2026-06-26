@@ -188,6 +188,7 @@ const OrganizerSettingsPage = lazy(() => import("./pages/organizer/OrganizerSett
 const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPage"));
 const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
+const AccessControlPage = lazy(() => import('./pages/school/AccessControlPage'));
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
@@ -533,6 +534,11 @@ const App = () => (
                       <Route path="school/public-profile" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <SchoolPublicProfilePage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/access-control" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccessControlPage />
                         </ProtectedRoute>
                       } />
                       <Route path="vendor/public-profile" element={

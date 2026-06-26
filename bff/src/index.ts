@@ -54,6 +54,8 @@ import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import joinQrRouter from './routes/join-qr';
+import admsRouter from './routes/access-adms';
+import accessApiRouter from './routes/access-api';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -197,6 +199,9 @@ app.use(cors({
 }));
 // El `verify` callback guarda el RAW body para validar firmas HMAC sobre los
 // bytes exactos (necesario para el webhook de WhatsApp: X-Hub-Signature-256).
+// ANTES de express.json() — protocolo texto plano del F22
+app.use('/', admsRouter);
+
 app.use(express.json({
     limit: '5mb',
     verify: (req, _res, buf) => {
@@ -290,6 +295,7 @@ app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
+app.use('/api/v1/access', generalLimiter, accessApiRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);
