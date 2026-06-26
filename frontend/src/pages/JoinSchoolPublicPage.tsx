@@ -170,7 +170,7 @@ export default function JoinSchoolPublicPage() {
   // Avanzar tras "choose": si user logueado → directo a child; si no → auth
   function continueAfterChoose() {
     if (user) setStep('child');
-    else      setStep('auth');
+    else { setAuthTab('register'); setStep('auth'); }
   }
 
   async function handleLogin() {
@@ -336,7 +336,7 @@ export default function JoinSchoolPublicPage() {
 
                 <button
                   type="button"
-                  onClick={() => { setIntent('pagar'); if (user) { setStep('pay'); void loadPayTargets(); } else setStep('auth'); }}
+                  onClick={() => { setIntent('pagar'); if (user) { setStep('pay'); void loadPayTargets(); } else { setAuthTab('login'); setStep('auth'); } }}
                   className="w-full text-left border rounded-xl p-4 transition-all hover:border-primary/50 flex items-center gap-3"
                 >
                   <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: accent }} />
