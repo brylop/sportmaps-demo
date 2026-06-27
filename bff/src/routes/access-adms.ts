@@ -494,6 +494,11 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     if (cmd.command_type === 'open_door') {
       return `C:${cmd.cmd_seq}:UNLOCK`;
     }
+    if (cmd.command_type === 'reboot') {
+      // Fuerza al F22 a re-registrarse: tras el reboot hace GET /iclock/cdata
+      // (handshake) y recibe el Stamp dinámico → resetea su puntero de subida.
+      return `C:${cmd.cmd_seq}:REBOOT`;
+    }
     return null;
   }).filter(Boolean).join('\r\n');
 
