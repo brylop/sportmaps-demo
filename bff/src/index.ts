@@ -56,6 +56,7 @@ import certificatesRouter from './routes/certificates';
 import joinQrRouter from './routes/join-qr';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
+import accessAdminRouter from './routes/access-admin.routes';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -296,6 +297,7 @@ app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
 app.use('/api/v1/access', generalLimiter, accessApiRouter);
+app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);

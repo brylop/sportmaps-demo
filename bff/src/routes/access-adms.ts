@@ -79,6 +79,15 @@ router.post('/debug-logs/clear', (req: Request, res: Response) => {
 
 
 
+// Persiste tráfico de PROTOCOLO ADMS (bajo volumen) en adms_device_log para la
+// vista super-admin. Fire-and-forget: no bloquea ni rompe el flujo del lector.
+function logDevice(eventType: string, detail: Record<string, unknown>, sn?: string): void {
+  void supabase
+    .from('adms_device_log')
+    .insert({ school_id: SCHOOL_ID, sn: sn ?? null, event_type: eventType, detail })
+    .then(() => {}, () => {});
+}
+
 async function getDeviceId(sn: string): Promise<string | null> {
   const { data } = await supabase
     .from('turnstile_devices')
@@ -278,6 +287,7 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
 
   await touchDevice(sn);
   console.log(`[ADMS] Handshake OK — ${sn} (${DEVICE_MAP[sn]})`);
+  logDevice('handshake', { direction: DEVICE_MAP[sn], ip: clientIp(req) }, sn);
 
   const config = [
     `GET OPTION FROM: ${sn}`,
@@ -319,6 +329,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
     const deviceId = await getDeviceId(sn);
 
     console.log(`[ADMS] ATTLOG ${sn} (${direction}) — ${lines.length} evento(s)`);
+    logDevice('attlog_batch', { count: lines.length, direction, table }, sn);
 
     for (const line of lines) {
       const parts      = line.trim().split('\t');
@@ -395,6 +406,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
 
   if (table === 'OPERLOG') {
     console.log(`[ADMS] OPERLOG ${sn}:`, body.substring(0, 200));
+    logDevice('operlog', { preview: body.substring(0, 200) }, sn);
   }
 
   return res.type('text/plain').status(200).send('OK');
@@ -458,6 +470,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
   }).filter(Boolean).join('\r\n');
 
   console.log(`[ADMS] getrequest ${sn} — ${commands.length} comando(s)`);
+  if (commands.length) logDevice('getrequest', { count: commands.length }, sn);
   return res.type('text/plain').status(200).send(commandLines);
 });
 
@@ -482,6 +495,7 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
   const cmdText    = params['CMD']    || params['cmd'] || '';
 
   console.log(`[ADMS] devicecmd ${sn} | ID:${cmdId} | Return:${returnCode} | CMD:${cmdText}`);
+  logDevice(returnCode === 0 ? 'devicecmd' : 'error', { cmdId, returnCode, cmd: cmdText }, sn);
 
   if (cmdId) {
     const success = returnCode === 0;
