@@ -387,9 +387,10 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       console.log(`[ADMS] PIN:${zkPin} | ${eventDirection} (device:${direction}) | granted:${validation.granted} | ${validation.reason || 'ok'}`);
     }
 
-    // ACK con conteo: ZKTeco marca los registros como subidos y avanza su
-    // puntero. Sin esto reenvía el backlog completo (flood de duplicados).
-    return res.type('text/plain').status(200).send('OK: ' + lines.length);
+    // ACK: este firmware F22 solo acepta "OK" plano como subida exitosa. Con
+    // "OK: <n>" no reconocía la confirmación y reenviaba el backlog (re-volcado).
+    // El dedup (índice único + upsert) protege igual contra duplicados.
+    return res.type('text/plain').status(200).send('OK');
   }
 
   if (table === 'OPERLOG') {
