@@ -158,8 +158,8 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
 
   const config = [
     `GET OPTION FROM: ${sn}`,
-    `Stamp=9999`,
-    `OpStamp=9999`,
+    `Stamp=0`,
+    `OpStamp=0`,
     `ErrorDelay=30`,
     `Delay=10`,
     `TransTimes=00:00;23:59`,
