@@ -5,6 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   DoorOpen,
   DoorClosed,
@@ -15,6 +23,7 @@ import {
   Fingerprint,
   CreditCard,
   User,
+  UserPlus,
   Wifi,
   WifiOff,
   RefreshCw,
@@ -52,6 +61,17 @@ interface TurnstileDevice {
   location: string;
   is_active: boolean;
   last_seen_at: string | null;
+}
+
+interface AssignableMember {
+  user_id: string;
+  full_name: string;
+  role: string | null;
+}
+
+// Un evento "desconocido" todavía no tiene usuario mapeado (user_name = ZK#<pin>).
+function isUnknownEvent(e: AccessEvent): boolean {
+  return typeof e.user_name === 'string' && e.user_name.startsWith('ZK#') && !!e.zk_user_id;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -98,6 +118,13 @@ export default function AccessControlPage() {
   const [openingEntry, setOpeningEntry] = useState(false);
   const [openingExit,  setOpeningExit]  = useState(false);
   const [lastRefresh,  setLastRefresh]  = useState<Date>(new Date());
+
+  // Asignar usuario a un PIN desconocido
+  const [assignPin,     setAssignPin]     = useState<number | null>(null);
+  const [memberQuery,   setMemberQuery]   = useState('');
+  const [members,       setMembers]       = useState<AssignableMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [assigningId,   setAssigningId]   = useState<string | null>(null);
 
   // ── Carga de datos ──────────────────────────────────────────────────────────
 
@@ -175,6 +202,60 @@ export default function AccessControlPage() {
       });
     } finally {
       setter(false);
+    }
+  };
+
+  // ── Asignar usuario a un PIN ──────────────────────────────────────────────────
+
+  const loadMembers = useCallback(async (q: string) => {
+    setLoadingMembers(true);
+    try {
+      const data = await bffClient.get<{ members: AssignableMember[] }>(
+        `/api/v1/access/members${q ? `?q=${encodeURIComponent(q)}` : ''}`,
+      );
+      setMembers(data.members || []);
+    } catch {
+      setMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, []);
+
+  // Al abrir el diálogo o cambiar la búsqueda, recarga miembros (con debounce).
+  useEffect(() => {
+    if (assignPin === null) return;
+    const t = setTimeout(() => loadMembers(memberQuery), 300);
+    return () => clearTimeout(t);
+  }, [assignPin, memberQuery, loadMembers]);
+
+  const openAssign = (pin: number) => {
+    setAssignPin(pin);
+    setMemberQuery('');
+    setMembers([]);
+  };
+
+  const handleAssign = async (member: AssignableMember) => {
+    if (assignPin === null) return;
+    setAssigningId(member.user_id);
+    try {
+      await bffClient.post('/api/v1/access/assign-user', {
+        zk_pin:  assignPin,
+        user_id: member.user_id,
+      });
+      toast({
+        title:       'Usuario asignado',
+        description: `${member.full_name} quedó vinculado al PIN ${assignPin}.`,
+      });
+      setAssignPin(null);
+      loadEvents();
+    } catch (err: any) {
+      toast({
+        title:       'No se pudo asignar',
+        description: err?.message || 'Error al asignar el usuario.',
+        variant:     'destructive',
+      });
+    } finally {
+      setAssigningId(null);
     }
   };
 
@@ -384,6 +465,19 @@ export default function AccessControlPage() {
                     </div>
                   </div>
 
+                  {/* Asignar usuario (solo PIN desconocido) */}
+                  {isUnknownEvent(event) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs shrink-0"
+                      onClick={() => openAssign(event.zk_user_id as number)}
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      Asignar
+                    </Button>
+                  )}
+
                   {/* Método + hora */}
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-muted-foreground">
@@ -399,6 +493,55 @@ export default function AccessControlPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Diálogo: asignar usuario a un PIN desconocido */}
+      <Dialog open={assignPin !== null} onOpenChange={(open) => { if (!open) setAssignPin(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Asignar usuario al PIN {assignPin}</DialogTitle>
+            <DialogDescription>
+              Vincula este UID del lector a un miembro de la escuela. Sus accesos
+              empezarán a mostrar el nombre y validarán inscripción y pago.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Input
+            placeholder="Buscar miembro por nombre…"
+            value={memberQuery}
+            onChange={(e) => setMemberQuery(e.target.value)}
+            autoFocus
+          />
+
+          <div className="max-h-72 overflow-y-auto divide-y divide-border/50 -mx-2">
+            {loadingMembers ? (
+              <div className="p-3 space-y-2">
+                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10" />)}
+              </div>
+            ) : members.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {memberQuery ? 'Sin coincidencias' : 'Escribe para buscar miembros'}
+              </p>
+            ) : (
+              members.map((m) => (
+                <button
+                  key={m.user_id}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors disabled:opacity-50"
+                  onClick={() => handleAssign(m)}
+                  disabled={assigningId !== null}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{m.full_name}</p>
+                    {m.role && <p className="text-xs text-muted-foreground">{m.role}</p>}
+                  </div>
+                  {assigningId === m.user_id
+                    ? <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+                    : <UserPlus className="h-4 w-4 text-muted-foreground shrink-0" />}
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

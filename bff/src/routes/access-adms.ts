@@ -16,8 +16,27 @@ const VERIFY_METHOD: Record<number, string> = {
   1: 'fingerprint', 2: 'card', 3: 'pin', 4: 'fingerprint', 15: 'fingerprint',
 };
 
-// ─── express.text() SOLO para rutas /iclock/* ────────────────────────────────
+// ─── Allowlist de IP del/los lector(es) ──────────────────────────────────────
+// Opt-in: si ACCESS_DEVICE_IP_ALLOWLIST está vacío no se aplica (no rompe dev).
+// En prod: setear a la IP pública del gym (RMGYM: 181.63.24.103). El protocolo
+// /iclock no soporta auth por header, así que la IP es la barrera práctica.
+const IP_ALLOWLIST = (process.env.ACCESS_DEVICE_IP_ALLOWLIST || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function clientIp(req: Request): string {
+  const xff = (req.headers['x-forwarded-for'] as string) || '';
+  return (xff.split(',')[0] || req.socket?.remoteAddress || '').trim();
+}
+
+// ─── express.text() SOLO para rutas /iclock/* (+ allowlist) ───────────────────
 router.use('/iclock', (req, res, next) => {
+  if (IP_ALLOWLIST.length) {
+    const ip = clientIp(req);
+    if (!IP_ALLOWLIST.includes(ip)) {
+      console.warn(`[ADMS] IP no autorizada en /iclock: ${ip}`);
+      return res.type('text/plain').status(403).send('');
+    }
+  }
   if (req.method === 'GET') return next();
   express.text({ type: '*/*' })(req, res, next);
 });
@@ -41,6 +60,66 @@ async function touchDevice(sn: string): Promise<void> {
     .eq('school_id', SCHOOL_ID);
 }
 
+// ─── Cache de mapeo PIN → identidad (perf #6) ────────────────────────────────
+// Solo se cachea la resolución PIN→user/atleta (estable). La validación de
+// enrollment/pago SIEMPRE se consulta fresca más abajo.
+type Mapping = { userId: string | null; unregisteredAthleteId: string | null };
+const MAPPING_TTL_MS = 5 * 60 * 1000;
+const mappingCache = new Map<number, { value: Mapping | null; at: number }>();
+
+export function invalidateMappingCache(pin?: number): void {
+  if (typeof pin === 'number') mappingCache.delete(pin);
+  else mappingCache.clear();
+}
+
+async function resolveMapping(pin: number): Promise<Mapping | null> {
+  const cached = mappingCache.get(pin);
+  if (cached && Date.now() - cached.at < MAPPING_TTL_MS) return cached.value;
+
+  const { data } = await supabase
+    .from('zk_user_mappings')
+    .select('user_id, unregistered_athlete_id')
+    .eq('school_id', SCHOOL_ID)
+    .eq('zk_pin', pin)
+    .maybeSingle();
+
+  const value: Mapping | null =
+    data && (data.user_id || data.unregistered_athlete_id)
+      ? { userId: data.user_id ?? null, unregisteredAthleteId: data.unregistered_athlete_id ?? null }
+      : null;
+
+  mappingCache.set(pin, { value, at: Date.now() });
+  return value;
+}
+
+// ¿El usuario es staff de la escuela? (owner/admin/coach) → acceso sin enrollment.
+const staffCache = new Map<string, { value: boolean; at: number }>();
+
+async function isStaff(userId: string): Promise<boolean> {
+  const cached = staffCache.get(userId);
+  if (cached && Date.now() - cached.at < MAPPING_TTL_MS) return cached.value;
+
+  const { data: school } = await supabase
+    .from('schools').select('owner_id').eq('id', SCHOOL_ID).maybeSingle();
+
+  let value = school?.owner_id === userId;
+  if (!value) {
+    const { data: member } = await supabase
+      .from('school_members')
+      .select('role')
+      .eq('school_id', SCHOOL_ID)
+      .eq('profile_id', userId)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin', 'school_admin', 'coach', 'staff'])
+      .limit(1)
+      .maybeSingle();
+    value = !!member;
+  }
+
+  staffCache.set(userId, { value, at: Date.now() });
+  return value;
+}
+
 async function validateAccess(zkPin: string): Promise<{
   granted: boolean;
   reason?: string;
@@ -50,20 +129,26 @@ async function validateAccess(zkPin: string): Promise<{
 }> {
   const pin = parseInt(zkPin) || 0;
 
-  // 1. Buscar mapeo PIN → user en zk_user_mappings
-  const { data: mapping } = await supabase
-    .from('zk_user_mappings')
-    .select('user_id, unregistered_athlete_id')
-    .eq('school_id', SCHOOL_ID)
-    .eq('zk_pin', pin)
-    .maybeSingle();
+  // 1. Resolver mapeo PIN → user/atleta (con cache)
+  const mapping = await resolveMapping(pin);
 
-  if (!mapping || (!mapping.user_id && !mapping.unregistered_athlete_id)) {
+  if (!mapping) {
     return { granted: false, reason: 'unknown_user' };
   }
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
-  const isRegistered = !!mapping.user_id;
+  const isRegistered = !!mapping.userId;
+
+  // 1.b STAFF (owner/admin/coach): concede sin enrollment ni pago.
+  if (isRegistered && await isStaff(mapping.userId!)) {
+    const { data: profile } = await supabase
+      .from('profiles').select('full_name').eq('id', mapping.userId).maybeSingle();
+    return {
+      granted: true,
+      userId: mapping.userId!,
+      userName: profile?.full_name ?? 'Staff',
+    };
+  }
 
   // 2. Verificar enrollment activo — filtra por user_id o unregistered_athlete_id
   const enrollQuery = supabase
@@ -73,16 +158,16 @@ async function validateAccess(zkPin: string): Promise<{
     .eq('status', 'active');
 
   const { data: enrollment } = await (isRegistered
-    ? enrollQuery.eq('user_id', mapping.user_id).maybeSingle()
-    : enrollQuery.eq('unregistered_athlete_id', mapping.unregistered_athlete_id).maybeSingle()
+    ? enrollQuery.eq('user_id', mapping.userId).maybeSingle()
+    : enrollQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
   );
 
   if (!enrollment) {
     return {
       granted: false,
       reason: 'no_enrollment',
-      userId: mapping.user_id ?? undefined,
-      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+      userId: mapping.userId ?? undefined,
+      unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
     };
   }
 
@@ -90,8 +175,8 @@ async function validateAccess(zkPin: string): Promise<{
     return {
       granted: false,
       reason: 'enrollment_expired',
-      userId: mapping.user_id ?? undefined,
-      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+      userId: mapping.userId ?? undefined,
+      unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
     };
   }
 
@@ -104,16 +189,16 @@ async function validateAccess(zkPin: string): Promise<{
     .limit(1);
 
   const { data: payment } = await (isRegistered
-    ? payQuery.eq('user_id', mapping.user_id).maybeSingle()
-    : payQuery.eq('unregistered_athlete_id', mapping.unregistered_athlete_id).maybeSingle()
+    ? payQuery.eq('user_id', mapping.userId).maybeSingle()
+    : payQuery.eq('unregistered_athlete_id', mapping.unregisteredAthleteId).maybeSingle()
   );
 
   if (payment?.status === 'overdue') {
     return {
       granted: false,
       reason: 'payment_overdue',
-      userId: mapping.user_id ?? undefined,
-      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+      userId: mapping.userId ?? undefined,
+      unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
     };
   }
 
@@ -124,22 +209,22 @@ async function validateAccess(zkPin: string): Promise<{
     const { data: profile } = await supabase
       .from('profiles')
       .select('full_name')
-      .eq('id', mapping.user_id)
+      .eq('id', mapping.userId)
       .maybeSingle();
     userName = profile?.full_name ?? 'Usuario';
   } else {
     const { data: ua } = await supabase
       .from('unregistered_athletes')
       .select('full_name')
-      .eq('id', mapping.unregistered_athlete_id)
+      .eq('id', mapping.unregisteredAthleteId)
       .maybeSingle();
     userName = ua?.full_name ?? 'Atleta';
   }
 
   return {
     granted: true,
-    userId: mapping.user_id ?? undefined,
-    unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+    userId: mapping.userId ?? undefined,
+    unregisteredAthleteId: mapping.unregisteredAthleteId ?? undefined,
     userName,
   };
 }
@@ -217,9 +302,11 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         occurredAt = new Date().toISOString();
       }
 
+      // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
+      // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
       const { data: eventRecord } = await supabase
         .from('access_events')
-        .insert({
+        .upsert({
           school_id:               SCHOOL_ID,
           device_id:               deviceId,
           user_id:                 validation.userId || null,
@@ -231,27 +318,34 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           zk_user_id:              parseInt(zkPin) || null,
           raw_event:               { sn, line, table },
           occurred_at:             occurredAt,
-        })
+        }, { onConflict: 'device_id,zk_user_id,occurred_at', ignoreDuplicates: true })
         .select('id')
-        .single();
+        .maybeSingle();
 
-      if (!validation.granted && validation.reason === 'payment_overdue' && validation.userId) {
+      // eventRecord null => era un duplicado (ya existía); no notificamos de nuevo.
+      if (eventRecord && !validation.granted && validation.reason === 'payment_overdue' && validation.userId) {
         const { data: school } = await supabase
           .from('schools').select('owner_id').eq('id', SCHOOL_ID).maybeSingle();
 
         if (school?.owner_id) {
+          // notifications: columnas user_id, school_id, title, message, type, read, link
           await supabase.from('notifications').insert({
             user_id:  school.owner_id,
+            school_id: SCHOOL_ID,
             type:     'access_denied',
             title:    '⚠️ Acceso denegado — Pago vencido',
-            body:     `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
-            metadata: { access_event_id: eventRecord?.id, user_id: validation.userId, direction: eventDirection },
+            message:  `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
+            link:     '/school/access-control',
           });
         }
       }
 
       console.log(`[ADMS] PIN:${zkPin} | ${eventDirection} (device:${direction}) | granted:${validation.granted} | ${validation.reason || 'ok'}`);
     }
+
+    // ACK con conteo: ZKTeco marca los registros como subidos y avanza su
+    // puntero. Sin esto reenvía el backlog completo (flood de duplicados).
+    return res.type('text/plain').status(200).send('OK: ' + lines.length);
   }
 
   if (table === 'OPERLOG') {
@@ -275,7 +369,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
 
   const { data: commands } = await supabase
     .from('device_commands')
-    .select('id, command_type, metadata')
+    .select('id, cmd_seq, command_type, metadata')
     .eq('device_id', deviceId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
@@ -300,19 +394,19 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     if (cmd.command_type === 'enroll_user') {
       const fields = [`PIN=${meta.pin}`, `Name=${meta.name}`, `Pri=0`];
       if (meta.card) fields.push(`Card=${meta.card}`);
-      return `C:${cmd.id}:DATA UPDATE USERINFO ${fields.join('\t')}`;
+      return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO ${fields.join('\t')}`;
     }
     if (cmd.command_type === 'delete_user') {
-      return `C:${cmd.id}:DATA DELETE USERINFO PIN=${meta.pin}`;
+      return `C:${cmd.cmd_seq}:DATA DELETE USERINFO PIN=${meta.pin}`;
     }
     if (cmd.command_type === 'disable_user') {
-      return `C:${cmd.id}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=0`;
+      return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=0`;
     }
     if (cmd.command_type === 'enable_user') {
-      return `C:${cmd.id}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=1`;
+      return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=1`;
     }
     if (cmd.command_type === 'open_door') {
-      return `C:${cmd.id}:UNLOCK`;
+      return `C:${cmd.cmd_seq}:UNLOCK`;
     }
     return null;
   }).filter(Boolean).join('\r\n');
@@ -344,6 +438,15 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
 
   if (cmdId) {
     const success = returnCode === 0;
+
+    // El F22 trunca el UUID que devuelve (buffer fijo) → un PATCH por id fallaba
+    // con 22P02 y el comando quedaba 'pending' en loop infinito. Ahora enviamos
+    // cmd_seq (entero corto) en C:<seq>: y confirmamos por esa columna. Si llega
+    // algo no-numérico (comando viejo), caemos a id por compatibilidad.
+    const trimmed = cmdId.trim();
+    const seq = Number.parseInt(trimmed, 10);
+    const matchBySeq = Number.isFinite(seq) && String(seq) === trimmed;
+
     await supabase
       .from('device_commands')
       .update({
@@ -351,7 +454,7 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
         executed_at:   new Date().toISOString(),
         error_message: success ? null : `Return code: ${returnCode}`,
       })
-      .eq('id', cmdId);
+      .eq(matchBySeq ? 'cmd_seq' : 'id', matchBySeq ? seq : trimmed);
 
     if (returnCode === -1002) {
       console.error(`[ADMS] ⚠️ Error -1002 — Usar DATA UPDATE/DELETE USERINFO, no USER ADD/DEL`);
