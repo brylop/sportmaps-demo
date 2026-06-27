@@ -53,6 +53,32 @@ export function logDebug(msg: string) {
   }
 }
 
+// ─── GET /debug-logs (público, sin auth — solo para diagnóstico) ──────────────
+router.get('/debug-logs', (req: Request, res: Response) => {
+  try {
+    const logPath = path.join(__dirname, '../../debug.log');
+    if (!fs.existsSync(logPath)) {
+      return res.type('text/plain').send('Log file does not exist yet.');
+    }
+    const content = fs.readFileSync(logPath, 'utf8');
+    return res.type('text/plain').send(content || '(vacío)');
+  } catch (err: any) {
+    return res.status(500).send(`Error reading log: ${err.message}`);
+  }
+});
+
+router.post('/debug-logs/clear', (req: Request, res: Response) => {
+  try {
+    const logPath = path.join(__dirname, '../../debug.log');
+    fs.writeFileSync(logPath, '');
+    return res.send('Cleared.');
+  } catch (err: any) {
+    return res.status(500).send(err.message);
+  }
+});
+
+
+
 async function getDeviceId(sn: string): Promise<string | null> {
   const { data } = await supabase
     .from('turnstile_devices')
