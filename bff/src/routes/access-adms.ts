@@ -1,6 +1,8 @@
 import { Router, Response, Request } from 'express';
 import express from 'express';
 import { supabase } from '../config/supabase';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -23,6 +25,15 @@ router.use('/iclock', (req, res, next) => {
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+export function logDebug(msg: string) {
+  try {
+    const logPath = path.join(__dirname, '../../debug.log');
+    fs.appendFileSync(logPath, `${new Date().toISOString()} - ${msg}\n`);
+  } catch (err) {
+    console.error('Failed to write debug log:', err);
+  }
+}
+
 async function getDeviceId(sn: string): Promise<string | null> {
   const { data } = await supabase
     .from('turnstile_devices')
@@ -147,6 +158,7 @@ async function validateAccess(zkPin: string): Promise<{
 // ─── GET /iclock/cdata — Handshake inicial ────────────────────────────────────
 router.get('/iclock/cdata', async (req: Request, res: Response) => {
   const sn = (req.query.SN || req.query.sn) as string;
+  logDebug(`GET /iclock/cdata | SN: ${sn}`);
 
   if (!sn || !DEVICE_MAP[sn]) {
     console.warn(`[ADMS] Handshake serial desconocido: ${sn}`);
@@ -177,6 +189,8 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
 router.post('/iclock/cdata', async (req: Request, res: Response) => {
   const sn    = (req.query.SN    || req.query.sn)    as string;
   const table = (req.query.table || req.query.Table) as string;
+  const rawBody = typeof req.body === 'string' ? req.body : '';
+  logDebug(`POST /iclock/cdata | SN: ${sn} | Table: ${table} | Body length: ${rawBody.length}`);
 
   if (!sn || !DEVICE_MAP[sn]) {
     return res.type('text/plain').status(200).send('OK');
@@ -264,6 +278,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
 // ─── GET /iclock/getrequest — F22 consulta comandos pendientes ────────────────
 router.get('/iclock/getrequest', async (req: Request, res: Response) => {
   const sn = (req.query.SN || req.query.sn) as string;
+  logDebug(`GET /iclock/getrequest | SN: ${sn}`);
 
   if (!sn || !DEVICE_MAP[sn]) {
     return res.type('text/plain').status(200).send('OK');
@@ -325,6 +340,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
 router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
   const sn   = (req.query.SN || req.query.sn) as string;
   const body = typeof req.body === 'string' ? req.body : '';
+  logDebug(`POST /iclock/devicecmd | SN: ${sn} | Body: ${body}`);
 
   if (!sn || !DEVICE_MAP[sn]) {
     return res.type('text/plain').status(200).send('OK');

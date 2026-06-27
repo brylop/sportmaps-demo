@@ -1,10 +1,36 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
 const SCHOOL_ID = '2137182d-a695-4695-8e5a-61151fc59196';
+
+// ─── GET /api/v1/access/debug-logs ───────────────────────────────────────────
+router.get('/debug-logs', (req, res) => {
+  try {
+    const logPath = path.join(__dirname, '../../debug.log');
+    if (!fs.existsSync(logPath)) {
+      return res.type('text/plain').send('Log file does not exist yet.');
+    }
+    const content = fs.readFileSync(logPath, 'utf8');
+    return res.type('text/plain').send(content);
+  } catch (err: any) {
+    return res.status(500).send(`Error reading log: ${err.message}`);
+  }
+});
+
+router.post('/debug-logs/clear', (req, res) => {
+  try {
+    const logPath = path.join(__dirname, '../../debug.log');
+    fs.writeFileSync(logPath, '');
+    return res.send('Cleared.');
+  } catch (err: any) {
+    return res.status(500).send(err.message);
+  }
+});
 
 // ─── GET /api/v1/access/events ───────────────────────────────────────────────
 router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
