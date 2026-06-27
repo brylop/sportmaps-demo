@@ -302,10 +302,9 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       const verifyCode = parseInt(parts[3]) || 1;
       const checkInMethod = VERIFY_METHOD[verifyCode] || 'fingerprint';
 
-      // Cada lector es DEDICADO (uno entrada, uno salida), así que la dirección
-      // confiable es el lector físico (DEVICE_MAP), no el AttState — este F22
-      // reporta AttState=0 (check-in) en ambos lectores, lo que rotulaba todo
-      // como "entry". Usamos el serial como fuente de verdad.
+      // En torniquetes la dirección es siempre la del DEVICE_MAP (posición física).
+      // AttState del F22 no es fiable: los usuarios no pulsan Check-In/Out, el valor
+      // es 0 por defecto y sobreescribiría incorrectamente la dirección del dispositivo.
       void attState; // (queda parseado por si a futuro un lector es bidireccional)
       const eventDirection: 'entry' | 'exit' = direction;
 
