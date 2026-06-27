@@ -18,7 +18,7 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       .from('access_events')
       .select(`
         id, direction, access_granted, denial_reason,
-        check_in_method, zk_user_id, occurred_at, user_id,
+        check_in_method, zk_user_id, occurred_at, user_id, unregistered_athlete_id,
         turnstile_devices!access_events_device_id_fkey(device_name, direction)
       `)
       .eq('school_id', schoolId)
@@ -34,18 +34,43 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
     const { data: events, error } = await query;
     if (error) throw error;
 
-    const userIds = [...new Set((events || []).map((e: any) => e.user_id).filter(Boolean))];
+    // IDs de perfiles registrados
+    const userIds = [...new Set(
+      (events || []).map((e: any) => e.user_id).filter(Boolean)
+    )];
+
+    // IDs de atletas no registrados
+    const uaIds = [...new Set(
+      (events || []).map((e: any) => e.unregistered_athlete_id).filter(Boolean)
+    )];
+
     const profileMap: Record<string, string> = {};
+    const uaMap: Record<string, string> = {};
 
     if (userIds.length) {
       const { data: profiles } = await supabase
-        .from('profiles').select('id, full_name').in('id', userIds);
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
       (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+
+    if (uaIds.length) {
+      const { data: uas } = await supabase
+        .from('unregistered_athletes')
+        .select('id, full_name')
+        .in('id', uaIds);
+      (uas || []).forEach((ua: any) => { uaMap[ua.id] = ua.full_name; });
     }
 
     const enriched = (events || []).map((e: any) => ({
       ...e,
-      user_name: e.user_id ? profileMap[e.user_id] ?? `ZK#${e.zk_user_id}` : `ZK#${e.zk_user_id}`,
+      user_name:
+        (e.user_id && profileMap[e.user_id])
+          ? profileMap[e.user_id]
+          : (e.unregistered_athlete_id && uaMap[e.unregistered_athlete_id])
+            ? uaMap[e.unregistered_athlete_id]
+            : `ZK#${e.zk_user_id}`,
     }));
 
     return res.json({ events: enriched });

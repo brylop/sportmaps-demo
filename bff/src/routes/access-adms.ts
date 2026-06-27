@@ -42,49 +42,106 @@ async function touchDevice(sn: string): Promise<void> {
 }
 
 async function validateAccess(zkPin: string): Promise<{
-  granted: boolean; reason?: string; userId?: string; userName?: string;
+  granted: boolean;
+  reason?: string;
+  userId?: string;
+  unregisteredAthleteId?: string;
+  userName?: string;
 }> {
+  const pin = parseInt(zkPin) || 0;
+
+  // 1. Buscar mapeo PIN → user en zk_user_mappings
   const { data: mapping } = await supabase
-    .from('access_events')
-    .select('user_id')
+    .from('zk_user_mappings')
+    .select('user_id, unregistered_athlete_id')
     .eq('school_id', SCHOOL_ID)
-    .eq('zk_user_id', parseInt(zkPin) || 0)
-    .not('user_id', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
+    .eq('zk_pin', pin)
     .maybeSingle();
 
-  if (!mapping?.user_id) return { granted: false, reason: 'unknown_user' };
+  if (!mapping || (!mapping.user_id && !mapping.unregistered_athlete_id)) {
+    return { granted: false, reason: 'unknown_user' };
+  }
 
-  const userId = mapping.user_id;
-  const today  = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  const isRegistered = !!mapping.user_id;
 
-  const { data: enrollment } = await supabase
+  // 2. Verificar enrollment activo — filtra por user_id o unregistered_athlete_id
+  const enrollQuery = supabase
     .from('enrollments')
     .select('id, status, expires_at')
     .eq('school_id', SCHOOL_ID)
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .maybeSingle();
+    .eq('status', 'active');
 
-  if (!enrollment)                                          return { granted: false, reason: 'no_enrollment', userId };
-  if (enrollment.expires_at && enrollment.expires_at < today) return { granted: false, reason: 'enrollment_expired', userId };
+  const { data: enrollment } = await (isRegistered
+    ? enrollQuery.eq('user_id', mapping.user_id).maybeSingle()
+    : enrollQuery.eq('unregistered_athlete_id', mapping.unregistered_athlete_id).maybeSingle()
+  );
 
-  const { data: payment } = await supabase
+  if (!enrollment) {
+    return {
+      granted: false,
+      reason: 'no_enrollment',
+      userId: mapping.user_id ?? undefined,
+      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+    };
+  }
+
+  if (enrollment.expires_at && enrollment.expires_at < today) {
+    return {
+      granted: false,
+      reason: 'enrollment_expired',
+      userId: mapping.user_id ?? undefined,
+      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+    };
+  }
+
+  // 3. Verificar pago al día
+  const payQuery = supabase
     .from('payments')
     .select('status')
     .eq('school_id', SCHOOL_ID)
-    .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
 
-  if (payment?.status === 'overdue') return { granted: false, reason: 'payment_overdue', userId };
+  const { data: payment } = await (isRegistered
+    ? payQuery.eq('user_id', mapping.user_id).maybeSingle()
+    : payQuery.eq('unregistered_athlete_id', mapping.unregistered_athlete_id).maybeSingle()
+  );
 
-  const { data: profile } = await supabase
-    .from('profiles').select('full_name').eq('id', userId).maybeSingle();
+  if (payment?.status === 'overdue') {
+    return {
+      granted: false,
+      reason: 'payment_overdue',
+      userId: mapping.user_id ?? undefined,
+      unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+    };
+  }
 
-  return { granted: true, userId, userName: profile?.full_name ?? 'Usuario' };
+  // 4. Obtener nombre del atleta para el log
+  let userName = 'Usuario';
+
+  if (isRegistered) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', mapping.user_id)
+      .maybeSingle();
+    userName = profile?.full_name ?? 'Usuario';
+  } else {
+    const { data: ua } = await supabase
+      .from('unregistered_athletes')
+      .select('full_name')
+      .eq('id', mapping.unregistered_athlete_id)
+      .maybeSingle();
+    userName = ua?.full_name ?? 'Atleta';
+  }
+
+  return {
+    granted: true,
+    userId: mapping.user_id ?? undefined,
+    unregisteredAthleteId: mapping.unregistered_athlete_id ?? undefined,
+    userName,
+  };
 }
 
 // ─── GET /iclock/cdata — Handshake inicial ────────────────────────────────────
@@ -154,16 +211,17 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       const { data: eventRecord } = await supabase
         .from('access_events')
         .insert({
-          school_id:       SCHOOL_ID,
-          device_id:       deviceId,
-          user_id:         validation.userId || null,
+          school_id:               SCHOOL_ID,
+          device_id:               deviceId,
+          user_id:                 validation.userId || null,
+          unregistered_athlete_id: validation.unregisteredAthleteId || null,
           direction,
-          access_granted:  validation.granted,
-          denial_reason:   validation.granted ? null : validation.reason,
-          check_in_method: checkInMethod,
-          zk_user_id:      parseInt(zkPin) || null,
-          raw_event:       { sn, line, table },
-          occurred_at:     occurredAt,
+          access_granted:          validation.granted,
+          denial_reason:           validation.granted ? null : validation.reason,
+          check_in_method:         checkInMethod,
+          zk_user_id:              parseInt(zkPin) || null,
+          raw_event:               { sn, line, table },
+          occurred_at:             occurredAt,
         })
         .select('id')
         .single();
