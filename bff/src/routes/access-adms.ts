@@ -14,6 +14,12 @@ const DEVICE_MAP: Record<string, 'entry' | 'exit'> = {
 
 const SCHOOL_ID = '2137182d-a695-4695-8e5a-61151fc59196';
 
+// Filtro de backlog: el F22 re-vuelca eventos viejos en loop (flood) hasta que se
+// le mueva el cursor (handshake/power-cycle). Saltamos eventos más viejos que esto:
+// ya están en la BD (dedup) y reprocesarlos solo gasta validateAccess + ruido.
+// Override con ADMS_BACKLOG_SKIP_HOURS. Los eventos reales llegan con segundos.
+const BACKLOG_SKIP_MS = (parseInt(process.env.ADMS_BACKLOG_SKIP_HOURS || '3', 10) || 3) * 3600_000;
+
 const VERIFY_METHOD: Record<number, string> = {
   1: 'fingerprint', 2: 'card', 3: 'pin', 4: 'fingerprint', 15: 'fingerprint',
 };
@@ -364,6 +370,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
     logDebug(`ATTLOG ${sn} (${direction}) | ${lines.length} líneas | primeras: ${lines.slice(0,3).join(' || ')}`);
     logDevice('attlog_batch', { count: lines.length, direction, table }, sn);
 
+    let skipped = 0;
     for (const line of lines) {
       const parts      = line.trim().split('\t');
       const zkPin      = parts[0]?.trim() || '';
@@ -378,14 +385,20 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       void attState; // (queda parseado por si a futuro un lector es bidireccional)
       const eventDirection: 'entry' | 'exit' = direction;
 
-      const validation = await validateAccess(zkPin);
-
       let occurredAt: string;
       try {
         occurredAt = new Date(attTime.replace(' ', 'T') + '-05:00').toISOString();
       } catch {
         occurredAt = new Date().toISOString();
       }
+
+      // Salta el backlog re-volcado: ya está en BD (dedup) y solo gasta recursos.
+      if (Date.now() - new Date(occurredAt).getTime() > BACKLOG_SKIP_MS) {
+        skipped++;
+        continue;
+      }
+
+      const validation = await validateAccess(zkPin);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
@@ -429,6 +442,10 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       }
 
       console.log(`[ADMS] PIN:${zkPin} | ${eventDirection} (device:${direction}) | granted:${validation.granted} | ${validation.reason || 'ok'}`);
+    }
+
+    if (skipped > 0) {
+      console.log(`[ADMS] ATTLOG ${sn} — ${skipped}/${lines.length} saltados (backlog viejo > ${BACKLOG_SKIP_MS / 3600_000}h)`);
     }
 
     // ACK: este firmware F22 solo acepta "OK" plano como subida exitosa. Con
