@@ -196,8 +196,17 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       const parts      = line.trim().split('\t');
       const zkPin      = parts[0]?.trim() || '';
       const attTime    = parts[1]?.trim() || '';
+      const attState   = parseInt(parts[2] || '0');
       const verifyCode = parseInt(parts[3]) || 1;
       const checkInMethod = VERIFY_METHOD[verifyCode] || 'fingerprint';
+
+      // Dirección basada en AttState del F22
+      // 0 = Check-In (entrada), 1 = Check-Out (salida)
+      // Fallback al serial del dispositivo si AttState no es 0 ni 1
+      const eventDirection: 'entry' | 'exit' =
+        attState === 0 ? 'entry' :
+        attState === 1 ? 'exit' :
+        direction;
 
       const validation = await validateAccess(zkPin);
 
@@ -215,7 +224,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           device_id:               deviceId,
           user_id:                 validation.userId || null,
           unregistered_athlete_id: validation.unregisteredAthleteId || null,
-          direction,
+          direction:               eventDirection,
           access_granted:          validation.granted,
           denial_reason:           validation.granted ? null : validation.reason,
           check_in_method:         checkInMethod,
@@ -236,12 +245,12 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
             type:     'access_denied',
             title:    '⚠️ Acceso denegado — Pago vencido',
             body:     `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
-            metadata: { access_event_id: eventRecord?.id, user_id: validation.userId, direction },
+            metadata: { access_event_id: eventRecord?.id, user_id: validation.userId, direction: eventDirection },
           });
         }
       }
 
-      console.log(`[ADMS] PIN:${zkPin} | ${direction} | granted:${validation.granted} | ${validation.reason || 'ok'}`);
+      console.log(`[ADMS] PIN:${zkPin} | ${eventDirection} (device:${direction}) | granted:${validation.granted} | ${validation.reason || 'ok'}`);
     }
   }
 
