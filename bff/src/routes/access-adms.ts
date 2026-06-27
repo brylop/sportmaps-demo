@@ -296,6 +296,12 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     if (cmd.command_type === 'delete_user') {
       return `C:${cmd.id}:DATA DELETE USERINFO PIN=${meta.pin}`;
     }
+    if (cmd.command_type === 'disable_user') {
+      return `C:${cmd.id}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=0`;
+    }
+    if (cmd.command_type === 'enable_user') {
+      return `C:${cmd.id}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=1`;
+    }
     if (cmd.command_type === 'open_door') {
       return `C:${cmd.id}:UNLOCK`;
     }
