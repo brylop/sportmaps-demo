@@ -8,8 +8,8 @@ const router = Router();
 
 // ─── Whitelist de seriales reales ────────────────────────────────────────────
 const DEVICE_MAP: Record<string, 'entry' | 'exit'> = {
-  'JJA1254900898': 'exit',  // Lector Salida GYM RM — 192.168.1.5
-  'JJA1254900899': 'entry', // Lector Entrada  GYM RM — 192.168.1.4
+  'JJA1254900898': 'entry', // Lector Entrada GYM RM — 192.168.1.5
+  'JJA1254900899': 'exit',  // Lector Salida  GYM RM — 192.168.1.4
 };
 
 const SCHOOL_ID = '2137182d-a695-4695-8e5a-61151fc59196';
