@@ -320,8 +320,13 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
     `GET OPTION FROM: ${sn}`,
     // Stamp dinámico: Unix timestamp del último evento recibido de este serial.
     // El F22 solo enviará ATTLOGs con occurred_at > Stamp → sin backlog histórico.
+    // La línea de seguridad ZKTeco (F22) usa los nombres ATTLOGStamp/OPERLOGStamp;
+    // los firmwares viejos usan Stamp/OpStamp. Mandamos ambos para que el cursor
+    // sea reconocido y no re-vuelque el backlog (causa raíz del flood de 128).
     `Stamp=${stamp}`,
     `OpStamp=${stamp}`,
+    `ATTLOGStamp=${stamp}`,
+    `OPERLOGStamp=${stamp}`,
     `ErrorDelay=30`,
     `Delay=10`,
     `TransTimes=00:00;23:59`,
