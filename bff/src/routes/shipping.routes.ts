@@ -170,7 +170,7 @@ router.get('/tracking/:number', async (req: Request, res: Response) => {
 // Autenticado: vendor settings + label/cancel/pickup
 // ─────────────────────────────────────────────────────────────────────────────
 const auth = Router();
-auth.use(requireMarketplaceAuth);
+auth.use('/vendor', requireMarketplaceAuth);
 
 async function getVendorProfileId(userId: string): Promise<string | null> {
     const { data } = await supabase.from('vendor_profiles').select('id').eq('user_id', userId).maybeSingle();
