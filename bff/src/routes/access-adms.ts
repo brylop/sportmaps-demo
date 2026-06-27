@@ -106,6 +106,30 @@ async function touchDevice(sn: string): Promise<void> {
     .eq('school_id', SCHOOL_ID);
 }
 
+// ─── Stamp dinámico — max(occurred_at) del serial como Unix timestamp ─────────
+// El F22 solo envía eventos POSTERIORES al Stamp que le damos en el handshake.
+// Con Stamp=0 vuelca todo el histórico; con el valor real solo manda lo nuevo.
+async function getLastStamp(sn: string): Promise<number> {
+  try {
+    const deviceId = await getDeviceId(sn);
+    if (!deviceId) return 0;
+
+    const { data } = await supabase
+      .from('access_events')
+      .select('occurred_at')
+      .eq('device_id', deviceId)
+      .order('occurred_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!data?.occurred_at) return 0;
+    // Unix timestamp en segundos (el F22 usa segundos, no milisegundos)
+    return Math.floor(new Date(data.occurred_at).getTime() / 1000);
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Cache de mapeo PIN → identidad (perf #6) ────────────────────────────────
 // Solo se cachea la resolución PIN→user/atleta (estable). La validación de
 // enrollment/pago SIEMPRE se consulta fresca más abajo.
@@ -289,13 +313,15 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
   console.log(`[ADMS] Handshake OK — ${sn} (${DEVICE_MAP[sn]})`);
   logDevice('handshake', { direction: DEVICE_MAP[sn], ip: clientIp(req) }, sn);
 
+  const stamp = await getLastStamp(sn);
+  logDebug(`Handshake ${sn} → Stamp=${stamp}`);
+
   const config = [
     `GET OPTION FROM: ${sn}`,
-    // Stamp alto = "ya tengo el histórico, mándame solo lo nuevo". Con Stamp=0 el
-    // F22 re-vuelca TODO el backlog en cada handshake (bucle de re-envío + flood
-    // de duplicados/406). El dedup index protege la BD, pero esto corta el origen.
-    `Stamp=9999`,
-    `OpStamp=9999`,
+    // Stamp dinámico: Unix timestamp del último evento recibido de este serial.
+    // El F22 solo enviará ATTLOGs con occurred_at > Stamp → sin backlog histórico.
+    `Stamp=${stamp}`,
+    `OpStamp=${stamp}`,
     `ErrorDelay=30`,
     `Delay=10`,
     `TransTimes=00:00;23:59`,
