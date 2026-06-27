@@ -319,6 +319,8 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
     const deviceId = await getDeviceId(sn);
 
     console.log(`[ADMS] ATTLOG ${sn} (${direction}) — ${lines.length} evento(s)`);
+    // Log primeras 3 líneas para diagnóstico
+    logDebug(`ATTLOG ${sn} (${direction}) | ${lines.length} líneas | primeras: ${lines.slice(0,3).join(' || ')}`);
 
     for (const line of lines) {
       const parts      = line.trim().split('\t');
