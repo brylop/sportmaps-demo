@@ -255,8 +255,11 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
 
   const config = [
     `GET OPTION FROM: ${sn}`,
-    `Stamp=0`,
-    `OpStamp=0`,
+    // Stamp alto = "ya tengo el histórico, mándame solo lo nuevo". Con Stamp=0 el
+    // F22 re-vuelca TODO el backlog en cada handshake (bucle de re-envío + flood
+    // de duplicados/406). El dedup index protege la BD, pero esto corta el origen.
+    `Stamp=9999`,
+    `OpStamp=9999`,
     `ErrorDelay=30`,
     `Delay=10`,
     `TransTimes=00:00;23:59`,
@@ -318,7 +321,9 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
-      const { data: eventRecord } = await supabase
+      // .select('id') sin .maybeSingle(): un duplicado devuelve [] con 200
+      // (no 406). Con .maybeSingle() el Accept es object y 0 filas => 406 (ruido).
+      const { data: inserted } = await supabase
         .from('access_events')
         .upsert({
           school_id:               SCHOOL_ID,
@@ -333,10 +338,11 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
           raw_event:               { sn, line, table },
           occurred_at:             occurredAt,
         }, { onConflict: 'device_id,zk_user_id,occurred_at', ignoreDuplicates: true })
-        .select('id')
-        .maybeSingle();
+        .select('id');
 
-      // eventRecord null => era un duplicado (ya existía); no notificamos de nuevo.
+      const eventRecord = Array.isArray(inserted) ? inserted[0] : null;
+
+      // eventRecord null/undefined => era un duplicado (ya existía); no notificamos.
       if (eventRecord && !validation.granted && validation.reason === 'payment_overdue' && validation.userId) {
         const { data: school } = await supabase
           .from('schools').select('owner_id').eq('id', SCHOOL_ID).maybeSingle();
