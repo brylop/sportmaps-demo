@@ -240,6 +240,12 @@ router.post('/enroll', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { error } = await supabase.from('device_commands').insert(commands);
     if (error) throw error;
 
+    // Registrar el mapeo PIN→user para que validateAccess lo reconozca.
+    await supabase.from('zk_user_mappings').upsert(
+      { school_id: schoolId, zk_pin: pin, user_id, unregistered_athlete_id: null },
+      { onConflict: 'school_id,zk_pin' },
+    );
+
     console.log(`[ENROLL] ${name} (PIN:${pin}) encolado en ${devices.length} dispositivo(s)`);
 
     return res.json({
@@ -289,6 +295,74 @@ router.post('/revoke', requireAuth, requireRole('owner', 'admin', 'school_admin'
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al encolar revocación' });
+  }
+});
+
+// ─── GET /api/v1/access/members ──────────────────────────────────────────────
+// Lista de miembros activos de la escuela para asignar a un PIN (UID del lector).
+router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const q = (req.query.q as string || '').trim();
+
+    const { data: members, error } = await supabase
+      .from('school_members')
+      .select('profile_id, role')
+      .eq('school_id', schoolId)
+      .eq('status', 'active')
+      .limit(500);
+    if (error) throw error;
+
+    const ids = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))];
+    if (ids.length === 0) return res.json({ members: [] });
+
+    let pq = supabase.from('profiles').select('id, full_name').in('id', ids);
+    if (q) pq = pq.ilike('full_name', `%${q}%`);
+    const { data: profiles } = await pq.limit(50);
+
+    const roleByeId: Record<string, string> = {};
+    (members || []).forEach((m: any) => { roleByeId[m.profile_id] = m.role; });
+
+    const result = (profiles || []).map((p: any) => ({
+      user_id:   p.id,
+      full_name: p.full_name,
+      role:      roleByeId[p.id] ?? null,
+    }));
+
+    return res.json({ members: result });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar miembros' });
+  }
+});
+
+// ─── POST /api/v1/access/assign-user ─────────────────────────────────────────
+// Mapea un PIN ya existente en el lector (ZK#<pin>) a un usuario registrado o a
+// un atleta no registrado. No envía comando al dispositivo (el PIN ya existe).
+router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { zk_pin, user_id, unregistered_athlete_id } = req.body as {
+      zk_pin: number; user_id?: string; unregistered_athlete_id?: string;
+    };
+
+    if (!zk_pin || (!user_id && !unregistered_athlete_id)) {
+      return res.status(400).json({ error: 'zk_pin y (user_id o unregistered_athlete_id) son requeridos' });
+    }
+
+    const { error } = await supabase.from('zk_user_mappings').upsert(
+      {
+        school_id:               schoolId,
+        zk_pin,
+        user_id:                 user_id ?? null,
+        unregistered_athlete_id: user_id ? null : (unregistered_athlete_id ?? null),
+      },
+      { onConflict: 'school_id,zk_pin' },
+    );
+    if (error) throw error;
+
+    return res.json({ success: true, message: `PIN ${zk_pin} asignado.` });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al asignar usuario al PIN' });
   }
 });
 
