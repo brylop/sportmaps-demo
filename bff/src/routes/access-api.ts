@@ -372,7 +372,7 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { schoolId } = req;
     const { data: devices, error } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, device_name, ip_address, port, direction, location, is_active, last_seen_at')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at')
       .eq('school_id', schoolId)
       .order('direction');
 
