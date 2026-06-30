@@ -1,7 +1,13 @@
+import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://luebjarufsiadojhvxgi.supabase.co';
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZWJqYXJ1ZnNpYWRvamh2eGdpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODkxNTY1OCwiZXhwIjoyMDc0NDkxNjU4fQ.UxkAmsGSCkbmlg5q2ip7RTSW8L4SGAytWL23ZXmWHro';
+const supabaseUrl = process.env.SUPABASE_URL || 'https://luebjarufsiadojhvxgi.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+if (!supabaseServiceKey) {
+    console.error('❌ Falta SUPABASE_SERVICE_ROLE_KEY en el entorno.');
+    process.exit(1);
+}
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 

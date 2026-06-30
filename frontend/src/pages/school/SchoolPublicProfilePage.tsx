@@ -182,19 +182,29 @@ export default function SchoolPublicProfilePage() {
     setSaving(true);
     try {
       const sportsArray = form.sports.split(',').map(s => s.trim()).filter(Boolean);
-      const { error: se } = await supabase.from('schools').update({
-        name: form.name,
-        description: form.description,
-        city: form.city,
-        address: form.address,
-        phone: form.phone,
-        email: form.email,
-        website: form.website,
-        logo_url: form.logo_url || null,
-        cover_image_url: form.cover_image_url || null,
-        sports: sportsArray,
-      }).eq('id', schoolId);
+      // El logo_url está protegido por el trigger enforce_branding_via_rpc:
+      // un UPDATE directo lo rechaza con 42501/403. Guardamos el perfil
+      // público (textos + logo + portada) vía RPC SECURITY DEFINER.
+      // '' = limpiar el campo; la RPC lo interpreta como NULL.
+      const { data: res, error: se } = await (supabase.rpc as any)('update_school_public_profile', {
+        p_school_id: schoolId,
+        p_name: form.name,
+        p_description: form.description,
+        p_city: form.city,
+        p_address: form.address,
+        p_phone: form.phone,
+        p_email: form.email,
+        p_website: form.website,
+        p_logo_url: form.logo_url ?? '',
+        p_cover_image_url: form.cover_image_url ?? '',
+        p_sports: sportsArray,
+      });
       if (se) throw se;
+      if (res && (res as { ok?: boolean }).ok === false) {
+        throw new Error((res as { message?: string; error?: string }).message
+          ?? (res as { error?: string }).error
+          ?? 'No se pudo guardar el perfil');
+      }
 
       const { error: te } = await supabase.from('school_settings').upsert({
         school_id: schoolId,

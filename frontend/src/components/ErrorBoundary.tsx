@@ -39,11 +39,19 @@ class ErrorBoundary extends Component<Props, State> {
 
         this.setState({ errorInfo });
 
-        // Auto-reload on stale chunk errors (post-deploy)
+        // Auto-reload on stale/failed chunk errors (post-deploy o 503 del SW).
+        // Incluye el caso en que React.lazy recibe un módulo undefined porque
+        // el chunk respondió 503/HTML → "Cannot read properties of undefined
+        // (reading 'default')".
+        const msg = error.message || '';
         const isChunkError =
-            error.message?.includes('Failed to fetch dynamically imported module') ||
-            error.message?.includes('Loading chunk') ||
-            error.message?.includes('Loading CSS chunk');
+            msg.includes('Failed to fetch dynamically imported module') ||
+            msg.includes('error loading dynamically imported module') ||
+            msg.includes('Importing a module script failed') ||
+            msg.includes('Loading chunk') ||
+            msg.includes('Loading CSS chunk') ||
+            msg.includes("reading 'default'") ||
+            msg.includes('reading "default"');
 
         const reloadedKey = 'chunk-reload';
         if (isChunkError && !sessionStorage.getItem(reloadedKey)) {

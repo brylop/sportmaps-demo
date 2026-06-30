@@ -3,31 +3,25 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { RealtimeNotificationsProvider } from "@/components/RealtimeNotificationsProvider";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSchoolContext } from "@/hooks/useSchoolContext";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalNotificationBell } from "@/components/GlobalNotificationBell";
 import { Outlet } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { BrandingScope } from "@/components/BrandingScope";
+import { useDeviceContext } from "@/hooks/useDeviceContext";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
-  const { schoolId, schoolName, currentUserRole } = useSchoolContext();
-  const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
+  const { schoolId, schoolName, currentUserRole, schoolBranding } = useSchoolContext();
+  const entitlements = useEntitlements();
+  // Registrar device del usuario al loguearse (Fase 6.1).
+  // Hoy solo web/PWA; cuando se instale Capacitor (Fase 7) detecta nativo.
+  useDeviceContext();
 
-  useEffect(() => {
-    const fetchSchoolLogo = async () => {
-      if (schoolId) {
-        const { data } = await supabase
-          .from('schools')
-          .select('logo_url')
-          .eq('id', schoolId)
-          .maybeSingle();
-        if (data?.logo_url) setSchoolLogo(data.logo_url);
-      }
-    };
-    fetchSchoolLogo();
-  }, [schoolId]);
+  // Logo escuela en header: usar el del context (ya lo hace fetch
+  // useSchoolContext.fetchSchoolBranding). Sirve para feature gate por tier.
+  const schoolLogo = entitlements.addons.whitelabel ? (schoolBranding?.logo_url ?? null) : null;
 
   const showSchoolBranding = ['owner', 'admin', 'school_admin', 'school', 'coach'].includes(currentUserRole || '');
   const isCoach = currentUserRole === 'coach';
@@ -111,7 +105,14 @@ export default function AuthLayout() {
           {/* pb-24 en mobile para evitar que el contenido quede detrás de la barra inferior del navegador */}
           <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-auto pb-20 sm:pb-6 w-full max-w-full">
             <div className="w-full max-w-full overflow-x-hidden">
-              <Outlet />
+              {/* BrandingScope aplica CSS vars de escuela SOLO si:
+                  - ruta esta en allowlist (no admin/marketplace/billing)
+                  - rol es de escuela (no super_admin)
+                  - tier incluye whitelabel (Pro+ via entitlements)
+                  Si no aplica, renderiza children sin envolver. */}
+              <BrandingScope>
+                <Outlet />
+              </BrandingScope>
             </div>
           </main>
         </div>

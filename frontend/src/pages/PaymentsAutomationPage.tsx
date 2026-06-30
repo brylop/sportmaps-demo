@@ -187,7 +187,9 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
-  
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 10;
+
   // Filtros Validación (Pendientes)
   const [pendingSearch, setPendingSearch] = useState('');
 
@@ -197,6 +199,9 @@ export default function PaymentsAutomationPage() {
 
   // Equipos activos para filtros
   const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
+
+  // Reset de la paginación del historial cuando cambian los filtros
+  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter]);
 
   useEffect(() => {
     const teamsMap = new Map();
@@ -460,7 +465,7 @@ export default function PaymentsAutomationPage() {
         let enrollQuery = (supabase.from('enrollments') as any)
           .update({ status: 'active' })
           .eq('school_id', schoolId)
-          .eq('status', 'pending_payment');
+          .eq('status', 'pending');
 
         if (payment.child_id)       enrollQuery = enrollQuery.eq('child_id', payment.child_id);
         else if (payment.parent_id) enrollQuery = enrollQuery.eq('user_id', payment.parent_id);
@@ -556,11 +561,14 @@ export default function PaymentsAutomationPage() {
   // y Wompi NO aparecen aqui — los valida el gateway automaticamente y se
   // marcan paid via webhook. Si se mostraran aqui, la escuela podria aprobar
   // por error un pago que MP / Wompi todavia esta procesando.
-  const rawPendingPayments = payments.filter(p =>
-    p.status === 'awaiting_approval'
-    && (p as any).payment_provider !== 'mercadopago'
-    && (p as any).payment_provider !== 'wompi'
-  );
+  const rawPendingPayments = payments.filter(p => {
+    const provider = (p as any).payment_provider;
+    const isGateway = provider === 'mercadopago' || provider === 'wompi';
+    // Aprobables a mano: transferencia reportada (awaiting_approval) o
+    // inscripción por QR "por cobrar" (pending sin pasarela). Los de pasarela
+    // NO se aprueban a mano — los confirma el webhook automáticamente.
+    return !isGateway && (p.status === 'awaiting_approval' || p.status === 'pending');
+  });
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
     const term = pendingSearch.toLowerCase();
@@ -580,6 +588,9 @@ export default function PaymentsAutomationPage() {
   const rawHistoryPayments = payments.filter(p => {
     const provider = (p as any).payment_provider;
     const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
+    // pending/awaiting_approval SIN pasarela → ya están en "Validación de Cobros"
+    // (la escuela los aprueba). En historial solo los de pasarela (read-only,
+    // gateway-managed). Evita que el mismo cobro aparezca en dos listas.
     if (p.status === 'pending') return isGatewayPayment;
     if (p.status === 'awaiting_approval') return isGatewayPayment;
     return true;
@@ -595,6 +606,9 @@ export default function PaymentsAutomationPage() {
     const teamMatch = historyTeamFilter === 'all' || p.team?.name === historyTeamFilter || p.team_id === historyTeamFilter;
     return searchMatch && statusMatch && teamMatch;
   });
+
+  const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
+  const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
   const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
@@ -691,9 +705,9 @@ export default function PaymentsAutomationPage() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   <Clock className="h-5 w-5 text-amber-600 shrink-0" />
-                  Validación de Cobros
+                  Cobros por Aprobar
                 </CardTitle>
-                <CardDescription>Gestiona los pagos pendientes de validación.</CardDescription>
+                <CardDescription>Confirma los cobros pendientes: inscripciones por QR y transferencias reportadas.</CardDescription>
               </div>
               <div className="w-full sm:w-auto">
                 <Input
@@ -751,7 +765,13 @@ export default function PaymentsAutomationPage() {
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
-                            <div className="mt-1"><OcrMatchBadge payment={payment} /></div>
+                            <div className="mt-1">
+                              {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -781,7 +801,7 @@ export default function PaymentsAutomationPage() {
                           <TableHead>Deportista / Programa</TableHead>
                           <TableHead>Padre</TableHead>
                           <TableHead>Monto</TableHead>
-                          <TableHead>OCR</TableHead>
+                          <TableHead>Origen</TableHead>
                           <TableHead>Comprobante</TableHead>
                           <TableHead className="text-right">Acciones</TableHead>
                         </TableRow>
@@ -823,7 +843,11 @@ export default function PaymentsAutomationPage() {
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
                             <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
                             <TableCell>
-                              <OcrMatchBadge payment={payment} />
+                              {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
+                                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
+                              )}
                             </TableCell>
                             <TableCell>
                               {payment.receipt_url ? (
@@ -831,7 +855,7 @@ export default function PaymentsAutomationPage() {
                                   <Eye className="h-3 w-3" /> Ver
                                 </Button>
                               ) : (
-                                <span className="text-xs text-muted-foreground italic">Sin comprobante</span>
+                                <span className="text-xs text-muted-foreground">—</span>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
@@ -1066,7 +1090,7 @@ export default function PaymentsAutomationPage() {
               <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
                 {historyPayments.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">No hay historial disponible.</p>
-                ) : historyPayments.map((payment) => {
+                ) : pagedHistory.map((payment) => {
                   const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                   return (
                     <div key={payment.id} className="border rounded-lg p-4 space-y-2">
@@ -1123,7 +1147,7 @@ export default function PaymentsAutomationPage() {
                   <TableBody>
                     {historyPayments.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No se encontraron transacciones con los filtros actuales.</TableCell></TableRow>
-                    ) : historyPayments.map((payment) => {
+                    ) : pagedHistory.map((payment) => {
                       const cfg = STATUS_CONFIG[payment.status] ?? { label: payment.status, className: 'bg-gray-100 text-gray-600' };
                       return (
                         <TableRow key={payment.id}>
@@ -1167,6 +1191,19 @@ export default function PaymentsAutomationPage() {
                   </TableBody>
                 </Table>
               </div>
+              {historyTotalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-3 mt-2 border-t text-sm">
+                  <span className="text-muted-foreground">
+                    Página {historyPage} de {historyTotalPages} · {historyPayments.length} transacciones
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={historyPage <= 1}
+                      onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}>Anterior</Button>
+                    <Button variant="outline" size="sm" disabled={historyPage >= historyTotalPages}
+                      onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}>Siguiente</Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

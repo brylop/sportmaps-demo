@@ -35,6 +35,7 @@ const PageLoader = () => (
 const Index = lazy(() => import("./pages/Index"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const OnboardingRolePage = lazy(() => import("./pages/OnboardingRolePage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinPlanPage = lazy(() => import("./pages/JoinPlanPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -132,6 +133,10 @@ const MedicalHistoryPage = lazy(() => import("./pages/MedicalHistoryPage"));
 const NutritionPage = lazy(() => import("./pages/NutritionPage"));
 const SchoolSetupPage = lazy(() => import("./pages/SchoolSetupPage"));
 const SchoolOnboardingPage = lazy(() => import("./pages/SchoolOnboardingPage"));
+const AthleteOnboarding = lazy(() => import("./pages/onboarding/AthleteOnboarding"));
+const ParentOnboarding = lazy(() => import("./pages/onboarding/ParentOnboarding"));
+const CoachOnboarding = lazy(() => import("./pages/onboarding/CoachOnboarding"));
+const WellnessOnboarding = lazy(() => import("./pages/onboarding/WellnessOnboarding"));
 
 // ─── Admin pages (lazy) ───────────────────────────────────────────────────────
 const AdminPanelPage = lazy(() => import("./pages/AdminPanelPage"));
@@ -140,6 +145,7 @@ const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
+const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
 const SchoolCertificatesAdminPage = lazy(() => import("./pages/SchoolCertificatesAdminPage"));
@@ -166,6 +172,7 @@ const AdminMarketplaceModerationPage = lazy(() => import("./pages/admin/AdminMar
 const AdminPayoutsPage = lazy(() => import("./pages/admin/AdminPayoutsPage"));
 const VendorInboxPage = lazy(() => import("./pages/vendor/VendorInboxPage"));
 const VendorPayoutsPage = lazy(() => import("./pages/vendor/VendorPayoutsPage"));
+const VendorSubscribersPage = lazy(() => import("./pages/vendor/VendorSubscribersPage"));
 const VendorShippingSettingsPage = lazy(() => import("./pages/vendor/VendorShippingSettingsPage"));
 
 const OrganizerGuard = lazy(() => import("@/components/organizer/OrganizerGuard").then(module => ({ default: module.OrganizerGuard })));
@@ -182,6 +189,7 @@ const OrganizerSettingsPage = lazy(() => import("./pages/organizer/OrganizerSett
 const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPage"));
 const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
+const AccessControlPage = lazy(() => import('./pages/school/AccessControlPage'));
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
@@ -265,6 +273,9 @@ const App = () => (
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/onboarding/role" element={
+                      <ProtectedRoute skipOnboardingCheck><OnboardingRolePage /></ProtectedRoute>
+                    } />
                     <Route path="/join-team/:teamId" element={<JoinTeamPage />} />
                     <Route path="/join-plan/:planId" element={<JoinPlanPage />} />
                     <Route path="/c/:qrToken" element={<AthleteCardPublicPage />} />
@@ -279,6 +290,18 @@ const App = () => (
                     } />
                     <Route path="/onboarding/school" element={
                       <ProtectedRoute><SchoolOnboardingPage /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/athlete" element={
+                      <ProtectedRoute><AthleteOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/parent" element={
+                      <ProtectedRoute><ParentOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/coach" element={
+                      <ProtectedRoute><CoachOnboarding /></ProtectedRoute>
+                    } />
+                    <Route path="/onboarding/wellness" element={
+                      <ProtectedRoute><WellnessOnboarding /></ProtectedRoute>
                     } />
                     <Route path="/setup/school" element={
                       <ProtectedRoute><SchoolSetupPage /></ProtectedRoute>
@@ -514,6 +537,11 @@ const App = () => (
                           <SchoolPublicProfilePage />
                         </ProtectedRoute>
                       } />
+                      <Route path="school/access-control" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccessControlPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="vendor/public-profile" element={
                         <ProtectedRoute allowedRoles={['wellness_professional', 'store_owner']}>
                           <VendorPublicProfilePage />
@@ -620,6 +648,7 @@ const App = () => (
                         <Route path="vendor/products/:id/edit" element={<ProductWizardPage />} />
                         <Route path="vendor/inbox" element={<VendorInboxPage />} />
                         <Route path="vendor/payouts" element={<VendorPayoutsPage />} />
+                        <Route path="vendor/subscribers" element={<VendorSubscribersPage />} />
                         <Route path="vendor/shipping" element={<VendorShippingSettingsPage />} />
                         <Route path="vendor/promotions" element={<VendorPromotionsPage />} />
                       </Route>
@@ -704,6 +733,11 @@ const App = () => (
                       <Route path="admin/activity-logs" element={
                         <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
                           <AdminActivityLogsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/access-logs" element={
+                        <ProtectedRoute allowedRoles={['admin', 'super_admin']} strictRoleCheck>
+                          <AdminAccessLogsPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/marketplace/moderation" element={

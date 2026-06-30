@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { BrandingSettingsForm } from '@/components/settings/BrandingSettingsForm';
+import { BrandingAuditLog } from '@/components/settings/BrandingAuditLog';
 
 interface SchoolProfile {
     id: string;
@@ -145,11 +146,13 @@ export default function SchoolSettingsPage() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* Identidad Visual (Logo y Colores) - Ocultado temporalmente
-                <div className="md:col-span-2">
+                {/* Identidad Visual (Logo y Colores) — reactivado 2026-05-28
+                    tras fix de scoping en ThemeContext + RPC seguro + audit log.
+                    El form muestra upsell si el tier no incluye whitelabel. */}
+                <div className="md:col-span-2 space-y-6">
                     <BrandingSettingsForm />
+                    <BrandingAuditLog />
                 </div>
-                */}
 
                 {/* Basic Info */}
                 <Card>

@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -32,7 +33,9 @@ import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
 import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
+import { requireCsrfHeader } from './middlewares/csrfHeader';
 import systemRouter from './routes/system';
+import whatsappWebhookRouter from './routes/whatsapp';
 import { initMaintenanceJobs } from './jobs/maintenance.job';
 import organizerRouter from './routes/organizers.route';
 import eventsRouter from './routes/events.route';
@@ -51,6 +54,9 @@ import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
 import joinQrRouter from './routes/join-qr';
+import admsRouter from './routes/access-adms';
+import accessApiRouter from './routes/access-api';
+import accessAdminRouter from './routes/access-admin.routes';
 
 import trainerProfileRouter from './routes/trainer/profile';
 import trainerOnboardingRouter from './routes/trainer/onboarding';
@@ -68,6 +74,9 @@ import athleteBiomechRouter from './routes/athlete/biomech';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
 import upgradeRequestsRouter from './routes/upgrade-requests.routes';
+import schoolsRouter from './routes/schools.routes';
+import customDomainsRouter from './routes/custom-domains.routes';
+import devicesRouter from './routes/devices.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -92,7 +101,36 @@ const paymentLimiter = rateLimit({
     message: { error: 'Límite de operaciones de pago alcanzado. Intenta en 1 minuto.' },
 });
 
+// Cap especifico para alta/baja de tarjetas — anti card-testing fraud.
+// Un atacante con cuenta valida que prueba numeros robados con micropagos
+// puede crear muchos tokens rapidamente; este limit corta ese vector.
+const cardAlterLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: process.env.NODE_ENV === 'production' ? 10 : 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const userId = (req as any).user?.id;
+        return userId ? `card-alter-user-${userId}` : `card-alter-ip-${req.ip}`;
+    },
+    message: { error: 'Demasiadas operaciones sobre tus tarjetas guardadas. Intenta en 1 hora.' },
+});
+
 // ── Middlewares globales ──────────────────────────────────────────────────────
+//
+// helmet: setea cabeceras de seguridad sanas por defecto (HSTS, nosniff,
+// frameguard DENY, X-DNS-Prefetch-Control, etc.).
+//   - crossOriginEmbedderPolicy desactivado: rompe iframes legitimos (Wompi).
+//   - contentSecurityPolicy desactivado: el BFF sirve JSON, no HTML — CSP
+//     lo controla el frontend (Vercel).
+//   - hsts: 1 anio, includeSubDomains. Solo aplica si servimos sobre HTTPS
+//     (Render lo hace).
+app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
+}));
+
 app.use((_req: Request, res: Response, next: NextFunction) => {
     // Prevent profile leaking by disabling all caching for API responses
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -160,7 +198,17 @@ app.use(cors({
     },
     credentials: true,
 }));
-app.use(express.json({ limit: '5mb' }));
+// El `verify` callback guarda el RAW body para validar firmas HMAC sobre los
+// bytes exactos (necesario para el webhook de WhatsApp: X-Hub-Signature-256).
+// ANTES de express.json() — protocolo texto plano del F22
+app.use('/', admsRouter);
+
+app.use(express.json({
+    limit: '5mb',
+    verify: (req, _res, buf) => {
+        (req as any).rawBody = buf;
+    },
+}));
 app.use(pinoHttp({
     customProps: (req) => ({ requestId: req.id }),
     // En producción no loguear bodies completos (pueden tener PII)
@@ -187,6 +235,9 @@ app.use('/api/v1/students', generalLimiter, createOneRouter);
 app.use('/api/v1/enrollments', generalLimiter, enrollmentsRouter);
 app.use('/api/v1/reports', generalLimiter, reportsRouter);
 app.use('/api/v1/webhooks/wompi', wompiRouter);
+// Webhook único multi-tenant de WhatsApp Cloud API (Bloque 6). Sin generalLimiter:
+// Meta puede ráfagar; el control real es la firma HMAC + idempotencia por wa_message_id.
+app.use('/api/v1/webhooks/whatsapp', whatsappWebhookRouter);
 app.use('/api/v1/webhooks/mercadopago', mpWebhookRouter);
 app.use('/api/v1/payments/mp', paymentLimiter, mpPaymentsRouter);
 app.use('/api/v1/payment-providers', generalLimiter, paymentProvidersRouter);
@@ -194,6 +245,15 @@ app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
 app.use('/api/v1/me', generalLimiter, meRouter);
 app.use('/api/v1/upgrade-requests', generalLimiter, upgradeRequestsRouter);
+// Schools: branding (white-label), settings. Rate-limit propio del router
+// (10/hora por escuela en branding). generalLimiter actua como segundo cap.
+app.use('/api/v1/schools', generalLimiter, schoolsRouter);
+// Dominios propios (Fase 5 — Enterprise) — montado tambien bajo /schools
+// para alinear con el modelo "recurso de la escuela".
+app.use('/api/v1/schools', generalLimiter, customDomainsRouter);
+// Devices (Fase 6.1 — base mobile). Web/PWA tambien lo usa para tracking
+// de adopcion. CSRF se aplica dentro del router para state-changing.
+app.use('/api/v1/devices', generalLimiter, devicesRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);
@@ -204,8 +264,9 @@ app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
-app.use('/api/v1/payment-tokens', generalLimiter, paymentTokensRouter);
-app.use('/api/v1/recurring', paymentLimiter, recurringRouter);
+// payment-tokens y recurring: state-changing → CSRF header + cap especifico
+app.use('/api/v1/payment-tokens', cardAlterLimiter, requireCsrfHeader, paymentTokensRouter);
+app.use('/api/v1/recurring', paymentLimiter, requireCsrfHeader, recurringRouter);
 app.use('/api/v1/vendor', generalLimiter, vendorPayoutsRouter);
 app.use('/api/v1/vendor/bank-accounts', generalLimiter, vendorBankAccountsRouter);
 // Shipping publico: /api/v1/shipping/{quote,carriers,tracking/:n}
@@ -235,6 +296,8 @@ app.use('/api/v1/vendor/services', generalLimiter, vendorServicesRouter);
 app.use('/api/v1/marketplace/orders', paymentLimiter, marketplaceOrdersRouter);
 app.use('/api/v1/certificates', generalLimiter, certificatesRouter);
 app.use('/api/v1/join-qr', generalLimiter, joinQrRouter);
+app.use('/api/v1/access', generalLimiter, accessApiRouter);
+app.use('/api/v1/admin/access-logs', generalLimiter, accessAdminRouter);
 
 // ── Social sharing — OG meta tags for crawlers ──────────────────────────────
 app.use('/share', ogPreviewRouter);

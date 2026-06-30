@@ -265,6 +265,25 @@ export default function DashboardPage() {
     }
   }
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Gate: roles "persona" (athlete, parent, coach, wellness_professional) deben
+  // completar su onboarding full-screen una vez. Bandera: profiles.onboarding_completed.
+  // Usuarios existentes ya fueron marcados completados (migración 20260617000003),
+  // así que esto solo afecta a nuevos registros (default onboarding_completed=false).
+  // ────────────────────────────────────────────────────────────────────────────
+  {
+    const PERSON_ONBOARDING: Record<string, string> = {
+      athlete: '/onboarding/athlete',
+      parent: '/onboarding/parent',
+      coach: '/onboarding/coach',
+      wellness_professional: '/onboarding/wellness',
+    };
+    const dest = PERSON_ONBOARDING[profile.role as string];
+    if (dest && profile.onboarding_completed === false) {
+      return <Navigate to={dest} replace />;
+    }
+  }
+
   // Dashboard handles empty states via the Quick Start Checklist
 
   // Logic to determine stats to display
@@ -448,21 +467,6 @@ export default function DashboardPage() {
           ?? null;
         const isCompleted = effectiveOnboardingStatus === 'completed';
         const shouldShow = isSchoolRole && hasSchool && !isCompleted;
-
-        if (isSchoolRole) {
-          // eslint-disable-next-line no-console
-          console.log('[Dashboard] gate wizard escuela:', {
-            shouldShow,
-            isSchoolRole,
-            hasSchoolInRpc,
-            hasSchoolInFallback,
-            rpcStatus_has_school: rpcStatus?.has_school,
-            rpcStatus_school_id: rpcStatus?.school_id,
-            fallbackSchool_id: fallbackSchool?.id,
-            effectiveOnboardingStatus,
-            profile_role: profile?.role,
-          });
-        }
 
         if (!shouldShow) return null;
 

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../middlewares/authMiddleware';
+import { z } from 'zod';
+import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { requireCsrfHeader } from '../middlewares/csrfHeader';
 import { supabase } from '../config/supabase';
 
 const router = Router();
@@ -74,6 +76,110 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
         req.log?.error({ err }, 'Error en GET /me/entitlements');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/me/data-export  (Ley 1581/2012 — derecho de acceso)
+//
+// Devuelve un JSON con toda la informacion personal del usuario autenticado.
+// El RPC data_export_user() corre como SECURITY DEFINER y filtra por
+// auth.uid() internamente — no expone datos de terceros.
+//
+// Devuelve Content-Disposition: attachment para que el browser lo guarde
+// como archivo descargable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get('/data-export', requireAuth, async (req: Request, res: Response) => {
+    try {
+        const { data, error } = await supabase.rpc('data_export_user');
+        if (error) {
+            req.log?.error({ err: error }, 'data_export_user RPC failed');
+            return res.status(500).json({ error: 'export_failed' });
+        }
+        if (!data?.ok) {
+            return res.status(400).json({ error: data?.error || 'unknown' });
+        }
+
+        const filename = `sportmaps-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(JSON.stringify(data.data, null, 2));
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error en GET /me/data-export');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/me/data-deletion-request  (Ley 1581/2012 — derecho de supresion)
+//
+// Programa el borrado de la cuenta en 30 dias. Inmediatamente:
+//   - cancela todas las recurring_subscriptions
+//   - desactiva (soft-delete) todos los payment_tokens
+//   - registra IP + UA para auditoria
+//
+// El borrado fisico (anonimizacion) lo ejecuta un job aparte cuando se
+// cumple scheduled_for. El padre puede CANCELAR la solicitud en cualquier
+// momento dentro de los 30 dias via DELETE /me/data-deletion-request.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DeletionRequestSchema = z.object({
+    reason: z.string().max(500).optional(),
+});
+
+router.post('/data-deletion-request', requireAuth, requireCsrfHeader, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = DeletionRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+        return res.status(400).json({ error: 'invalid_body' });
+    }
+
+    const ip = (req.ip || req.socket?.remoteAddress || '').toString();
+    const ua = req.get('user-agent') || '';
+
+    const { data, error } = await supabase.rpc('request_account_deletion', {
+        p_reason: parsed.data.reason ?? null,
+        p_ip_address: ip || null,
+        p_user_agent: ua || null,
+    });
+
+    if (error) {
+        req.log?.error({ err: error }, 'request_account_deletion RPC failed');
+        return res.status(500).json({ error: 'request_failed' });
+    }
+    if (!data?.ok) {
+        return res.status(400).json({ error: data?.error || 'unknown' });
+    }
+    return res.status(202).json(data);
+});
+
+// Cancelar solicitud de borrado (el padre se arrepiente). NO reactiva
+// payment_tokens automaticamente — el padre debe agregar la tarjeta de nuevo.
+router.delete('/data-deletion-request', requireAuth, requireCsrfHeader, async (req: AuthenticatedRequest, res: Response) => {
+    const { data, error } = await supabase.rpc('cancel_account_deletion');
+    if (error) {
+        req.log?.error({ err: error }, 'cancel_account_deletion RPC failed');
+        return res.status(500).json({ error: 'cancel_failed' });
+    }
+    if (!data?.ok) {
+        return res.status(400).json({ error: data?.error || 'unknown' });
+    }
+    return res.json(data);
+});
+
+// Consultar estado de mi solicitud de borrado (si existe).
+router.get('/data-deletion-request', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const { data, error } = await supabase
+        .from('account_deletion_requests')
+        .select('id, reason, requested_at, scheduled_for, status, cancelled_at, completed_at')
+        .eq('user_id', req.user.id)
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        return res.status(500).json({ error: 'query_failed' });
+    }
+    return res.json({ request: data });
 });
 
 export default router;

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal, FileText } from 'lucide-react';
+import { Users, School, Activity, Settings, Shield, BarChart3, Search, MoreHorizontal, FileText, DoorOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import {
@@ -139,12 +139,20 @@ export default function AdminPanelPage() {
             Gestión completa del sistema SportMaps
           </p>
         </div>
-        <Link to="/admin/activity-logs">
-          <Button variant="outline" className="gap-2">
-            <FileText className="h-4 w-4" />
-            Logs y actividad global
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link to="/admin/access-logs">
+            <Button variant="outline" className="gap-2">
+              <DoorOpen className="h-4 w-4" />
+              Logs de acceso
+            </Button>
+          </Link>
+          <Link to="/admin/activity-logs">
+            <Button variant="outline" className="gap-2">
+              <FileText className="h-4 w-4" />
+              Logs y actividad global
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Stats Cards */}

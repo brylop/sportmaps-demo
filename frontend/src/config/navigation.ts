@@ -280,6 +280,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Acceso', href: '/school/access-control', icon: ShieldCheck },
         ]
       },
       {
@@ -477,6 +478,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Reportes', href: '/school-reports', icon: FileText },
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Acceso', href: '/school/access-control', icon: ShieldCheck },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }

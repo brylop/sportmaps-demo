@@ -25,6 +25,7 @@ import {
     fetchTransaction,
     mapWompiStatus,
     centsToCop,
+    createPaymentSource,
 } from '../services/wompi.service';
 
 const router = Router();
@@ -479,52 +480,102 @@ async function handleSessionBooking({
 }
 
 // ─── Captura de token reutilizable tras APPROVED ─────────────────────────
-// Wompi puede devolver `payment_method.extra.token` o similar segun el tipo.
-// Solo guardamos si el usuario tiene auto_renew=true en alguna sub o si el
-// frontend lo solicita explicitamente.
+//
+// Solo guardamos tarjeta si el padre opto explicitamente en el modal de
+// checkout (POST /payment-tokens/save-intent crea una fila en
+// pending_card_saves con los acceptance tokens que el usuario acepto).
+// Sin esa fila, NO guardamos — respeta opt-in del usuario y deja prueba
+// legal de aceptacion (Habeas Data).
+//
+// Si hay consent y la tarjeta es CARD, convertimos el token efimero del
+// Widget (~15 min TTL) en un payment_source permanente via POST /v1/
+// payment_sources y lo guardamos como provider_payment_source_id.
 async function maybeCaptureToken(req: Request, realTx: any, txReference: string): Promise<void> {
     try {
         const pm = realTx?.payment_method;
-        const token: string | undefined =
-            pm?.token || pm?.extra?.token || realTx?.payment_source_id?.toString();
+        const ephemeralToken: string | undefined = pm?.token || pm?.extra?.token;
+        if (!ephemeralToken) return;
 
-        if (!token) return;
+        // 1. Buscar consent del padre. Sin consent no guardamos.
+        const { data: consentRows, error: consentErr } = await supabase
+            .rpc('consume_card_save_intent', { p_reference: txReference });
 
-        // Resolver user_id desde la entidad por reference
-        const prefix = txReference.split('-')[0];
-        let userId: string | null = null;
-
-        if (prefix === 'CART') {
-            const { data } = await supabase.from('orders').select('user_id').eq('wompi_reference', txReference).maybeSingle();
-            userId = data?.user_id || null;
-        } else if (prefix === 'SCH') {
-            const { data: link } = await supabase.from('payment_links').select('payment_id').eq('wompi_reference', txReference).maybeSingle();
-            if (link?.payment_id) {
-                const { data: pay } = await supabase.from('payments').select('user_id').eq('id', link.payment_id).maybeSingle();
-                userId = pay?.user_id || null;
-            }
-        } else if (['SVC', 'EVT', 'SUB', 'MKT'].includes(prefix)) {
-            const { data } = await supabase.from('marketplace_transactions').select('user_id').eq('wompi_reference', txReference).maybeSingle();
-            userId = data?.user_id || null;
-        } else if (prefix === 'BKG') {
-            const { data } = await supabase.from('session_bookings').select('user_id').eq('wompi_reference', txReference).maybeSingle();
-            userId = data?.user_id || null;
+        if (consentErr) {
+            req.log?.warn({ err: consentErr, txReference }, 'consume_card_save_intent failed');
+            return;
+        }
+        const consent = Array.isArray(consentRows) ? consentRows[0] : consentRows;
+        if (!consent?.user_id) {
+            // No hay consent → el padre NO opto por guardar. Respetamos.
+            req.log?.info({ txReference }, 'no card save consent for this reference; skipping tokenization');
+            return;
         }
 
-        if (!userId) return;
+        const customerEmail: string = realTx?.customer_email || '';
+        if (!customerEmail) {
+            req.log?.warn({ txReference }, 'no customer_email in tx; cannot create payment_source');
+            return;
+        }
 
-        await supabase.rpc('save_payment_token', {
-            p_user_id: userId,
-            p_wompi_token: token,
-            p_payment_method_type: pm?.type || 'CARD',
+        // 2. Crear payment_source permanente en Wompi.
+        const paymentMethodType = (pm?.type || 'CARD') as 'CARD' | 'NEQUI' | 'DAVIPLATA' | 'BANCOLOMBIA_TRANSFER';
+        const psRes = await createPaymentSource({
+            cardToken: ephemeralToken,
+            customerEmail,
+            acceptanceToken: consent.acceptance_token,
+            personalDataAuthToken: consent.personal_data_auth_token,
+            type: paymentMethodType,
+        });
+
+        if (!psRes.ok) {
+            req.log?.warn({ err: psRes.error, txReference, userId: consent.user_id }, 'createPaymentSource failed');
+            return;
+        }
+
+        // 3. Guardar payment_token con provider_payment_source_id + auditar consent.
+        const { data: saveRes, error: saveErr } = await supabase.rpc('save_payment_token', {
+            p_user_id: consent.user_id,
+            p_payment_provider: 'wompi',
+            p_provider_token: ephemeralToken,                 // efimero, para debug
+            p_provider_customer_id: null,
+            p_provider_card_id: null,
+            p_provider_payment_source_id: psRes.paymentSourceId,
+            p_payment_method_type: paymentMethodType,
             p_last_four: pm?.extra?.last_four || null,
             p_brand: pm?.extra?.brand || null,
             p_holder_name: pm?.extra?.card_holder || null,
             p_expires_at: null,
-            p_set_default: false,  // no es default automaticamente; el user lo confirma desde la UI
+            p_set_default: false,
         });
 
-        req.log?.info({ userId, txReference }, 'Wompi token captured for future autopay');
+        if (saveErr || !saveRes?.ok) {
+            req.log?.warn({ err: saveErr || saveRes, txReference }, 'save_payment_token failed');
+            return;
+        }
+
+        // 4. Insertar prueba durable en payment_consents (auditoria inalterable).
+        await supabase.from('payment_consents').insert({
+            user_id: consent.user_id,
+            payment_provider: 'wompi',
+            acceptance_token: consent.acceptance_token,
+            personal_data_auth_token: consent.personal_data_auth_token,
+            acceptance_permalink: consent.acceptance_permalink,
+            personal_data_permalink: consent.personal_data_permalink,
+            accepted_at: consent.accepted_at,
+            ip_address: consent.ip_address,
+            user_agent: consent.user_agent,
+            payment_token_id: saveRes.token_id,
+            metadata: {
+                tx_reference: txReference,
+                payment_source_id: psRes.paymentSourceId,
+                payment_source_status: psRes.status,
+            },
+        });
+
+        req.log?.info(
+            { userId: consent.user_id, txReference, paymentSourceId: psRes.paymentSourceId },
+            'Wompi payment_source created + consent recorded',
+        );
     } catch (err: any) {
         req.log?.warn({ err: err?.message || err }, 'maybeCaptureToken failed (non-blocking)');
     }

@@ -95,14 +95,32 @@ export function FileUpload({
     }, 300);
 
     try {
-      const result = await validate(toUse[0], { expectedAmount, conceptKind });
+      let result: ReceiptValidationResult;
+      try {
+        result = await validate(toUse[0], { expectedAmount, conceptKind });
+      } catch (ocrErr) {
+        // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
+        // comprobante igual y que la escuela lo valide visualmente. El OCR es
+        // advisory, no un requisito para registrar el pago.
+        console.warn('[OCR] no disponible; se sube el comprobante sin validación automática:', ocrErr);
+        result = {
+          valid: true,
+          extractedDate: null,
+          extractedAmount: null,
+          extractedReference: null,
+          extractedBank: null,
+          extractedCurrency: null,
+          rejectionReason: null,
+        };
+      }
       setOcrProgress(100);
       setValidation(result);
       onValidationResult?.(result);
 
-      // Bloqueo cuando el OCR detecto conflicto duro: fecha distinta a hoy
+      // Bloqueo SOLO cuando el OCR detecto conflicto duro: fecha distinta a hoy
       // (siempre) o monto distinto al esperado (solo en concept FIXED).
-      // Si el OCR no detecto fecha/monto, se sube y el admin valida visualmente.
+      // Si el OCR no detecto fecha/monto (o no estaba disponible), se sube y el
+      // admin valida visualmente.
       if (!result.valid) {
         return;
       }
@@ -244,7 +262,7 @@ export function FileUpload({
               <AlertDescription>
                 <p className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4" />
-                  Comprobante verificado y listo para enviar
+                  Comprobante cargado ✓ — falta confirmar abajo
                 </p>
                 <div className="space-y-1.5">
 

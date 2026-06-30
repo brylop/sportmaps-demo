@@ -1,8 +1,13 @@
 // Complete demo data setup: profiles + team member + enrollment
 // Run: node scripts/setup-demo-data.mjs
 
-const SUPABASE_URL = 'https://luebjarufsiadojhvxgi.supabase.co';
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZWJqYXJ1ZnNpYWRvamh2eGdpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODkxNTY1OCwiZXhwIjoyMDc0NDkxNjU4fQ.UxkAmsGSCkbmlg5q2ip7RTSW8L4SGAytWL23ZXmWHro';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://luebjarufsiadojhvxgi.supabase.co';
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SERVICE_ROLE_KEY) {
+    console.error('❌ Falta SUPABASE_SERVICE_ROLE_KEY. Ej: SUPABASE_SERVICE_ROLE_KEY=sb_secret_... node scripts/setup-demo-data.mjs');
+    process.exit(1);
+}
 const HEADERS = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${SERVICE_ROLE_KEY}`,

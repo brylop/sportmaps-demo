@@ -498,30 +498,38 @@ router.post(
                     } else {
                         invitationsCreated = insertedInvites?.length || 0;
 
-                        // Enviar correos en background saltando los awaits largos (fire and forget)
+                        // Enviar correos branded en background. El template
+                        // se resuelve por escuela (logo + colores) — el primer
+                        // hit lee DB, los siguientes vienen del cache de 60s.
                         if (insertedInvites && insertedInvites.length > 0) {
                             const { emailClient } = await import('../utils/emailClient');
-                            const { EmailTemplates } = await import('../utils/emailTemplates');
+                            const { BrandedEmailTemplates } = await import('../utils/emailTemplates');
 
                             const origin = process.env.CORS_ORIGIN || 'https://app.sportmaps.com';
 
-                            insertedInvites.forEach(inviteRow => {
+                            for (const inviteRow of insertedInvites) {
                                 const info = parentEmailMap.get(inviteRow.email);
-                                if (info) {
-                                    const inviteLink = `${origin}/register?email=${encodeURIComponent(inviteRow.email)}&role=parent&invite=${inviteRow.id}`;
+                                if (!info) continue;
+                                const inviteLink = `${origin}/register?email=${encodeURIComponent(inviteRow.email)}&role=parent&invite=${inviteRow.id}`;
 
+                                try {
+                                    const tpl = await BrandedEmailTemplates.invitation({
+                                        parentName: info.parentName,
+                                        childName: info.childName,
+                                        schoolId,
+                                        inviteLink,
+                                    });
                                     emailClient.send({
                                         to: inviteRow.email,
-                                        subject: `Invitación a SportMaps - ${schoolName}`,
-                                        html: EmailTemplates.invitation(
-                                            info.parentName,
-                                            info.childName,
-                                            schoolName,
-                                            inviteLink
-                                        )
-                                    }).catch((e: any) => req.log?.error({ email: inviteRow.email, err: e }, 'Fallo al enviar correo masivo'));
+                                        subject: tpl.subject,
+                                        html: tpl.html,
+                                    }).catch((e: any) =>
+                                        req.log?.error({ email: inviteRow.email, err: e }, 'Fallo al enviar correo masivo'),
+                                    );
+                                } catch (e: any) {
+                                    req.log?.error({ email: inviteRow.email, err: e }, 'Fallo armando template branded');
                                 }
-                            });
+                            }
                         }
                     }
                 }

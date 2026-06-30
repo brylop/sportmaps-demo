@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { Banknote, Smartphone, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
@@ -17,21 +15,25 @@ interface ApprovePaymentMethodSheetProps {
   onSuccess: () => void;
 }
 
+/**
+ * Confirmación SIMPLE de aprobación de un cobro pendiente.
+ * No re-pregunta método ni fecha: el origen del cobro ya se conoce
+ * (inscripción por QR o transferencia ya reportada). Solo confirma → paid
+ * y activa la inscripción asociada.
+ */
 export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSuccess }: ApprovePaymentMethodSheetProps) {
   const { user } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const { toast } = useToast();
-  
-  const [method, setMethod] = useState<'cash' | 'transfer' | null>(null);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+
   const [loading, setLoading] = useState(false);
 
   const handleApprove = async () => {
-    if (!method || !payment || !schoolId || !user) return;
+    if (!payment || !schoolId || !user) return;
     setLoading(true);
 
     try {
-      // ✅ Guard: no aprobar pagos bloqueados por revisión
+      // Guard: no aprobar pagos bloqueados por revisión
       if (payment?.requires_review) {
         toast({
           title: 'Pago bloqueado',
@@ -42,45 +44,43 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
         return;
       }
 
-      const reference = `${method.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+      // Conserva el método si ya viene (no se re-pregunta); default transfer.
+      const method = (payment.payment_method as string) || 'transfer';
 
       const { error: updateError } = await supabase.from('payments').update({
         status: 'paid',
         payment_method: method,
-        // ✅ 'transfer' en lugar de 'manual' — consistente con RegisterCashPaymentModal
         payment_channel: method === 'cash' ? 'cash' : 'transfer',
-        payment_date: paymentDate,
+        payment_date: new Date().toISOString().split('T')[0],
         approved_by: user.id,
         approved_at: new Date().toISOString(),
-        reference: payment.reference || reference,
         amount_paid: payment.amount,
       }).eq('id', payment.id);
 
       if (updateError) throw updateError;
 
-      // ✅ Reactivación de enrollment con lógica correcta por tipo de atleta
+      // Activar la inscripción asociada. enrollments.status es text:
+      // los pendientes reales son 'pending' (NO 'pending_payment').
       let enrollQuery = supabase
         .from('enrollments')
         .update({ status: 'active' })
         .eq('school_id', schoolId)
-        .eq('status', 'pending_payment');
+        .eq('status', 'pending');
 
       if (payment.child_id) {
         enrollQuery = enrollQuery.eq('child_id', payment.child_id);
       } else if (payment.unregistered_athlete_id) {
-        enrollQuery = enrollQuery.eq('unregistered_athlete_id', payment.unregistered_athlete_id);
+        enrollQuery = (enrollQuery as any).eq('unregistered_athlete_id', payment.unregistered_athlete_id);
       } else if (payment.user_id) {
         enrollQuery = (enrollQuery as any).eq('user_id', payment.user_id).is('child_id', null);
       }
-
-      // Solo filtrar por team_id en planes grupales
       if (payment.team_id) {
         enrollQuery = enrollQuery.eq('team_id', payment.team_id);
       }
 
       await enrollQuery;
 
-      // Notificar al padre o responsable si tiene cuenta
+      // Notificar al padre / responsable si tiene cuenta
       const recipientId = payment.parent_id || payment.user_id;
       if (recipientId) {
         await supabase.rpc('notify_user', {
@@ -93,8 +93,8 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
       }
 
       toast({
-        title: 'Pago Aprobado',
-        description: 'La transacción ha sido validada correctamente.',
+        title: 'Cobro aprobado',
+        description: 'El pago quedó confirmado y la inscripción activa.',
       });
 
       onSuccess();
@@ -114,15 +114,12 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
   if (!payment) return null;
 
   return (
-    <Sheet open={open} onOpenChange={(val) => {
-      if (!val) setMethod(null);
-      onOpenChange(val);
-    }}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="sm:max-w-md mx-auto rounded-t-2xl px-6 pb-8 pt-6">
         <SheetHeader className="mb-6">
-          <SheetTitle>Marcar como pagado</SheetTitle>
+          <SheetTitle>Aprobar cobro</SheetTitle>
           <SheetDescription>
-            Confirma el método de pago para <strong>{payment.athlete_name || 'este cobro'}</strong>.
+            Confirma la aprobación del cobro de <strong>{payment.athlete_name || 'este deportista'}</strong>.
           </SheetDescription>
         </SheetHeader>
 
@@ -132,45 +129,13 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
             <p className="text-2xl font-bold text-slate-900">{formatCurrency(payment.amount)}</p>
           </div>
 
-          <div className="space-y-3">
-            <Label>¿Cómo realizó el pago?</Label>
-            <div className="grid grid-cols-2 gap-3">
-              <Button 
-                variant={method === 'cash' ? 'default' : 'outline'}
-                className={`h-16 flex flex-col items-center justify-center gap-1 ${method === 'cash' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
-                onClick={() => setMethod('cash')}
-              >
-                <Banknote className="h-5 w-5" />
-                <span>Efectivo</span>
-              </Button>
-              <Button 
-                variant={method === 'transfer' ? 'default' : 'outline'}
-                className={`h-16 flex flex-col items-center justify-center gap-1 ${method === 'transfer' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
-                onClick={() => setMethod('transfer')}
-              >
-                <Smartphone className="h-5 w-5" />
-                <span>Transferencia</span>
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label htmlFor="payment-date">Fecha de pago</Label>
-            <Input 
-              id="payment-date" 
-              type="date" 
-              value={paymentDate} 
-              onChange={(e) => setPaymentDate(e.target.value)} 
-            />
-          </div>
-
-          <Button 
-            className="w-full h-12 text-base font-bold mt-4" 
-            disabled={!method || loading} 
+          <Button
+            className="w-full h-12 text-base font-bold bg-emerald-600 hover:bg-emerald-700"
+            disabled={loading}
             onClick={handleApprove}
           >
-            {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-            {loading ? 'Confirmando...' : 'Confirmar pago'}
+            {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
+            {loading ? 'Aprobando...' : 'Aprobar cobro'}
           </Button>
         </div>
       </SheetContent>

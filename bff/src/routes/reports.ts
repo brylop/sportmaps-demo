@@ -179,7 +179,8 @@ router.get(
             // 1. Students
             let studentsQuery = supabase
                 .from('children')
-                .select('id, full_name, status, created_at, team_id, branch_id')
+                // children NO tiene columna `status`; default abajo (s.status || 'active').
+                .select('id, full_name, created_at, team_id, branch_id')
                 .eq('school_id', schoolId)
                 .order('created_at', { ascending: false })
                 .limit(500);
@@ -458,7 +459,9 @@ router.get(
             // 1. Fetch children with document URL
             let childrenQuery = supabase
                 .from('children')
-                .select('id, full_name, team_id, branch_id, id_document_url, status')
+                // NOTA: children NO tiene columna `status` en la BD; el default
+                // se resuelve abajo con `child.status || 'active'`.
+                .select('id, full_name, team_id, branch_id, id_document_url')
                 .eq('school_id', schoolId)
                 .order('full_name');
 

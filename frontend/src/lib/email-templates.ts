@@ -1,17 +1,43 @@
+// frontend/src/lib/email-templates.ts
+//
+// DEPRECATED — Este archivo no tiene callsites activos en el frontend
+// (verificado 2026-05-29). Los emails de SportMaps se generan en el BFF
+// via `bff/src/utils/emailTemplates.ts` (BrandedEmailTemplates) que ya
+// aplica branding por escuela + feature gate + sanitización HTML.
+//
+// Si necesitas mandar un email desde el frontend en el futuro:
+//   - Para correos transaccionales: llama al BFF (que aplica branding).
+//   - Para correos del cliente Supabase Auth (reset, invite): se configuran
+//     desde Supabase Dashboard > Auth > Email Templates con HTML branded.
+//
+// Mantenemos este archivo con escape HTML aplicado para que NO sea un vector
+// de XSS si alguien lo importa accidentalmente.
+
+function escapeHtml(str: string): string {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+const BRAND_GREEN = '#248223'; // SportMaps default — mirror del backend
+const BRAND_ORANGE = '#FB9F1E';
+
+/** @deprecated Use BrandedEmailTemplates en BFF. Ver header del archivo. */
 export const EmailTemplates = {
     paymentConfirmation: (parentName: string, amount: string, concept: string, receiptNumber: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #4F46E5;">¡Pago Recibido!</h1>
-        <p>Hola ${parentName},</p>
+        <h1 style="color: ${BRAND_GREEN};">¡Pago Recibido!</h1>
+        <p>Hola ${escapeHtml(parentName)},</p>
         <p>Hemos recibido y validado tu pago exitosamente. Aquí están los detalles:</p>
-        
         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Concepto:</strong> ${concept}</p>
-          <p><strong>Monto:</strong> ${amount}</p>
-          <p><strong>Referencia:</strong> ${receiptNumber}</p>
+          <p><strong>Concepto:</strong> ${escapeHtml(concept)}</p>
+          <p><strong>Monto:</strong> ${escapeHtml(amount)}</p>
+          <p><strong>Referencia:</strong> ${escapeHtml(receiptNumber)}</p>
           <p><strong>Estado:</strong> <span style="color: green; font-weight: bold;">Aprobado</span></p>
         </div>
-  
         <p>Gracias por confiar en nosotros.</p>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
@@ -20,20 +46,14 @@ export const EmailTemplates = {
 
     paymentReminder: (parentName: string, amount: string, childName: string, dueDate: string, paymentLink: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #F59E0B;">Recordatorio de Pago</h1>
-        <p>Hola ${parentName},</p>
-        <p>Este es un recordatorio amable sobre el pago pendiente para la mensualidad de <strong>${childName}</strong>.</p>
-        
+        <h1 style="color: ${BRAND_ORANGE};">Recordatorio de Pago</h1>
+        <p>Hola ${escapeHtml(parentName)},</p>
+        <p>Este es un recordatorio amable sobre el pago pendiente para la mensualidad de <strong>${escapeHtml(childName)}</strong>.</p>
         <div style="background-color: #FFFBEB; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #FEF3C7;">
-          <p><strong>Monto a pagar:</strong> ${amount}</p>
-          <p><strong>Fecha límite:</strong> ${dueDate}</p>
+          <p><strong>Monto a pagar:</strong> ${escapeHtml(amount)}</p>
+          <p><strong>Fecha límite:</strong> ${escapeHtml(dueDate)}</p>
         </div>
-  
-        <a href="${paymentLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-          Pagar Ahora
-        </a>
-  
-        <p style="margin-top: 20px;">Si ya realizaste el pago, por favor omite este mensaje o envíanos el comprobante.</p>
+        <a href="${escapeHtml(paymentLink)}" style="background-color: ${BRAND_GREEN}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Pagar Ahora</a>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
       </div>
@@ -41,32 +61,23 @@ export const EmailTemplates = {
 
     welcome: (name: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #4F46E5;">¡Bienvenido a SportMaps!</h1>
-        <p>Hola ${name},</p>
-        <p>Estamos emocionados de tenerte con nosotros. Ahora podrás gestionar las actividades deportivas de tus hijos de forma fácil y rápida.</p>
-        <p>Explora las escuelas cercanas y encuentra el programa perfecto.</p>
-        <a href="https://sportmaps.demo.com/explore" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 10px;">
-          Explorar Programas
-        </a>
+        <h1 style="color: ${BRAND_GREEN};">¡Bienvenido a SportMaps!</h1>
+        <p>Hola ${escapeHtml(name)},</p>
+        <p>Estamos emocionados de tenerte con nosotros.</p>
+        <a href="https://app.sportmaps.co/explorar" style="background-color: ${BRAND_GREEN}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 10px;">Explorar Programas</a>
       </div>
     `,
 
     invitation: (parentName: string, childName: string, schoolName: string, inviteLink: string) => `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #4F46E5;">¡Invitación de ${schoolName}!</h1>
-        <p>Hola ${parentName || 'Padre/Madre'},</p>
-        <p>La escuela <strong>${schoolName}</strong> ha registrado a <strong>${childName}</strong> en su sistema.</p>
-        <p>Para ver el progreso de tu hijo/a, realizar pagos y recibir notificaciones, por favor completa tu registro en SportMaps.</p>
-        
+        <h1 style="color: ${BRAND_GREEN};">¡Invitación de ${escapeHtml(schoolName)}!</h1>
+        <p>Hola ${escapeHtml(parentName || 'Padre/Madre')},</p>
+        <p>La escuela <strong>${escapeHtml(schoolName)}</strong> ha registrado a <strong>${escapeHtml(childName)}</strong> en su sistema.</p>
         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
-          <a href="${inviteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-            Aceptar Invitación y Crear Cuenta
-          </a>
+          <a href="${escapeHtml(inviteLink)}" style="background-color: ${BRAND_GREEN}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">Aceptar Invitación y Crear Cuenta</a>
         </div>
-  
-        <p>Si ya tienes cuenta, el deportista se asociará automáticamente cuando inicies sesión con este correo.</p>
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
         <p style="color: #6B7280; font-size: 12px;">SportMaps - Gestión Deportiva</p>
       </div>
-    `
+    `,
 };
