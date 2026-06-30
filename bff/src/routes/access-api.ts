@@ -376,9 +376,22 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
       .eq('school_id', schoolId)
       .order('direction');
 
+    try {
+      fs.appendFileSync(
+        path.join(__dirname, '../../debug.log'),
+        `${new Date().toISOString()} - /devices schoolId=${schoolId} role=${req.role} count=${devices?.length ?? 'null'} err=${error?.message ?? '-'}\n`,
+      );
+    } catch { /* no romper por el log */ }
+
     if (error) throw error;
     return res.json({ devices: devices || [] });
   } catch (err: any) {
+    try {
+      fs.appendFileSync(
+        path.join(__dirname, '../../debug.log'),
+        `${new Date().toISOString()} - /devices EXCEPTION: ${err?.message}\n`,
+      );
+    } catch { /* noop */ }
     return res.status(500).json({ error: 'Error al listar dispositivos' });
   }
 });
