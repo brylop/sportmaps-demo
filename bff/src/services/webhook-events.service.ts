@@ -15,7 +15,7 @@
 
 import { supabase } from '../config/supabase';
 
-export type WebhookProvider = 'wompi' | 'mercadopago' | 'epayco';
+export type WebhookProvider = 'wompi' | 'mercadopago';
 
 const DEFAULT_RETRY_SECONDS = 5 * 60; // 5 min
 

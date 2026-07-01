@@ -62,7 +62,7 @@ export async function reprocessOrphanWebhooks(limit = 50): Promise<ReprocessResu
             .maybeSingle();
         if (!claimed) continue;
 
-        // Solo Wompi por ahora; MP/ePayco reproceso pendiente.
+        // Solo Wompi por ahora; MP reproceso pendiente.
         if (ev.provider !== 'wompi') {
             await supabase.from('webhook_events')
                 .update({ status: 'orphan', last_error: 'reprocess_provider_unsupported', next_retry_at: backoffIso() })
