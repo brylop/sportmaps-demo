@@ -32,6 +32,13 @@ import {
     type InternalStatus,
 } from '../services/mercadopago.service';
 import { loadProviderConfig } from '../services/payment-provider.resolver';
+import {
+    recordWebhookEvent,
+    markWebhookProcessed,
+    markWebhookOrphan,
+    markWebhookFailed,
+    markWebhookIgnored,
+} from '../services/webhook-events.service';
 
 // Doble export: webhookRouter para /webhooks/mercadopago, paymentsRouter para /payments/mp
 const webhookRouter = Router();
@@ -129,26 +136,36 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
         }
 
         const internalStatus = mapMpStatus(payment.status);
-        const amount = Number(payment.transaction_amount);
-        const prefix = externalRef.split('-')[0];
-        const handler = HANDLERS[prefix];
 
-        if (!handler) {
-            req.log?.warn({ prefix, externalRef }, 'MP webhook: unknown prefix');
-            return res.status(200).json({ status: 'ignored', reason: 'unknown_prefix', prefix });
+        // Dedup + log persistente del evento (H-03/H-04). event_id estable por
+        // (payment.id, status): deduplica el mismo update y registra transiciones.
+        const { firstSeen, id: eventLogId } = await recordWebhookEvent({
+            provider: 'mercadopago',
+            eventId: `${payment.id}:${payment.status}`,
+            reference: externalRef,
+            eventType,
+            payload: body,
+        });
+        if (!firstSeen) {
+            return res.status(200).json({ status: 'already_processed', dedup: 'webhook_events' });
         }
 
-        const result = await handler({
-            req,
-            paymentId: String(payment.id),
-            externalRef,
-            mpStatus: payment.status,
-            internalStatus,
-            amount,
-            paymentMethodId: payment.payment_method_id,
-            paymentTypeId: payment.payment_type_id,
-            payment,
-        });
+        // Rutear (logica compartida con el reproceso de huerfanos).
+        const routed = await routeMercadoPagoTransaction({ payment, log: req.log });
+
+        if (!routed.handled) {
+            req.log?.warn({ externalRef }, 'MP webhook: unknown prefix');
+            await markWebhookIgnored(eventLogId, String(routed.body?.reason ?? 'unknown_prefix'));
+        } else {
+            const reason = typeof routed.body?.reason === 'string' ? routed.body.reason : '';
+            if (reason.endsWith('_not_found')) {
+                await markWebhookOrphan(eventLogId, reason);
+            } else if (routed.status >= 500) {
+                await markWebhookFailed(eventLogId, `handler_status_${routed.status}`);
+            } else {
+                await markWebhookProcessed(eventLogId);
+            }
+        }
 
         // Captura de tarjeta para autopay (si APPROVED y la entidad lo permite)
         if (internalStatus === 'paid') {
@@ -157,7 +174,7 @@ webhookRouter.post('/webhook', async (req: Request, res: Response) => {
             });
         }
 
-        return res.status(result.status).json(result.body);
+        return res.status(routed.status).json(routed.body);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'Unexpected error in MP webhook');
         return res.status(500).json({ error: 'internal_server_error' });
@@ -230,6 +247,43 @@ const HANDLERS: Record<string, (args: HandlerArgs) => Promise<HandlerResult>> = 
     CART: handleCartOrder,
     BKG: handleSessionBooking,
 };
+
+/**
+ * Rutea un pago MP (ya validado/refetcheado) al handler que corresponde por
+ * prefijo de external_reference. Compartido por el webhook en vivo y por el
+ * cron de reproceso de huerfanos (webhook-reprocess.service).
+ *
+ * `handled=false` => prefijo desconocido. No hace dedup ni card-capture.
+ */
+export async function routeMercadoPagoTransaction(
+    input: { payment: MpPayment; log?: Request['log'] },
+): Promise<{ status: number; body: Record<string, unknown>; handled: boolean }> {
+    const { payment } = input;
+    const externalRef: string = payment.external_reference || '';
+    const internalStatus = mapMpStatus(payment.status);
+    const amount = Number(payment.transaction_amount);
+
+    const prefix = externalRef.split('-')[0];
+    const handler = HANDLERS[prefix];
+    if (!handler) {
+        return { status: 200, body: { status: 'ignored', reason: 'unknown_prefix', prefix }, handled: false };
+    }
+
+    // Los handlers solo usan req.log?.*, asi que basta un shim con el logger.
+    const req = { log: input.log } as unknown as Request;
+    const result = await handler({
+        req,
+        paymentId: String(payment.id),
+        externalRef,
+        mpStatus: payment.status,
+        internalStatus,
+        amount,
+        paymentMethodId: payment.payment_method_id,
+        paymentTypeId: payment.payment_type_id,
+        payment,
+    });
+    return { status: result.status, body: result.body, handled: true };
+}
 
 async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
     const { req, paymentId, externalRef, internalStatus, amount } = args;
