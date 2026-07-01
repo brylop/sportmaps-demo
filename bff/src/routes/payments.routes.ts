@@ -138,8 +138,9 @@ router.post(
 
             const feePct = Number(settings?.online_fee_pct ?? 3);
 
-            // 4. No reutilizar links activos (idempotencia debil — evita doble cobro accidental)
-            const { data: existingLink } = await supabase
+            // 4. Reutilizar link activo (idempotencia — evita doble cobro accidental).
+            //    Consulta y respuesta factorizadas para reusar tambien en el 23505.
+            const fetchActiveLink = () => supabase
                 .from('payment_links')
                 .select('id, status, expires_at, payment_provider, provider_reference, wompi_reference, gross_amount, base_amount, sportmaps_fee, fee_pct')
                 .eq('payment_id', paymentId)
@@ -147,22 +148,23 @@ router.post(
                 .gte('expires_at', new Date().toISOString())
                 .maybeSingle();
 
+            const reuseResponse = (link: any) => res.status(200).json({
+                provider: (link.payment_provider as PaymentProvider) ?? 'wompi',
+                publicKey: resolved?.publicKey ?? null,
+                sandbox: resolved?.sandbox ?? true,
+                reference: link.provider_reference || link.wompi_reference,
+                amountInCents: copToCents(Number(link.gross_amount)),
+                transactionAmount: Number(link.gross_amount),
+                grossAmount: Number(link.gross_amount),
+                baseAmount: Number(link.base_amount),
+                sportmapsFee: Number(link.sportmaps_fee),
+                feePct: Number(link.fee_pct),
+                reused: true,
+            });
+
+            const { data: existingLink } = await fetchActiveLink();
             if (existingLink && (existingLink.provider_reference || existingLink.wompi_reference)) {
-                const linkProvider = (existingLink.payment_provider as PaymentProvider) ?? 'wompi';
-                const linkRef = existingLink.provider_reference || existingLink.wompi_reference;
-                return res.status(200).json({
-                    provider: linkProvider,
-                    publicKey: resolved?.publicKey ?? null,
-                    sandbox: resolved?.sandbox ?? true,
-                    reference: linkRef,
-                    amountInCents: copToCents(Number(existingLink.gross_amount)),
-                    transactionAmount: Number(existingLink.gross_amount),
-                    grossAmount: Number(existingLink.gross_amount),
-                    baseAmount: Number(existingLink.base_amount),
-                    sportmapsFee: Number(existingLink.sportmaps_fee),
-                    feePct: Number(existingLink.fee_pct),
-                    reused: true,
-                });
+                return reuseResponse(existingLink);
             }
 
             // 5. Calcular montos en el server (NUNCA confiar en el cliente)
@@ -177,6 +179,16 @@ router.post(
 
             const token = crypto.randomBytes(32).toString('hex');
             const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
+
+            // 6.b Expirar links 'pending' vencidos por tiempo: no son un checkout
+            //     activo y chocarian con el unico parcial (H-05). Solo toca los ya
+            //     vencidos, nunca uno vigente creado por otra request.
+            await supabase
+                .from('payment_links')
+                .update({ status: 'expired', updated_at: new Date().toISOString() })
+                .eq('payment_id', paymentId)
+                .eq('status', 'pending')
+                .lt('expires_at', new Date().toISOString());
 
             // 7. Persistir payment_link con columnas genericas + legacy mirror
             const { error: linkErr } = await supabase
@@ -199,6 +211,16 @@ router.post(
                 });
 
             if (linkErr) {
+                // 23505: otra request concurrente ya creo la link 'pending' para esta
+                // deuda (carrera H-05, bloqueada por uq_payment_links_one_pending_per_payment).
+                // Reusar la existente en vez de crear una segunda referencia pagable.
+                if ((linkErr as any).code === '23505') {
+                    const { data: raced } = await fetchActiveLink();
+                    if (raced && (raced.provider_reference || raced.wompi_reference)) {
+                        req.log?.info({ paymentId }, 'create-session: carrera resuelta, reusando link existente');
+                        return reuseResponse(raced);
+                    }
+                }
                 req.log?.error({ err: linkErr }, 'Error inserting payment_link');
                 return res.status(500).json({ error: 'Error al registrar el enlace de pago.' });
             }

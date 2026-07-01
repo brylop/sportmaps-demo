@@ -244,9 +244,22 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
             periodKey = now.toISOString().slice(0, 7); // YYYY-MM
     }
 
+    // Numero de intento actual. Incluirlo en la key hace que un REINTENTO del
+    // mismo mes sea una operacion nueva ante el proveedor: sin esto, MP/Wompi
+    // replayan el resultado del 1er intento (misma key/reference) y el reintento
+    // no vuelve a cobrar aunque la tarjeta ya tenga fondos. A la vez, un doble
+    // disparo del cron el MISMO dia comparte failed_attempts -> misma key ->
+    // sigue deduplicado (no doble cobro). Ver auditoria H-07.
+    const { data: subRow } = await supabase
+        .from('recurring_subscriptions')
+        .select('failed_attempts')
+        .eq('id', sub.subscription_id)
+        .maybeSingle();
+    const attemptNo = (subRow as any)?.failed_attempts ?? 0;
+
     const idempotencyKey = crypto
         .createHash('sha256')
-        .update(`${sub.subscription_id}:${periodKey}`)
+        .update(`${sub.subscription_id}:${periodKey}:a${attemptNo}`)
         .digest('hex');
 
     // Cargar credenciales segun el modo de la sub.
@@ -313,7 +326,10 @@ async function chargeOne(sub: DueSubscription): Promise<{ ok: boolean; error?: s
         // TAMBIEN en Wompi). El periodKey ya esta calculado arriba segun
         // billing_period (weekly/monthly/etc).
         const subShort = sub.subscription_id.slice(0, 8);
-        providerReference = `${isVendorMode ? 'VSUB' : 'SUB'}-${subShort}-${periodKey}`;
+        // Incluir attemptNo: un reintento necesita reference nueva o Wompi
+        // devuelve 422 duplicate y recupera la tx fallida (no re-cobra). El
+        // prefijo (1er segmento) sigue siendo SUB/VSUB para el routing del webhook.
+        providerReference = `${isVendorMode ? 'VSUB' : 'SUB'}-${subShort}-${periodKey}-a${attemptNo}`;
 
         if (!sub.provider_payment_source_id) {
             errorMsg = 'wompi_payment_source_missing';
