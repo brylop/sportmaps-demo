@@ -211,4 +211,31 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Reproceso de webhooks huerfanos registrado (cada 10 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Conciliacion diaria de pagos (Fix H-04). Detecta duplicados internos y
+    // webhooks huerfanos estancados, los registra en payment_anomalies y alerta
+    // por logs las criticas (visibles en el monitoreo del BFF). 03:30 COT.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 3 * * *', async () => {
+        console.log('[CRON] Iniciando conciliacion de pagos...');
+        try {
+            const { data, error } = await supabase.rpc('detect_payment_anomalies');
+            if (error) {
+                console.error('[CRON] detect_payment_anomalies error:', error.message);
+                return;
+            }
+            const r = (data ?? {}) as Record<string, number>;
+            const criticas = (r.duplicate_split ?? 0) + (r.duplicate_marketplace ?? 0);
+            if (criticas > 0) {
+                // ALERTA critica: posible doble cobro/contabilizacion detectado.
+                console.error(`[ALERT][pagos] Anomalias CRITICAS nuevas: duplicate_split=${r.duplicate_split ?? 0} duplicate_marketplace=${r.duplicate_marketplace ?? 0}. Revisar payment_anomalies (status='open').`);
+            }
+            console.log(`[CRON] Conciliacion: dupSplit=${r.duplicate_split ?? 0} dupMkt=${r.duplicate_marketplace ?? 0} rapid=${r.rapid_duplicate ?? 0} staleWebhook=${r.stale_orphan_webhook ?? 0}`);
+        } catch (err: any) {
+            console.error('[CRON] Error en conciliacion de pagos:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Conciliacion de pagos registrada para las 03:30 COT.');
 }
