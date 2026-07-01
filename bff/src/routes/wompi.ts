@@ -27,6 +27,13 @@ import {
     centsToCop,
     createPaymentSource,
 } from '../services/wompi.service';
+import {
+    recordWebhookEvent,
+    markWebhookProcessed,
+    markWebhookOrphan,
+    markWebhookFailed,
+    markWebhookIgnored,
+} from '../services/webhook-events.service';
 
 const router = Router();
 
@@ -80,28 +87,43 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
 
         const internalStatus = mapWompiStatus(realTx.status);
-        const txAmountCop = centsToCop(realTx.amount_in_cents);
 
-        // 3. Routing por prefijo de reference
-        const prefix = txReference.split('-')[0];
-        const handler = HANDLERS[prefix];
-
-        if (!handler) {
-            req.log?.warn({ prefix, txReference }, 'Wompi webhook: unknown reference prefix');
-            // Devolver 200 para que Wompi no reintente; estos son referencias huerfanas
-            return res.status(200).json({ status: 'ignored', reason: 'unknown_prefix', prefix });
+        // 2.b Dedup + log persistente del evento (H-03/H-04). event_id estable
+        // por (txId, status): deduplica el mismo update y a la vez permite
+        // registrar transiciones de estado distintas de la misma tx.
+        const { firstSeen, id: eventLogId } = await recordWebhookEvent({
+            provider: 'wompi',
+            eventId: `${txId}:${realTx.status}`,
+            reference: txReference,
+            eventType: event,
+            payload: body,
+        });
+        if (!firstSeen) {
+            return res.status(200).json({ status: 'already_processed', dedup: 'webhook_events' });
         }
 
-        const result = await handler({
-            req,
-            txId,
-            txReference,
-            txStatus: realTx.status,
-            internalStatus,
-            txAmountCop,
-            paymentMethodType: realTx.payment_method_type,
-            rawTransaction: realTx,
-        });
+        // 3. Rutear al handler segun prefijo (logica compartida con el reproceso).
+        const routed = await routeWompiTransaction({ realTx, body, log: req.log });
+
+        // Estado del evento segun el resultado:
+        //  - prefijo desconocido -> ignored.
+        //  - entidad local aun inexistente (*_not_found) -> orphan (reprocesar,
+        //    NO perder el evento; antes se respondia 200 ignored sin retry).
+        //  - fallo del handler (>=500) -> failed (reintento).
+        //  - resto -> processed.
+        if (!routed.handled) {
+            req.log?.warn({ txReference }, 'Wompi webhook: unknown reference prefix');
+            await markWebhookIgnored(eventLogId, String(routed.body?.reason ?? 'unknown_prefix'));
+        } else {
+            const reason = typeof routed.body?.reason === 'string' ? routed.body.reason : '';
+            if (reason.endsWith('_not_found')) {
+                await markWebhookOrphan(eventLogId, reason);
+            } else if (routed.status >= 500) {
+                await markWebhookFailed(eventLogId, `handler_status_${routed.status}`);
+            } else {
+                await markWebhookProcessed(eventLogId);
+            }
+        }
 
         // Captura de token: si la tx fue APPROVED y Wompi devolvio un token reusable,
         // intentar persistirlo si el user existe.
@@ -109,7 +131,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             await maybeCaptureToken(req, realTx, txReference);
         }
 
-        return res.status(result.status).json(result.body);
+        return res.status(routed.status).json(routed.body);
     } catch (err: any) {
         req.log?.error({ err: err?.message || err }, 'Unexpected error in Wompi webhook');
         return res.status(500).json({ error: 'Internal server error' });
@@ -143,6 +165,50 @@ const HANDLERS: Record<string, (args: HandlerArgs) => Promise<HandlerResult>> = 
     CART: handleCartOrder,
     BKG: handleSessionBooking,
 };
+
+/**
+ * Rutea una transaccion Wompi (ya validada/refetcheada) al handler que
+ * corresponde por prefijo de reference. Compartido por el webhook en vivo y
+ * por el cron de reproceso de huerfanos (webhook-reprocess.service).
+ *
+ * `handled=false` => prefijo desconocido (no hay entidad que tocar).
+ * No hace dedup ni token-capture: eso es responsabilidad del caller.
+ */
+export interface WompiRouteInput {
+    realTx: any;
+    body?: any;
+    log?: Request['log'];
+}
+
+export async function routeWompiTransaction(
+    input: WompiRouteInput,
+): Promise<{ status: number; body: Record<string, unknown>; handled: boolean }> {
+    const { realTx } = input;
+    const txId: string = realTx?.id || '';
+    const txReference: string = realTx?.reference || '';
+    const internalStatus = mapWompiStatus(realTx.status);
+    const txAmountCop = centsToCop(realTx.amount_in_cents);
+
+    const prefix = txReference.split('-')[0];
+    const handler = HANDLERS[prefix];
+    if (!handler) {
+        return { status: 200, body: { status: 'ignored', reason: 'unknown_prefix', prefix }, handled: false };
+    }
+
+    // Los handlers solo usan req.log?.*, asi que basta un shim con el logger.
+    const req = { log: input.log } as unknown as Request;
+    const result = await handler({
+        req,
+        txId,
+        txReference,
+        txStatus: realTx.status,
+        internalStatus,
+        txAmountCop,
+        paymentMethodType: realTx.payment_method_type,
+        rawTransaction: realTx,
+    });
+    return { status: result.status, body: result.body, handled: true };
+}
 
 // ─── SCH: pagos de escuela ─────────────────────────────────────────────────
 

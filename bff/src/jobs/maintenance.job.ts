@@ -4,6 +4,7 @@ import {
     createTransactionWithToken,
     copToCents,
 } from '../services/wompi.service';
+import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -192,4 +193,22 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Auto-cobro de suscripciones registrado para las 02:00 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Reproceso de webhooks huerfanos (Fix H-03). Cada 10 min reintenta los
+    // eventos 'orphan'/'failed' cuya entidad local ya deberia existir. El claim
+    // atomico dentro del runner evita doble-proceso entre replicas.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/10 * * * *', async () => {
+        try {
+            const r = await reprocessOrphanWebhooks(100);
+            if (r.scanned > 0) {
+                console.log(`[CRON] Reproceso webhooks: scanned=${r.scanned} processed=${r.processed} stillOrphan=${r.stillOrphan} failed=${r.failed} gaveUp=${r.gaveUp}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en reproceso de webhooks:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Reproceso de webhooks huerfanos registrado (cada 10 min).');
 }
