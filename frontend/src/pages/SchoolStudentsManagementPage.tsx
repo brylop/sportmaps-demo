@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -506,11 +507,16 @@ export default function SchoolStudentsManagementPage() {
     };
   });
 
-  const filteredStudents = enhancedStudents.filter(student =>
-    (activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')) &&
-    (student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (student.display_parent_name && student.display_parent_name.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
+  const filteredStudents = enhancedStudents.filter(student => {
+    const matchesTab = activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive');
+    if (!matchesTab) return false;
+    const q = normalizeText(searchQuery);
+    if (!q) return true;
+    return (
+      normalizeText(student.full_name).includes(q) ||
+      normalizeText(student.display_parent_name).includes(q)
+    );
+  });
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);

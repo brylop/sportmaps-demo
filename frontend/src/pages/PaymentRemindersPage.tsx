@@ -27,6 +27,8 @@ export default function PaymentRemindersPage() {
     const { schoolId, activeBranchId, activeBranchName, schoolName } = useSchoolContext();
     const [batch, setBatch] = useState<ReminderBatch | null>(null);
     const [loading, setLoading] = useState(true);
+    // F-01: distinguir "error de carga" de "sin datos" (no mostrar "¡Todo al día!" ante un fallo).
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'overdue'>('all');
@@ -63,6 +65,7 @@ export default function PaymentRemindersPage() {
         if (!schoolId) return;
         try {
             setLoading(true);
+            setLoadError(null);
             // First, mark overdue payments
             const overdueCount = await paymentRemindersAPI.markOverduePayments(schoolId);
             if (overdueCount > 0) {
@@ -76,6 +79,7 @@ export default function PaymentRemindersPage() {
             const without = await paymentRemindersAPI.getAthletesWithoutPayment(schoolId);
             setAthletesWithoutPayment(without);
         } catch (error: any) {
+            setLoadError(error.message || 'Error al cargar recordatorios');
             toast.error(error.message || 'Error al cargar recordatorios');
         } finally {
             setLoading(false);
@@ -467,7 +471,21 @@ export default function PaymentRemindersPage() {
             </div>
 
             {/* Content */}
-            {filteredReminders.length === 0 ? (
+            {loadError ? (
+                // F-01: error de carga != "todo al día". No dar falsa tranquilidad.
+                <Card className="border-dashed border-destructive/50 flex flex-col items-center justify-center py-16 text-center">
+                    <AlertTriangle className="h-14 w-14 text-destructive mb-4 opacity-70" />
+                    <CardTitle className="text-xl">No se pudieron cargar los recordatorios</CardTitle>
+                    <CardDescription className="max-w-sm mt-2">
+                        Ocurrió un error de conexión. Esto <strong>no</strong> significa que no
+                        haya pagos pendientes. Reintenta.
+                    </CardDescription>
+                    <Button variant="outline" size="sm" className="mt-4" onClick={loadReminders}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Reintentar
+                    </Button>
+                </Card>
+            ) : filteredReminders.length === 0 ? (
                 <Card className="border-dashed flex flex-col items-center justify-center py-16 text-center">
                     <CheckCircle2 className="h-14 w-14 text-emerald-400 mb-4 opacity-50" />
                     <CardTitle className="text-xl">¡Todo al día!</CardTitle>

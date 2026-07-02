@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DollarSign, AlertCircle, TrendingUp, MessageCircle, CheckCircle2, History, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
@@ -37,7 +38,7 @@ export default function FinancesPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // Fetch payments from Supabase — filtrado por school_id y branch
-  const { data: payments, isLoading } = useQuery({
+  const { data: payments, isLoading, isError, refetch } = useQuery({
     queryKey: ['school-payments-all', schoolId, activeBranchId],
     queryFn: async () => {
       let query = supabase
@@ -161,6 +162,34 @@ export default function FinancesPage() {
     }
     return <Badge variant="destructive">{account.daysOverdue} días vencido</Badge>;
   };
+
+  // F-01: NO mostrar $0 silencioso ante un error de carga. En una pantalla de
+  // dinero, una tabla vacía se lee como "no hay deuda" — hay que distinguir el
+  // fallo de red del estado sin datos y ofrecer reintento.
+  if (isError) {
+    return (
+      <div className="container mx-auto p-6 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Finanzas</h1>
+          <p className="text-muted-foreground">Panel de control financiero</p>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>No se pudieron cargar las finanzas</AlertTitle>
+          <AlertDescription className="mt-1 flex flex-col items-start gap-3">
+            <span>
+              Ocurrió un error al cargar los pagos. Esto <strong>no</strong> significa
+              que no haya deuda o ingresos — es un fallo de conexión. Reintenta.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Reintentar
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
