@@ -269,7 +269,7 @@ export default function AccessControlPage() {
         <div>
           <h1 className="text-2xl font-bold">Control de Acceso</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Torniquete GYM RM — actualizado a las {formatTime(lastRefresh.toISOString())}
+            Torniquetes — actualizado a las {formatTime(lastRefresh.toISOString())}
           </p>
         </div>
         <Button

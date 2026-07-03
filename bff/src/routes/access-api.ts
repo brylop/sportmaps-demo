@@ -6,8 +6,6 @@ import path from 'path';
 
 const router = Router();
 
-const SCHOOL_ID = '2137182d-a695-4695-8e5a-61151fc59196';
-
 // ─── GET /api/v1/access/debug-logs ───────────────────────────────────────────
 router.get('/debug-logs', (req, res) => {
   try {

@@ -6,13 +6,7 @@ import path from 'path';
 
 const router = Router();
 
-// ─── Whitelist de seriales reales ────────────────────────────────────────────
-const DEVICE_MAP: Record<string, 'entry' | 'exit'> = {
-  'JJA1254900898': 'exit',  // Lector Salida  GYM RM — 192.168.1.5
-  'JJA1254900899': 'entry', // Lector Entrada GYM RM — 192.168.1.4
-};
 
-const SCHOOL_ID = '2137182d-a695-4695-8e5a-61151fc59196';
 
 // Filtro de backlog: el F22 re-vuelca eventos viejos en loop (flood) hasta que se
 // le mueva el cursor (handshake/power-cycle). Saltamos eventos más viejos que esto:
@@ -87,39 +81,54 @@ router.post('/debug-logs/clear', (req: Request, res: Response) => {
 
 // Persiste tráfico de PROTOCOLO ADMS (bajo volumen) en adms_device_log para la
 // vista super-admin. Fire-and-forget: no bloquea ni rompe el flujo del lector.
-function logDevice(eventType: string, detail: Record<string, unknown>, sn?: string): void {
+function logDevice(eventType: string, detail: Record<string, unknown>, sn?: string, schoolId?: string): void {
   void supabase
     .from('adms_device_log')
-    .insert({ school_id: SCHOOL_ID, sn: sn ?? null, event_type: eventType, detail })
+    .insert({ school_id: schoolId ?? null, sn: sn ?? null, event_type: eventType, detail })
     .then(() => {}, () => {});
 }
 
-async function getDeviceId(sn: string): Promise<string | null> {
+// ─── Cache de dispositivos por serial (multi-tenant, perf) ───────────────────
+type DeviceInfo = { id: string; schoolId: string; direction: 'entry' | 'exit' };
+const DEVICE_CACHE_TTL_MS = 5 * 60 * 1000;
+const deviceCache = new Map<string, { value: DeviceInfo | null; at: number }>();
+
+export function invalidateDeviceCache(sn?: string): void {
+  if (sn) deviceCache.delete(sn);
+  else deviceCache.clear();
+}
+
+async function getDeviceBySerial(sn: string): Promise<DeviceInfo | null> {
+  const cached = deviceCache.get(sn);
+  if (cached && Date.now() - cached.at < DEVICE_CACHE_TTL_MS) return cached.value;
+
   const { data } = await supabase
     .from('turnstile_devices')
-    .select('id')
+    .select('id, school_id, direction')
     .eq('serial_number', sn)
-    .eq('school_id', SCHOOL_ID)
+    .eq('is_active', true)
     .maybeSingle();
-  return data?.id ?? null;
+
+  const value: DeviceInfo | null = data
+    ? { id: data.id, schoolId: data.school_id, direction: data.direction as 'entry' | 'exit' }
+    : null;
+
+  deviceCache.set(sn, { value, at: Date.now() });
+  return value;
 }
 
 async function touchDevice(sn: string): Promise<void> {
   await supabase
     .from('turnstile_devices')
     .update({ last_seen_at: new Date().toISOString() })
-    .eq('serial_number', sn)
-    .eq('school_id', SCHOOL_ID);
+    .eq('serial_number', sn);
 }
 
 // ─── Stamp dinámico — max(occurred_at) del serial como Unix timestamp ─────────
 // El F22 solo envía eventos POSTERIORES al Stamp que le damos en el handshake.
 // Con Stamp=0 vuelca todo el histórico; con el valor real solo manda lo nuevo.
-async function getLastStamp(sn: string): Promise<number> {
+async function getLastStamp(deviceId: string): Promise<number> {
   try {
-    const deviceId = await getDeviceId(sn);
-    if (!deviceId) return 0;
-
     const { data } = await supabase
       .from('access_events')
       .select('occurred_at')
@@ -141,21 +150,21 @@ async function getLastStamp(sn: string): Promise<number> {
 // enrollment/pago SIEMPRE se consulta fresca más abajo.
 type Mapping = { userId: string | null; unregisteredAthleteId: string | null };
 const MAPPING_TTL_MS = 5 * 60 * 1000;
-const mappingCache = new Map<number, { value: Mapping | null; at: number }>();
+const mappingCache = new Map<string, { value: Mapping | null; at: number }>();
 
 export function invalidateMappingCache(pin?: number): void {
-  if (typeof pin === 'number') mappingCache.delete(pin);
-  else mappingCache.clear();
+  mappingCache.clear(); // simple: si necesitas invalidar 1 solo pin, pasa también schoolId
 }
 
-async function resolveMapping(pin: number): Promise<Mapping | null> {
-  const cached = mappingCache.get(pin);
+async function resolveMapping(schoolId: string, pin: number): Promise<Mapping | null> {
+  const key = `${schoolId}:${pin}`;
+  const cached = mappingCache.get(key);
   if (cached && Date.now() - cached.at < MAPPING_TTL_MS) return cached.value;
 
   const { data } = await supabase
     .from('zk_user_mappings')
     .select('user_id, unregistered_athlete_id')
-    .eq('school_id', SCHOOL_ID)
+    .eq('school_id', schoolId)
     .eq('zk_pin', pin)
     .maybeSingle();
 
@@ -164,26 +173,27 @@ async function resolveMapping(pin: number): Promise<Mapping | null> {
       ? { userId: data.user_id ?? null, unregisteredAthleteId: data.unregistered_athlete_id ?? null }
       : null;
 
-  mappingCache.set(pin, { value, at: Date.now() });
+  mappingCache.set(key, { value, at: Date.now() });
   return value;
 }
 
 // ¿El usuario es staff de la escuela? (owner/admin/coach) → acceso sin enrollment.
 const staffCache = new Map<string, { value: boolean; at: number }>();
 
-async function isStaff(userId: string): Promise<boolean> {
-  const cached = staffCache.get(userId);
+async function isStaff(schoolId: string, userId: string): Promise<boolean> {
+  const key = `${schoolId}:${userId}`;
+  const cached = staffCache.get(key);
   if (cached && Date.now() - cached.at < MAPPING_TTL_MS) return cached.value;
 
   const { data: school } = await supabase
-    .from('schools').select('owner_id').eq('id', SCHOOL_ID).maybeSingle();
+    .from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
 
   let value = school?.owner_id === userId;
   if (!value) {
     const { data: member } = await supabase
       .from('school_members')
       .select('role')
-      .eq('school_id', SCHOOL_ID)
+      .eq('school_id', schoolId)
       .eq('profile_id', userId)
       .eq('status', 'active')
       .in('role', ['owner', 'admin', 'school_admin', 'coach', 'staff'])
@@ -192,11 +202,11 @@ async function isStaff(userId: string): Promise<boolean> {
     value = !!member;
   }
 
-  staffCache.set(userId, { value, at: Date.now() });
+  staffCache.set(key, { value, at: Date.now() });
   return value;
 }
 
-async function validateAccess(zkPin: string): Promise<{
+async function validateAccess(schoolId: string, zkPin: string): Promise<{
   granted: boolean;
   reason?: string;
   userId?: string;
@@ -206,7 +216,7 @@ async function validateAccess(zkPin: string): Promise<{
   const pin = parseInt(zkPin) || 0;
 
   // 1. Resolver mapeo PIN → user/atleta (con cache)
-  const mapping = await resolveMapping(pin);
+  const mapping = await resolveMapping(schoolId, pin);
 
   if (!mapping) {
     return { granted: false, reason: 'unknown_user' };
@@ -216,7 +226,7 @@ async function validateAccess(zkPin: string): Promise<{
   const isRegistered = !!mapping.userId;
 
   // 1.b STAFF (owner/admin/coach): concede sin enrollment ni pago.
-  if (isRegistered && await isStaff(mapping.userId!)) {
+  if (isRegistered && await isStaff(schoolId, mapping.userId!)) {
     const { data: profile } = await supabase
       .from('profiles').select('full_name').eq('id', mapping.userId).maybeSingle();
     return {
@@ -230,7 +240,7 @@ async function validateAccess(zkPin: string): Promise<{
   const enrollQuery = supabase
     .from('enrollments')
     .select('id, status, expires_at')
-    .eq('school_id', SCHOOL_ID)
+    .eq('school_id', schoolId)
     .eq('status', 'active');
 
   const { data: enrollment } = await (isRegistered
@@ -260,7 +270,7 @@ async function validateAccess(zkPin: string): Promise<{
   const payQuery = supabase
     .from('payments')
     .select('status')
-    .eq('school_id', SCHOOL_ID)
+    .eq('school_id', schoolId)
     .order('created_at', { ascending: false })
     .limit(1);
 
@@ -310,16 +320,17 @@ router.get('/iclock/cdata', async (req: Request, res: Response) => {
   const sn = (req.query.SN || req.query.sn) as string;
   logDebug(`GET /iclock/cdata | SN: ${sn}`);
 
-  if (!sn || !DEVICE_MAP[sn]) {
+  const device = sn ? await getDeviceBySerial(sn) : null;
+  if (!device) {
     console.warn(`[ADMS] Handshake serial desconocido: ${sn}`);
     return res.type('text/plain').status(200).send('');
   }
 
   await touchDevice(sn);
-  console.log(`[ADMS] Handshake OK — ${sn} (${DEVICE_MAP[sn]})`);
-  logDevice('handshake', { direction: DEVICE_MAP[sn], ip: clientIp(req) }, sn);
+  console.log(`[ADMS] Handshake OK — ${sn} (${device.direction}) school:${device.schoolId}`);
+  logDevice('handshake', { direction: device.direction, ip: clientIp(req) }, sn, device.schoolId);
 
-  const stamp = await getLastStamp(sn);
+  const stamp = await getLastStamp(device.id);
   logDebug(`Handshake ${sn} → Stamp=${stamp}`);
 
   const config = [
@@ -353,22 +364,24 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
   const rawBody = typeof req.body === 'string' ? req.body : '';
   logDebug(`POST /iclock/cdata | SN: ${sn} | Table: ${table} | Body length: ${rawBody.length}`);
 
-  if (!sn || !DEVICE_MAP[sn]) {
+  const device = sn ? await getDeviceBySerial(sn) : null;
+  if (!device) {
     return res.type('text/plain').status(200).send('OK');
   }
 
   await touchDevice(sn);
-  const direction = DEVICE_MAP[sn];
+  const direction = device.direction;
+  const schoolId  = device.schoolId;
+  const deviceId  = device.id;
   const body      = typeof req.body === 'string' ? req.body : '';
 
   if (table === 'ATTLOG') {
     const lines    = body.trim().split('\n').filter(Boolean);
-    const deviceId = await getDeviceId(sn);
 
     console.log(`[ADMS] ATTLOG ${sn} (${direction}) — ${lines.length} evento(s)`);
     // Log primeras 3 líneas para diagnóstico
     logDebug(`ATTLOG ${sn} (${direction}) | ${lines.length} líneas | primeras: ${lines.slice(0,3).join(' || ')}`);
-    logDevice('attlog_batch', { count: lines.length, direction, table }, sn);
+    logDevice('attlog_batch', { count: lines.length, direction, table }, sn, schoolId);
 
     let skipped = 0;
     for (const line of lines) {
@@ -398,7 +411,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
         continue;
       }
 
-      const validation = await validateAccess(zkPin);
+      const validation = await validateAccess(schoolId, zkPin);
 
       // Dedup: índice único (device_id, zk_user_id, occurred_at). Si el lector
       // reenvía el backlog, ON CONFLICT DO NOTHING evita inflar access_events.
@@ -407,7 +420,7 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       const { data: inserted } = await supabase
         .from('access_events')
         .upsert({
-          school_id:               SCHOOL_ID,
+          school_id:               schoolId,
           device_id:               deviceId,
           user_id:                 validation.userId || null,
           unregistered_athlete_id: validation.unregisteredAthleteId || null,
@@ -426,13 +439,13 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
       // eventRecord null/undefined => era un duplicado (ya existía); no notificamos.
       if (eventRecord && !validation.granted && validation.reason === 'payment_overdue' && validation.userId) {
         const { data: school } = await supabase
-          .from('schools').select('owner_id').eq('id', SCHOOL_ID).maybeSingle();
+          .from('schools').select('owner_id').eq('id', schoolId).maybeSingle();
 
         if (school?.owner_id) {
           // notifications: columnas user_id, school_id, title, message, type, read, link
           await supabase.from('notifications').insert({
             user_id:  school.owner_id,
-            school_id: SCHOOL_ID,
+            school_id: schoolId,
             type:     'access_denied',
             title:    '⚠️ Acceso denegado — Pago vencido',
             message:  `${validation.userName ?? 'Un miembro'} intentó ingresar pero tiene el pago vencido.`,
@@ -467,13 +480,13 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
   const sn = (req.query.SN || req.query.sn) as string;
   logDebug(`GET /iclock/getrequest | SN: ${sn}`);
 
-  if (!sn || !DEVICE_MAP[sn]) {
+  const device = sn ? await getDeviceBySerial(sn) : null;
+  if (!device) {
     return res.type('text/plain').status(200).send('OK');
   }
 
   await touchDevice(sn);
-  const deviceId = await getDeviceId(sn);
-  if (!deviceId) return res.type('text/plain').status(200).send('OK');
+  const deviceId = device.id;
 
   const { data: commands } = await supabase
     .from('device_commands')
@@ -535,7 +548,8 @@ router.post('/iclock/devicecmd', async (req: Request, res: Response) => {
   const body = typeof req.body === 'string' ? req.body : '';
   logDebug(`POST /iclock/devicecmd | SN: ${sn} | Body: ${body}`);
 
-  if (!sn || !DEVICE_MAP[sn]) {
+  const device = sn ? await getDeviceBySerial(sn) : null;
+  if (!device) {
     return res.type('text/plain').status(200).send('OK');
   }
 
