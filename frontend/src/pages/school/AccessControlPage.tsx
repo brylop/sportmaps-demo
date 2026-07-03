@@ -64,6 +64,7 @@ interface TurnstileDevice {
   location: string;
   is_active: boolean;
   last_seen_at: string | null;
+  brand?: string;
 }
 
 interface AssignableMember {
@@ -139,6 +140,7 @@ export default function AccessControlPage() {
     direction: 'entry' | 'exit' | 'both';
     location: string;
     is_active: boolean;
+    brand: string;
   } | null>(null);
   const [savingDevice, setSavingDevice] = useState(false);
 
@@ -280,7 +282,7 @@ export default function AccessControlPage() {
   const openNewDevice = () => {
     setDeviceForm({
       id: null, serial_number: '', device_name: '', ip_address: '',
-      direction: 'entry', location: '', is_active: true,
+      direction: 'entry', location: '', is_active: true, brand: 'Genérico',
     });
   };
 
@@ -293,6 +295,7 @@ export default function AccessControlPage() {
       direction: device.direction,
       location: device.location ?? '',
       is_active: device.is_active,
+      brand: device.brand ?? 'Genérico',
     });
   };
 
@@ -310,6 +313,7 @@ export default function AccessControlPage() {
         ip_address:    deviceForm.ip_address.trim() || null,
         direction:     deviceForm.direction,
         location:      deviceForm.location.trim() || null,
+        brand:         deviceForm.brand,
         ...(deviceForm.id ? { is_active: deviceForm.is_active } : {}),
       };
 
@@ -385,7 +389,9 @@ export default function AccessControlPage() {
                 }
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{device.device_name}</p>
-                  <p className="text-xs text-muted-foreground">{device.location}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {device.brand ?? 'Genérico'} · {device.location || 'Sin ubicación'}
+                  </p>
                 </div>
                 <Badge
                   variant={online ? 'default' : 'outline'}
@@ -651,7 +657,7 @@ export default function AccessControlPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{d.device_name}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {d.serial_number} · {d.direction} {!d.is_active && '· inactivo'}
+                    {d.brand ?? 'Genérico'} · {d.serial_number} · {d.direction} {!d.is_active && '· inactivo'}
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => openEditDevice(d)}>
@@ -708,15 +714,32 @@ export default function AccessControlPage() {
                 />
               </div>
               <div>
+                <label className="text-xs text-muted-foreground">Marca</label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring dark:bg-slate-900 dark:text-white"
+                  value={deviceForm.brand}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, brand: e.target.value })}
+                >
+                  <option value="Genérico" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Genérico</option>
+                  <option value="ZKTeco" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">ZKTeco</option>
+                  <option value="Hikvision" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Hikvision</option>
+                  <option value="Suprema" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Suprema</option>
+                  <option value="Came" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Came</option>
+                  <option value="Alvarado" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Alvarado</option>
+                  <option value="Centurion Systems" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Centurion Systems</option>
+                  <option value="Motorline" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Motorline</option>
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-muted-foreground">Dirección</label>
                 <select
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring dark:bg-slate-900 dark:text-white"
                   value={deviceForm.direction}
                   onChange={(e) => setDeviceForm({ ...deviceForm, direction: e.target.value as 'entry' | 'exit' | 'both' })}
                 >
-                  <option value="entry">Entrada</option>
-                  <option value="exit">Salida</option>
-                  <option value="both">Ambas</option>
+                  <option value="entry" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Entrada</option>
+                  <option value="exit" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Salida</option>
+                  <option value="both" className="bg-background text-foreground dark:bg-slate-900 dark:text-white">Ambas</option>
                 </select>
               </div>
               <div>

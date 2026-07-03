@@ -371,7 +371,7 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { schoolId } = req;
     const { data: devices, error } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand')
       .eq('school_id', schoolId)
       .order('direction');
 
@@ -399,9 +399,9 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
 router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
-    const { serial_number, device_name, ip_address, direction, location } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, brand } = req.body as {
       serial_number: string; device_name: string; ip_address?: string;
-      direction: 'entry' | 'exit' | 'both'; location?: string;
+      direction: 'entry' | 'exit' | 'both'; location?: string; brand?: string;
     };
 
     if (!serial_number || !device_name || !direction) {
@@ -421,8 +421,9 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
         direction,
         location:       location?.trim() || null,
         is_active:      true,
+        brand:          brand?.trim() || 'Genérico',
       })
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
       .single();
 
     if (error) {
@@ -446,9 +447,9 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
   try {
     const { schoolId } = req;
     const { id } = req.params;
-    const { serial_number, device_name, ip_address, direction, location, is_active } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, is_active, brand } = req.body as {
       serial_number?: string; device_name?: string; ip_address?: string | null;
-      direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean;
+      direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean; brand?: string;
     };
 
     if (direction && !['entry', 'exit', 'both'].includes(direction)) {
@@ -462,6 +463,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     if (direction     !== undefined) updates.direction      = direction;
     if (location      !== undefined) updates.location       = location?.trim() || null;
     if (is_active     !== undefined) updates.is_active       = is_active;
+    if (brand         !== undefined) updates.brand          = brand.trim();
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -480,7 +482,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
       .update(updates)
       .eq('id', id)
       .eq('school_id', schoolId) // 🔒 evita editar dispositivos de otra escuela
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
       .maybeSingle();
 
     if (error) {
