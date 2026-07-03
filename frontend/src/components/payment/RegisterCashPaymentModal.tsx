@@ -42,6 +42,17 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [amount, setAmount] = useState<number | ''>(0);
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
 
+  // Athlete search state
+  const [athletePopoverOpen, setAthletePopoverOpen] = useState(false);
+  const [athleteSearchQuery, setAthleteSearchQuery] = useState('');
+
+  const filteredAthletes = athletes.filter(ath => {
+    const term = athleteSearchQuery.toLowerCase();
+    const fullName = (ath.full_name || '').toLowerCase();
+    const parentName = (ath.parent_name || '').toLowerCase();
+    return fullName.includes(term) || parentName.includes(term);
+  });
+
   useEffect(() => {
     if (open && schoolId) {
       fetchAthletes();
@@ -259,6 +270,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setConcept('Mensualidad');
     setAmount(0);
     setPaymentDate(new Date());
+    setAthleteSearchQuery('');
+    setAthletePopoverOpen(false);
   };
 
   return (
@@ -266,8 +279,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       onOpenChange(val);
       if (!val) resetForm();
     }}>
-      <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl">
-        <DialogHeader className="p-8 pb-4 border-b bg-primary/5">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] p-0 overflow-hidden border-primary/20 bg-background/95 backdrop-blur-xl shadow-2xl max-h-[90vh] flex flex-col">
+        <DialogHeader className="p-8 pb-4 border-b bg-primary/5 shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-emerald-500/10 rounded-xl">
               <CheckCircle2 className="h-5 w-5 text-emerald-500" />
@@ -279,7 +292,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto p-8 space-y-6">
           <div className="space-y-3">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <Wallet className="h-3.5 w-3.5" /> Método de pago
@@ -335,18 +348,62 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             <Label htmlFor="student" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <User className="h-3.5 w-3.5" /> Deportista / Atleta
             </Label>
-            <Select value={selectedAthleteId} onValueChange={setSelectedAthleteId} disabled={loadingAthletes}>
-              <SelectTrigger id="student" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
-                <SelectValue placeholder={loadingAthletes ? 'Cargando...' : 'Selecciona a quién aplica'} />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md">
-                {athletes.map((ath) => (
-                  <SelectItem key={ath.id} value={ath.id} className="rounded-lg py-2.5">
-                    {ath.full_name} {ath.parent_name ? ` (Padre: ${ath.parent_name})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={athletePopoverOpen} onOpenChange={setAthletePopoverOpen}>
+              <PopoverTrigger asChild disabled={loadingAthletes}>
+                <Button
+                  id="student"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={athletePopoverOpen}
+                  className="w-full h-12 justify-between bg-background/50 border-border/40 rounded-xl font-bold px-4 py-2 hover:bg-background/80 text-left"
+                >
+                  <span className="truncate">
+                    {selectedAthleteId 
+                      ? athletes.find((a) => a.id === selectedAthleteId)?.full_name || 'Selecciona a quién aplica'
+                      : 'Selecciona a quién aplica'
+                    }
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-2">▼</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 rounded-xl bg-background/95 backdrop-blur-md border-border/40 shadow-2xl" align="start">
+                <div className="p-1 mb-2">
+                  <Input
+                    placeholder="Buscar deportista..."
+                    value={athleteSearchQuery}
+                    onChange={(e) => setAthleteSearchQuery(e.target.value)}
+                    className="h-10 bg-muted/40 rounded-lg text-sm focus-visible:ring-primary/20"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-0.5">
+                  {filteredAthletes.length === 0 ? (
+                    <p className="p-3 text-center text-xs text-muted-foreground">No se encontraron deportistas.</p>
+                  ) : (
+                    filteredAthletes.map((ath) => (
+                      <button
+                        key={ath.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAthleteId(ath.id);
+                          setAthletePopoverOpen(false);
+                          setAthleteSearchQuery('');
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-muted/60 transition-colors flex flex-col justify-center",
+                          selectedAthleteId === ath.id && "bg-primary/10 text-primary font-bold hover:bg-primary/20"
+                        )}
+                      >
+                        <span className="font-semibold">{ath.full_name}</span>
+                        {ath.parent_name && (
+                          <span className="text-[10px] text-muted-foreground">Padre: {ath.parent_name}</span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {selectedAthleteId && (
