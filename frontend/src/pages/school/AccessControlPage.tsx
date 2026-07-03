@@ -28,6 +28,9 @@ import {
   WifiOff,
   RefreshCw,
   Clock,
+  Settings,
+  Pencil,
+  Plus,
 } from 'lucide-react';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -125,6 +128,19 @@ export default function AccessControlPage() {
   const [members,       setMembers]       = useState<AssignableMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [assigningId,   setAssigningId]   = useState<string | null>(null);
+
+  // Configurar dispositivos
+  const [manageOpen, setManageOpen] = useState(false);
+  const [deviceForm, setDeviceForm] = useState<{
+    id: string | null; // null = creando nuevo
+    serial_number: string;
+    device_name: string;
+    ip_address: string;
+    direction: 'entry' | 'exit' | 'both';
+    location: string;
+    is_active: boolean;
+  } | null>(null);
+  const [savingDevice, setSavingDevice] = useState(false);
 
   // ── Carga de datos ──────────────────────────────────────────────────────────
 
@@ -259,6 +275,65 @@ export default function AccessControlPage() {
     }
   };
 
+  // ── Gestión de dispositivos ─────────────────────────────────────────────────
+
+  const openNewDevice = () => {
+    setDeviceForm({
+      id: null, serial_number: '', device_name: '', ip_address: '',
+      direction: 'entry', location: '', is_active: true,
+    });
+  };
+
+  const openEditDevice = (device: TurnstileDevice) => {
+    setDeviceForm({
+      id: device.id,
+      serial_number: device.serial_number,
+      device_name: device.device_name,
+      ip_address: device.ip_address ?? '',
+      direction: device.direction,
+      location: device.location ?? '',
+      is_active: device.is_active,
+    });
+  };
+
+  const handleSaveDevice = async () => {
+    if (!deviceForm) return;
+    if (!deviceForm.serial_number.trim() || !deviceForm.device_name.trim()) {
+      toast({ title: 'Faltan datos', description: 'Serial y nombre son requeridos.', variant: 'destructive' });
+      return;
+    }
+    setSavingDevice(true);
+    try {
+      const payload = {
+        serial_number: deviceForm.serial_number.trim(),
+        device_name:   deviceForm.device_name.trim(),
+        ip_address:    deviceForm.ip_address.trim() || null,
+        direction:     deviceForm.direction,
+        location:      deviceForm.location.trim() || null,
+        ...(deviceForm.id ? { is_active: deviceForm.is_active } : {}),
+      };
+
+      if (deviceForm.id) {
+        await bffClient.patch(`/api/v1/access/devices/${deviceForm.id}`, payload);
+        toast({ title: 'Dispositivo actualizado' });
+      } else {
+        await bffClient.post('/api/v1/access/devices', payload);
+        toast({ title: 'Dispositivo creado' });
+      }
+
+      setDeviceForm(null);
+      loadDevices();
+    } catch (err: any) {
+      toast({
+        title: 'No se pudo guardar',
+        description: err?.message || 'Error al guardar el dispositivo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingDevice(false);
+    }
+  };
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -280,6 +355,15 @@ export default function AccessControlPage() {
         >
           <RefreshCw className="h-3.5 w-3.5" />
           Actualizar
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setManageOpen(true)}
+        >
+          <Settings className="h-3.5 w-3.5" />
+          Configurar
         </Button>
       </div>
 
@@ -309,6 +393,14 @@ export default function AccessControlPage() {
                 >
                   {online ? 'En línea' : 'Sin señal'}
                 </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 shrink-0"
+                  onClick={() => openEditDevice(device)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
               </div>
             );
           })
@@ -540,6 +632,120 @@ export default function AccessControlPage() {
               ))
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo: gestionar dispositivos (lista) */}
+      <Dialog open={manageOpen} onOpenChange={setManageOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Dispositivos de acceso</DialogTitle>
+            <DialogDescription>
+              Torniquetes y lectores configurados para esta escuela.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {devices.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{d.device_name}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {d.serial_number} · {d.direction} {!d.is_active && '· inactivo'}
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => openEditDevice(d)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+            {devices.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">Sin dispositivos configurados.</p>
+            )}
+          </div>
+
+          <Button variant="outline" className="gap-2 w-full" onClick={openNewDevice}>
+            <Plus className="h-3.5 w-3.5" />
+            Agregar dispositivo
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo: crear/editar un dispositivo */}
+      <Dialog open={deviceForm !== null} onOpenChange={(open) => { if (!open) setDeviceForm(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{deviceForm?.id ? 'Editar dispositivo' : 'Nuevo dispositivo'}</DialogTitle>
+            <DialogDescription>
+              Serial y dirección deben coincidir con la configuración del lector físico.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deviceForm && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground">Nombre</label>
+                <Input
+                  value={deviceForm.device_name}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, device_name: e.target.value })}
+                  placeholder="Lector Entrada"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Número de serie (SN)</label>
+                <Input
+                  value={deviceForm.serial_number}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, serial_number: e.target.value })}
+                  placeholder="JJA1254900899"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">IP pública</label>
+                <Input
+                  value={deviceForm.ip_address}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, ip_address: e.target.value })}
+                  placeholder="181.63.24.103"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Dirección</label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  value={deviceForm.direction}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, direction: e.target.value as 'entry' | 'exit' | 'both' })}
+                >
+                  <option value="entry">Entrada</option>
+                  <option value="exit">Salida</option>
+                  <option value="both">Ambas</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Ubicación</label>
+                <Input
+                  value={deviceForm.location}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, location: e.target.value })}
+                  placeholder="Entrada principal"
+                />
+              </div>
+              {deviceForm.id && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={deviceForm.is_active}
+                    onChange={(e) => setDeviceForm({ ...deviceForm, is_active: e.target.checked })}
+                  />
+                  Dispositivo activo
+                </label>
+              )}
+
+              <Button className="w-full gap-2" onClick={handleSaveDevice} disabled={savingDevice}>
+                {savingDevice
+                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                  : null}
+                {deviceForm.id ? 'Guardar cambios' : 'Crear dispositivo'}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

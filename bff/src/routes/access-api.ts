@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
+import { invalidateDeviceCache } from './access-adms';
 import fs from 'fs';
 import path from 'path';
 
@@ -391,6 +392,116 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
       );
     } catch { /* noop */ }
     return res.status(500).json({ error: 'Error al listar dispositivos' });
+  }
+});
+
+// ─── POST /api/v1/access/devices — crear dispositivo ────────────────────────
+router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { serial_number, device_name, ip_address, direction, location } = req.body as {
+      serial_number: string; device_name: string; ip_address?: string;
+      direction: 'entry' | 'exit' | 'both'; location?: string;
+    };
+
+    if (!serial_number || !device_name || !direction) {
+      return res.status(400).json({ error: 'serial_number, device_name y direction son requeridos' });
+    }
+    if (!['entry', 'exit', 'both'].includes(direction)) {
+      return res.status(400).json({ error: 'direction debe ser entry, exit o both' });
+    }
+
+    const { data: device, error } = await supabase
+      .from('turnstile_devices')
+      .insert({
+        school_id:      schoolId,
+        serial_number:  serial_number.trim(),
+        device_name:    device_name.trim(),
+        ip_address:     ip_address?.trim() || null,
+        direction,
+        location:       location?.trim() || null,
+        is_active:      true,
+      })
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active')
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Ese número de serie ya está registrado' });
+      }
+      throw error;
+    }
+
+    // Invalida el cache al crear un nuevo dispositivo (por si acaso el serial ya estaba cacheado como null)
+    invalidateDeviceCache(device.serial_number);
+
+    return res.json({ success: true, device });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al crear dispositivo' });
+  }
+});
+
+// ─── PATCH /api/v1/access/devices/:id — editar dispositivo ──────────────────
+router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { id } = req.params;
+    const { serial_number, device_name, ip_address, direction, location, is_active } = req.body as {
+      serial_number?: string; device_name?: string; ip_address?: string | null;
+      direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean;
+    };
+
+    if (direction && !['entry', 'exit', 'both'].includes(direction)) {
+      return res.status(400).json({ error: 'direction debe ser entry, exit o both' });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (serial_number !== undefined) updates.serial_number = serial_number.trim();
+    if (device_name   !== undefined) updates.device_name   = device_name.trim();
+    if (ip_address    !== undefined) updates.ip_address     = ip_address?.trim() || null;
+    if (direction     !== undefined) updates.direction      = direction;
+    if (location      !== undefined) updates.location       = location?.trim() || null;
+    if (is_active     !== undefined) updates.is_active       = is_active;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
+
+    // Primero obtenemos el dispositivo actual para saber su serial anterior (por si cambia)
+    const { data: oldDevice } = await supabase
+      .from('turnstile_devices')
+      .select('serial_number')
+      .eq('id', id)
+      .eq('school_id', schoolId)
+      .maybeSingle();
+
+    const { data: device, error } = await supabase
+      .from('turnstile_devices')
+      .update(updates)
+      .eq('id', id)
+      .eq('school_id', schoolId) // 🔒 evita editar dispositivos de otra escuela
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active')
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Ese número de serie ya está registrado' });
+      }
+      throw error;
+    }
+    if (!device) {
+      return res.status(404).json({ error: 'Dispositivo no encontrado' });
+    }
+
+    // Invalida el cache bajo el serial anterior (por si cambió) y el nuevo
+    if (oldDevice?.serial_number && oldDevice.serial_number !== device.serial_number) {
+      invalidateDeviceCache(oldDevice.serial_number);
+    }
+    invalidateDeviceCache(device.serial_number);
+
+    return res.json({ success: true, device });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al actualizar dispositivo' });
   }
 });
 
