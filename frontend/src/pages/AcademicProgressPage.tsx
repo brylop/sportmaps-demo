@@ -21,6 +21,7 @@ import { useSearchParams, useParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WellnessModule } from '@/components/wellness/WellnessModule';
 import { useChildExerciseStats } from '@/hooks/useAthleteData';
+import { PerformanceEvolutionSection } from '@/components/performance/PerformanceEvolutionSection';
 import {
   groupPRsByMuscle, getDisplayName,
   MUSCLE_GROUP_CONFIG, type MuscleGroup,
@@ -709,6 +710,11 @@ export default function AcademicProgressPage() {
                       </CardContent>
                     </Card>
                   )}
+                  <PerformanceEvolutionSection
+                    childId={selectedChildId}
+                    title="Rendimiento Deportivo"
+                    description="Métricas de tu deporte"
+                  />
                 </div>
               </div>
             </TabsContent>

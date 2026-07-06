@@ -23,6 +23,7 @@ import {
   groupPRsByMuscle, getDisplayName,
   MUSCLE_GROUP_CONFIG, type MuscleGroup,
 } from '@/lib/trainer/muscleGroups';
+import { PerformanceEvolutionSection } from '@/components/performance/PerformanceEvolutionSection';
 
 export default function StatsPage() {
   const { data: sources, isLoading: loadingSources } = useAthleteStatSources();
@@ -310,6 +311,8 @@ export default function StatsPage() {
               )}
             </CardContent>
           </Card>
+
+          <PerformanceEvolutionSection />
 
           {/* ── 2. Records Personales por grupo muscular ────────────────── */}
           {(exerciseStats?.prs ?? []).length > 0 && (

@@ -12,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useCoachStaffId } from '@/hooks/useCoachStaffId';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import {
   BarChart3, Download, TrendingUp, Users, Trophy,
   Calendar, AlertCircle, CheckCircle, Shirt, Swords,

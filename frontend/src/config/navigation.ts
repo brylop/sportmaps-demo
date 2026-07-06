@@ -249,6 +249,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
           {
             title: 'Asistencias',
             icon: BarChart3,
