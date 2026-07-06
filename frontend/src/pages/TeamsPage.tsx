@@ -24,12 +24,32 @@ import {
   LayoutGrid,
   List as ListIcon,
   Pencil,
-  UserPlus
+  UserPlus,
+  MoreVertical,
+  Archive,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { CreateTeamModal } from '@/components/teams/CreateTeamModal';
 import { EnrollTeamStudentModal } from '@/components/teams/EnrollTeamStudentModal';
 import { useToast } from '@/hooks/use-toast';
@@ -77,6 +97,10 @@ export default function TeamsPage() {
   const [editingTeam, setEditingTeam] = useState<TeamWithRelations | null>(null);
   const [selectedTeamForEnroll, setSelectedTeamForEnroll] = useState<TeamWithRelations | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [showArchived, setShowArchived] = useState(false);
+  const [teamToArchive, setTeamToArchive] = useState<TeamWithRelations | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<TeamWithRelations | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Fetch teams with relations
   const { data: teams = [], isLoading, refetch } = useQuery({
@@ -212,8 +236,18 @@ export default function TeamsPage() {
       : 0
   };
 
+  const archivedCount = teams.filter((t) => t.status === 'inactive').length;
+
   // Filtered teams
   const filteredTeams = teams.filter((team) => {
+    // 0. Archivados: por defecto ocultos. El toggle "Ver archivados" muestra SOLO esos.
+    const isArchived = team.status === 'inactive';
+    if (showArchived) {
+      if (!isArchived) return false;
+    } else if (isArchived) {
+      return false;
+    }
+
     // 1. Search Filter
     const matchesSearch =
       team.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -241,6 +275,120 @@ export default function TeamsPage() {
       description: 'La lista de equipos se ha refrescado correctamente.',
     });
   };
+
+  // Archivar: soft-delete reversible (status inactive). No toca inscritos ni pagos.
+  const handleArchive = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+      const { error } = await (supabase as any)
+        .from('teams')
+        .update({ status: 'inactive' })
+        .eq('id', team.id);
+      if (error) throw error;
+      toast({ title: 'Equipo archivado', description: `"${team.name}" se movió a archivados. Puedes reactivarlo cuando quieras.` });
+      setTeamToArchive(null);
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'No se pudo archivar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReactivate = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+      const { error } = await (supabase as any)
+        .from('teams')
+        .update({ status: 'active' })
+        .eq('id', team.id);
+      if (error) throw error;
+      toast({ title: 'Equipo reactivado', description: `"${team.name}" vuelve a estar activo.` });
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'No se pudo reactivar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Eliminar permanente: SOLO si el equipo está vacío (sin deportistas/inscripciones).
+  // Si tiene datos, se bloquea y se sugiere archivar.
+  const handleDelete = async (team: TeamWithRelations) => {
+    try {
+      setActionLoading(true);
+
+      const [{ count: enrollCount }, { count: childCount }] = await Promise.all([
+        supabase.from('enrollments').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+        supabase.from('children').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+      ]);
+      const total = (enrollCount || 0) + (childCount || 0);
+      if (total > 0) {
+        toast({
+          title: 'No se puede eliminar',
+          description: `"${team.name}" tiene ${total} deportista(s)/inscripción(es) asociada(s). Archívalo en su lugar para conservar el historial.`,
+          variant: 'destructive',
+        });
+        setTeamToDelete(null);
+        return;
+      }
+
+      const { error } = await (supabase as any).from('teams').delete().eq('id', team.id);
+      if (error) {
+        // 23503 = foreign_key_violation → tiene registros relacionados (partidos, asistencia, etc.)
+        if ((error as any).code === '23503') {
+          toast({
+            title: 'No se puede eliminar',
+            description: `"${team.name}" tiene registros asociados. Archívalo en su lugar.`,
+            variant: 'destructive',
+          });
+        } else {
+          throw error;
+        }
+        setTeamToDelete(null);
+        return;
+      }
+
+      toast({ title: 'Equipo eliminado', description: `"${team.name}" se eliminó permanentemente.` });
+      setTeamToDelete(null);
+      refetch();
+    } catch (err: any) {
+      toast({ title: 'Error al eliminar', description: err.message, variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Menú de acciones (⋯) reutilizable en tabla y grid.
+  const renderActionsMenu = (team: TeamWithRelations) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Más acciones">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {team.status === 'inactive' ? (
+          <DropdownMenuItem onClick={() => handleReactivate(team)}>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reactivar
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={() => setTeamToArchive(team)}>
+            <Archive className="h-4 w-4 mr-2" />
+            Archivar
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => setTeamToDelete(team)}
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Eliminar permanente
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -387,6 +535,17 @@ export default function TeamsPage() {
                 <SelectItem value="members">Más alumnos</SelectItem>
               </SelectContent>
             </Select>
+
+            <Button
+              variant={showArchived ? 'secondary' : 'outline'}
+              size="sm"
+              className="h-10 gap-2"
+              onClick={() => setShowArchived((v) => !v)}
+              title="Ver equipos archivados"
+            >
+              <Archive className="h-4 w-4" />
+              {showArchived ? 'Ver activos' : `Archivados${archivedCount ? ` (${archivedCount})` : ''}`}
+            </Button>
 
             <div className="border rounded-md p-1 flex bg-muted/20">
               <Button
@@ -674,6 +833,9 @@ export default function TeamsPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </PermissionGate>
+                        <PermissionGate permission="teams:edit">
+                          {renderActionsMenu(team)}
+                        </PermissionGate>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -728,6 +890,9 @@ export default function TeamsPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
+                      </PermissionGate>
+                      <PermissionGate permission="teams:edit">
+                        {renderActionsMenu(team)}
                       </PermissionGate>
                     </div>
                   </div>
@@ -863,6 +1028,51 @@ export default function TeamsPage() {
         }}
         team={selectedTeamForEnroll}
       />
+
+      {/* Confirmar archivar */}
+      <AlertDialog open={!!teamToArchive} onOpenChange={(o) => !o && setTeamToArchive(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Archivar "{teamToArchive?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El equipo se ocultará de la lista activa pero se conserva junto con sus deportistas,
+              inscripciones y pagos. Podrás reactivarlo en cualquier momento desde "Archivados".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (teamToArchive) handleArchive(teamToArchive); }}
+              disabled={actionLoading}
+            >
+              {actionLoading ? 'Archivando...' : 'Archivar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmar eliminar permanente */}
+      <AlertDialog open={!!teamToDelete} onOpenChange={(o) => !o && setTeamToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar "{teamToDelete?.name}" permanentemente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Solo funciona si el equipo está vacío
+              (sin deportistas ni inscripciones). Si tiene datos asociados, usa "Archivar" en su lugar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); if (teamToDelete) handleDelete(teamToDelete); }}
+              disabled={actionLoading}
+            >
+              {actionLoading ? 'Eliminando...' : 'Eliminar permanente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
