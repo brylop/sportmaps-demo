@@ -58,10 +58,13 @@ export default function AccountingPage() {
         queryKey: ['cash-ledger', schoolId, activeBranchId],
         enabled: !!schoolId,
         queryFn: async () => {
+            // Contexto de entidad: esta página es la de la escuela (owner_type='school').
+            // Para vendor/organizer se reutiliza la misma lógica cambiando owner_*.
             let q = supabase
                 .from('cash_ledger')
                 .select('*')
-                .eq('school_id', schoolId)
+                .eq('owner_type', 'school')
+                .eq('owner_id', schoolId)
                 .order('movement_date', { ascending: false });
             if (activeBranchId) q = q.eq('branch_id', activeBranchId);
             const { data, error } = await q;
@@ -79,7 +82,7 @@ export default function AccountingPage() {
                 .from('expense_categories')
                 .select('id, name, is_system')
                 .eq('active', true)
-                .or(`school_id.is.null,school_id.eq.${schoolId}`)
+                .or(`owner_id.is.null,owner_id.eq.${schoolId}`)
                 .order('name');
             if (error) throw error;
             return (data ?? []) as Category[];
@@ -133,6 +136,8 @@ export default function AccountingPage() {
                     onSubmit={async (payload) => {
                         if (!schoolId || !user?.id) return;
                         const { error } = await supabase.from('expenses').insert({
+                            owner_type: 'school',
+                            owner_id: schoolId,
                             school_id: schoolId,
                             branch_id: activeBranchId || null,
                             category_id: payload.category_id,
