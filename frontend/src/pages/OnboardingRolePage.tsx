@@ -22,7 +22,10 @@ const ROLE_OPTIONS = [
 
 /** Destino tras fijar el rol — alinea con RoleSelection.handleContinue. */
 function routeForRole(role: string): string {
-  if (role === 'school') return '/onboarding/school';
+  // OAuth: la academia aún no existe (complete_role_selection no la crea), así
+  // que vamos directo a /setup/school para capturar nombre y crearla (+ Sede
+  // Principal y membresía owner vía trigger). Luego el dashboard sigue el wizard.
+  if (role === 'school') return '/setup/school';
   if (role === 'personal_trainer') return '/trainer/onboarding';
   if (role === 'store_owner') return '/vendor/onboarding';
   if (role === 'organizer') return '/organizer/onboarding';
@@ -39,6 +42,10 @@ export default function OnboardingRolePage() {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<string>('athlete');
   const [saving, setSaving] = useState(false);
+  // Evita que el guard "ya tiene rol" (abajo) redirija a /dashboard en el
+  // instante en que updateProfile limpia needs_role_selection, robándole el
+  // navigate hacia el onboarding del rol (bug: elegía rol y caía al dashboard).
+  const [done, setDone] = useState(false);
 
   if (authLoading) {
     return (
@@ -51,7 +58,9 @@ export default function OnboardingRolePage() {
   if (!user) return <Navigate to="/login" replace />;
 
   // Si el usuario ya tiene rol definido, no debería estar aquí.
-  if (profile && profile.needs_role_selection === false) {
+  // `done` suprime este guard mientras hacemos la transición al onboarding del
+  // rol recién elegido (si no, gana este Navigate y aterriza en el dashboard).
+  if (!done && profile && profile.needs_role_selection === false) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -61,6 +70,10 @@ export default function OnboardingRolePage() {
       // RPC nuevo (migración 20260617000001): aún no está en los tipos generados.
       const { error } = await (supabase.rpc as any)('complete_role_selection', { p_role: selected });
       if (error) throw error;
+
+      // Marcar la transición ANTES de refrescar el perfil, para que el guard
+      // de arriba no redirija a /dashboard cuando needs_role_selection pase a false.
+      setDone(true);
 
       // Refrescar el perfil en contexto (silencioso) para limpiar la bandera.
       await updateProfile({}, { silent: true });
