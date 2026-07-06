@@ -50,16 +50,16 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
 
     if (compact) {
         return (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-purple-200 bg-purple-50/60 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-purple-200 dark:border-purple-900/30 bg-purple-50/60 dark:bg-purple-950/20 px-4 py-3">
                 <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-purple-100 text-purple-600">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
                         <Store className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
-                        <p className="text-sm font-semibold text-purple-900 truncate">
+                        <p className="text-sm font-semibold text-purple-900 dark:text-purple-200 truncate">
                             Vende dentro de SportMaps
                         </p>
-                        <p className="text-xs text-purple-700 truncate">
+                        <p className="text-xs text-purple-700 dark:text-purple-400 truncate">
                             Activa Mi Tienda y publica productos o servicios al marketplace.
                         </p>
                     </div>
@@ -67,7 +67,7 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                 <Button
                     size="sm"
                     variant="default"
-                    className="bg-purple-600 hover:bg-purple-700 text-white shrink-0"
+                    className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white shrink-0"
                     onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
                 >
                     {ctaLabel}
@@ -78,16 +78,16 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
     }
 
     return (
-        <Card className="border-purple-200 bg-gradient-to-br from-purple-50 via-white to-purple-50/40">
+        <Card className="border-purple-200 dark:border-purple-900/30 bg-gradient-to-br from-purple-50 via-white to-purple-50/40 dark:from-purple-950/30 dark:via-card dark:to-purple-950/15">
             <CardContent className="p-5">
                 <div className="flex items-start gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-600">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
                         <Store className="h-6 w-6" />
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-semibold text-foreground">Mi Tienda</h3>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-purple-700">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-purple-700 dark:text-purple-300">
                                 <Sparkles className="h-3 w-3" />
                                 Nuevo
                             </span>
@@ -99,7 +99,7 @@ export function ActivateStoreCTA({ compact = false, label = 'Activar Mi Tienda' 
                         </p>
                         <Button
                             onClick={() => navigate(PAID_STORE_ROLES.has(profile.role as string) ? '/mi-plan?upsell=store' : '/vendor/onboarding')}
-                            className="bg-purple-600 hover:bg-purple-700 text-white"
+                            className="bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 text-white"
                         >
                             {ctaLabel}
                             <ArrowRight className="ml-2 h-4 w-4" />
