@@ -207,7 +207,7 @@ router.post('/onboarding/step', async (req: Request, res: Response) => {
  */
 router.post('/onboarding/complete', async (req: Request, res: Response) => {
     try {
-        const { schoolId } = req;
+        const { schoolId, user } = req;
 
         const { error } = await supabase
             .from('schools')
@@ -216,6 +216,16 @@ router.post('/onboarding/complete', async (req: Request, res: Response) => {
             .eq('school_type', 'personal_trainer');
 
         if (error) throw error;
+
+        // Marcar tambien profiles.onboarding_completed para dejar el flag parejo
+        // con los demas roles (athlete/coach/etc). No bloquea la respuesta.
+        if (user?.id) {
+            const { error: profErr } = await supabase
+                .from('profiles')
+                .update({ onboarding_completed: true })
+                .eq('id', user.id);
+            if (profErr) (req as any).log?.warn({ err: profErr }, 'No se pudo marcar profiles.onboarding_completed para trainer');
+        }
 
         res.json({ success: true, onboarding_status: 'completed' });
     } catch (err) {
