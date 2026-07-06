@@ -13,6 +13,12 @@ const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
 
 import { FileUpload } from '@/components/common/FileUpload';
+import type { ReceiptValidationResult } from '@/hooks/useReceiptValidator';
+
+/** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
+function safeParseJson(s: string): unknown | null {
+  try { return JSON.parse(s); } catch { return null; }
+}
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -65,6 +71,10 @@ export function PaymentCheckoutModal({
   const [wompiEnabled, setWompiEnabled] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  // Resultado del OCR del comprobante manual. Se persiste en el pago para que
+  // el admin vea el monto detectado y la alerta de discrepancia en Cobros por
+  // Aprobar (igual que el flujo QR / ParentCheckoutPage).
+  const [ocrResult, setOcrResult] = useState<ReceiptValidationResult | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_approval'>('idle');
   
@@ -203,6 +213,7 @@ export function PaymentCheckoutModal({
       setPaymentStatus('idle');
       setSelectedMethod(null);
       setProofUrl(null);
+      setOcrResult(null);
       setPendingPaymentDate(null);
       setShowOnlineConfirm(false);
       setAdvancedPeriod(null);
@@ -391,8 +402,18 @@ export function PaymentCheckoutModal({
             receipt_url: proofUrl,
             period_year:  periodYear,
             period_month: periodMonth,
+            // OCR del comprobante — el admin lo usa para detectar discrepancias.
+            ocr_amount:    ocrResult?.extractedAmount    ?? null,
+            ocr_currency:  ocrResult?.extractedCurrency  ?? null,
+            ocr_date:      ocrResult?.extractedDate      ?? null,
+            ocr_bank:      ocrResult?.extractedBank      ?? null,
+            ocr_reference: ocrResult?.extractedReference ?? null,
+            ocr_provider:  ocrResult?.provider           ?? null,
+            ocr_raw_response: ocrResult?.rawResponse
+              ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
+              : null,
             updated_at: new Date().toISOString()
-          }).eq('id', paymentId);
+          } as any).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
           const { error: insertError } = await supabase.from('payments').insert({
@@ -411,8 +432,18 @@ export function PaymentCheckoutModal({
             receipt_url: proofUrl,
             period_year:  periodYear,
             period_month: periodMonth,
+            // OCR del comprobante — el admin lo usa para detectar discrepancias.
+            ocr_amount:    ocrResult?.extractedAmount    ?? null,
+            ocr_currency:  ocrResult?.extractedCurrency  ?? null,
+            ocr_date:      ocrResult?.extractedDate      ?? null,
+            ocr_bank:      ocrResult?.extractedBank      ?? null,
+            ocr_reference: ocrResult?.extractedReference ?? null,
+            ocr_provider:  ocrResult?.provider           ?? null,
+            ocr_raw_response: ocrResult?.rawResponse
+              ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
+              : null,
             reference: `TRF-${Date.now().toString(36).toUpperCase()}`
-          });
+          } as any);
           if (insertError) throw insertError;
         }
         // Notificar al owner de la escuela con el mes especifico
@@ -789,6 +820,7 @@ export function PaymentCheckoutModal({
                     accept="image/*,application/pdf"
                     validateReceipt={true}
                     onUploadComplete={(url) => setProofUrl(url)}
+                    onValidationResult={(r) => setOcrResult(r)}
                     expectedAmount={finalAmount}
                     // Bloqueo estricto solo en concept fijo (mensualidad/inscripcion fija).
                     // Para abono / inscripcion variable / otros, OCR es advisory.
