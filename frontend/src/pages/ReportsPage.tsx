@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
 } from 'recharts';
-import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download, FileText } from 'lucide-react';
+import { TrendingUp, Users, DollarSign, Loader2, AlertCircle, RefreshCw, Printer, Download, FileText, BarChart3, BarChartHorizontal, Percent } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -155,6 +155,42 @@ export default function ReportsPage() {
   const [occupancyData, setOccupancyData] = useState<any[]>([]);
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [growthData, setGrowthData] = useState<any[]>([]);
+
+  // Cómo se visualiza la ocupación: barras verticales, horizontales o % de ocupación
+  const [occView, setOccView] = useState<'vertical' | 'horizontal' | 'percent'>('horizontal');
+
+  // Descarga un CSV individual por reporte
+  const saveCSV = (filename: string, lines: string[]) => {
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const downloadOccupancy = () => saveCSV('ocupacion-por-programa', [
+    'Programa,Ocupados,Vacantes,Capacidad,Ocupación %',
+    ...occupancyData.map(r => {
+      const cap = r.occupied + r.vacant;
+      const pct = cap > 0 ? ((r.occupied / cap) * 100).toFixed(1) : '0';
+      return `"${r.name}",${r.occupied},${r.vacant},${cap},${pct}`;
+    }),
+  ]);
+  const downloadRevenue = () => saveCSV('ingresos-por-programa', [
+    'Programa,Monto',
+    ...revenueData.map(r => `"${r.name}",${r.value}`),
+  ]);
+  const downloadGrowth = () => saveCSV('crecimiento-6-meses', [
+    'Mes,Nuevos,Retiros,Neto',
+    ...growthData.map(r => `${r.month},${r.nuevos},${r.retiros},${r.nuevos - r.retiros}`),
+  ]);
+
+  // Datos de ocupación con % calculado, para la vista "percent"
+  const occupancyWithPct = occupancyData.map((r) => {
+    const cap = r.occupied + r.vacant;
+    return { ...r, capacity: cap, pct: cap > 0 ? Math.round((r.occupied / cap) * 100) : 0 };
+  });
 
   const exportCSV = () => {
     const rows: string[] = [
@@ -362,28 +398,76 @@ export default function ReportsPage() {
           {/* Gráficas */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
-              <CardHeader>
-                <CardTitle>Reporte de Ocupación por Programa</CardTitle>
-                <CardDescription>Cupos ocupados vs. disponibles</CardDescription>
+              <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+                <div>
+                  <CardTitle>Reporte de Ocupación por Programa</CardTitle>
+                  <CardDescription>Cupos ocupados vs. disponibles</CardDescription>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Toggle de vista */}
+                  <div className="flex rounded-md border p-0.5 bg-muted/30">
+                    <Button
+                      variant={occView === 'horizontal' ? 'secondary' : 'ghost'}
+                      size="icon" className="h-7 w-7" title="Barras horizontales"
+                      onClick={() => setOccView('horizontal')}
+                    >
+                      <BarChartHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant={occView === 'vertical' ? 'secondary' : 'ghost'}
+                      size="icon" className="h-7 w-7" title="Barras verticales"
+                      onClick={() => setOccView('vertical')}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant={occView === 'percent' ? 'secondary' : 'ghost'}
+                      size="icon" className="h-7 w-7" title="% de ocupación"
+                      onClick={() => setOccView('percent')}
+                    >
+                      <Percent className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7" title="Descargar CSV"
+                    onClick={downloadOccupancy} disabled={occupancyData.length === 0}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {occupancyData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={occupancyData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="name"
-                        angle={-15}
-                        textAnchor="end"
-                        height={80}
-                        interval={0}
-                        fontSize={12}
-                      />
-                      <YAxis allowDecimals={false} />
-                      <Tooltip />
-                      <Bar dataKey="occupied" stackId="a" fill="#22c55e" name="Ocupados" />
-                      <Bar dataKey="vacant" stackId="a" fill="#ef4444" name="Vacantes" />
-                    </BarChart>
+                  <ResponsiveContainer width="100%" height={320}>
+                    {occView === 'vertical' ? (
+                      <BarChart data={occupancyData} margin={{ bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="name" angle={-20} textAnchor="end" height={90} interval={0} fontSize={11} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                        <Legend />
+                        <Bar dataKey="occupied" stackId="a" fill="#22c55e" name="Ocupados" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="vacant" stackId="a" fill="#e5e7eb" name="Vacantes" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    ) : occView === 'percent' ? (
+                      <BarChart data={occupancyWithPct} layout="vertical" margin={{ left: 10, right: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" domain={[0, 100]} unit="%" fontSize={11} />
+                        <YAxis type="category" dataKey="name" width={150} fontSize={11} interval={0} />
+                        <Tooltip formatter={(v: number) => [`${v}%`, 'Ocupación']} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                        <Bar dataKey="pct" fill="#3b82f6" name="Ocupación %" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    ) : (
+                      <BarChart data={occupancyData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" allowDecimals={false} fontSize={11} />
+                        <YAxis type="category" dataKey="name" width={150} fontSize={11} interval={0} />
+                        <Tooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                        <Legend />
+                        <Bar dataKey="occupied" stackId="a" fill="#22c55e" name="Ocupados" radius={[4, 0, 0, 4]} />
+                        <Bar dataKey="vacant" stackId="a" fill="#e5e7eb" name="Vacantes" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    )}
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
@@ -395,9 +479,17 @@ export default function ReportsPage() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Ingresos por Programa</CardTitle>
-                <CardDescription>Distribución de ingresos confirmados</CardDescription>
+              <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+                <div>
+                  <CardTitle>Ingresos por Programa</CardTitle>
+                  <CardDescription>Distribución de ingresos confirmados</CardDescription>
+                </div>
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Descargar CSV"
+                  onClick={downloadRevenue} disabled={revenueData.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </Button>
               </CardHeader>
               <CardContent>
                 {revenueData.length > 0 ? (
@@ -435,9 +527,17 @@ export default function ReportsPage() {
           </div>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Reporte de Crecimiento</CardTitle>
-              <CardDescription>Nuevos alumnos vs. retiros (Últimos 6 meses)</CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>Reporte de Crecimiento</CardTitle>
+                <CardDescription>Nuevos alumnos vs. retiros (Últimos 6 meses)</CardDescription>
+              </div>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Descargar CSV"
+                onClick={downloadGrowth} disabled={!growthData.some((m) => m.nuevos > 0 || m.retiros > 0)}
+              >
+                <Download className="h-3.5 w-3.5" />
+              </Button>
             </CardHeader>
             <CardContent>
               {growthData.some((m) => m.nuevos > 0 || m.retiros > 0) ? (
