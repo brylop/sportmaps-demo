@@ -300,7 +300,7 @@ export function CSVImportModal({
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-primary" />
@@ -311,7 +311,7 @@ export function CSVImportModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1 -mx-1 px-1">
           {/* Download Template */}
           <Alert>
             <Download className="h-4 w-4" />
@@ -526,7 +526,7 @@ export function CSVImportModal({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button
             variant="outline"
             onClick={handleClose}
