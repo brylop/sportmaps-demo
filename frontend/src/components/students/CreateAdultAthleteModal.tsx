@@ -461,7 +461,7 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: 
           doc_number:       uDocNumber.trim() || null,
           full_name:        uFullName.trim(),
           email:            notFoundEmail || null,
-          phone:            uPhone.replace(/\s/g, '') || null,
+          phone:            uPhone.replace(/\D/g, '') || null,
           date_of_birth:    uDob || null,
           gender:           uGender || null,
           branch_id:        (branchId && branchId !== 'none') ? branchId : null,
