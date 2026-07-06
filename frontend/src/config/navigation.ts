@@ -213,7 +213,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ],
           },
           { title: 'Resultados', href: '/results', icon: Trophy },
-          { title: 'Planes de Entrenamiento', href: '/training-plans', icon: Activity },
+          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
           { title: 'Reportes', href: '/coach-reports', icon: FileText }
         ]
       },
@@ -249,6 +249,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
           {
             title: 'Asistencias',
             icon: BarChart3,

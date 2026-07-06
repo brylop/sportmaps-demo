@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -215,9 +216,11 @@ export default function AdminUsersPage() {
     };
 
     const filtered = members.filter(m => {
+        const q = normalizeText(search);
         const matchSearch =
-            m.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-            m.email?.toLowerCase().includes(search.toLowerCase());
+            !q ||
+            normalizeText(m.full_name).includes(q) ||
+            normalizeText(m.email).includes(q);
         const matchRole = roleFilter === 'all' || m.role === roleFilter;
         return matchSearch && matchRole;
     });

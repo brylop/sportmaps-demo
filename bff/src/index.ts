@@ -71,6 +71,8 @@ import trainerBiomechRouter from './routes/trainer/biomech';
 import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
 import athleteBiomechRouter from './routes/athlete/biomech';
+import schoolPerformanceRouter from './routes/school/performance';
+import athletePerformanceRouter from './routes/athlete/performance';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
 import upgradeRequestsRouter from './routes/upgrade-requests.routes';
@@ -280,6 +282,7 @@ app.use('/api/v1/system', systemRouter);
 app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
+app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
@@ -322,6 +325,7 @@ app.use('/api/v1/trainer', generalLimiter, requireTrainerAuth, trainerBiomechRou
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteStatsRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteTrainingRouter);
 app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athleteBiomechRouter);
+app.use('/api/v1/athlete', generalLimiter, requireAthleteAuth, athletePerformanceRouter);
 app.use('/api/v1/athletes', bulkUploadRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────

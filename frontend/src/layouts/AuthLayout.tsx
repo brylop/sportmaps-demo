@@ -10,6 +10,7 @@ import { Outlet } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BrandingScope } from "@/components/BrandingScope";
 import { useDeviceContext } from "@/hooks/useDeviceContext";
+import { PushPermissionBanner } from "@/components/PushPermissionBanner";
 
 export default function AuthLayout() {
   const { user, profile } = useAuth();
@@ -117,6 +118,7 @@ export default function AuthLayout() {
           </main>
         </div>
       </div>
+      <PushPermissionBanner />
     </SidebarProvider>
   );
 }

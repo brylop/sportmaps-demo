@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,10 @@ export default function CheckoutPage() {
 
   const [paymentFlow, setPaymentFlow] = useState<'wompi' | 'manual'>('wompi');
   const [processing, setProcessing] = useState(false);
+  // Guard SINCRONO contra doble-clic: el estado `processing` recien deshabilita
+  // el boton tras el re-render, dejando una ventana para 2 clics rapidos. Este
+  // ref bloquea reingresos en el mismo tick. Ver auditoria H-02.
+  const inFlightRef = useRef(false);
   const [success, setSuccess] = useState(false);
   const [receiptNumber, setReceiptNumber] = useState('');
   const [wompiTransactionId, setWompiTransactionId] = useState('');
@@ -222,10 +226,15 @@ export default function CheckoutPage() {
   };
 
   const handlePayment = () => {
+    // Reingreso síncrono: bloquea el 2º clic aunque `processing` aún no haya
+    // re-renderizado el botón. Se libera al terminar (éxito o error).
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    const release = () => { inFlightRef.current = false; };
     if (paymentFlow === 'wompi') {
-      handleWompiPayment();
+      handleWompiPayment().finally(release);
     } else {
-      handleManualPayment();
+      handleManualPayment().finally(release);
     }
   };
 

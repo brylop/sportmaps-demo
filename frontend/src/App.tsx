@@ -104,6 +104,7 @@ const ProgramsManagementPage = lazy(() => import("./pages/ProgramsManagementPage
 const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisionPage"));
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
+const AccountingPage = lazy(() => import("./pages/AccountingPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
@@ -460,6 +461,11 @@ const App = () => (
                       <Route path="finances" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <FinancesPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payments-automation" element={

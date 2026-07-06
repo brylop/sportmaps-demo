@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { normalizeText } from '@/lib/normalizeText';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -117,11 +118,15 @@ export default function StudentsPage() {
     });
   };
 
-  const filteredStudents = students.filter((student: any) =>
-    student.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (student.parent_name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (student.parent_email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = students.filter((student: any) => {
+    const q = normalizeText(searchQuery);
+    if (!q) return true;
+    return (
+      normalizeText(student.full_name).includes(q) ||
+      normalizeText(student.parent_name).includes(q) ||
+      normalizeText(student.parent_email).includes(q)
+    );
+  });
 
   const getStatusBadge = (status: string) => {
     switch (status) {

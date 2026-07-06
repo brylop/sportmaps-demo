@@ -2,9 +2,9 @@ import cron from 'node-cron';
 import { supabase } from '../config/supabase';
 import {
     createTransactionWithToken,
-    generateReference,
     copToCents,
 } from '../services/wompi.service';
+import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -60,6 +60,14 @@ export function initMaintenanceJobs() {
     // al fallo, registra last_billing_error y marca para review del negocio.
     // ────────────────────────────────────────────────────────────────────────
     cron.schedule('0 2 * * *', async () => {
+        // Kill-switch: este es el autopay LEGACY (tabla `subscriptions`). El canonico
+        // es `recurring_subscriptions` (pg_cron -> /api/v1/recurring/run). Mientras ambos
+        // coexistan, poner DISABLE_LEGACY_SUBSCRIPTION_AUTOPAY=true para apagar este sin
+        // redeploy de codigo. Ver auditoria H-01.
+        if (process.env.DISABLE_LEGACY_SUBSCRIPTION_AUTOPAY === 'true') {
+            console.log('[CRON] Auto-cobro legacy de suscripciones DESACTIVADO por env.');
+            return;
+        }
         console.log('[CRON] Iniciando auto-cobro de suscripciones...');
         try {
             const { data: dueSubs, error } = await supabase
@@ -98,23 +106,45 @@ export function initMaintenanceJobs() {
                     continue;
                 }
 
-                const reference = generateReference('subscription');
+                // Referencia DETERMINISTICA por (sub, periodo YYYY-MM). Asi:
+                //  - dos replicas del BFF que corran el cron a la vez colisionan en el
+                //    INSERT (idx_marketplace_tx_provider_ref unico) -> solo una cobra.
+                //  - si next_billing_date no avanza (llega tarde el webhook) y el cron
+                //    re-corre al dia siguiente, el mismo periodo choca -> no re-cobra.
+                // Ver auditoria H-01. El prefijo SUB- lo rutea el webhook a marketplace.
+                const periodKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+                const reference = `SUB-${String(sub.subscription_id).slice(0, 8)}-${periodKey}`;
                 const amountInCents = copToCents(Number(sub.price));
 
-                // Crear marketplace_transaction antes de cobrar (para que webhook reconcilie)
-                const { data: tx } = await supabase
+                // Crear marketplace_transaction antes de cobrar (para que webhook reconcilie).
+                // provider_reference + payment_provider activan el unico parcial
+                // idx_marketplace_tx_provider_ref (payment_provider, provider_reference).
+                const { data: tx, error: txErr } = await supabase
                     .from('marketplace_transactions')
                     .insert({
                         user_id: sub.user_id,
                         checkout_type: 'subscription',
                         subscription_id: sub.subscription_id,
                         gross_amount: Number(sub.price),
+                        payment_provider: 'wompi',
+                        provider_reference: reference,
                         wompi_reference: reference,
                         status: 'pending',
                         description: `Renovacion auto: ${sub.plan_name || 'plan'}`,
                     })
                     .select('id')
                     .single();
+
+                // 23505 = unique_violation: ya existe una tx para esta sub en este
+                // periodo -> otro proceso/corrida ya inicio el cobro. Saltar (idempotente).
+                if (txErr) {
+                    if ((txErr as any).code === '23505') {
+                        console.log(`[CRON] Cobro ya iniciado este periodo sub=${sub.subscription_id} (${periodKey}); saltando.`);
+                    } else {
+                        console.error(`[CRON] Error creando marketplace_transaction sub=${sub.subscription_id}: ${txErr.message}`);
+                    }
+                    continue;
+                }
 
                 const result = await createTransactionWithToken({
                     paymentToken: sub.wompi_token,
@@ -163,4 +193,49 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Auto-cobro de suscripciones registrado para las 02:00 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Reproceso de webhooks huerfanos (Fix H-03). Cada 10 min reintenta los
+    // eventos 'orphan'/'failed' cuya entidad local ya deberia existir. El claim
+    // atomico dentro del runner evita doble-proceso entre replicas.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/10 * * * *', async () => {
+        try {
+            const r = await reprocessOrphanWebhooks(100);
+            if (r.scanned > 0) {
+                console.log(`[CRON] Reproceso webhooks: scanned=${r.scanned} processed=${r.processed} stillOrphan=${r.stillOrphan} failed=${r.failed} gaveUp=${r.gaveUp}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en reproceso de webhooks:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Reproceso de webhooks huerfanos registrado (cada 10 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Conciliacion diaria de pagos (Fix H-04). Detecta duplicados internos y
+    // webhooks huerfanos estancados, los registra en payment_anomalies y alerta
+    // por logs las criticas (visibles en el monitoreo del BFF). 03:30 COT.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('30 3 * * *', async () => {
+        console.log('[CRON] Iniciando conciliacion de pagos...');
+        try {
+            const { data, error } = await supabase.rpc('detect_payment_anomalies');
+            if (error) {
+                console.error('[CRON] detect_payment_anomalies error:', error.message);
+                return;
+            }
+            const r = (data ?? {}) as Record<string, number>;
+            const criticas = (r.duplicate_split ?? 0) + (r.duplicate_marketplace ?? 0);
+            if (criticas > 0) {
+                // ALERTA critica: posible doble cobro/contabilizacion detectado.
+                console.error(`[ALERT][pagos] Anomalias CRITICAS nuevas: duplicate_split=${r.duplicate_split ?? 0} duplicate_marketplace=${r.duplicate_marketplace ?? 0}. Revisar payment_anomalies (status='open').`);
+            }
+            console.log(`[CRON] Conciliacion: dupSplit=${r.duplicate_split ?? 0} dupMkt=${r.duplicate_marketplace ?? 0} rapid=${r.rapid_duplicate ?? 0} staleWebhook=${r.stale_orphan_webhook ?? 0}`);
+        } catch (err: any) {
+            console.error('[CRON] Error en conciliacion de pagos:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Conciliacion de pagos registrada para las 03:30 COT.');
 }
