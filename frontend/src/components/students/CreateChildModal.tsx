@@ -501,7 +501,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
       return 'El nombre del acudiente es obligatorio (mín. 2 caracteres).';
     if (!parentEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail))
       return 'El email del acudiente no es válido.';
-    if (!/^\d{10,}$/.test(parentPhone.replace(/\s/g, '')))
+    if (!/^\d{10,}$/.test(parentPhone.replace(/\D/g, '')))
       return 'El teléfono del acudiente debe tener mínimo 10 dígitos.';
     if (!startDate) return 'La fecha de inscripción es obligatoria.';
     if (!branchId || branchId === 'none') return 'La sede es obligatoria.';
@@ -581,7 +581,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
           // Acudiente
           parent_name:  parentName.trim(),
           parent_email: parentEmail.trim().toLowerCase(),
-          parent_phone: parentPhone.replace(/\s/g, ''),
+          parent_phone: parentPhone.replace(/\D/g, ''),
         }, { 'x-school-id': schoolId });
       }
 
