@@ -160,6 +160,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) throw error;
+      // Si el INSERT chocó con el perfil que el trigger ya creó, `data` puede
+      // venir null. Releemos para no dejar el perfil en null (limbo OAuth).
+      if (!data) {
+        return await fetchProfile(userId);
+      }
       return data;
     } catch (error) {
       console.error('Error creating profile:', error);
@@ -187,7 +192,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const created = await createProfile(session.user.id, {
                 full_name: session.user.user_metadata?.full_name || 'Usuario',
                 email: session.user.email || '',
-                role: session.user.user_metadata?.role || 'athlete',
+                // NO forzar 'athlete': si no hay rol (OAuth/Google), dejarlo
+                // undefined para que createProfile marque needs_role_selection=true
+                // y el usuario pase por /onboarding/role en vez de quedar atleta.
+                role: session.user.user_metadata?.role,
               });
               setProfile(created as UserProfile);
             }
