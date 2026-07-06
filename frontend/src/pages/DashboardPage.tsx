@@ -260,6 +260,15 @@ export default function DashboardPage() {
     const effectiveStatus = onboardingStatus ?? fallbackSchool?.onboarding_status;
     const hasSchool = !!(rpcStatus?.has_school || rpcStatus?.school_id || fallbackSchool?.id);
 
+    // Rol de escuela SIN escuela creada (típico en registro con Google: solo se
+    // eligió el rol y complete_role_selection no crea la academia). Enviar a
+    // /setup/school a capturar el nombre. Solo cuando el RPC YA respondió
+    // (rpcStatus presente) y confirma que no hay escuela, para no rebotar a un
+    // owner real durante la carga ni crear escuelas duplicadas.
+    if (isSchoolRole && !loadingStatus && rpcStatus && !hasSchool) {
+      return <Navigate to="/setup/school" replace />;
+    }
+
     if (isSchoolRole && hasSchool && effectiveStatus && effectiveStatus !== 'completed') {
       return <Navigate to="/onboarding/school" replace />;
     }
