@@ -33,6 +33,16 @@ export default function SchoolOnboardingPage() {
         const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)('get_onboarding_status');
 
         if (!rpcErr && rpcData) {
+            // Registro por Google: el usuario eligio rol 'school' pero aun NO
+            // existe la academia (complete_role_selection no la crea). El RPC
+            // responde OK con school_id=null/has_school=false, por lo que NO cae
+            // al fallback de abajo. Sin esto el wizard renderiza con school_id
+            // null y el onboarding queda vacio/roto. Enviarlo a /setup/school
+            // para capturar el nombre y crear la escuela (+ Sede Principal via trigger).
+            if (!rpcData.has_school && !rpcData.school_id) {
+                navigate('/setup/school', { replace: true });
+                return;
+            }
             setStatus(rpcData);
             setLoading(false);
             return;
