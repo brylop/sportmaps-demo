@@ -441,7 +441,15 @@ class StudentsAPI {
     // Normaliza notas_medicas a JSON válido con has_allergies (P4)
     const normalizeMedicalInfo = (val: string): string | undefined => {
       if (!val) return undefined;
-      try { JSON.parse(val); return val; } catch { /* no es JSON */ }
+      try {
+        const parsed = JSON.parse(val);
+        // El BFF exige has_allergies:boolean. Si el JSON del CSV trae otros
+        // campos (eps, rh, …) pero no has_allergies, lo agregamos sin perderlos.
+        if (typeof parsed?.has_allergies !== 'boolean') {
+          return JSON.stringify({ ...parsed, has_allergies: false });
+        }
+        return val;
+      } catch { /* no es JSON */ }
       const lower = val.trim().toLowerCase();
       if (/^(ninguna?|none|no|-)$/.test(lower)) return JSON.stringify({ has_allergies: false });
       if (lower.includes('alergia') || lower.includes('allerg')) {
