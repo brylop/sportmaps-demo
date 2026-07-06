@@ -232,9 +232,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
           { title: 'Deportistas', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Entrenadores', href: '/staff', icon: Users },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
         ]
       },
       {
@@ -262,37 +262,47 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Identidad y Documentos',
-        items: [
-          { title: 'Carnets digitales',  href: '/cards',                          icon: IdCard },
-          { title: 'Constancias',        href: '/certificates',                   icon: FileCheck2 },
-          { title: 'Plantillas',         href: '/cards/templates/certificates',   icon: FileText },
-          { title: 'QR de inscripción',  href: '/qr-signup',                      icon: QrCode },
-        ]
-      },
-      // Explorar se oculta en rol school: solo visible para athlete y parent.
-      {
-        title: 'Administración',
+        title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           {
             title: 'Finanzas y Contabilidad',
-            icon: DollarSign,
+            icon: BookOpen,
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },
-          { title: 'Sedes', href: '/branches', icon: MapPin },
-          { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Acceso', href: '/school/access-control', icon: ShieldCheck },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
         ]
       },
       {
-        title: 'Perfil',
+        title: 'Documentos e Identidad',
+        items: [
+          {
+            title: 'Carnets',
+            icon: IdCard,
+            submenu: [
+              { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
+              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+            ],
+          },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+        ]
+      },
+      {
+        title: 'Sedes e Instalaciones',
+        items: [
+          { title: 'Sedes', href: '/branches', icon: MapPin },
+          { title: 'Instalaciones', href: '/facilities', icon: Building },
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+        ]
+      },
+      {
+        title: 'Cuenta',
         items: [
           { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User },
           { title: 'Configuración', href: '/settings', icon: Settings },
@@ -439,9 +449,9 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Principal',
         items: [
           { title: 'Dashboard', href: '/dashboard', icon: Home },
-          { title: 'Invitaciones', href: '/invitations', icon: Send },
           { title: 'Deportistas', href: '/students', icon: Users },
-          { title: 'Entrenadores', href: '/staff', icon: Users }
+          { title: 'Entrenadores', href: '/staff', icon: Users },
+          { title: 'Invitaciones', href: '/invitations', icon: Send },
         ]
       },
       {
@@ -468,33 +478,49 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         ]
       },
       {
-        title: 'Identidad y Documentos',
-        items: [
-          { title: 'Carnets digitales',  href: '/cards',                          icon: IdCard },
-          { title: 'Constancias',        href: '/certificates',                   icon: FileCheck2 },
-          { title: 'Plantillas',         href: '/cards/templates/certificates',   icon: FileText },
-          { title: 'QR de inscripción',  href: '/qr-signup',                      icon: QrCode },
-        ]
-      },
-      {
-        title: 'Administración',
+        title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
-          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
-          { title: 'Plantillas', href: '/message-templates', icon: MessageSquare },
           {
             title: 'Finanzas y Contabilidad',
-            icon: DollarSign,
+            icon: BookOpen,
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },
+          { title: 'Recordatorios', href: '/payment-reminders', icon: Bell },
+          { title: 'Plantillas de Mensajes', href: '/message-templates', icon: MessageSquare },
+        ]
+      },
+      {
+        title: 'Documentos e Identidad',
+        items: [
+          {
+            title: 'Carnets',
+            icon: IdCard,
+            submenu: [
+              { title: 'Carnets Digitales', href: '/cards', icon: IdCard },
+              { title: 'Plantillas de Carnets', href: '/cards/templates/certificates', icon: FileText },
+            ],
+          },
+          { title: 'Constancias', href: '/certificates', icon: FileCheck2 },
+          { title: 'QR de Inscripción', href: '/qr-signup', icon: QrCode },
+        ]
+      },
+      {
+        title: 'Sedes e Instalaciones',
+        items: [
           { title: 'Sedes', href: '/branches', icon: MapPin },
           { title: 'Instalaciones', href: '/facilities', icon: Building },
-          { title: 'Acceso', href: '/school/access-control', icon: ShieldCheck },
-          { title: 'Configuración', href: '/settings', icon: Settings }
+          { title: 'Control de Acceso', href: '/school/access-control', icon: ShieldCheck },
+        ]
+      },
+      {
+        title: 'Cuenta',
+        items: [
+          { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
     ],
