@@ -177,10 +177,10 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
         );
     };
 
-    // Los inscritos siempre se muestran (independiente del filtro), arriba y ordenados.
-    // Los no inscritos se filtran por búsqueda.
+    // Inscritos arriba y no inscritos abajo. Ambas listas respetan la búsqueda:
+    // con query vacío matchesSearch devuelve true, así que se muestran todos.
     const enrolledList = students
-        .filter(s => isEnrolled(s.id))
+        .filter(s => isEnrolled(s.id) && matchesSearch(s))
         .sort((a, b) => a.full_name.localeCompare(b.full_name));
     const availableList = students
         .filter(s => !isEnrolled(s.id) && matchesSearch(s))
@@ -190,7 +190,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl max-h-[90vh]">
+            <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-primary" />
@@ -213,8 +213,8 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4">
-                    <div className="relative">
+                <div className="space-y-4 flex-1 min-h-0 flex flex-col">
+                    <div className="relative shrink-0">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Buscar deportista por nombre, email o grado..."
@@ -224,7 +224,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                         />
                     </div>
 
-                    <ScrollArea className="h-[400px] pr-4">
+                    <ScrollArea className="flex-1 min-h-0 pr-4">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
@@ -323,7 +323,7 @@ export function EnrollTeamStudentModal({ open, onClose, onSuccess, team }: Enrol
                     </ScrollArea>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="shrink-0">
                     <div className="flex w-full justify-between items-center">
                         <p className="text-sm text-muted-foreground">
                             {enrolledStudentIds.length} inscrito{enrolledStudentIds.length !== 1 ? 's' : ''} en este grupo
