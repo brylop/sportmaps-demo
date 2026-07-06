@@ -55,8 +55,12 @@ export function MobileBottomNav() {
     return null;
   }
 
-  // No mostrar en páginas de auth o landing
-  if (['/', '/login', '/register', '/demo-welcome'].includes(location.pathname)) {
+  // No mostrar en páginas de auth, landing o durante el onboarding/setup
+  if (
+    ['/', '/login', '/register', '/demo-welcome'].includes(location.pathname) ||
+    location.pathname.includes('/onboarding') ||
+    location.pathname.includes('/setup')
+  ) {
     return null;
   }
 
