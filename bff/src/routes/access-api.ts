@@ -564,4 +564,80 @@ router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'sch
   }
 });
 
+// ─── GET /api/v1/access/overdue ──────────────────────────────────────────────
+// Lista atletas con pago vencido que tienen huella mapeada, para bloqueo/restauración manual.
+router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+
+    const { data: overduePayments, error } = await supabase
+      .from('payments')
+      .select('id, user_id, unregistered_athlete_id, due_date, amount')
+      .eq('school_id', schoolId)
+      .eq('status', 'overdue');
+    if (error) throw error;
+    if (!overduePayments?.length) return res.json({ overdue: [] });
+
+    const { data: mappings } = await supabase
+      .from('zk_user_mappings')
+      .select('zk_pin, user_id, unregistered_athlete_id')
+      .eq('school_id', schoolId);
+
+    const mapByKey: Record<string, number> = {};
+    (mappings || []).forEach((m: any) => {
+      const key = m.user_id ? `u:${m.user_id}` : `a:${m.unregistered_athlete_id}`;
+      mapByKey[key] = m.zk_pin;
+    });
+
+    const userIds = [...new Set(overduePayments.map((p: any) => p.user_id).filter(Boolean))];
+    const uaIds   = [...new Set(overduePayments.map((p: any) => p.unregistered_athlete_id).filter(Boolean))];
+
+    const profileMap: Record<string, string> = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+    const uaMap: Record<string, string> = {};
+    if (uaIds.length) {
+      const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
+      (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
+    }
+
+    // Último comando set_group ejecutado por PIN → estado actual conocido (2 = bloqueado)
+    const { data: lastGroupCmds } = await supabase
+      .from('device_commands')
+      .select('metadata, executed_at')
+      .eq('school_id', schoolId)
+      .eq('command_type', 'set_group')
+      .eq('status', 'executed')
+      .order('executed_at', { ascending: false });
+
+    const pinBlocked: Record<number, boolean> = {};
+    (lastGroupCmds || []).forEach((c: any) => {
+      const pin = c.metadata?.pin;
+      if (pin !== undefined && !(pin in pinBlocked)) pinBlocked[pin] = c.metadata?.group === 2;
+    });
+
+    const overdue = overduePayments
+      .map((p: any) => {
+        const key = p.user_id ? `u:${p.user_id}` : `a:${p.unregistered_athlete_id}`;
+        const pin = mapByKey[key];
+        if (pin === undefined) return null;
+        return {
+          payment_id: p.id,
+          name: p.user_id ? (profileMap[p.user_id] ?? 'Usuario') : (uaMap[p.unregistered_athlete_id] ?? 'Atleta'),
+          due_date: p.due_date,
+          amount: p.amount,
+          zk_pin: pin,
+          blocked: !!pinBlocked[pin],
+        };
+      })
+      .filter(Boolean);
+
+    return res.json({ overdue });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar vencidos' });
+  }
+});
+
 export default router;
