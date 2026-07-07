@@ -513,7 +513,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     const meta = cmd.metadata || {};
 
     if (cmd.command_type === 'enroll_user') {
-      const fields = [`PIN=${meta.pin}`, `Name=${meta.name}`, `Pri=0`];
+      const fields = [`PIN=${meta.pin}`, `Name=${meta.name}`, `Pri=0`, `Grp=1`];
       if (meta.card) fields.push(`Card=${meta.card}`);
       return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO ${fields.join('\t')}`;
     }

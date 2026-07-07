@@ -580,6 +580,17 @@ export default function AccessControlPage() {
                       Asignar
                     </Button>
                   )}
+                  {!event.access_granted && event.denial_reason === 'payment_overdue' && event.zk_user_id && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs shrink-0"
+                      onClick={() => bffClient.post('/api/v1/access/set-access-group', { pin: event.zk_user_id, group: 2 })
+                        .then(() => toast({ title: 'Bloqueo encolado' }))}
+                    >
+                      Bloquear ahora
+                    </Button>
+                  )}
 
                   {/* Método + hora */}
                   <div className="flex items-center gap-2 shrink-0">
