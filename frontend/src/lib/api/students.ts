@@ -201,18 +201,21 @@ class StudentsAPI {
    */
   async getSchoolView(
     schoolId: string,
-    filter?: string | { teamId?: string | null; branchId?: string | null }
+    filter?: string | { teamId?: string | null; branchId?: string | null; includeInactive?: boolean }
   ) {
-    const { teamId, branchId } =
+    const { teamId, branchId, includeInactive } =
       typeof filter === 'string'
-        ? { teamId: filter, branchId: undefined }
-        : { teamId: filter?.teamId, branchId: filter?.branchId };
+        ? { teamId: filter, branchId: undefined, includeInactive: false }
+        : { teamId: filter?.teamId, branchId: filter?.branchId, includeInactive: filter?.includeInactive ?? false };
 
     let query = supabase
       .from('school_athletes' as any)
       .select('*')
-      .eq('school_id', schoolId)
-      .eq('is_active', true);
+      .eq('school_id', schoolId);
+
+    if (!includeInactive) {
+      query = query.eq('is_active', true);
+    }
 
     if (teamId) query = query.eq('enrolled_team_id', teamId);
     if (branchId) query = query.eq('branch_id', branchId);
@@ -360,13 +363,69 @@ class StudentsAPI {
   /**
    * Update a student
    */
-  async updateStudent(id: string, updates: StudentUpdate): Promise<Student> {
+  async updateStudent(
+    id: string,
+    updates: StudentUpdate & { athlete_type?: 'child' | 'adult' | 'unregistered' }
+  ): Promise<any> {
+    const status = updates.status;
+    const athleteType = updates.athlete_type;
+    const schoolId = updates.school_id;
+
+    // 1. Si es Adulto
+    if (athleteType === 'adult') {
+      if (!schoolId) {
+        throw new Error('School ID is required to update adult status');
+      }
+      
+      const dbStatus = status === 'active' ? 'active' : 'inactive';
+      
+      const { data, error } = await supabase
+        .from('school_members')
+        .update({
+          status: dbStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('profile_id', id)
+        .eq('school_id', schoolId)
+        .eq('role', 'athlete')
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(error.message || 'Failed to update adult athlete status');
+      }
+      
+      return data;
+    }
+
+    // 2. Si es Unregistered
+    if (athleteType === 'unregistered') {
+      const { data, error } = await supabase
+        .from('unregistered_athletes')
+        .update({
+          is_active: status === 'active',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Failed to update unregistered athlete status');
+      }
+      return data;
+    }
+
+    // 3. Si es Child (comportamiento original)
     const dbUpdates: any = {
       ...updates,
       updated_at: new Date().toISOString(),
     };
 
-    // Mapear status a is_active para la BD
+    // Remover campos que no pertenecen a la tabla 'children'
+    delete dbUpdates.athlete_type;
+    delete dbUpdates.school_id;
+
     if (updates.status !== undefined) {
       dbUpdates.is_active = updates.status === 'active';
       delete dbUpdates.status;

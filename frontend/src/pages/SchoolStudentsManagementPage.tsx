@@ -244,11 +244,10 @@ export default function SchoolStudentsManagementPage() {
           .from('school_athletes' as any)
           .select('*')
           .eq('school_id', schoolId)
-          .eq('is_active', true)
           .in('enrolled_team_id', teamIds.length ? teamIds : ['']);
         data = athletes ?? [];
       } else {
-        data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId });
+        data = await studentsAPI.getSchoolView(schoolId, { branchId: activeBranchId, includeInactive: true });
       }
       return data as StudentViewRow[];
     },
@@ -465,14 +464,19 @@ export default function SchoolStudentsManagementPage() {
   };
 
   const toggleStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string, status: 'active' | 'inactive' }) => {
-      await studentsAPI.updateStudent(id, { status });
+    mutationFn: async ({ id, status, athlete_type, school_id }: { id: string, status: 'active' | 'inactive', athlete_type: 'child' | 'adult' | 'unregistered', school_id: string }) => {
+      await studentsAPI.updateStudent(id, { status, athlete_type, school_id });
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['school-students'] }); toast({ title: '✅ Estado actualizado' }); }
   });
 
   const handleToggleStatus = (student: any) => {
-    toggleStatusMutation.mutate({ id: student.id, status: student.status === 'inactive' ? 'active' : 'inactive' });
+    toggleStatusMutation.mutate({
+      id: student.id,
+      status: student.status === 'inactive' ? 'active' : 'inactive',
+      athlete_type: getAthleteType(student),
+      school_id: student.school_id
+    });
   };
 
 
@@ -500,8 +504,13 @@ export default function SchoolStudentsManagementPage() {
     const hasEmergencyContactParts = emergencyContact.includes(' - ');
     const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
     const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
+    
+    // Normalizar status en base a is_active de la vista
+    const status = student.is_active ? 'active' : 'inactive';
+
     return {
       ...student,
+      status,
       display_parent_name: student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null),
       display_parent_phone: student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null),
     };
