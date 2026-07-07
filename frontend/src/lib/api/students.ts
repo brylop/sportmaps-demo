@@ -132,6 +132,7 @@ export interface StudentViewRow {
   medical_info?: string | null;
   display_parent_name?: string;
   status?: 'active' | 'inactive' | 'suspended';
+  is_active?: boolean;
   doc_type?: string | null;
   doc_number?: string | null;
   tshirt_size?: string | null;
