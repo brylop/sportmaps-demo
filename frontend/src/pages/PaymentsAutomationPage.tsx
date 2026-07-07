@@ -1312,6 +1312,11 @@ export default function PaymentsAutomationPage() {
                         <Input id="late_pct" type="number" min={1} max={50} className="w-24" value={billing.late_fee_percentage} onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
                         <span className="text-sm text-muted-foreground">% adicional</span>
                       </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Se aplica automáticamente una sola vez sobre el saldo pendiente cuando el pago
+                        supera la fecha de vencimiento más los {billing.payment_grace_days} días de gracia.
+                        El recargo se suma al monto a cobrar y el pago pasa a “Vencido”.
+                      </p>
                     </div>
                   )}
                   <div className="flex items-center justify-between pt-2">
