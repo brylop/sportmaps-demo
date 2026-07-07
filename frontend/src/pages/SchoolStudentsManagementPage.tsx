@@ -506,7 +506,7 @@ export default function SchoolStudentsManagementPage() {
     const fallbackParentPhone = hasEmergencyContactParts ? emergencyContact.split(' - ')[1] : '';
     
     // Normalizar status en base a is_active de la vista
-    const status = student.is_active ? 'active' : 'inactive';
+    const status: 'active' | 'inactive' | 'suspended' = student.is_active ? 'active' : 'inactive';
 
     return {
       ...student,
