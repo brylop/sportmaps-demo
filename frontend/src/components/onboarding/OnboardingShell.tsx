@@ -143,7 +143,7 @@ export function OnboardingShell({
   if (variant === 'card') return inner;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center p-4">
+    <div className="screen-safe bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center">
       {inner}
     </div>
   );
