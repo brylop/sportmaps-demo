@@ -197,6 +197,34 @@
 }
 
 @layer utilities {
+  /*
+   * Contenedor full-screen que respeta las safe areas de iOS en modo PWA
+   * standalone (notch arriba + home indicator abajo). Usa 100dvh para que el
+   * alto real excluya la barra del sistema y añade padding con env() para que
+   * los botones al borde inferior nunca queden tapados/ocultos.
+   */
+  .screen-safe {
+    min-height: 100vh; /* fallback navegadores sin dvh */
+    min-height: 100dvh;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+
+  /*
+   * DialogContent en PWA/iOS: limita el alto al viewport dinámico, habilita
+   * scroll interno cuando el contenido es más alto que la pantalla, y agrega
+   * padding inferior con env() para que los botones del footer no queden
+   * ocultos tras el home indicator en modo standalone.
+   */
+  .dialog-safe {
+    max-height: 100vh; /* fallback */
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+
   .text-gradient-brand {
     background: linear-gradient(135deg, hsl(119 60% 32%), hsl(35 97% 55%));
     -webkit-background-clip: text;
