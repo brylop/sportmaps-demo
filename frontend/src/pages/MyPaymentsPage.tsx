@@ -63,6 +63,7 @@ interface Transaction {
   period_year?: number | null;
   period_month?: number | null;
   period_label?: string | null;
+  late_fee_amount?: number | null;
 }
 
 const MONTH_NAMES_ES = [
@@ -190,14 +191,14 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month')
+          .select('id, period_year, period_month, late_fee_amount')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
-          (periodRows || []).map((r: any) => [r.id, { period_year: r.period_year, period_month: r.period_month }]),
+          (periodRows || []).map((r: any) => [r.id, { period_year: r.period_year, period_month: r.period_month, late_fee_amount: r.late_fee_amount }]),
         );
       }
 
@@ -239,6 +240,7 @@ export default function MyPaymentsPage() {
           periodMap[p.id]?.period_year ?? p.period_year,
           periodMap[p.id]?.period_month ?? p.period_month,
         ),
+        late_fee_amount: periodMap[p.id]?.late_fee_amount ?? p.late_fee_amount ?? null,
       }));
       setTransactions(txns);
 
@@ -790,6 +792,11 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
                 {txn.status === 'partial' && (
                   <p className="text-[10px] text-red-500 dark:text-red-400 font-bold">
                     PENDIENTE: {formatCurrency(txn.balance_pending || 0)}
+                  </p>
+                )}
+                {(txn.late_fee_amount ?? 0) > 0 && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                    Incluye recargo por mora: {formatCurrency(txn.late_fee_amount as number)}
                   </p>
                 )}
               </div>
