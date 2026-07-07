@@ -443,7 +443,7 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
         school_id: schoolId,
         device_id: device.id,
         command_type: 'set_drive_time',
-        direction: device.direction,
+        direction: device.direction === 'both' ? 'entry' : device.direction,
         status: 'pending',
         issued_by: req.user.id,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -523,7 +523,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
         school_id: schoolId,
         device_id: device.id,
         command_type: 'set_drive_time',
-        direction: device.direction,
+        direction: device.direction === 'both' ? 'entry' : device.direction,
         status: 'pending',
         issued_by: req.user.id,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -534,6 +534,33 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     return res.json({ success: true, device });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al actualizar dispositivo' });
+  }
+});
+
+// ─── POST /api/v1/access/set-access-group ───────────────────────────────────
+router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { pin, group } = req.body as { pin: number; group: 1 | 2 };
+    if (!pin || ![1, 2].includes(group)) {
+      return res.status(400).json({ error: 'pin y group (1 o 2) son requeridos' });
+    }
+    const { data: devices } = await supabase
+      .from('turnstile_devices').select('id, direction')
+      .eq('school_id', schoolId).eq('is_active', true);
+    if (!devices?.length) return res.status(404).json({ error: 'Sin dispositivos activos' });
+
+    const commands = devices.map((d: any) => ({
+      school_id: schoolId, device_id: d.id, command_type: 'set_group',
+      direction: d.direction === 'both' ? 'entry' : d.direction,
+      status: 'pending', issued_by: req.user.id,
+      expires_at: new Date(Date.now() + 24*60*60*1000).toISOString(),
+      metadata: { pin, group },
+    }));
+    await supabase.from('device_commands').insert(commands);
+    return res.json({ success: true, message: `PIN ${pin} movido a grupo ${group} en ${devices.length} dispositivo(s).` });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al cambiar de grupo de acceso' });
   }
 });
 

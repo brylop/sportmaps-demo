@@ -537,6 +537,9 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     if (cmd.command_type === 'set_drive_time') {
       return `C:${cmd.cmd_seq}:SET OPTIONS Door1Drivertime=${meta.seconds}`;
     }
+    if (cmd.command_type === 'set_group') {
+      return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tGrp=${meta.group}`;
+    }
     return null;
   }).filter(Boolean).join('\r\n');
 
