@@ -65,6 +65,7 @@ interface TurnstileDevice {
   is_active: boolean;
   last_seen_at: string | null;
   brand?: string;
+  door_drive_time_seconds?: number;
 }
 
 interface AssignableMember {
@@ -141,6 +142,7 @@ export default function AccessControlPage() {
     location: string;
     is_active: boolean;
     brand: string;
+    door_drive_time_seconds: number;
   } | null>(null);
   const [savingDevice, setSavingDevice] = useState(false);
 
@@ -283,6 +285,7 @@ export default function AccessControlPage() {
     setDeviceForm({
       id: null, serial_number: '', device_name: '', ip_address: '',
       direction: 'entry', location: '', is_active: true, brand: 'Genérico',
+      door_drive_time_seconds: 5,
     });
   };
 
@@ -296,6 +299,7 @@ export default function AccessControlPage() {
       location: device.location ?? '',
       is_active: device.is_active,
       brand: device.brand ?? 'Genérico',
+      door_drive_time_seconds: device.door_drive_time_seconds ?? 5,
     });
   };
 
@@ -314,6 +318,7 @@ export default function AccessControlPage() {
         direction:     deviceForm.direction,
         location:      deviceForm.location.trim() || null,
         brand:         deviceForm.brand,
+        door_drive_time_seconds: deviceForm.door_drive_time_seconds,
         ...(deviceForm.id ? { is_active: deviceForm.is_active } : {}),
       };
 
@@ -748,6 +753,16 @@ export default function AccessControlPage() {
                   value={deviceForm.location}
                   onChange={(e) => setDeviceForm({ ...deviceForm, location: e.target.value })}
                   placeholder="Entrada principal"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Tiempo de apertura (segundos)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={deviceForm.door_drive_time_seconds}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, door_drive_time_seconds: Number(e.target.value) })}
                 />
               </div>
               {deviceForm.id && (

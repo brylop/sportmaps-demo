@@ -371,7 +371,7 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { schoolId } = req;
     const { data: devices, error } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand, door_drive_time_seconds')
       .eq('school_id', schoolId)
       .order('direction');
 
@@ -399,9 +399,10 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
 router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
-    const { serial_number, device_name, ip_address, direction, location, brand } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, brand, door_drive_time_seconds } = req.body as {
       serial_number: string; device_name: string; ip_address?: string;
       direction: 'entry' | 'exit' | 'both'; location?: string; brand?: string;
+      door_drive_time_seconds?: number;
     };
 
     if (!serial_number || !device_name || !direction) {
@@ -422,8 +423,9 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
         location:       location?.trim() || null,
         is_active:      true,
         brand:          brand?.trim() || 'Genérico',
+        door_drive_time_seconds: door_drive_time_seconds ?? 5,
       })
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
       .single();
 
     if (error) {
@@ -436,6 +438,19 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
     // Invalida el cache al crear un nuevo dispositivo (por si acaso el serial ya estaba cacheado como null)
     invalidateDeviceCache(device.serial_number);
 
+    if (door_drive_time_seconds) {
+      await supabase.from('device_commands').insert({
+        school_id: schoolId,
+        device_id: device.id,
+        command_type: 'set_drive_time',
+        direction: device.direction,
+        status: 'pending',
+        issued_by: req.user.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        metadata: { seconds: door_drive_time_seconds },
+      });
+    }
+
     return res.json({ success: true, device });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al crear dispositivo' });
@@ -447,9 +462,10 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
   try {
     const { schoolId } = req;
     const { id } = req.params;
-    const { serial_number, device_name, ip_address, direction, location, is_active, brand } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds } = req.body as {
       serial_number?: string; device_name?: string; ip_address?: string | null;
       direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean; brand?: string;
+      door_drive_time_seconds?: number;
     };
 
     if (direction && !['entry', 'exit', 'both'].includes(direction)) {
@@ -464,6 +480,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     if (location      !== undefined) updates.location       = location?.trim() || null;
     if (is_active     !== undefined) updates.is_active       = is_active;
     if (brand         !== undefined) updates.brand          = brand.trim();
+    if (door_drive_time_seconds !== undefined) updates.door_drive_time_seconds = door_drive_time_seconds;
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -482,7 +499,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
       .update(updates)
       .eq('id', id)
       .eq('school_id', schoolId) // 🔒 evita editar dispositivos de otra escuela
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
       .maybeSingle();
 
     if (error) {
@@ -500,6 +517,19 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
       invalidateDeviceCache(oldDevice.serial_number);
     }
     invalidateDeviceCache(device.serial_number);
+
+    if (door_drive_time_seconds !== undefined) {
+      await supabase.from('device_commands').insert({
+        school_id: schoolId,
+        device_id: device.id,
+        command_type: 'set_drive_time',
+        direction: device.direction,
+        status: 'pending',
+        issued_by: req.user.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        metadata: { seconds: door_drive_time_seconds },
+      });
+    }
 
     return res.json({ success: true, device });
   } catch (err: any) {

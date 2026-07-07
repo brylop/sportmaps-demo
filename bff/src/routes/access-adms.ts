@@ -534,6 +534,9 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
       // (handshake) y recibe el Stamp dinámico → resetea su puntero de subida.
       return `C:${cmd.cmd_seq}:REBOOT`;
     }
+    if (cmd.command_type === 'set_drive_time') {
+      return `C:${cmd.cmd_seq}:SET OPTIONS Door1Drivertime=${meta.seconds}`;
+    }
     return null;
   }).filter(Boolean).join('\r\n');
 
