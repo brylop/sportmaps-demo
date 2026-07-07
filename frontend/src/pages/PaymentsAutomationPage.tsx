@@ -117,11 +117,13 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   failed: { label: 'Fallido', className: 'bg-gray-100 text-gray-600 border-gray-200' },
   cancelled: { label: 'Cancelado', className: 'bg-gray-100 text-gray-500 border-gray-200' },
   pending: { label: 'Pendiente', className: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+  partial: { label: 'Abono parcial', className: 'bg-blue-50 text-blue-700 border-blue-200' },
 };
 
 interface PaymentTransaction {
   id: string;
   amount: number;
+  amount_paid?: number | null;
   status: string;
   created_at: string;
   payment_method: string | null;
@@ -271,7 +273,7 @@ export default function PaymentsAutomationPage() {
       let query = supabase
         .from('payments')
         .select(`
-          id, amount, status, created_at, payment_method, payment_type,
+          id, amount, amount_paid, status, created_at, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id,
           period_year, period_month,
@@ -320,7 +322,7 @@ export default function PaymentsAutomationPage() {
           : null;
 
       setPayments(((data as any[]) || []).map((p) => ({
-        id: p.id, amount: p.amount, status: p.status, created_at: p.created_at,
+        id: p.id, amount: p.amount, amount_paid: p.amount_paid, status: p.status, created_at: p.created_at,
         payment_method: p.payment_method, payment_type: p.payment_type,
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
@@ -567,7 +569,8 @@ export default function PaymentsAutomationPage() {
     // Aprobables a mano: transferencia reportada (awaiting_approval) o
     // inscripción por QR "por cobrar" (pending sin pasarela). Los de pasarela
     // NO se aprueban a mano — los confirma el webhook automáticamente.
-    return !isGateway && (p.status === 'awaiting_approval' || p.status === 'pending');
+    // 'partial' = abono en curso: sigue en el panel para completar el saldo.
+    return !isGateway && (p.status === 'awaiting_approval' || p.status === 'pending' || p.status === 'partial');
   });
   const pendingPayments = rawPendingPayments.filter(p => {
     if (!pendingSearch) return true;
