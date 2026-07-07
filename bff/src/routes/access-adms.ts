@@ -527,10 +527,10 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
       return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=1`;
     }
     if (cmd.command_type === 'open_door') {
-      // CONTROL DEVICE <AA><BB><CC><DD><EE>: AA=01 (control de salida), BB=01 (puerta 1),
+      // CONTROL DEVICE <AA><BB><CC><DD><EE>: AA=01 (control de salida), BB=00 (todas las puertas/self),
       // CC=01 (relé de cerradura), DD=FF (abrir), EE=05 (duración en segundos).
       // Reemplaza a 'UNLOCK', que no es un comando ADMS válido (causaba Return: -1002 el 100% de las veces).
-      return `C:${cmd.cmd_seq}:CONTROL DEVICE 010101FF05`;
+      return `C:${cmd.cmd_seq}:CONTROL DEVICE 000101FF05`;
     }
     if (cmd.command_type === 'reboot') {
       // Fuerza al F22 a re-registrarse: tras el reboot hace GET /iclock/cdata
