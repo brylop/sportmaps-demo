@@ -178,3 +178,65 @@ export async function emitInvoiceForPayment(paymentId: string): Promise<EmitResu
 
     return { ok: result.status === 'accepted', invoiceId, status: result.status };
 }
+
+/**
+ * autoEmitPendingInvoices — trigger automático. Barre los pagos 'paid' recientes
+ * de escuelas CON facturador activo que aún no tienen factura, y los emite.
+ *
+ * Cubre todos los caminos a 'paid' (checkout, webhook, aprobación manual,
+ * recurrente) sin acoplar la emisión a cada uno. Idempotente por reference_code.
+ * NO reintenta las 'rejected' (requieren corrección manual → /emit) para no
+ * golpear al PAC en bucle. Pensado para correr por cron cada pocos minutos.
+ */
+export async function autoEmitPendingInvoices(
+    opts?: { sinceDays?: number; limit?: number },
+): Promise<{ scanned: number; emitted: number; failed: number; skipped: number }> {
+    const empty = { scanned: 0, emitted: 0, failed: 0, skipped: 0 };
+    const sinceDays = opts?.sinceDays ?? 3;
+    const limit = opts?.limit ?? 100;
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10);
+
+    // Escuelas con facturador activo (opt-in por tener provider configurado).
+    const { data: provs } = await supabase
+        .from('electronic_invoice_providers')
+        .select('owner_id')
+        .eq('owner_type', 'school')
+        .eq('enabled', true);
+    const schoolIds = [...new Set((provs ?? []).map((p) => p.owner_id))];
+    if (schoolIds.length === 0) return empty;
+
+    // Pagos 'paid' recientes de esas escuelas.
+    const { data: payments } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('status', 'paid')
+        .in('school_id', schoolIds)
+        .gte('payment_date', since)
+        .order('payment_date', { ascending: false })
+        .limit(limit);
+    const ids = (payments ?? []).map((p) => p.id);
+    if (ids.length === 0) return empty;
+
+    // Pagos que YA tienen factura (incluye 'rejected' → no auto-reintentar).
+    const { data: existing } = await supabase
+        .from('electronic_invoices')
+        .select('payment_id')
+        .in('payment_id', ids)
+        .in('status', ['accepted', 'sent', 'queued', 'rejected']);
+    const already = new Set((existing ?? []).map((e) => e.payment_id));
+
+    const pending = ids.filter((id) => !already.has(id));
+    let emitted = 0, failed = 0, skipped = 0;
+    for (const id of pending) {
+        try {
+            const r = await emitInvoiceForPayment(id);
+            if (r.ok) emitted++;
+            // Faltas de datos/config son esperables → skip silencioso (no error real).
+            else if (r.error === 'customer_missing_fiscal_data' || r.error === 'no_invoice_provider') skipped++;
+            else failed++;
+        } catch {
+            failed++;
+        }
+    }
+    return { scanned: pending.length, emitted, failed, skipped };
+}

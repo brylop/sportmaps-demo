@@ -5,6 +5,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
+import { autoEmitPendingInvoices } from '../services/invoicing.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -238,4 +239,25 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Conciliacion de pagos registrada para las 03:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Auto-facturación electrónica (trigger automático). Cada 15 min emite la
+    // factura de los pagos 'paid' recientes de escuelas con facturador activo
+    // que aún no tienen documento. Idempotente; cubre todos los caminos a
+    // 'paid' (checkout, webhook, aprobación manual, recurrente).
+    // Kill-switch: DISABLE_AUTO_INVOICING=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        if (process.env.DISABLE_AUTO_INVOICING === 'true') return;
+        try {
+            const r = await autoEmitPendingInvoices();
+            if (r.scanned > 0) {
+                console.log(`[CRON] Auto-facturación: scanned=${r.scanned} emitted=${r.emitted} skipped=${r.skipped} failed=${r.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Auto-facturación electrónica registrada (cada 15 min).');
 }
