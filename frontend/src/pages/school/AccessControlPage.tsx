@@ -65,6 +65,7 @@ interface TurnstileDevice {
   is_active: boolean;
   last_seen_at: string | null;
   brand?: string;
+  door_drive_time_seconds?: number;
 }
 
 interface AssignableMember {
@@ -132,6 +133,14 @@ export default function AccessControlPage() {
 
   // Configurar dispositivos
   const [manageOpen, setManageOpen] = useState(false);
+  const [overdueOpen, setOverdueOpen] = useState(false);
+  const [overdue, setOverdue] = useState<{
+    payment_id: string; name: string; due_date: string; amount: number;
+    zk_pin: number; blocked: boolean;
+  }[]>([]);
+  const [loadingOverdue, setLoadingOverdue] = useState(false);
+  const [actingPin, setActingPin] = useState<number | null>(null);
+
   const [deviceForm, setDeviceForm] = useState<{
     id: string | null; // null = creando nuevo
     serial_number: string;
@@ -141,6 +150,7 @@ export default function AccessControlPage() {
     location: string;
     is_active: boolean;
     brand: string;
+    door_drive_time_seconds: number;
   } | null>(null);
   const [savingDevice, setSavingDevice] = useState(false);
 
@@ -181,12 +191,25 @@ export default function AccessControlPage() {
     }
   }, []);
 
+  const loadOverdue = useCallback(async () => {
+    setLoadingOverdue(true);
+    try {
+      const data = await bffClient.get<{ overdue: any[] }>('/api/v1/access/overdue');
+      setOverdue(data.overdue || []);
+    } catch {
+      // silencioso
+    } finally {
+      setLoadingOverdue(false);
+    }
+  }, []);
+
   // Carga inicial
   useEffect(() => {
     loadStats();
     loadEvents();
     loadDevices();
-  }, [loadStats, loadEvents, loadDevices]);
+    loadOverdue();
+  }, [loadStats, loadEvents, loadDevices, loadOverdue]);
 
   // Auto-refresh cada 15 segundos
   useEffect(() => {
@@ -283,6 +306,7 @@ export default function AccessControlPage() {
     setDeviceForm({
       id: null, serial_number: '', device_name: '', ip_address: '',
       direction: 'entry', location: '', is_active: true, brand: 'Genérico',
+      door_drive_time_seconds: 5,
     });
   };
 
@@ -296,6 +320,7 @@ export default function AccessControlPage() {
       location: device.location ?? '',
       is_active: device.is_active,
       brand: device.brand ?? 'Genérico',
+      door_drive_time_seconds: device.door_drive_time_seconds ?? 5,
     });
   };
 
@@ -314,6 +339,7 @@ export default function AccessControlPage() {
         direction:     deviceForm.direction,
         location:      deviceForm.location.trim() || null,
         brand:         deviceForm.brand,
+        door_drive_time_seconds: deviceForm.door_drive_time_seconds,
         ...(deviceForm.id ? { is_active: deviceForm.is_active } : {}),
       };
 
@@ -338,6 +364,19 @@ export default function AccessControlPage() {
     }
   };
 
+  const handleSetGroup = async (pin: number, group: 1 | 2) => {
+    setActingPin(pin);
+    try {
+      await bffClient.post('/api/v1/access/set-access-group', { pin, group });
+      toast({ title: group === 2 ? 'Acceso bloqueado' : 'Acceso restaurado' });
+      loadOverdue();
+    } catch (err: any) {
+      toast({ title: 'No se pudo actualizar', description: err?.message, variant: 'destructive' });
+    } finally {
+      setActingPin(null);
+    }
+  };
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -351,24 +390,35 @@ export default function AccessControlPage() {
             Torniquetes — actualizado a las {formatTime(lastRefresh.toISOString())}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => { loadStats(); loadEvents(); loadDevices(); }}
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Actualizar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => setManageOpen(true)}
-        >
-          <Settings className="h-3.5 w-3.5" />
-          Configurar
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => { loadStats(); loadEvents(); loadDevices(); loadOverdue(); }}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setManageOpen(true)}
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Configurar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => { setOverdueOpen(true); loadOverdue(); }}
+          >
+            <ShieldX className="h-3.5 w-3.5" />
+            Vencidos {overdue.length > 0 && `(${overdue.length})`}
+          </Button>
+        </div>
       </div>
 
       {/* Estado de dispositivos */}
@@ -575,6 +625,17 @@ export default function AccessControlPage() {
                       Asignar
                     </Button>
                   )}
+                  {!event.access_granted && event.denial_reason === 'payment_overdue' && event.zk_user_id && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs shrink-0"
+                      onClick={() => bffClient.post('/api/v1/access/set-access-group', { pin: event.zk_user_id, group: 2 })
+                        .then(() => toast({ title: 'Bloqueo encolado' }))}
+                    >
+                      Bloquear ahora
+                    </Button>
+                  )}
 
                   {/* Método + hora */}
                   <div className="flex items-center gap-2 shrink-0">
@@ -750,6 +811,16 @@ export default function AccessControlPage() {
                   placeholder="Entrada principal"
                 />
               </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Tiempo de apertura (segundos)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={deviceForm.door_drive_time_seconds}
+                  onChange={(e) => setDeviceForm({ ...deviceForm, door_drive_time_seconds: Number(e.target.value) })}
+                />
+              </div>
               {deviceForm.id && (
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -769,6 +840,54 @@ export default function AccessControlPage() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={overdueOpen} onOpenChange={setOverdueOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Atletas con pago vencido</DialogTitle>
+            <DialogDescription>
+              Solo se muestran los que tienen huella registrada. Bloquear no borra la huella —
+              solo restringe el horario de acceso hasta que se regularice el pago.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {loadingOverdue ? (
+              [1,2,3].map(i => <Skeleton key={i} className="h-14" />)
+            ) : overdue.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Sin pagos vencidos con huella registrada.</p>
+            ) : (
+              overdue.map((o) => (
+                <div key={o.payment_id} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{o.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${o.amount.toLocaleString('es-CO')}
+                    </p>
+                  </div>
+                  {o.blocked ? (
+                    <Button
+                      variant="outline" size="sm" className="h-7 shrink-0 text-xs"
+                      onClick={() => handleSetGroup(o.zk_pin, 1)}
+                      disabled={actingPin === o.zk_pin}
+                    >
+                      {actingPin === o.zk_pin ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : 'Restaurar'}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="destructive" size="sm" className="h-7 shrink-0 text-xs"
+                      onClick={() => handleSetGroup(o.zk_pin, 2)}
+                      disabled={actingPin === o.zk_pin}
+                    >
+                      {actingPin === o.zk_pin ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : 'Bloquear'}
+                    </Button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

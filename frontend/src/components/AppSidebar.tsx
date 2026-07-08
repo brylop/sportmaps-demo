@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { LogOut, ChevronDown } from 'lucide-react';
@@ -40,8 +40,6 @@ export function AppSidebar() {
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
   const { hasVendorProfile, canSellProducts, canSellServices, verificationStatus } = useVendorProfile();
   const { hasAddon } = useEntitlements();
-
-  if (!profile || !user) return null;
 
   // En mobile el sidebar siempre muestra contenido expandido (nunca collapsed)
   const isCollapsed = !isMobile && state === 'collapsed';
@@ -131,6 +129,43 @@ export function AppSidebar() {
     ? [...baseNavigationGroups, getVendorNavGroup({ canSellProducts, canSellServices, verificationStatus })]
     : baseNavigationGroups;
 
+  // ── Acordeon de grupos (roadmap I5) ──────────────────────────────────
+  // Solo un grupo colapsable queda abierto a la vez; el primero ("Principal")
+  // queda fijo. El grupo que contiene la ruta activa se abre solo para que el
+  // usuario siempre sepa en que modulo esta. El estado se persiste por rol.
+  const groupContainsPath = (group: (typeof navigationGroups)[number]) =>
+    group.items.some(item =>
+      (!!item.href && location.pathname.startsWith(item.href)) ||
+      (item.submenu?.some(sub => !!sub.href && location.pathname.startsWith(sub.href)) ?? false)
+    );
+
+  const groupStorageKey = `sportmaps_sidebar_group_${navigationRole}`;
+  const activeGroupTitle = useMemo(() => {
+    const g = navigationGroups.find((grp, idx) => idx !== 0 && groupContainsPath(grp));
+    return g?.title ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigationGroups, location.pathname]);
+
+  const [openGroup, setOpenGroup] = useState<string | null>(() => {
+    try { return localStorage.getItem(groupStorageKey); } catch { return null; }
+  });
+
+  // Al navegar a otro modulo, abre el grupo que lo contiene (acordeon).
+  useEffect(() => {
+    if (activeGroupTitle) setOpenGroup(activeGroupTitle);
+  }, [activeGroupTitle]);
+
+  const toggleGroup = (title: string) => {
+    setOpenGroup(prev => {
+      const next = prev === title ? null : title;
+      try {
+        if (next) localStorage.setItem(groupStorageKey, next);
+        else localStorage.removeItem(groupStorageKey);
+      } catch { /* localStorage no disponible */ }
+      return next;
+    });
+  };
+
   const getUserInitials = () => {
     if (profile.full_name) {
       return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -157,6 +192,8 @@ export function AppSidebar() {
     };
     return roleLabels[roleToShow as string] || roleToShow;
   };
+
+  if (!profile || !user) return null;
 
   return (
     <Sidebar
@@ -198,11 +235,33 @@ export function AppSidebar() {
           </div>
         )}
 
-        {navigationGroups.map((group, groupIdx) => (
+        {navigationGroups.map((group, groupIdx) => {
+          // El primer grupo ("Principal") queda fijo; el resto es acordeon.
+          // En modo icono (collapsed) todo se muestra, sin colapsar.
+          const isPinned = groupIdx === 0;
+          const collapsible = !isPinned && !isCollapsed;
+          const groupOpen = !collapsible || openGroup === group.title;
+          const groupHasActive = groupContainsPath(group);
+          return (
           <SidebarGroup key={groupIdx}>
-            <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
-              {!isCollapsed ? group.title : ''}
-            </SidebarGroupLabel>
+            {collapsible ? (
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.title)}
+                className="flex items-center w-full text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2 py-1 rounded-md hover:text-foreground hover:bg-primary/5 transition-colors cursor-pointer"
+              >
+                <span className="truncate">{group.title}</span>
+                {!groupOpen && groupHasActive && (
+                  <span className="ml-2 h-1.5 w-1.5 rounded-full bg-primary shrink-0 animate-in fade-in" />
+                )}
+                <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform duration-200 ${groupOpen ? '' : '-rotate-90'}`} />
+              </button>
+            ) : (
+              <SidebarGroupLabel className="text-muted-foreground/50 text-[10px] uppercase tracking-widest font-bold px-4 mb-2">
+                {!isCollapsed ? group.title : ''}
+              </SidebarGroupLabel>
+            )}
+            {groupOpen && (
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item, itemIdx) => {
@@ -300,8 +359,10 @@ export function AppSidebar() {
                 })}
               </SidebarMenu>
             </SidebarGroupContent>
+            )}
           </SidebarGroup>
-        ))}
+          );
+        })}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-border/40">

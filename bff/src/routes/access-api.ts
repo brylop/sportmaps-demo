@@ -371,7 +371,7 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
     const { schoolId } = req;
     const { data: devices, error } = await supabase
       .from('turnstile_devices')
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, last_seen_at, brand, door_drive_time_seconds')
       .eq('school_id', schoolId)
       .order('direction');
 
@@ -399,9 +399,10 @@ router.get('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'
 router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
-    const { serial_number, device_name, ip_address, direction, location, brand } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, brand, door_drive_time_seconds } = req.body as {
       serial_number: string; device_name: string; ip_address?: string;
       direction: 'entry' | 'exit' | 'both'; location?: string; brand?: string;
+      door_drive_time_seconds?: number;
     };
 
     if (!serial_number || !device_name || !direction) {
@@ -422,8 +423,9 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
         location:       location?.trim() || null,
         is_active:      true,
         brand:          brand?.trim() || 'Genérico',
+        door_drive_time_seconds: door_drive_time_seconds ?? 5,
       })
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
       .single();
 
     if (error) {
@@ -436,6 +438,19 @@ router.post('/devices', requireAuth, requireRole('owner', 'admin', 'school_admin
     // Invalida el cache al crear un nuevo dispositivo (por si acaso el serial ya estaba cacheado como null)
     invalidateDeviceCache(device.serial_number);
 
+    if (door_drive_time_seconds) {
+      await supabase.from('device_commands').insert({
+        school_id: schoolId,
+        device_id: device.id,
+        command_type: 'set_drive_time',
+        direction: device.direction === 'both' ? 'entry' : device.direction,
+        status: 'pending',
+        issued_by: req.user.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        metadata: { seconds: door_drive_time_seconds },
+      });
+    }
+
     return res.json({ success: true, device });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al crear dispositivo' });
@@ -447,9 +462,10 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
   try {
     const { schoolId } = req;
     const { id } = req.params;
-    const { serial_number, device_name, ip_address, direction, location, is_active, brand } = req.body as {
+    const { serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds } = req.body as {
       serial_number?: string; device_name?: string; ip_address?: string | null;
       direction?: 'entry' | 'exit' | 'both'; location?: string; is_active?: boolean; brand?: string;
+      door_drive_time_seconds?: number;
     };
 
     if (direction && !['entry', 'exit', 'both'].includes(direction)) {
@@ -464,6 +480,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     if (location      !== undefined) updates.location       = location?.trim() || null;
     if (is_active     !== undefined) updates.is_active       = is_active;
     if (brand         !== undefined) updates.brand          = brand.trim();
+    if (door_drive_time_seconds !== undefined) updates.door_drive_time_seconds = door_drive_time_seconds;
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Nada que actualizar' });
@@ -482,7 +499,7 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
       .update(updates)
       .eq('id', id)
       .eq('school_id', schoolId) // 🔒 evita editar dispositivos de otra escuela
-      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand')
+      .select('id, serial_number, device_name, ip_address, direction, location, is_active, brand, door_drive_time_seconds')
       .maybeSingle();
 
     if (error) {
@@ -501,9 +518,125 @@ router.patch('/devices/:id', requireAuth, requireRole('owner', 'admin', 'school_
     }
     invalidateDeviceCache(device.serial_number);
 
+    if (door_drive_time_seconds !== undefined) {
+      await supabase.from('device_commands').insert({
+        school_id: schoolId,
+        device_id: device.id,
+        command_type: 'set_drive_time',
+        direction: device.direction === 'both' ? 'entry' : device.direction,
+        status: 'pending',
+        issued_by: req.user.id,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        metadata: { seconds: door_drive_time_seconds },
+      });
+    }
+
     return res.json({ success: true, device });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al actualizar dispositivo' });
+  }
+});
+
+// ─── POST /api/v1/access/set-access-group ───────────────────────────────────
+router.post('/set-access-group', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+    const { pin, group } = req.body as { pin: number; group: 1 | 2 };
+    if (!pin || ![1, 2].includes(group)) {
+      return res.status(400).json({ error: 'pin y group (1 o 2) son requeridos' });
+    }
+    const { data: devices } = await supabase
+      .from('turnstile_devices').select('id, direction')
+      .eq('school_id', schoolId).eq('is_active', true);
+    if (!devices?.length) return res.status(404).json({ error: 'Sin dispositivos activos' });
+
+    const commands = devices.map((d: any) => ({
+      school_id: schoolId, device_id: d.id, command_type: 'set_group',
+      direction: d.direction === 'both' ? 'entry' : d.direction,
+      status: 'pending', issued_by: req.user.id,
+      expires_at: new Date(Date.now() + 24*60*60*1000).toISOString(),
+      metadata: { pin, group },
+    }));
+    await supabase.from('device_commands').insert(commands);
+    return res.json({ success: true, message: `PIN ${pin} movido a grupo ${group} en ${devices.length} dispositivo(s).` });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al cambiar de grupo de acceso' });
+  }
+});
+
+// ─── GET /api/v1/access/overdue ──────────────────────────────────────────────
+// Lista atletas con pago vencido que tienen huella mapeada, para bloqueo/restauración manual.
+router.get('/overdue', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { schoolId } = req;
+
+    const { data: overduePayments, error } = await supabase
+      .from('payments')
+      .select('id, user_id, unregistered_athlete_id, due_date, amount')
+      .eq('school_id', schoolId)
+      .eq('status', 'overdue');
+    if (error) throw error;
+    if (!overduePayments?.length) return res.json({ overdue: [] });
+
+    const { data: mappings } = await supabase
+      .from('zk_user_mappings')
+      .select('zk_pin, user_id, unregistered_athlete_id')
+      .eq('school_id', schoolId);
+
+    const mapByKey: Record<string, number> = {};
+    (mappings || []).forEach((m: any) => {
+      const key = m.user_id ? `u:${m.user_id}` : `a:${m.unregistered_athlete_id}`;
+      mapByKey[key] = m.zk_pin;
+    });
+
+    const userIds = [...new Set(overduePayments.map((p: any) => p.user_id).filter(Boolean))];
+    const uaIds   = [...new Set(overduePayments.map((p: any) => p.unregistered_athlete_id).filter(Boolean))];
+
+    const profileMap: Record<string, string> = {};
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      (profiles || []).forEach((p: any) => { profileMap[p.id] = p.full_name; });
+    }
+    const uaMap: Record<string, string> = {};
+    if (uaIds.length) {
+      const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', uaIds);
+      (uas || []).forEach((u: any) => { uaMap[u.id] = u.full_name; });
+    }
+
+    // Último comando set_group ejecutado por PIN → estado actual conocido (2 = bloqueado)
+    const { data: lastGroupCmds } = await supabase
+      .from('device_commands')
+      .select('metadata, executed_at')
+      .eq('school_id', schoolId)
+      .eq('command_type', 'set_group')
+      .eq('status', 'executed')
+      .order('executed_at', { ascending: false });
+
+    const pinBlocked: Record<number, boolean> = {};
+    (lastGroupCmds || []).forEach((c: any) => {
+      const pin = c.metadata?.pin;
+      if (pin !== undefined && !(pin in pinBlocked)) pinBlocked[pin] = c.metadata?.group === 2;
+    });
+
+    const overdue = overduePayments
+      .map((p: any) => {
+        const key = p.user_id ? `u:${p.user_id}` : `a:${p.unregistered_athlete_id}`;
+        const pin = mapByKey[key];
+        if (pin === undefined) return null;
+        return {
+          payment_id: p.id,
+          name: p.user_id ? (profileMap[p.user_id] ?? 'Usuario') : (uaMap[p.unregistered_athlete_id] ?? 'Atleta'),
+          due_date: p.due_date,
+          amount: p.amount,
+          zk_pin: pin,
+          blocked: !!pinBlocked[pin],
+        };
+      })
+      .filter(Boolean);
+
+    return res.json({ overdue });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al listar vencidos' });
   }
 });
 

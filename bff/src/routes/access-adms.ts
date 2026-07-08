@@ -513,7 +513,7 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
     const meta = cmd.metadata || {};
 
     if (cmd.command_type === 'enroll_user') {
-      const fields = [`PIN=${meta.pin}`, `Name=${meta.name}`, `Pri=0`];
+      const fields = [`PIN=${meta.pin}`, `Name=${meta.name}`, `Pri=0`, `Grp=1`];
       if (meta.card) fields.push(`Card=${meta.card}`);
       return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO ${fields.join('\t')}`;
     }
@@ -527,12 +527,21 @@ router.get('/iclock/getrequest', async (req: Request, res: Response) => {
       return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tEnable=1`;
     }
     if (cmd.command_type === 'open_door') {
-      return `C:${cmd.cmd_seq}:UNLOCK`;
+      // CONTROL DEVICE <AA><BB><CC><DD><EE>: AA=01 (control de salida), BB=00 (todas las puertas/self),
+      // CC=01 (relé de cerradura), DD=FF (abrir), EE=05 (duración en segundos).
+      // Reemplaza a 'UNLOCK', que no es un comando ADMS válido (causaba Return: -1002 el 100% de las veces).
+      return `C:${cmd.cmd_seq}:CONTROL DEVICE 000101FF05`;
     }
     if (cmd.command_type === 'reboot') {
       // Fuerza al F22 a re-registrarse: tras el reboot hace GET /iclock/cdata
       // (handshake) y recibe el Stamp dinámico → resetea su puntero de subida.
       return `C:${cmd.cmd_seq}:REBOOT`;
+    }
+    if (cmd.command_type === 'set_drive_time') {
+      return `C:${cmd.cmd_seq}:SET OPTIONS Door1Drivertime=${meta.seconds}`;
+    }
+    if (cmd.command_type === 'set_group') {
+      return `C:${cmd.cmd_seq}:DATA UPDATE USERINFO PIN=${meta.pin}\tGrp=${meta.group}`;
     }
     return null;
   }).filter(Boolean).join('\r\n');
