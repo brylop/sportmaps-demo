@@ -66,9 +66,13 @@ export default function ParentCheckoutPage() {
   // como fuente de verdad (monto/concepto reales) y al pagar lo ACTUALIZAMOS en vez
   // de crear uno nuevo → evita el pago duplicado sin comprobante.
   const paymentIdParam = searchParams.get('payment_id');
-  const [qrPayment, setQrPayment] = useState<{ amount: number; concept: string; child_id: string | null; team_id: string | null } | null>(null);
+  const [qrPayment, setQrPayment] = useState<{ amount: number; amount_paid: number | null; concept: string; child_id: string | null; team_id: string | null } | null>(null);
 
   const amount = qrPayment?.amount ?? parseInt(searchParams.get('amount') || '150000');
+  // Abono previo (si el pago ya tiene un parcial). Se cobra solo el SALDO.
+  const amountPaid = Number(qrPayment?.amount_paid) || 0;
+  const balanceDue = Math.max(amount - amountPaid, 0);
+  const chargeAmount = amountPaid > 0 ? balanceDue : amount;
   const concept = qrPayment?.concept ?? (searchParams.get('concept') || 'Mensualidad Octubre 2024');
   const studentName = searchParams.get('student') || 'Juan Vargas';
   const schoolName = searchParams.get('school') || 'Spirit All Stars';
@@ -155,7 +159,7 @@ export default function ParentCheckoutPage() {
   useEffect(() => {
     if (!paymentIdParam) return;
     supabase.from('payments')
-      .select('amount, concept, child_id, team_id')
+      .select('amount, amount_paid, concept, child_id, team_id')
       .eq('id', paymentIdParam)
       .maybeSingle()
       .then(({ data }) => { if (data) setQrPayment(data as any); });
@@ -170,7 +174,7 @@ export default function ParentCheckoutPage() {
       customerName: user?.user_metadata?.full_name || 'Cliente',
       customerEmail: user?.email,
       concept,
-      amount,
+      amount: chargeAmount,
       paymentMethod: paymentMethodUsed || paymentFlow,
       paymentType: 'monthly',
       schoolName,
@@ -288,7 +292,7 @@ export default function ParentCheckoutPage() {
     }
 
     const periodSuffix = periodLabel ? ` — ${periodLabel}` : '';
-    const traceMsg = `Pago de ${formatPrice(amount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}${periodSuffix}`;
+    const traceMsg = `Pago de ${formatPrice(chargeAmount)} por ${studentName}${teamName ? ` (${teamName})` : ''} en ${schoolName}${periodSuffix}`;
 
     if (ownerId) {
       await supabase.rpc('notify_user', {
@@ -323,7 +327,7 @@ export default function ParentCheckoutPage() {
 
       const transaction = await openWompiCheckout({
         reference,
-        amountInCents: amount * 100,
+        amountInCents: chargeAmount * 100,
         customerEmail,
         customerName,
         studentName,
@@ -464,7 +468,7 @@ export default function ParentCheckoutPage() {
             <Badge variant="secondary" className="mb-2">Recibo #{receiptNumber}</Badge>
 
             <div className="bg-muted/50 rounded-xl p-4 mb-6 text-left">
-              <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-green-600">{formatPrice(amount)}</span></div>
+              <div className="flex justify-between font-bold text-lg"><span>Pagado</span><span className="text-green-600">{formatPrice(chargeAmount)}</span></div>
             </div>
 
             <div className="flex gap-3">
@@ -513,12 +517,18 @@ export default function ParentCheckoutPage() {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>
-              {nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : `Total: ${formatPrice(amount)}`}
+              {nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : (amountPaid > 0 ? `Saldo: ${formatPrice(chargeAmount)}` : `Total: ${formatPrice(amount)}`)}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Concepto</span><span>{nextPeriod && isMensualidad ? `Mensualidad ${nextPeriod.label}` : concept}</span></div>
             <div className="flex justify-between mb-2"><span className="text-muted-foreground">Total</span><span className="font-bold">{formatPrice(amount)}</span></div>
+            {amountPaid > 0 && (
+              <>
+                <div className="flex justify-between mb-2"><span className="text-muted-foreground">Ya abonado</span><span className="font-semibold text-emerald-600">− {formatPrice(amountPaid)}</span></div>
+                <div className="flex justify-between mb-2 pt-2 border-t"><span className="text-muted-foreground">Saldo pendiente</span><span className="font-bold text-amber-600">{formatPrice(chargeAmount)}</span></div>
+              </>
+            )}
             <div className="flex justify-between"><span className="text-muted-foreground">Deportista</span><span>{studentName}</span></div>
           </CardContent>
         </Card>
@@ -698,7 +708,7 @@ export default function ParentCheckoutPage() {
                               onUploadComplete={(url) => setManualReceiptUrl(url)}
                               onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
-                              expectedAmount={amount}
+                              expectedAmount={chargeAmount}
                               conceptKind={conceptKind}
                             />
                           </div>
@@ -720,8 +730,8 @@ export default function ParentCheckoutPage() {
                       {processing
                         ? 'Procesando...'
                         : paymentFlow === 'manual'
-                          ? (manualReceiptUrl ? 'Enviar comprobante y registrar pago' : `Registrar pago de ${formatPrice(amount)}`)
-                          : `Pagar ${formatPrice(amount)}`}
+                          ? (manualReceiptUrl ? 'Enviar comprobante y registrar pago' : `Registrar pago de ${formatPrice(chargeAmount)}`)
+                          : `Pagar ${formatPrice(chargeAmount)}`}
                     </Button>
                   </>
                 )}
