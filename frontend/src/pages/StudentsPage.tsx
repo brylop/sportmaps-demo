@@ -32,6 +32,9 @@ export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // IDs de los equipos del coach logueado. null = no es coach de escuela
+  // (admin/owner) → los modales de alta no restringen el selector de equipo.
+  const [coachTeamIds, setCoachTeamIds] = useState<string[] | null>(null);
   const { toast } = useToast();
 
   // Load students on mount and when school changes
@@ -83,6 +86,10 @@ export default function StudentsPage() {
           ...(junctionTeams || []).map(t => t.team_id),
         ])];
 
+        // Restringe el alta de atletas a los equipos del coach, para que el
+        // atleta creado quede inscrito en uno de sus equipos y aparezca aquí.
+        setCoachTeamIds(teamIds);
+
         const { data: athletes } = await supabase
           .from('school_athletes' as any)
           .select('*')
@@ -92,6 +99,7 @@ export default function StudentsPage() {
 
         data = athletes ?? [];
       } else {
+        setCoachTeamIds(null);
         data = await studentsAPI.getSchoolView(schoolId);
       }
       // Map to Student type if needed or adjust state type
@@ -376,6 +384,7 @@ export default function StudentsPage() {
         onClose={() => setShowCreateChildModal(false)}
         onSuccess={loadStudents}
         schoolId={schoolId || ''}
+        coachTeamIds={coachTeamIds}
       />
 
       {/* Registro de Adulto */}
@@ -384,6 +393,7 @@ export default function StudentsPage() {
         onClose={() => setShowCreateAdultModal(false)}
         onSuccess={loadStudents}
         schoolId={schoolId || ''}
+        coachTeamIds={coachTeamIds}
       />
 
       {/* CSV Import Modal */}
