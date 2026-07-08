@@ -375,6 +375,14 @@ router.post('/iclock/cdata', async (req: Request, res: Response) => {
   const deviceId  = device.id;
   const body      = typeof req.body === 'string' ? req.body : '';
 
+  // Diagnóstico temporal: captura CUALQUIER tabla no reconocida (posibles pushes
+  // de plantilla biométrica: FP, BIODATA, FACE, etc.) que hoy caen en el 'OK' silencioso.
+  if (table !== 'ATTLOG' && table !== 'OPERLOG') {
+    console.log(`[ADMS] ⚠️ Tabla no manejada: "${table}" | SN: ${sn} | Body (primeros 500 chars): ${body.substring(0, 500)}`);
+    logDebug(`TABLA NO MANEJADA: "${table}" | SN: ${sn} | Body length: ${body.length} | Preview: ${body.substring(0, 500)}`);
+    logDevice('unhandled_table', { table, bodyPreview: body.substring(0, 500), bodyLength: body.length }, sn, schoolId);
+  }
+
   if (table === 'ATTLOG') {
     const lines    = body.trim().split('\n').filter(Boolean);
 
