@@ -310,13 +310,17 @@ export default function DashboardPage() {
     if (realStats) {
       if (profile.role === 'school' || (profile.role as string) === 'school_admin' || profile.role === 'admin' || (profile.role as any) === 'super_admin' || profile.role === 'coach') {
         if (index === 0) {
-          // Students (Config Index 0)
-          const count = realStats.students_count || 0;
+          // Students (Config Index 0) — tarjeta "Deportistas Activos": contar solo activos, no inactivos
+          const count = realStats.active_students || 0;
+          const total = realStats.students_count || 0;
+          const inactive = Math.max(total - count, 0);
           return {
             ...stat,
             value: count,
-            description: count > 0
-              ? `${count} deportista${count !== 1 ? 's' : ''} registrado${count !== 1 ? 's' : ''}`
+            description: total > 0
+              ? (inactive > 0
+                  ? `${count} activo${count !== 1 ? 's' : ''} · ${inactive} inactivo${inactive !== 1 ? 's' : ''}`
+                  : `${count} deportista${count !== 1 ? 's' : ''} activo${count !== 1 ? 's' : ''}`)
               : 'Agrega tu primer deportista'
           };
         }
