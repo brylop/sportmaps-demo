@@ -66,6 +66,14 @@ interface CreateChildModalProps {
   onClose: () => void;
   onSuccess: () => void;
   schoolId: string;
+  /**
+   * Cuando quien crea es un coach: lista de IDs de SUS equipos.
+   * Si se pasa (aunque sea []), el selector de equipo se restringe a esos
+   * equipos y se vuelve OBLIGATORIO — así el atleta queda inscrito en un
+   * equipo del coach y aparece en su lista "Mis Deportistas".
+   * null/undefined = admin/owner → comportamiento sin restricción (equipo opcional).
+   */
+  coachTeamIds?: string[] | null;
 }
 
 interface ExistingChild {
@@ -247,10 +255,13 @@ function Section({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateChildModalProps) {
+export function CreateChildModal({ open, onClose, onSuccess, schoolId, coachTeamIds = null }: CreateChildModalProps) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [showMedical, setShowMedical] = useState(false);
+
+  // Contexto coach: si coachTeamIds no es null, restringimos y obligamos equipo.
+  const isCoach = coachTeamIds != null;
 
   // Lookup data
   const [teams, setTeams]       = useState<Team[]>([]);
@@ -360,6 +371,16 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
       if (t?.price_monthly) setMonthlyFee(String(t.price_monthly));
     }
   }, [teamId, teams, selectedPlanId]);
+
+  // Equipos que ve el usuario: un coach solo ve sus propios equipos.
+  const visibleTeams = isCoach ? teams.filter(t => coachTeamIds!.includes(t.id)) : teams;
+
+  // Si el coach tiene un único equipo, seleccionarlo automáticamente.
+  useEffect(() => {
+    if (isCoach && visibleTeams.length === 1 && teamId === 'none') {
+      setTeamId(visibleTeams[0].id);
+    }
+  }, [isCoach, visibleTeams, teamId]);
 
   // Cuando se selecciona plan, guardar offering_id y precio
   const handlePlanSelect = (planId: string) => {
@@ -505,6 +526,12 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
       return 'El teléfono del acudiente debe tener mínimo 10 dígitos.';
     if (!startDate) return 'La fecha de inscripción es obligatoria.';
     if (!branchId || branchId === 'none') return 'La sede es obligatoria.';
+    if (isCoach) {
+      if (visibleTeams.length === 0)
+        return 'No tienes equipos asignados. Pide a la escuela que te asigne un equipo antes de registrar deportistas.';
+      if (!teamId || teamId === 'none')
+        return 'Debes asignar el deportista a uno de tus equipos.';
+    }
     const fee = Number(monthlyFee);
     if (monthlyFee && (isNaN(fee) || fee < 10000))
       return 'La mensualidad debe ser ≥ $10.000 COP.';
@@ -882,13 +909,15 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Equipo</Label>
-                    <p className="text-xs text-muted-foreground mb-1">Opcional — independiente del plan</p>
+                    <Label>Equipo{isCoach ? ' *' : ''}</Label>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {isCoach ? 'Obligatorio — se asigna a uno de tus equipos' : 'Opcional — independiente del plan'}
+                    </p>
                     <Select value={teamId} onValueChange={setTeamId}>
-                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={isCoach ? 'Selecciona tu equipo' : 'Sin equipo'} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Sin equipo</SelectItem>
-                        {teams.map(t => (
+                        {!isCoach && <SelectItem value="none">Sin equipo</SelectItem>}
+                        {visibleTeams.map(t => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}
                             {t.sport ? <span className="ml-1 text-xs text-muted-foreground">— {t.sport}</span> : null}
@@ -896,6 +925,11 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                         ))}
                       </SelectContent>
                     </Select>
+                    {isCoach && visibleTeams.length === 0 && (
+                      <p className="text-xs text-destructive mt-1">
+                        No tienes equipos asignados. Pide a la escuela que te asigne uno.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label>Plan</Label>
