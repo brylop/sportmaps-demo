@@ -189,7 +189,9 @@ async function createEnrollment(params: {
 router.post(
   '/create-one',
   requireAuth,
-  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'),
+  // Alta de atletas: SOLO admin/owner de la escuela. Un coach de escuela ya
+  // no crea atletas (decisión de negocio) — solo ve/gestiona los de sus equipos.
+  requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
   async (req: AuthenticatedRequest, res: Response) => {
     const { schoolId } = req;
 
