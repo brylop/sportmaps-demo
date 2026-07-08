@@ -25,7 +25,6 @@ WITH scored AS (
          OR EXISTS (SELECT 1 FROM public.children       c WHERE c.branch_id = b.id)
          OR EXISTS (SELECT 1 FROM public.teams          t WHERE t.branch_id = b.id)
          OR EXISTS (SELECT 1 FROM public.payments       p WHERE p.branch_id = b.id)
-         OR EXISTS (SELECT 1 FROM public.enrollments    e WHERE e.branch_id = b.id)
         ) AS has_ref,
         b.created_at
     FROM public.school_branches b
