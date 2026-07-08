@@ -135,7 +135,7 @@ export default function AccessControlPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [overdueOpen, setOverdueOpen] = useState(false);
   const [overdue, setOverdue] = useState<{
-    payment_id: string; name: string; due_date: string; amount: number;
+    payment_id: string; name: string; due_date: string; amount: string | number;
     zk_pin: number; blocked: boolean;
   }[]>([]);
   const [loadingOverdue, setLoadingOverdue] = useState(false);
@@ -864,7 +864,7 @@ export default function AccessControlPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{o.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${o.amount.toLocaleString('es-CO')}
+                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${Number(o.amount).toLocaleString('es-CO')}
                     </p>
                   </div>
                   {o.blocked ? (
