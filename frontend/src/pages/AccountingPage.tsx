@@ -21,9 +21,11 @@ import {
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw,
 } from 'lucide-react';
+import { InvoicingTab } from '@/components/accounting/InvoicingTab';
 
 interface LedgerRow {
     direction: 'income' | 'expense';
@@ -163,6 +165,12 @@ export default function AccountingPage() {
                 />
             </div>
 
+            <Tabs defaultValue="ledger" className="space-y-6">
+                <TabsList>
+                    <TabsTrigger value="ledger">Libro de caja</TabsTrigger>
+                    <TabsTrigger value="einvoicing">Facturación electrónica</TabsTrigger>
+                </TabsList>
+                <TabsContent value="ledger" className="space-y-6">
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
@@ -249,6 +257,14 @@ export default function AccountingPage() {
                     )}
                 </CardContent>
             </Card>
+                </TabsContent>
+
+                <TabsContent value="einvoicing">
+                    {schoolId
+                        ? <InvoicingTab ownerType="school" ownerId={schoolId} />
+                        : <p className="text-sm text-muted-foreground">Selecciona una escuela para configurar la facturación.</p>}
+                </TabsContent>
+            </Tabs>
         </div>
     );
 }
