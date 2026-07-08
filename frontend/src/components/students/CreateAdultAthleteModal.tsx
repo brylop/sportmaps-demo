@@ -78,13 +78,6 @@ interface CreateAdultAthleteModalProps {
   onClose: () => void;
   onSuccess: () => void;
   schoolId: string;
-  /**
-   * Cuando quien crea es un coach: lista de IDs de SUS equipos. Si se pasa
-   * (aunque sea []), el selector de equipo se restringe a esos equipos y se
-   * vuelve OBLIGATORIO al inscribir, para que el atleta aparezca en la lista
-   * "Mis Deportistas" del coach. null/undefined = admin/owner (sin restricción).
-   */
-  coachTeamIds?: string[] | null;
 }
 
 interface ProrationCardProps {
@@ -243,12 +236,9 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 
-export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, coachTeamIds = null }: CreateAdultAthleteModalProps) {
+export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId }: CreateAdultAthleteModalProps) {
   const { toast } = useToast();
   const [submitting, setSubmitting] = useState(false);
-
-  // Contexto coach: si coachTeamIds no es null, restringimos y obligamos equipo.
-  const isCoach = coachTeamIds != null;
 
   // Lookup data
   const [teams, setTeams]       = useState<Team[]>([]);
@@ -345,16 +335,6 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, co
       setMonthlyFee(''); // Clear if no plan or team is selected
     }
   }, [selectedPlanId, teamId, plans, teams]);
-
-  // Equipos que ve el usuario: un coach solo ve sus propios equipos.
-  const visibleTeams = isCoach ? teams.filter(t => coachTeamIds!.includes(t.id)) : teams;
-
-  // Si el coach tiene un único equipo, seleccionarlo automáticamente.
-  useEffect(() => {
-    if (isCoach && visibleTeams.length === 1 && teamId === 'none') {
-      setTeamId(visibleTeams[0].id);
-    }
-  }, [isCoach, visibleTeams, teamId]);
 
   const handlePlanSelect = (planId: string) => {
     setSelectedPlanId(planId);
@@ -473,16 +453,6 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, co
         toast({ title: 'Sede requerida', description: 'Debes seleccionar una sede para inscribir al atleta.', variant: 'destructive' });
         return;
       }
-      if (isCoach && (!teamId || teamId === 'none')) {
-        toast({
-          title: 'Equipo requerido',
-          description: visibleTeams.length === 0
-            ? 'No tienes equipos asignados. Pide a la escuela que te asigne uno.'
-            : 'Debes asignar el atleta a uno de tus equipos.',
-          variant: 'destructive',
-        });
-        return;
-      }
       setSubmitting(true);
       try {
         const result = await bffClient.post('/api/v1/students/create-one', {
@@ -518,16 +488,6 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, co
     if (!foundProfile) return;
     if (!branchId || branchId === 'none') {
       toast({ title: 'Sede requerida', description: 'Debes seleccionar una sede para inscribir al atleta.', variant: 'destructive' });
-      return;
-    }
-    if (isCoach && (!teamId || teamId === 'none')) {
-      toast({
-        title: 'Equipo requerido',
-        description: visibleTeams.length === 0
-          ? 'No tienes equipos asignados. Pide a la escuela que te asigne uno.'
-          : 'Debes asignar el atleta a uno de tus equipos.',
-        variant: 'destructive',
-      });
       return;
     }
     if (!startDate) {
@@ -785,26 +745,19 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, co
                 {/* Equipo y Plan — INDEPENDIENTES */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Equipo{isCoach ? ' *' : ''}</Label>
-                    <p className="text-xs text-muted-foreground mb-1">
-                      {isCoach ? 'Obligatorio — se asigna a uno de tus equipos' : 'Independiente del plan'}
-                    </p>
+                    <Label>Equipo</Label>
+                    <p className="text-xs text-muted-foreground mb-1">Independiente del plan</p>
                     <Select value={teamId} onValueChange={setTeamId}>
-                      <SelectTrigger><SelectValue placeholder={isCoach ? 'Selecciona tu equipo' : 'Sin equipo'} /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
                       <SelectContent>
-                        {!isCoach && <SelectItem value="none">Sin equipo</SelectItem>}
-                        {visibleTeams.map(t => (
+                        <SelectItem value="none">Sin equipo</SelectItem>
+                        {teams.map(t => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}{t.sport ? ` — ${t.sport}` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {isCoach && visibleTeams.length === 0 && (
-                      <p className="text-xs text-destructive mt-1">
-                        No tienes equipos asignados. Pide a la escuela que te asigne uno.
-                      </p>
-                    )}
                   </div>
                   <div>
                     <Label>Plan</Label>
@@ -924,26 +877,19 @@ export function CreateAdultAthleteModal({ open, onClose, onSuccess, schoolId, co
                 {/* Equipo y Plan — INDEPENDIENTES */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Equipo{isCoach ? ' *' : ''}</Label>
-                    <p className="text-xs text-muted-foreground mb-1">
-                      {isCoach ? 'Obligatorio — se asigna a uno de tus equipos' : 'Independiente del plan'}
-                    </p>
+                    <Label>Equipo</Label>
+                    <p className="text-xs text-muted-foreground mb-1">Independiente del plan</p>
                     <Select value={teamId} onValueChange={setTeamId}>
-                      <SelectTrigger><SelectValue placeholder={isCoach ? 'Selecciona tu equipo' : 'Sin equipo'} /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
                       <SelectContent>
-                        {!isCoach && <SelectItem value="none">Sin equipo</SelectItem>}
-                        {visibleTeams.map(t => (
+                        <SelectItem value="none">Sin equipo</SelectItem>
+                        {teams.map(t => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}{t.sport ? ` — ${t.sport}` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {isCoach && visibleTeams.length === 0 && (
-                      <p className="text-xs text-destructive mt-1">
-                        No tienes equipos asignados. Pide a la escuela que te asigne uno.
-                      </p>
-                    )}
                   </div>
 
                   <div>

@@ -61,6 +61,10 @@ export default function SchoolStudentsManagementPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Alta de deportistas: SOLO admin/owner. El coach de escuela es solo lectura
+  // (ve/gestiona los atletas de sus equipos, pero no los da de alta).
+  const canManageStudents = profile?.role !== 'coach';
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
@@ -586,18 +590,20 @@ export default function SchoolStudentsManagementPage() {
             {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
-            <FileUp className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Importar CSV</span>
-            <span className="sm:hidden">CSV</span>
-          </Button>
-          <Button size="sm" onClick={handleCreateStudent}>
-            <UserPlus className="w-4 h-4 mr-2" />
-            <span className="hidden sm:inline">Agregar Atleta</span>
-            <span className="sm:hidden">Agregar</span>
-          </Button>
-        </div>
+        {canManageStudents && (
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
+              <FileUp className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Importar CSV</span>
+              <span className="sm:hidden">CSV</span>
+            </Button>
+            <Button size="sm" onClick={handleCreateStudent}>
+              <UserPlus className="w-4 h-4 mr-2" />
+              <span className="hidden sm:inline">Agregar Atleta</span>
+              <span className="sm:hidden">Agregar</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -633,7 +639,14 @@ export default function SchoolStudentsManagementPage() {
         <CardContent className="p-0 sm:p-6">
           {filteredStudents.length === 0 ? (
             <div className="p-6">
-              <EmptyState icon={UserPlus} title="No hay atletas" description="Agrega atletas manualmente o importa desde un archivo CSV" actionLabel="+ Agregar Atleta" onAction={handleCreateStudent} />
+              <EmptyState
+                icon={UserPlus}
+                title="No hay atletas"
+                description={canManageStudents
+                  ? "Agrega atletas manualmente o importa desde un archivo CSV"
+                  : "Aún no hay atletas en tus equipos. El alta la realiza la escuela."}
+                {...(canManageStudents ? { actionLabel: "+ Agregar Atleta", onAction: handleCreateStudent } : {})}
+              />
             </div>
           ) : (
             <>

@@ -72,7 +72,8 @@ router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, re
 router.post(
     '/bulk',
     requireAuth,
-    requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school', 'coach', 'staff'),
+    // Carga masiva de atletas: SOLO admin/owner (coach de escuela no crea atletas).
+    requireRole('owner', 'admin', 'super_admin', 'school_admin', 'school'),
     async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { schoolId } = req;
