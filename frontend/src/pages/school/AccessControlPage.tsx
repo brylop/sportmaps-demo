@@ -135,11 +135,19 @@ export default function AccessControlPage() {
   const [manageOpen, setManageOpen] = useState(false);
   const [overdueOpen, setOverdueOpen] = useState(false);
   const [overdue, setOverdue] = useState<{
-    payment_id: string; name: string; due_date: string; amount: number;
+    payment_id: string; name: string; due_date: string; amount: string | number;
     zk_pin: number; blocked: boolean;
   }[]>([]);
   const [loadingOverdue, setLoadingOverdue] = useState(false);
   const [actingPin, setActingPin] = useState<number | null>(null);
+  const [overdueSearch, setOverdueSearch] = useState('');
+
+  // Limpiar buscador cuando se cierra el modal
+  useEffect(() => {
+    if (!overdueOpen) {
+      setOverdueSearch('');
+    }
+  }, [overdueOpen]);
 
   const [deviceForm, setDeviceForm] = useState<{
     id: string | null; // null = creando nuevo
@@ -853,18 +861,37 @@ export default function AccessControlPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          {/* Buscador */}
+          {!loadingOverdue && overdue.length > 0 && (
+            <div className="my-1">
+              <Input
+                placeholder="Buscar por nombre o PIN..."
+                value={overdueSearch}
+                onChange={(e) => setOverdueSearch(e.target.value)}
+                className="h-9"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-96 overflow-y-auto mt-2">
             {loadingOverdue ? (
               [1,2,3].map(i => <Skeleton key={i} className="h-14" />)
             ) : overdue.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">Sin pagos vencidos con huella registrada.</p>
-            ) : (
-              overdue.map((o) => (
+            ) : (() => {
+              const filtered = overdue.filter(o =>
+                o.name.toLowerCase().includes(overdueSearch.toLowerCase()) ||
+                String(o.zk_pin).includes(overdueSearch)
+              );
+              if (filtered.length === 0) {
+                return <p className="py-8 text-center text-sm text-muted-foreground">No se encontraron resultados para "{overdueSearch}".</p>;
+              }
+              return filtered.map((o) => (
                 <div key={o.payment_id} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{o.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${o.amount.toLocaleString('es-CO')}
+                      PIN {o.zk_pin} · Vence {new Date(o.due_date).toLocaleDateString('es-CO')} · ${Number(o.amount).toLocaleString('es-CO')}
                     </p>
                   </div>
                   {o.blocked ? (
@@ -885,8 +912,8 @@ export default function AccessControlPage() {
                     </Button>
                   )}
                 </div>
-              ))
-            )}
+              ));
+            })()}
           </div>
         </DialogContent>
       </Dialog>
