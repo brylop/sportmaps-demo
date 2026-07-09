@@ -298,37 +298,50 @@ router.post('/revoke', requireAuth, requireRole('owner', 'admin', 'school_admin'
 });
 
 // ─── GET /api/v1/access/members ──────────────────────────────────────────────
-// Lista de miembros activos de la escuela para asignar a un PIN (UID del lector).
 router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
     const q = (req.query.q as string || '').trim();
 
-    const { data: members, error } = await supabase
+    // PINs ya asignados — se excluyen para evitar duplicidad
+    const { data: mappings } = await supabase
+      .from('zk_user_mappings')
+      .select('user_id, unregistered_athlete_id')
+      .eq('school_id', schoolId);
+    const mappedUserIds = new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean));
+    const mappedUaIds   = new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean));
+
+    // Miembros con login
+    const { data: members } = await supabase
       .from('school_members')
       .select('profile_id, role')
       .eq('school_id', schoolId)
       .eq('status', 'active')
       .limit(500);
-    if (error) throw error;
+    const memberIds = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))]
+      .filter((id: string) => !mappedUserIds.has(id));
 
-    const ids = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))];
-    if (ids.length === 0) return res.json({ members: [] });
+    let registered: any[] = [];
+    if (memberIds.length) {
+      let pq = supabase.from('profiles').select('id, full_name').in('id', memberIds);
+      if (q) pq = pq.ilike('full_name', `%${q}%`);
+      const { data: profiles } = await pq.limit(50);
+      const roleById: Record<string, string> = {};
+      (members || []).forEach((m: any) => { roleById[m.profile_id] = m.role; });
+      registered = (profiles || []).map((p: any) => ({
+        user_id: p.id, full_name: p.full_name, role: roleById[p.id] ?? null, type: 'registered',
+      }));
+    }
 
-    let pq = supabase.from('profiles').select('id, full_name').in('id', ids);
-    if (q) pq = pq.ilike('full_name', `%${q}%`);
-    const { data: profiles } = await pq.limit(50);
+    // Atletas sin login (la mayoría en tu caso)
+    let uaq = supabase.from('unregistered_athletes').select('id, full_name').eq('school_id', schoolId);
+    if (q) uaq = uaq.ilike('full_name', `%${q}%`);
+    const { data: uas } = await uaq.limit(50);
+    const unregistered = (uas || [])
+      .filter((u: any) => !mappedUaIds.has(u.id))
+      .map((u: any) => ({ unregistered_athlete_id: u.id, full_name: u.full_name, role: null, type: 'unregistered' }));
 
-    const roleByeId: Record<string, string> = {};
-    (members || []).forEach((m: any) => { roleByeId[m.profile_id] = m.role; });
-
-    const result = (profiles || []).map((p: any) => ({
-      user_id:   p.id,
-      full_name: p.full_name,
-      role:      roleByeId[p.id] ?? null,
-    }));
-
-    return res.json({ members: result });
+    return res.json({ members: [...registered, ...unregistered] });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al listar miembros' });
   }
