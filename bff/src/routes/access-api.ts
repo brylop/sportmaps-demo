@@ -69,6 +69,14 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (events || []).map((e: any) => e.unregistered_athlete_id).filter(Boolean)
     )];
 
+    // PINs de eventos "huérfanos" (sin user_id ni unregistered_athlete_id guardados)
+    // que puedan tener un mapeo posterior — resuelve el caso del caché/asignación tardía.
+    const orphanPins = [...new Set(
+      (events || [])
+        .filter((e: any) => !e.user_id && !e.unregistered_athlete_id && e.zk_user_id)
+        .map((e: any) => e.zk_user_id)
+    )];
+
     const profileMap: Record<string, string> = {};
     const uaMap: Record<string, string> = {};
 
@@ -88,6 +96,35 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (uas || []).forEach((ua: any) => { uaMap[ua.id] = ua.full_name; });
     }
 
+    // Resuelve PINs huérfanos contra el mapeo actual
+    const pinNameMap: Record<number, string> = {};
+    if (orphanPins.length) {
+      const { data: mappings } = await supabase
+        .from('zk_user_mappings')
+        .select('zk_pin, user_id, unregistered_athlete_id')
+        .eq('school_id', schoolId)
+        .in('zk_pin', orphanPins);
+
+      const mappedUserIds = [...new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean))];
+      const mappedUaIds   = [...new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean))];
+
+      const extraProfileMap: Record<string, string> = {};
+      if (mappedUserIds.length) {
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', mappedUserIds);
+        (profiles || []).forEach((p: any) => { extraProfileMap[p.id] = p.full_name; });
+      }
+      const extraUaMap: Record<string, string> = {};
+      if (mappedUaIds.length) {
+        const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', mappedUaIds);
+        (uas || []).forEach((u: any) => { extraUaMap[u.id] = u.full_name; });
+      }
+
+      (mappings || []).forEach((m: any) => {
+        const name = m.user_id ? extraProfileMap[m.user_id] : extraUaMap[m.unregistered_athlete_id];
+        if (name) pinNameMap[m.zk_pin] = name;
+      });
+    }
+
     const enriched = (events || []).map((e: any) => ({
       ...e,
       user_name:
@@ -95,7 +132,7 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
           ? profileMap[e.user_id]
           : (e.unregistered_athlete_id && uaMap[e.unregistered_athlete_id])
             ? uaMap[e.unregistered_athlete_id]
-            : `ZK#${e.zk_user_id}`,
+            : (pinNameMap[e.zk_user_id] ?? `ZK#${e.zk_user_id}`),
     }));
 
     return res.json({ events: enriched });
