@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { invalidateDeviceCache } from './access-adms';
+import { invalidateDeviceCache, invalidateMappingCache } from './access-adms';
 import fs from 'fs';
 import path from 'path';
 
@@ -245,6 +245,8 @@ router.post('/enroll', requireAuth, requireRole('owner', 'admin', 'school_admin'
       { onConflict: 'school_id,zk_pin' },
     );
 
+    invalidateMappingCache(pin);
+
     console.log(`[ENROLL] ${name} (PIN:${pin}) encolado en ${devices.length} dispositivo(s)`);
 
     return res.json({
@@ -373,6 +375,8 @@ router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_a
       { onConflict: 'school_id,zk_pin' },
     );
     if (error) throw error;
+
+    invalidateMappingCache(zk_pin);
 
     return res.json({ success: true, message: `PIN ${zk_pin} asignado.` });
   } catch (err: any) {
