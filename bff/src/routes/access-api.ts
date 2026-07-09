@@ -336,10 +336,12 @@ router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'
     // Atletas sin login (la mayoría en tu caso)
     let uaq = supabase.from('unregistered_athletes').select('id, full_name').eq('school_id', schoolId);
     if (q) uaq = uaq.ilike('full_name', `%${q}%`);
-    const { data: uas } = await uaq.limit(50);
+    const { data: uas, error: uaError } = await uaq.limit(50);
+    console.log(`[MEMBERS DEBUG] schoolId=${schoolId} q="${q}" uas_count=${uas?.length ?? 'null'} uaError=${uaError?.message ?? 'none'} mappedUaIds_size=${mappedUaIds.size}`);
     const unregistered = (uas || [])
       .filter((u: any) => !mappedUaIds.has(u.id))
       .map((u: any) => ({ unregistered_athlete_id: u.id, full_name: u.full_name, role: null, type: 'unregistered' }));
+    console.log(`[MEMBERS DEBUG] unregistered después de filtro: ${unregistered.length}`);
 
     return res.json({ members: [...registered, ...unregistered] });
   } catch (err: any) {
