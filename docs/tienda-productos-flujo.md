@@ -66,3 +66,21 @@ escuela (familias) y para vendedores externos — cambia solo la entrega.
   `project_stores_marketplace_state`): motor de inventario (`stock_holds`),
   RPCs de orden, y despliegue/reconciliación del marketplace (hoy parcial en la
   DB del user). No aplicar cambios de esquema mientras el equipo ajusta el módulo.
+
+## Mensajería de tienda (comprador ↔ vendedor) — SEPARADA de la escuela
+Regla dura: el chat de tienda es un dominio aparte de los mensajes internos de
+la escuela (`public.messages`, escuela↔familia) y del canal WhatsApp. Nunca
+comparten tabla ni bandeja.
+
+- **DB (migración `20260711120000_store_messaging.sql`, entregada):**
+  `store_conversations` (vendor_profile_id + buyer_id + order_id?/product_id? +
+  no-leídos por lado) y `store_messages` (hilo). RLS por participantes
+  (`buyer_id = auth.uid()` o `is_store_vendor(vendor_profile_id)`) → el frontend
+  consume directo por supabase (sin BFF). Trigger bump last_message_at +
+  no-leídos del receptor.
+- **UI pendiente:** pestaña "Conversaciones" en el Inbox del vendedor
+  (`VendorInboxPage`, hoy reseñas + preguntas + disputas) y botón "Contactar al
+  vendedor" en la vitrina/ficha de producto y en el detalle del pedido. Un hilo
+  puede colgar de un `order_id` ("conversación sobre el pedido #…").
+- No bloquea vender; va después del checkout. Q&A de producto y reseñas ya
+  cubren la pre-venta.
