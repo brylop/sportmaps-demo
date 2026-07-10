@@ -113,6 +113,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/accounting/suppliers': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Proveedores y cuentas por pagar' },
     '/accounting/payroll': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Nómina' },
     '/accounting/reports': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Estado de resultados' },
+    '/accounting/budget': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:view', description: 'Presupuesto' },
     '/payments-automation': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Automatización de pagos' },
     '/payment-reminders': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], requiredPermission: 'finances:manage', description: 'Recordatorios de pago' },
     '/message-templates': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Plantillas de mensaje' },
