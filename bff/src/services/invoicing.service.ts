@@ -60,7 +60,7 @@ async function runEmission(params: {
     ownerId: string;
     cfg: ProviderConfig;
     request: InvoiceRequest;
-    link: { payment_id?: string; marketplace_transaction_id?: string };
+    link: { payment_id?: string; marketplace_transaction_id?: string; order_id?: string };
 }): Promise<EmitResult> {
     const { ownerType, ownerId, cfg, request, link } = params;
 
@@ -280,6 +280,91 @@ export async function emitInvoiceForMarketplaceTx(txId: string): Promise<EmitRes
     return runEmission({ ownerType, ownerId, cfg, request, link: { marketplace_transaction_id: txId } });
 }
 
+// ─── Origen 3: ventas de tienda (orders / order_items) ────────────────────────
+
+export async function emitInvoiceForOrder(orderId: string): Promise<EmitResult> {
+    const { data: existing } = await supabase
+        .from('electronic_invoices')
+        .select('id, status')
+        .eq('order_id', orderId)
+        .in('status', ['accepted', 'sent'])
+        .maybeSingle();
+    if (existing) return { ok: true, invoiceId: existing.id, status: existing.status };
+
+    const { data: order } = await supabase
+        .from('orders')
+        .select('id, user_id, status')
+        .eq('id', orderId)
+        .maybeSingle();
+    if (!order) return { ok: false, error: 'order_not_found' };
+    if (order.status !== 'paid') return { ok: false, error: 'order_not_paid' };
+    if (!order.user_id) return { ok: false, error: 'order_without_buyer' };
+
+    const { data: oi } = await supabase
+        .from('order_items')
+        .select('quantity, unit_price, product:products(name, school_id, vendor_profile_id)')
+        .eq('order_id', orderId);
+    if (!oi || oi.length === 0) return { ok: false, error: 'order_without_items' };
+
+    // Emisor: tienda escolar (school_id del producto) o vendor externo (vendor_profile_id).
+    let schoolId: string | null = null;
+    let vendorProfileId: string | null = null;
+    type RawLine = { name: string; quantity: number; unitPrice: number };
+    const rawLines: RawLine[] = [];
+    for (const row of oi) {
+        const p: any = Array.isArray((row as any).product) ? (row as any).product[0] : (row as any).product;
+        if (p?.school_id && !schoolId) schoolId = p.school_id;
+        if (p?.vendor_profile_id && !vendorProfileId) vendorProfileId = p.vendor_profile_id;
+        rawLines.push({
+            name: p?.name || 'Producto',
+            quantity: Number((row as any).quantity) || 1,
+            unitPrice: Number((row as any).unit_price) || 0,
+        });
+    }
+
+    let ownerType: OwnerType;
+    let ownerId: string;
+    if (schoolId) {
+        ownerType = 'school';
+        ownerId = schoolId;
+    } else if (vendorProfileId) {
+        ownerType = 'vendor';
+        ownerId = vendorProfileId;
+    } else {
+        return { ok: false, error: 'cannot_resolve_owner' };
+    }
+
+    const cfg = await resolveInvoiceProvider(ownerType, ownerId);
+    if (!cfg) return { ok: false, error: 'no_invoice_provider' };
+
+    const customer = await loadCustomer(order.user_id);
+    if (!customer) return { ok: false, error: 'customer_missing_fiscal_data' };
+
+    // Productos físicos: GRAVADOS por defecto (IVA 19%), a diferencia de
+    // mensualidades/servicios (excluidos). Configurable por el dueño con
+    // products_tax_excluded / products_tax_rate.
+    const isExcluded = cfg.config.products_tax_excluded === true;
+    const taxRate = Number(cfg.config.products_tax_rate ?? 19);
+    const items: InvoiceLine[] = rawLines.map((l, idx) => ({
+        codeReference: `ORD-${orderId.slice(0, 8)}-${idx + 1}`,
+        name: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        taxRate,
+        isExcluded,
+    }));
+
+    const request: InvoiceRequest = {
+        referenceCode: `SM-ORD-${orderId}`,
+        documentType: 'invoice',
+        customer,
+        items,
+        observation: 'Compra tienda SportMaps',
+    };
+
+    return runEmission({ ownerType, ownerId, cfg, request, link: { order_id: orderId } });
+}
+
 // ─── Triggers automáticos (barridos idempotentes) ──────────────────────────────
 
 const AUTO_EMPTY = { scanned: 0, emitted: 0, failed: 0, skipped: 0 };
@@ -362,6 +447,44 @@ export async function autoEmitPendingMarketplaceInvoices(
     for (const id of pending) {
         try {
             const r = await emitInvoiceForMarketplaceTx(id);
+            if (r.ok) emitted++;
+            else if (r.error && SKIP_ERRORS.has(r.error)) skipped++;
+            else failed++;
+        } catch { failed++; }
+    }
+    return { scanned: pending.length, emitted, failed, skipped };
+}
+
+/** Barre órdenes de tienda 'paid' recientes sin factura (escolar y externa). */
+export async function autoEmitPendingOrders(
+    opts?: { sinceDays?: number; limit?: number },
+): Promise<{ scanned: number; emitted: number; failed: number; skipped: number }> {
+    const sinceDays = opts?.sinceDays ?? 3;
+    const limit = opts?.limit ?? 100;
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+
+    const { data: orders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('status', 'paid')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    const ids = (orders ?? []).map((o) => o.id);
+    if (ids.length === 0) return AUTO_EMPTY;
+
+    const { data: existing } = await supabase
+        .from('electronic_invoices')
+        .select('order_id')
+        .in('order_id', ids)
+        .in('status', ['accepted', 'sent', 'queued', 'rejected']);
+    const already = new Set((existing ?? []).map((e) => e.order_id));
+
+    const pending = ids.filter((id) => !already.has(id));
+    let emitted = 0, failed = 0, skipped = 0;
+    for (const id of pending) {
+        try {
+            const r = await emitInvoiceForOrder(id);
             if (r.ok) emitted++;
             else if (r.error && SKIP_ERRORS.has(r.error)) skipped++;
             else failed++;

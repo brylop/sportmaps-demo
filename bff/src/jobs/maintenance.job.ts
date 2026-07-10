@@ -5,7 +5,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -264,6 +264,14 @@ export function initMaintenanceJobs() {
             }
         } catch (err: any) {
             console.error('[CRON] Error en auto-facturación (marketplace):', err?.message || err);
+        }
+        try {
+            const ro = await autoEmitPendingOrders();
+            if (ro.scanned > 0) {
+                console.log(`[CRON] Auto-facturación (tienda/orders): scanned=${ro.scanned} emitted=${ro.emitted} skipped=${ro.skipped} failed=${ro.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación (tienda/orders):', err?.message || err);
         }
     });
 
