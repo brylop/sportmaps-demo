@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-    BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw,
+    BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip,
 } from 'lucide-react';
 import { InvoicingTab } from '@/components/accounting/InvoicingTab';
 
@@ -54,6 +54,28 @@ export default function AccountingPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [dialogOpen, setDialogOpen] = useState(false);
+
+    // Fase 1: abrir comprobantes de un gasto (signed URLs; bucket privado).
+    const viewReceipts = async (expenseId: string) => {
+        const { data, error } = await supabase
+            .from('expense_attachments')
+            .select('storage_path, file_name')
+            .eq('expense_id', expenseId);
+        if (error) {
+            toast({ title: 'Error', description: error.message, variant: 'destructive' });
+            return;
+        }
+        if (!data || data.length === 0) {
+            toast({ title: 'Sin comprobante', description: 'Este gasto no tiene soporte adjunto.' });
+            return;
+        }
+        for (const a of data) {
+            const signed = await supabase.storage
+                .from('accounting-receipts')
+                .createSignedUrl(a.storage_path, 60);
+            if (signed.data?.signedUrl) window.open(signed.data.signedUrl, '_blank');
+        }
+    };
 
     // ─── Libro de caja (ingresos + egresos) ───────────────────────────────────
     const ledgerQuery = useQuery({
@@ -137,7 +159,7 @@ export default function AccountingPage() {
                     disabled={!schoolId}
                     onSubmit={async (payload) => {
                         if (!schoolId || !user?.id) return;
-                        const { error } = await supabase.from('expenses').insert({
+                        const { data: created, error } = await supabase.from('expenses').insert({
                             owner_type: 'school',
                             owner_id: schoolId,
                             school_id: schoolId,
@@ -153,10 +175,30 @@ export default function AccountingPage() {
                             reference: payload.reference || null,
                             notes: payload.notes || null,
                             created_by: user.id,
-                        });
-                        if (error) {
-                            toast({ title: 'Error al registrar el gasto', description: error.message, variant: 'destructive' });
+                        }).select('id').single();
+                        if (error || !created) {
+                            toast({ title: 'Error al registrar el gasto', description: error?.message, variant: 'destructive' });
                             return;
+                        }
+                        // Fase 1: subir comprobante opcional y registrar el puntero.
+                        if (payload.file) {
+                            const safeName = payload.file.name.replace(/[^\w.\-]/g, '_');
+                            const path = `${created.id}/${Date.now()}-${safeName}`;
+                            const up = await supabase.storage
+                                .from('accounting-receipts')
+                                .upload(path, payload.file, { upsert: false });
+                            if (up.error) {
+                                toast({ title: 'Gasto guardado, pero el comprobante falló', description: up.error.message, variant: 'destructive' });
+                            } else {
+                                await supabase.from('expense_attachments').insert({
+                                    expense_id: created.id,
+                                    storage_path: path,
+                                    file_name: payload.file.name,
+                                    mime_type: payload.file.type || null,
+                                    size_bytes: payload.file.size,
+                                    uploaded_by: user.id,
+                                });
+                            }
                         }
                         toast({ title: 'Gasto registrado', description: `${payload.concept} · ${formatCurrency(payload.amount)}` });
                         setDialogOpen(false);
@@ -243,7 +285,19 @@ export default function AccountingPage() {
                                                 <Badge variant="destructive">Egreso</Badge>
                                             )}
                                         </TableCell>
-                                        <TableCell className="font-medium">{r.concept}</TableCell>
+                                        <TableCell className="font-medium">
+                                            {r.concept}
+                                            {r.direction === 'expense' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => viewReceipts(r.id)}
+                                                    title="Ver comprobante"
+                                                    className="ml-2 align-middle text-muted-foreground hover:text-primary"
+                                                >
+                                                    <Paperclip className="inline h-3.5 w-3.5" />
+                                                </button>
+                                            )}
+                                        </TableCell>
                                         <TableCell className="text-xs text-muted-foreground">
                                             {r.source === 'payment' ? 'Pago' : 'Gasto'}
                                         </TableCell>
@@ -279,6 +333,7 @@ interface ExpensePayload {
     payment_method: string;
     reference: string;
     notes: string;
+    file: File | null;
 }
 
 function RegisterExpenseDialog({
@@ -298,6 +353,7 @@ function RegisterExpenseDialog({
     const [paymentMethod, setPaymentMethod] = useState('transfer');
     const [reference, setReference] = useState('');
     const [notes, setNotes] = useState('');
+    const [file, setFile] = useState<File | null>(null);
 
     const mutation = useMutation({
         mutationFn: async () => {
@@ -314,6 +370,7 @@ function RegisterExpenseDialog({
                 payment_method: paymentMethod,
                 reference,
                 notes,
+                file,
             });
         },
         onError: (err: any) => {
@@ -321,7 +378,7 @@ function RegisterExpenseDialog({
         },
         onSuccess: () => {
             setCategoryId(''); setConcept(''); setAmount(''); setExpenseDate(todayIso());
-            setPaymentMethod('transfer'); setReference(''); setNotes('');
+            setPaymentMethod('transfer'); setReference(''); setNotes(''); setFile(null);
         },
     });
 
@@ -385,6 +442,15 @@ function RegisterExpenseDialog({
                     <div className="grid gap-2">
                         <Label>Notas (opcional)</Label>
                         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Comprobante (opcional)</Label>
+                        <Input
+                            type="file"
+                            accept="application/pdf,image/png,image/jpeg,image/webp"
+                            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                        />
+                        {file && <span className="text-xs text-muted-foreground">{file.name}</span>}
                     </div>
                 </div>
                 <DialogFooter>
