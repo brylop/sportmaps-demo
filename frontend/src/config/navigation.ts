@@ -173,7 +173,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
-          { title: 'Pagos', href: '/my-payments', icon: DollarSign }
+          { title: 'Pagos', href: '/my-payments', icon: DollarSign },
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag }
         ]
       },
       {
@@ -271,6 +272,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },
@@ -487,6 +489,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },

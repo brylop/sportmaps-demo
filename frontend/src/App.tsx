@@ -105,6 +105,7 @@ const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisi
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
+const AccountingSuppliersPage = lazy(() => import("./pages/AccountingSuppliersPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
@@ -162,6 +163,7 @@ const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
 const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
 const TiendaPublicaPage = lazy(() => import("./pages/TiendaPublicaPage"));
+const MiTiendaPage = lazy(() => import("./pages/MiTiendaPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
@@ -375,6 +377,12 @@ const App = () => (
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="mi-tienda" element={
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
+                          <MiTiendaPage />
+                        </ProtectedRoute>
+                      } />
+
                       <Route path="children/:id/progress" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <AcademicProgressPage />
@@ -468,6 +476,11 @@ const App = () => (
                       <Route path="accounting" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <AccountingPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/suppliers" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingSuppliersPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payments-automation" element={

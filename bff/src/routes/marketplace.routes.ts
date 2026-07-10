@@ -231,4 +231,43 @@ router.get('/vendor/:slug', optionalAuth, async (req: Request, res: Response) =>
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/marketplace/school-store/:schoolId
+// Resuelve el slug de la tienda (vendor_profile tipo 'school') de una escuela,
+// para que el padre entre a /tienda/:slug desde su app. La tienda de la escuela
+// es el vendor_profile con user_id = schools.owner_id y vendor_type='school'.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/school-store/:schoolId', optionalAuth, async (req: Request, res: Response) => {
+    try {
+        const { schoolId } = req.params;
+
+        const { data: school } = await supabase
+            .from('schools')
+            .select('owner_id, name')
+            .eq('id', schoolId)
+            .maybeSingle();
+        if (!school?.owner_id) {
+            return res.status(404).json({ ok: false, error: 'Escuela no encontrada.' });
+        }
+
+        const { data: vp } = await supabase
+            .from('vendor_profiles')
+            .select('slug, display_name, is_active')
+            .eq('user_id', school.owner_id)
+            .eq('vendor_type', 'school')
+            .maybeSingle();
+
+        return res.json({
+            ok: true,
+            data: {
+                slug: vp?.slug ?? null,
+                published: !!(vp && vp.slug && vp.is_active),
+                display_name: vp?.display_name ?? school.name,
+            },
+        });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: 'Error interno.' });
+    }
+});
+
 export default router;
