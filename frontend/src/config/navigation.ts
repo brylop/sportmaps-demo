@@ -1,6 +1,7 @@
 import {
   Home,
   Calendar,
+  Landmark,
   Users,
   Trophy,
   BarChart3,
@@ -441,6 +442,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Sistema',
         items: [
           { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Parámetros de Nómina', href: '/admin/payroll-config', icon: Landmark },
           { title: 'Notificaciones', href: '/notifications', icon: Bell }
         ]
       }

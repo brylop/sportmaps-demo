@@ -170,6 +170,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/admin/reports': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Reportes admin' },
     '/admin/analytics': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:all', description: 'Analytics admin' },
     '/admin/config': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Configuración admin' },
+    '/admin/payroll-config': { allowedRoles: ['super_admin'], requiredPermission: 'admin:system', description: 'Parámetros de nómina (Colombia)' },
     '/admin/logs': { allowedRoles: ['admin', 'school', 'super_admin'], requiredPermission: 'admin:system', description: 'Logs del sistema' },
 };
 

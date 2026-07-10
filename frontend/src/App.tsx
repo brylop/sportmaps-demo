@@ -147,6 +147,7 @@ const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
+const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
@@ -744,6 +745,11 @@ const App = () => (
                       <Route path="admin/config" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <SettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/payroll-config" element={
+                        <ProtectedRoute allowedRoles={['super_admin']}>
+                          <PayrollConfigPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/logs" element={
