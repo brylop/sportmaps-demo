@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign, Building2, Plus, Check, Calendar, Trophy, Zap, User } from 'lucide-react';
+import { CreditCard, Clock, CheckCircle2, XCircle, AlertCircle, Download, Loader2, DollarSign, Building2, Plus, Check, Calendar, Trophy, Zap, User, FileText } from 'lucide-react';
 import { getAthletePayments, submitAthleteInstallment, getAthleteEnrollments, AthleteEnrollment } from '@/lib/athlete/queries';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -77,6 +77,10 @@ export default function AthletePaymentsPage() {
   // State for selection and modal
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
+  // Facturas electrónicas emitidas, por payment_id (RLS deja al atleta pagador
+  // leer la factura de su propio pago). Muestra el botón "Factura".
+  const [invoiceMap, setInvoiceMap] = useState<Record<string, { number: string | null; public_url: string | null }>>({});
+
   useEffect(() => {
     if (user && profile) {
       if (profile.role !== 'athlete') {
@@ -100,6 +104,23 @@ export default function AthletePaymentsPage() {
       });
       setPayments(result.data || []);
       setSummary(result.summary);
+
+      // Facturas electrónicas emitidas para estos pagos.
+      const ids = (result.data || []).map((p: Payment) => p.id).filter(Boolean);
+      if (ids.length > 0) {
+        const { data: invRows } = await supabase
+          .from('electronic_invoices')
+          .select('payment_id, number, public_url, status')
+          .in('payment_id', ids)
+          .in('status', ['accepted', 'sent']);
+        setInvoiceMap(
+          Object.fromEntries(
+            (invRows || [])
+              .filter((r: any) => r.payment_id)
+              .map((r: any) => [r.payment_id, { number: r.number, public_url: r.public_url }]),
+          ),
+        );
+      }
     } catch (err) {
       console.error('Error fetching payments:', err);
     } finally {
@@ -232,6 +253,7 @@ export default function AthletePaymentsPage() {
       <PaymentCard
         key={payment.id}
         payment={payment}
+        invoice={invoiceMap[payment.id]}
         formatCurrency={formatCurrencyLocal}
         formatDate={formatDate}
         onRefresh={fetchPayments}
@@ -554,7 +576,7 @@ export default function AthletePaymentsPage() {
   );
 }
 
-function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected }: {
+function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected, invoice }: {
   payment: Payment;
   formatCurrency: (val: number) => string;
   formatDate: (dateStr: string) => string;
@@ -562,6 +584,7 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
   onSelect?: (payment: Payment) => void;
   onShowProof?: (url: string, concept: string, amount: number) => void;
   isSelected: boolean;
+  invoice?: { number: string | null; public_url: string | null };
 }) {
   const config = statusConfig[payment.status] || statusConfig.pending;
   const StatusIcon = config.icon;
@@ -666,23 +689,41 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
             )}
           </div>
 
-          {/* Botón comprobante */}
-          {payment.receipt_url && (
-            <Button
-              variant="outline" size="sm"
-              className="h-8 text-xs bg-background shrink-0 self-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onShowProof?.(
-                  payment.receipt_url!, 
-                  payment.program_name || payment.team_name || payment.concept || 'Pago', 
-                  payment.amount
-                );
-              }}
-            >
-              <Download className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">Comprobante</span>
-            </Button>
+          {/* Acciones: factura electrónica + comprobante */}
+          {(invoice?.public_url || payment.receipt_url) && (
+            <div className="flex flex-col gap-2 shrink-0 self-center">
+              {invoice?.public_url && (
+                <Button
+                  variant="outline" size="sm"
+                  className="h-8 text-xs bg-background text-emerald-600 hover:text-emerald-700 border-emerald-200"
+                  title={invoice.number ? `Factura ${invoice.number}` : 'Factura electrónica'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(invoice.public_url!, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  <FileText className="h-3 w-3 mr-1" />
+                  <span className="hidden sm:inline">Factura</span>
+                </Button>
+              )}
+              {payment.receipt_url && (
+                <Button
+                  variant="outline" size="sm"
+                  className="h-8 text-xs bg-background"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowProof?.(
+                      payment.receipt_url!,
+                      payment.program_name || payment.team_name || payment.concept || 'Pago',
+                      payment.amount
+                    );
+                  }}
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  <span className="hidden sm:inline">Comprobante</span>
+                </Button>
+              )}
+            </div>
           )}
 
         </div>
