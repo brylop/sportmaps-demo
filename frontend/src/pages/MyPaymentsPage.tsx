@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  CreditCard, CheckCircle2, XCircle, Clock, Calendar, 
-  Plus, Eye, Loader2, Info, 
-  Percent, Zap, User 
+import {
+  CreditCard, CheckCircle2, XCircle, Clock, Calendar,
+  Plus, Eye, Loader2, Info,
+  Percent, Zap, User, FileText
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
@@ -129,6 +129,11 @@ export default function MyPaymentsPage() {
   const [installments, setInstallments] = useState<any[]>([]);
   const [loadingInstallments, setLoadingInstallments] = useState(false);
 
+  // Facturas electrónicas emitidas, mapeadas por payment_id (para mostrar el
+  // botón "Factura" en los pagos que ya la tienen). La RLS deja al padre leer
+  // la factura de su propio pago.
+  const [invoiceMap, setInvoiceMap] = useState<Record<string, { number: string | null; public_url: string | null }>>({});
+
   useEffect(() => {
     if (user && profile) {
       if (profile.role !== 'parent') {
@@ -243,6 +248,22 @@ export default function MyPaymentsPage() {
         late_fee_amount: periodMap[p.id]?.late_fee_amount ?? p.late_fee_amount ?? null,
       }));
       setTransactions(txns);
+
+      // ── PASO 3.5: Facturas electrónicas emitidas por pago ─────────────────
+      if (paymentIds.length > 0) {
+        const { data: invRows } = await supabase
+          .from('electronic_invoices')
+          .select('payment_id, number, public_url, status')
+          .in('payment_id', paymentIds)
+          .in('status', ['accepted', 'sent']);
+        setInvoiceMap(
+          Object.fromEntries(
+            (invRows || [])
+              .filter((r: any) => r.payment_id)
+              .map((r: any) => [r.payment_id, { number: r.number, public_url: r.public_url }]),
+          ),
+        );
+      }
 
       // ── PASO 4: Enrollments (usando childrenData ya cargado) ──────────────
       if (childrenData && childrenData.length > 0) {
@@ -410,9 +431,10 @@ export default function MyPaymentsPage() {
     );
 
     return list.map(txn => (
-      <PaymentCard 
+      <PaymentCard
         key={txn.id}
         txn={txn}
+        invoice={invoiceMap[txn.id]}
         onSelect={(p) => {
           if (p.status === 'approved') return;
           setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
@@ -741,12 +763,13 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
+  invoice?: { number: string | null; public_url: string | null };
 }) {
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
@@ -820,10 +843,25 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
               </Badge>
 
               <div className="flex items-center gap-2">
+                {invoice?.public_url && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                    title={invoice.number ? `Factura ${invoice.number}` : 'Factura electrónica'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(invoice.public_url!, '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    <FileText className="h-3.5 w-3.5 mr-1" />
+                    FACTURA
+                  </Button>
+                )}
                 {txn.receipt_url && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="h-8 text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                     onClick={(e) => {
                       e.stopPropagation();
