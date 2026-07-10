@@ -161,6 +161,7 @@ const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
 const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
+const TiendaPublicaPage = lazy(() => import("./pages/TiendaPublicaPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
@@ -326,6 +327,7 @@ const App = () => (
                     <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
+                    <Route path="/tienda/:slug" element={<TiendaPublicaPage />} />
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />

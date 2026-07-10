@@ -210,7 +210,7 @@ export default function VendorPublicProfilePage() {
   };
 
   const vendorSlugOrId = vendor?.slug || vendor?.id || '';
-  const publicUrl = vendor ? `${window.location.origin}/vendor/${vendorSlugOrId}` : '';
+  const publicUrl = vendor ? `${window.location.origin}/tienda/${vendorSlugOrId}` : '';
   const isPublished = vendor?.is_active ?? false;
   const exploreCategory = isWellness ? 'services' : isStore ? 'products' : 'all';
   const exploreLabel = isWellness ? 'Profesionales' : isStore ? 'Productos' : 'Explorar';
@@ -487,7 +487,7 @@ export default function VendorPublicProfilePage() {
         open={successOpen}
         onOpenChange={setSuccessOpen}
         publicUrl={publicUrl}
-        viewUrl={`/vendor/${vendorSlugOrId}`}
+        viewUrl={`/tienda/${vendorSlugOrId}`}
         exploreHint={{ label: exploreLabel, href: `/explorar?category=${exploreCategory}` }}
         description={`${form.display_name || 'Tu perfil'} ya es visible para clientes potenciales en SportMaps. Comparte tu link para que te encuentren.`}
       />
