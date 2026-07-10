@@ -14,9 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   User, DollarSign, Phone, Eye, Save, Loader2, Upload, Plus, ExternalLink, Globe,
-  MapPin, Mail, Stethoscope, Package,
+  MapPin, Mail, Stethoscope, Package, Share2,
 } from 'lucide-react';
 import { PublishedSuccessModal } from '@/components/settings/PublishedSuccessModal';
+import { ShareStoreDialog } from '@/components/vendor/ShareStoreDialog';
 import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
 import { useStorage } from '@/hooks/useStorage';
 
@@ -83,6 +84,7 @@ export default function VendorPublicProfilePage() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const [vendor, setVendor] = useState<VendorRow | null>(null);
   const [services, setServices] = useState<ServiceListing[]>([]);
@@ -264,6 +266,11 @@ export default function VendorPublicProfilePage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {isPublished && (
+            <Button variant="outline" onClick={() => setShareOpen(true)} className="gap-1.5">
+              <Share2 className="h-4 w-4" /> Compartir
+            </Button>
+          )}
           <Button
             variant={isPublished ? 'outline' : 'default'}
             onClick={handlePublishToggle}
@@ -482,6 +489,13 @@ export default function VendorPublicProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ShareStoreDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        publicUrl={publicUrl}
+        displayName={form.display_name || vendor.display_name}
+      />
 
       <PublishedSuccessModal
         open={successOpen}
