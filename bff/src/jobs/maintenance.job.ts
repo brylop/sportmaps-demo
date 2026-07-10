@@ -5,7 +5,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
-import { autoEmitPendingInvoices } from '../services/invoicing.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices } from '../services/invoicing.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -252,10 +252,18 @@ export function initMaintenanceJobs() {
         try {
             const r = await autoEmitPendingInvoices();
             if (r.scanned > 0) {
-                console.log(`[CRON] Auto-facturación: scanned=${r.scanned} emitted=${r.emitted} skipped=${r.skipped} failed=${r.failed}`);
+                console.log(`[CRON] Auto-facturación (escuela): scanned=${r.scanned} emitted=${r.emitted} skipped=${r.skipped} failed=${r.failed}`);
             }
         } catch (err: any) {
-            console.error('[CRON] Error en auto-facturación:', err?.message || err);
+            console.error('[CRON] Error en auto-facturación (escuela):', err?.message || err);
+        }
+        try {
+            const rm = await autoEmitPendingMarketplaceInvoices();
+            if (rm.scanned > 0) {
+                console.log(`[CRON] Auto-facturación (marketplace): scanned=${rm.scanned} emitted=${rm.emitted} skipped=${rm.skipped} failed=${rm.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación (marketplace):', err?.message || err);
         }
     });
 
