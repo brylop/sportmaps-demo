@@ -40,6 +40,7 @@ export default function PayrollPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [empOpen, setEmpOpen] = useState(false);
+    const [editEmp, setEditEmp] = useState<Employee | null>(null);
     const [year, setYear] = useState(now.getFullYear());
     const [month, setMonth] = useState(now.getMonth() + 1);
     const [selectedRun, setSelectedRun] = useState<string | null>(null);
@@ -81,7 +82,48 @@ export default function PayrollPage() {
         },
     });
 
+    const printPayslip = () => {
+        const run = runsQuery.data?.find((r) => r.id === selectedRun);
+        const items = itemsQuery.data ?? [];
+        if (!run || items.length === 0) return;
+        const title = `Desprendible ${MONTHS[run.period_month - 1]} ${run.period_year}`;
+        const body = items.map((it) => `
+            <tr>
+              <td>${it.employee_name}</td>
+              <td class="r">${formatCurrency(Number(it.base_salary))}</td>
+              <td class="r">${formatCurrency(Number(it.transport_aid))}</td>
+              <td class="r">-${formatCurrency(Number(it.total_deductions))}</td>
+              <td class="r">${formatCurrency(Number(it.total_employer))}</td>
+              <td class="r">${formatCurrency(Number(it.total_provisions))}</td>
+              <td class="r"><b>${formatCurrency(Number(it.net_pay))}</b></td>
+            </tr>`).join('');
+        const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+            <style>body{font-family:system-ui,Arial,sans-serif;padding:24px;color:#111}
+            h1{font-size:18px;margin:0 0 4px} .sub{color:#666;font-size:12px;margin-bottom:16px}
+            table{width:100%;border-collapse:collapse;font-size:12px}
+            th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left}
+            th{background:#f5f5f5} .r{text-align:right}
+            tfoot td{font-weight:bold;border-top:2px solid #333}</style></head>
+            <body><h1>${title}</h1>
+            <div class="sub">${run.employee_count} empleados · Neto ${formatCurrency(Number(run.total_net))} · Aportes ${formatCurrency(Number(run.total_employer))} · Costo caja ${formatCurrency(Number(run.total_net) + Number(run.total_employer))}</div>
+            <table><thead><tr><th>Empleado</th><th class="r">Salario</th><th class="r">Auxilio</th><th class="r">Deducciones</th><th class="r">Aportes patr.</th><th class="r">Provisiones</th><th class="r">Neto</th></tr></thead>
+            <tbody>${body}</tbody></table></body></html>`;
+        const w = window.open('', '_blank');
+        if (!w) { toast({ title: 'Permite ventanas emergentes para exportar el PDF', variant: 'destructive' }); return; }
+        w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 250);
+    };
+
     const invalidateRuns = () => queryClient.invalidateQueries({ queryKey: ['payroll-runs', schoolId] });
+    const invalidateEmployees = () => queryClient.invalidateQueries({ queryKey: ['payroll-employees', schoolId] });
+
+    const inactivateMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await supabase.from('payroll_employees').update({ active: false }).eq('id', id);
+            if (error) throw error;
+        },
+        onError: (e: any) => toast({ title: 'No se pudo inactivar', description: e.message, variant: 'destructive' }),
+        onSuccess: () => { toast({ title: 'Empleado inactivado' }); invalidateEmployees(); },
+    });
 
     const runMutation = useMutation({
         mutationFn: async () => {
@@ -193,12 +235,17 @@ export default function PayrollPage() {
                                         ? <Badge className="bg-emerald-500 text-white">Pagada</Badge>
                                         : <Badge variant="secondary">Borrador</Badge>}
                                 </CardTitle>
-                                {selected.status !== 'paid' && (
-                                    <Button size="sm" onClick={() => payMutation.mutate(selected.id)} disabled={payMutation.isPending}>
-                                        {payMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
-                                        Pagar (caja {formatCurrency(selected.total_net + selected.total_employer)})
+                                <div className="flex gap-2">
+                                    <Button size="sm" variant="outline" onClick={printPayslip}>
+                                        <FileText className="mr-2 h-4 w-4" /> PDF
                                     </Button>
-                                )}
+                                    {selected.status !== 'paid' && (
+                                        <Button size="sm" onClick={() => payMutation.mutate(selected.id)} disabled={payMutation.isPending}>
+                                            {payMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DollarSign className="mr-2 h-4 w-4" />}
+                                            Pagar (caja {formatCurrency(selected.total_net + selected.total_employer)})
+                                        </Button>
+                                    )}
+                                </div>
                             </CardHeader>
                             <CardContent className="p-0">
                                 {itemsQuery.isLoading ? (
@@ -298,6 +345,7 @@ export default function PayrollPage() {
                                             <TableHead>Contrato</TableHead>
                                             <TableHead className="text-right">Salario</TableHead>
                                             <TableHead>ARL</TableHead>
+                                            <TableHead></TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -308,6 +356,10 @@ export default function PayrollPage() {
                                                 <TableCell className="text-sm capitalize">{e.contract_type.replace('_', ' ')}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(Number(e.base_salary))}</TableCell>
                                                 <TableCell className="text-sm">{e.arl_class ? `Clase ${e.arl_class}` : '—'}</TableCell>
+                                                <TableCell className="text-right whitespace-nowrap">
+                                                    <Button size="sm" variant="ghost" onClick={() => setEditEmp(e)}>Editar</Button>
+                                                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => inactivateMutation.mutate(e.id)} disabled={inactivateMutation.isPending}>Inactivar</Button>
+                                                </TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -318,22 +370,31 @@ export default function PayrollPage() {
                 </TabsContent>
             </Tabs>
 
-            <EmployeeDialog
-                open={empOpen} onOpenChange={setEmpOpen} schoolId={schoolId}
-                onSaved={() => queryClient.invalidateQueries({ queryKey: ['payroll-employees', schoolId] })}
-            />
+            <EmployeeDialog open={empOpen} onOpenChange={setEmpOpen} schoolId={schoolId} onSaved={invalidateEmployees} />
+            {editEmp && (
+                <EmployeeDialog
+                    key={editEmp.id} open employee={editEmp}
+                    onOpenChange={(v) => !v && setEditEmp(null)}
+                    schoolId={schoolId} onSaved={invalidateEmployees}
+                />
+            )}
         </div>
     );
 }
 
-function EmployeeDialog({ open, onOpenChange, schoolId, onSaved }: {
+function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
     open: boolean; onOpenChange: (v: boolean) => void; schoolId: string | undefined; onSaved: () => void;
+    employee?: Employee | null;
 }) {
     const { toast } = useToast();
-    const [name, setName] = useState(''); const [doc, setDoc] = useState('');
-    const [contract, setContract] = useState('indefinido'); const [salary, setSalary] = useState('');
-    const [aux, setAux] = useState(true); const [arl, setArl] = useState('1');
-    const [eps, setEps] = useState(''); const [afp, setAfp] = useState('');
+    const [name, setName] = useState(employee?.full_name ?? '');
+    const [doc, setDoc] = useState(employee?.document_id ?? '');
+    const [contract, setContract] = useState(employee?.contract_type ?? 'indefinido');
+    const [salary, setSalary] = useState(employee ? String(Number(employee.base_salary)) : '');
+    const [aux, setAux] = useState(employee?.transport_aid_eligible ?? true);
+    const [arl, setArl] = useState(String(employee?.arl_class ?? 1));
+    const [eps, setEps] = useState(employee?.eps ?? '');
+    const [afp, setAfp] = useState(employee?.afp ?? '');
 
     const mutation = useMutation({
         mutationFn: async () => {
@@ -342,18 +403,27 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved }: {
             if (!doc.trim()) throw new Error('Documento requerido');
             const sal = Number(salary);
             if (!Number.isFinite(sal) || sal < 0) throw new Error('Salario inválido');
-            const { error } = await supabase.from('payroll_employees').insert({
-                owner_type: 'school', owner_id: schoolId,
+            const payload = {
                 full_name: name.trim(), document_id: doc.trim(), contract_type: contract,
                 base_salary: sal, transport_aid_eligible: aux, arl_class: Number(arl),
                 eps: eps || null, afp: afp || null,
-            });
-            if (error) throw error;
+            };
+            if (employee) {
+                const { error } = await supabase.from('payroll_employees').update(payload).eq('id', employee.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase.from('payroll_employees').insert({
+                    owner_type: 'school', owner_id: schoolId, ...payload,
+                });
+                if (error) throw error;
+            }
         },
         onError: (e: any) => toast({ title: 'No se pudo guardar', description: e.message, variant: 'destructive' }),
         onSuccess: () => {
-            toast({ title: 'Empleado agregado' });
-            setName(''); setDoc(''); setContract('indefinido'); setSalary(''); setAux(true); setArl('1'); setEps(''); setAfp('');
+            toast({ title: employee ? 'Empleado actualizado' : 'Empleado agregado' });
+            if (!employee) {
+                setName(''); setDoc(''); setContract('indefinido'); setSalary(''); setAux(true); setArl('1'); setEps(''); setAfp('');
+            }
             onOpenChange(false); onSaved();
         },
     });
@@ -361,7 +431,7 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved }: {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
-                <DialogHeader><DialogTitle>Nuevo empleado</DialogTitle><DialogDescription>Contrato laboral para la nómina.</DialogDescription></DialogHeader>
+                <DialogHeader><DialogTitle>{employee ? 'Editar empleado' : 'Nuevo empleado'}</DialogTitle><DialogDescription>Contrato laboral para la nómina.</DialogDescription></DialogHeader>
                 <div className="grid gap-4 py-2">
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2"><Label>Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
