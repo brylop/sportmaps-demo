@@ -13,13 +13,16 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { bffClient } from '@/lib/api/bffClient';
+import { supabase } from '@/integrations/supabase/client';
 import { useCart } from '@/contexts/CartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ShoppingBag, Loader2, CheckCircle2, MapPin, Store, Plus } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { StoreChat } from '@/components/store/StoreChat';
+import { ShoppingBag, Loader2, CheckCircle2, MapPin, Store, Plus, MessageCircle } from 'lucide-react';
 
 interface Vendor {
   id: string;
@@ -68,6 +71,7 @@ export default function TiendaPublicaPage() {
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [notFound, setNotFound] = useState(false);
+  const [chatConvId, setChatConvId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +116,37 @@ export default function TiendaPublicaPage() {
       image: p.image_url ?? undefined,
       metadata: { productId: p.id, vendorProfileId: vendor.id, vendorName: vendor.display_name },
     });
+  };
+
+  const contactVendor = async () => {
+    if (!user) {
+      toast({ title: 'Inicia sesión para escribir', description: 'Así el vendedor puede responderte.' });
+      navigate(`/login?redirect=/tienda/${slug}`);
+      return;
+    }
+    if (!vendor) return;
+    // Buscar hilo general existente (sin pedido) o crearlo.
+    const { data: existing } = await supabase
+      .from('store_conversations')
+      .select('id')
+      .eq('buyer_id', user.id)
+      .eq('vendor_profile_id', vendor.id)
+      .is('order_id', null)
+      .maybeSingle();
+    let convId = existing?.id as string | undefined;
+    if (!convId) {
+      const { data: created, error } = await supabase
+        .from('store_conversations')
+        .insert({ buyer_id: user.id, vendor_profile_id: vendor.id })
+        .select('id')
+        .single();
+      if (error) {
+        toast({ title: 'No se pudo abrir el chat', description: error.message, variant: 'destructive' });
+        return;
+      }
+      convId = created.id as string;
+    }
+    setChatConvId(convId);
   };
 
   if (loading) {
@@ -169,6 +204,12 @@ export default function TiendaPublicaPage() {
           </div>
         </div>
 
+        <div className="mb-5">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={contactVendor}>
+            <MessageCircle className="h-4 w-4" /> Contactar al vendedor
+          </Button>
+        </div>
+
         {vendor.description && (
           <p className="text-sm text-muted-foreground mb-6 max-w-2xl">{vendor.description}</p>
         )}
@@ -210,6 +251,16 @@ export default function TiendaPublicaPage() {
           </div>
         )}
       </div>
+
+      {/* Chat con el vendedor */}
+      <Dialog open={!!chatConvId} onOpenChange={(v) => { if (!v) setChatConvId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Escríbele a {vendor.display_name}</DialogTitle>
+          </DialogHeader>
+          {chatConvId && <StoreChat conversationId={chatConvId} viewerRole="buyer" />}
+        </DialogContent>
+      </Dialog>
 
       {/* Barra de carrito */}
       {user && count > 0 && (
