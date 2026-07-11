@@ -844,7 +844,19 @@ export default function PaymentsAutomationPage() {
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
-                            <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
+                            <TableCell className="font-bold text-primary">
+                              {formatCurrency(payment.amount)}
+                              {(payment.status === 'partial' || (Number(payment.amount_paid) || 0) > 0) && (
+                                <div className="mt-0.5 flex flex-col">
+                                  <Badge variant="outline" className="w-fit text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200 py-0 h-5">
+                                    Abono parcial
+                                  </Badge>
+                                  <span className="text-[10px] font-normal text-muted-foreground">
+                                    Abonado {formatCurrency(Number(payment.amount_paid) || 0)} · saldo {formatCurrency(Math.max(payment.amount - (Number(payment.amount_paid) || 0), 0))}
+                                  </span>
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell>
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
