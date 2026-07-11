@@ -630,24 +630,26 @@ export async function createStudentWithPendingPayment(params: {
     const dueDate = new Date();
     dueDate.setMonth(dueDate.getMonth() + 1);
 
-    const { error: paymentError } = await supabase
-        .from('payments')
-        .insert({
-            parent_id: null,
-            child_id: childId,
-            school_id: schoolId,
-            branch_id: params.branchId || null,
-            amount: monthlyFee,
-            concept: `Mensualidad ${params.teamName || 'Equipo'} - ${params.fullName}`,
-            due_date: dueDate.toISOString().split('T')[0],
-            status: 'pending',
-            payment_type: 'monthly',
-        });
+    // Solo se genera cobro si hay cuota (constraint payments_amount_positive: amount > 0)
+    if (monthlyFee && monthlyFee > 0) {
+        const { error: paymentError } = await supabase
+            .from('payments')
+            .insert({
+                parent_id: null,
+                child_id: childId,
+                school_id: schoolId,
+                branch_id: params.branchId || null,
+                amount: monthlyFee,
+                concept: `Mensualidad ${params.teamName || 'Equipo'} - ${params.fullName}`,
+                due_date: dueDate.toISOString().split('T')[0],
+                status: 'pending',
+                // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
+                payment_type: 'one_time',
+            });
 
-    if (paymentError) {
-        console.error('Payment insert failed:', paymentError.message);
-        // We might want to allow this if the student was created, but for consistency let's throw
-        // throw new Error(paymentError.message || 'Error al crear el pago del deportista');
+        if (paymentError) {
+            console.error('Payment insert failed:', paymentError.message);
+        }
     }
 
     // 3. Send Invitation and Record in DB if parent email provided

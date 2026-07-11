@@ -273,11 +273,18 @@ export default function MyPaymentsPage() {
             id,
             child_id,
             team_id,
+            offering_plan_id,
+            monthly_fee,
             school_id,
             status,
             team:teams!enrollments_team_id_fkey (
               name,
               price_monthly
+            ),
+            offering_plans!offering_plan_id (
+              name,
+              price,
+              offerings!offering_id ( name )
             ),
             schools (
               name,
@@ -301,21 +308,28 @@ export default function MyPaymentsPage() {
 
           if (activeEnrollments.length > 0) {
             activeEnrollments.forEach((enroll: any) => {
+              const team = Array.isArray(enroll.team) ? enroll.team[0] : enroll.team;
+              const plan = Array.isArray(enroll.offering_plans) ? enroll.offering_plans[0] : enroll.offering_plans;
+              const offering = plan ? (Array.isArray(plan.offerings) ? plan.offerings[0] : plan.offerings) : null;
+              // La cuota individual (enrollments.monthly_fee, editable por escuela/PT)
+              // manda sobre el precio de catálogo del equipo/plan.
+              const catalogPrice = team?.price_monthly ?? plan?.price ?? 0;
+              const resolvedFee = enroll.monthly_fee ?? catalogPrice;
+              const lineName = team?.name
+                ?? (plan ? (offering?.name ? `${offering.name} — ${plan.name}` : plan.name) : 'Mensualidad Deportista');
               flattened.push({
                 id: enroll.id,
                 child_id: child.id,
                 team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
-                teams: enroll.team ? { 
-                  name: Array.isArray(enroll.team) ? enroll.team[0]?.name : (enroll.team as any).name, 
-                  price_monthly: Array.isArray(enroll.team) ? enroll.team[0]?.price_monthly : (enroll.team as any).price_monthly 
-                } : null,
+                teams: { name: lineName, price_monthly: resolvedFee },
                 schools: enroll.schools,
               });
             });
           }
           else if (child.teams) {
+            const directTeam = Array.isArray(child.teams) ? child.teams[0] : (child.teams as any);
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
@@ -323,8 +337,9 @@ export default function MyPaymentsPage() {
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
-                name: Array.isArray(child.teams) ? child.teams[0]?.name : (child.teams as any)?.name,
-                price_monthly: Array.isArray(child.teams) ? child.teams[0]?.price_monthly : (child.teams as any)?.price_monthly,
+                name: directTeam?.name,
+                // cuota individual del atleta por encima del precio del equipo
+                price_monthly: child.monthly_fee || directTeam?.price_monthly || 0,
               },
               schools: null,
             });

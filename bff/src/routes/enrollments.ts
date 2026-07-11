@@ -191,7 +191,7 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
             .from('enrollments')
             .select(`
                 id, status, sessions_used, secondary_sessions_used,
-                expires_at, start_date, team_id, offering_plan_id, school_id
+                expires_at, start_date, team_id, offering_plan_id, school_id, monthly_fee
             `)
             .eq('status', 'active');
 
@@ -271,8 +271,9 @@ router.get('/my-plan', requireAuth, async (req: AuthenticatedRequest, res: Respo
                 team,
                 school: enrollment.school_id ? schoolMap[enrollment.school_id] : null,
                 offering_id: (offeringPlan?.offering as any)?.id ?? null,
-                // Precio unificado: plan tiene price, equipo tiene price_monthly
-                price_monthly: offeringPlan?.price ?? team?.price_monthly ?? null,
+                // Precio unificado: la cuota individual del atleta (enrollments.monthly_fee,
+                // editable por la escuela) manda sobre el precio de catálogo del plan/equipo.
+                price_monthly: enrollment.monthly_fee ?? offeringPlan?.price ?? team?.price_monthly ?? null,
                 currency: offeringPlan?.currency ?? 'COP',
                 computed: {
                     plan_status: planStatus,

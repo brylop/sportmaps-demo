@@ -380,7 +380,8 @@ router.post(
                             concept: `Mensualidad ${student.team || 'Programa'} - ${student.first_name} ${student.last_name}`.trim(),
                             due_date: dueDate.toISOString().split('T')[0],
                             status: 'pending',
-                            payment_type: 'monthly',
+                            // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
+                            payment_type: 'one_time',
                         });
                     }
                 }
@@ -700,6 +701,9 @@ router.put(
           concept: string,
           startDate: string
         ) => {
+          // El constraint payments_amount_positive exige amount > 0: si no hay
+          // cuota configurada no se genera cobro (evita INSERT fallido silencioso).
+          if (!amount || amount <= 0) return;
           const dueDate = new Date(startDate);
           dueDate.setMonth(dueDate.getMonth() + 1);
           const row: any = {
@@ -708,12 +712,15 @@ router.put(
             concept,
             due_date: dueDate.toISOString().split('T')[0],
             status: 'pending',
-            payment_type: 'monthly',
+            // payment_type solo admite 'one_time' | 'subscription' (constraint
+            // payments_payment_type_check). 'monthly' rompía el INSERT.
+            payment_type: 'one_time',
           };
           if (teamId) row.team_id = teamId;
           if (planId) row.offering_plan_id = planId;
           row[athleteCol] = id;
-          await supabase.from('payments').insert(row);
+          const { error } = await supabase.from('payments').insert(row);
+          if (error) throw new Error(`Error creando cobro pendiente: ${error.message}`);
         };
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
