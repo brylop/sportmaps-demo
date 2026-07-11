@@ -470,13 +470,19 @@ export default function MyPaymentsPage() {
         isSelected={selectedPayment?.paymentId === txn.id}
         onShowProof={handleShowProof}
         onAbonar={(p) => {
-          setSelectedInstallmentPayment({
-            id: p.id,
+          // Abonar reusa el flujo probado: subir comprobante por el saldo →
+          // queda awaiting_approval → la escuela lo registra como abono (suma a
+          // amount_paid). El flujo viejo de payment_installments quedó huérfano
+          // (la escuela no lo revisaba).
+          setSelectedPayment({
+            childId: p.child_id || '',
+            childName: p.child_name || 'Deportista',
+            teamName: p.concept || 'Mensualidad',
+            amount: p.balance_pending || p.amount,
             schoolId: p.school_id || '',
-            balancePending: p.balance_pending || 0,
-            concept: p.concept || ''
+            paymentId: p.id,
           });
-          setShowInstallment(true);
+          setShowCheckout(true);
         }}
       />
     ));
