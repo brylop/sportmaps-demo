@@ -852,18 +852,20 @@ export default function PaymentsAutomationPage() {
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
-                            <TableCell className="font-bold text-primary">
-                              {formatCurrency(payment.amount)}
-                              {(payment.status === 'partial' || (Number(payment.amount_paid) || 0) > 0) && (
-                                <div className="mt-0.5 flex flex-col">
-                                  <Badge variant="outline" className="w-fit text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200 py-0 h-5">
-                                    Abono parcial
-                                  </Badge>
-                                  <span className="text-[10px] font-normal text-muted-foreground">
-                                    Abonado {formatCurrency(Number(payment.amount_paid) || 0)} · saldo {formatCurrency(Math.max(payment.amount - (Number(payment.amount_paid) || 0), 0))}
-                                  </span>
-                                </div>
-                              )}
+                            <TableCell className="font-bold text-primary whitespace-nowrap align-top">
+                              <div className="flex flex-col gap-0.5">
+                                <span>{formatCurrency(payment.amount)}</span>
+                                {(payment.status === 'partial' || (Number(payment.amount_paid) || 0) > 0) && (
+                                  <>
+                                    <Badge variant="outline" className="w-fit whitespace-nowrap text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200 py-0 h-4 px-1.5 font-semibold">
+                                      Abono parcial
+                                    </Badge>
+                                    <span className="text-[10px] font-normal text-muted-foreground whitespace-nowrap">
+                                      Abonado {formatCurrency(Number(payment.amount_paid) || 0)} · saldo {formatCurrency(Math.max(payment.amount - (Number(payment.amount_paid) || 0), 0))}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
