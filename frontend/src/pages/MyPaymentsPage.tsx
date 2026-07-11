@@ -78,8 +78,14 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
   awaiting_approval: { label: 'Por Validar', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
   approved:          { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
   rejected:          { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  failed:            { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  cancelled:         { label: 'Anulado',    icon: XCircle,     color: 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/40 dark:text-zinc-400 dark:border-zinc-700' },
   partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
 };
+
+// Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
+// terminales negativos (rejected/failed/cancelled) NO son pendientes.
+const PENDING_STATES = ['pending', 'awaiting_approval', 'partial'];
 
 interface Subscription {
   id: string;
@@ -428,9 +434,9 @@ export default function MyPaymentsPage() {
   };
 
   const summary = {
-    count_pending: transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval' || t.status === 'partial').length,
+    count_pending: transactions.filter(t => PENDING_STATES.includes(t.status)).length,
     count_approved: transactions.filter(t => t.status === 'approved').length,
-    pending_total: transactions.filter(t => t.status !== 'approved').reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
+    pending_total: transactions.filter(t => PENDING_STATES.includes(t.status)).reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
     count_total: transactions.length
   };
 
@@ -600,7 +606,7 @@ export default function MyPaymentsPage() {
         </TabsContent>
 
         <TabsContent value="pending" className="space-y-4">
-          {renderPaymentList(transactions.filter(t => t.status !== 'approved'))}
+          {renderPaymentList(transactions.filter(t => PENDING_STATES.includes(t.status)))}
         </TabsContent>
       </Tabs>
 

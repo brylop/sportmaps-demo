@@ -448,7 +448,7 @@ export default function PaymentsAutomationPage() {
 
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
-    const newStatus = action === 'approve' ? 'paid' : 'failed';
+    const newStatus = action === 'approve' ? 'paid' : 'rejected';
     const payment = payments.find(p => p.id === paymentId);
 
     try {
