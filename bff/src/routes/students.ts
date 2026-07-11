@@ -50,7 +50,7 @@ async function fetchChildrenByIds(
     ids: string[] | undefined,
 ): Promise<Response> {
     try {
-        const cleanIds = (ids ?? []).filter(Boolean);
+        const cleanIds = [...new Set((ids ?? []).filter(Boolean))];
         if (!cleanIds.length) return res.json([]);
 
         const { schoolId } = req;
@@ -58,14 +58,22 @@ async function fetchChildrenByIds(
             return res.status(400).json({ error: 'schoolId del request es requerido.' });
         }
 
-        const { data, error } = await supabase
-            .from('children')
-            .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
-            .in('id', cleanIds)
-            .eq('school_id', schoolId);
-
-        if (error) throw error;
-        return res.json(data ?? []);
+        // supabase-js traduce .in() a un GET a PostgREST con los IDs en la URL,
+        // así que con lotes grandes la URL de PostgREST también revienta (500).
+        // Chunkeamos para mantener cada query dentro de límites seguros.
+        const CHUNK = 150;
+        const rows: any[] = [];
+        for (let i = 0; i < cleanIds.length; i += CHUNK) {
+            const slice = cleanIds.slice(i, i + CHUNK);
+            const { data, error } = await supabase
+                .from('children')
+                .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
+                .in('id', slice)
+                .eq('school_id', schoolId);
+            if (error) throw error;
+            if (data?.length) rows.push(...data);
+        }
+        return res.json(rows);
     } catch (err: any) {
         req.log?.error({ err }, 'children-by-ids unhandled error');
         return res.status(500).json({ error: 'Error interno del servidor.' });
