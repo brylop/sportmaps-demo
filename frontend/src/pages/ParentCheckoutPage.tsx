@@ -74,8 +74,14 @@ export default function ParentCheckoutPage() {
   const balanceDue = Math.max(amount - amountPaid, 0);
   const chargeAmount = amountPaid > 0 ? balanceDue : amount;
   const concept = qrPayment?.concept ?? (searchParams.get('concept') || 'Mensualidad Octubre 2024');
-  const studentName = searchParams.get('student') || 'Juan Vargas';
-  const schoolName = searchParams.get('school') || 'Spirit All Stars';
+  // Nombres reales: primero lo resuelto del pago (child_id / school_id), luego
+  // los query params. NUNCA placeholders demo hardcodeados.
+  const studentNameParam = searchParams.get('student') || '';
+  const schoolNameParam  = searchParams.get('school')  || '';
+  const [resolvedStudentName, setResolvedStudentName] = useState('');
+  const [resolvedSchoolName,  setResolvedSchoolName]  = useState('');
+  const studentName = resolvedStudentName || studentNameParam || 'Deportista';
+  const schoolName  = resolvedSchoolName  || schoolNameParam  || '';
   const teamName = searchParams.get('team') || '';
   const schoolIdParam = searchParams.get('school_id');
 
@@ -117,8 +123,8 @@ export default function ParentCheckoutPage() {
 
       if (schoolIdParam) {
         query = query.eq('id', schoolIdParam);
-      } else if (schoolName) {
-        query = query.eq('name', schoolName);
+      } else if (schoolNameParam) {
+        query = query.eq('name', schoolNameParam);
       } else {
         setPaymentSettings({ allow_online: false, allow_manual: true });
         setPaymentFlow('manual');
@@ -153,7 +159,7 @@ export default function ParentCheckoutPage() {
     };
 
     fetchSchoolSettings();
-  }, [schoolName, schoolIdParam]);
+  }, [schoolNameParam, schoolIdParam]);
 
   // Cargar el pago preexistente del QR como fuente de verdad (monto/concepto/ids)
   useEffect(() => {
@@ -188,6 +194,29 @@ export default function ParentCheckoutPage() {
 
   const childId = qrPayment?.child_id ?? searchParams.get('child_id');
   const teamId = qrPayment?.team_id ?? searchParams.get('team_id');
+
+  // Resuelve el nombre real del atleta y de la escuela desde el pago, para que
+  // la UI del checkout, la notificación y el recibo no muestren placeholders
+  // demo ("Juan Vargas / Spirit All Stars") cuando la URL no trae esos params.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (childId) {
+        const { data } = await supabase.from('children').select('full_name').eq('id', childId).maybeSingle();
+        if (!cancelled && data?.full_name) setResolvedStudentName(data.full_name);
+      }
+      let sid = schoolIdParam;
+      if (!sid && teamId) {
+        const { data: t } = await supabase.from('teams').select('school_id').eq('id', teamId).maybeSingle();
+        sid = t?.school_id ?? null;
+      }
+      if (sid) {
+        const { data: s } = await supabase.from('schools').select('name').eq('id', sid).maybeSingle();
+        if (!cancelled && s?.name) setResolvedSchoolName(s.name);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [childId, teamId, schoolIdParam]);
 
   // Periodo objetivo (solo si es mensualidad y hay hijo)
   const isMensualidad = /mensual/i.test(concept);

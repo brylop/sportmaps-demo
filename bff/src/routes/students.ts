@@ -40,14 +40,18 @@ const BulkUploadSchema = z.object({
     }).default({ upsert: false }),
 });
 
-// GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// children-by-ids — resuelve nombres/PII de menores por lote.
 // IMPORTANTE: el BFF usa service role (bypassa RLS). Sin el filtro school_id
 // abajo, un admin de la escuela A podía obtener PII medica de niños de la
 // escuela B con sólo saber los UUIDs.
-router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+async function fetchChildrenByIds(
+    req: AuthenticatedRequest,
+    res: Response,
+    ids: string[] | undefined,
+): Promise<Response> {
     try {
-        const ids = (req.query.ids as string)?.split(',').filter(Boolean);
-        if (!ids?.length) return res.json([]);
+        const cleanIds = (ids ?? []).filter(Boolean);
+        if (!cleanIds.length) return res.json([]);
 
         const { schoolId } = req;
         if (!schoolId) {
@@ -57,15 +61,30 @@ router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, re
         const { data, error } = await supabase
             .from('children')
             .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
-            .in('id', ids)
+            .in('id', cleanIds)
             .eq('school_id', schoolId);
 
         if (error) throw error;
-        res.json(data ?? []);
+        return res.json(data ?? []);
     } catch (err: any) {
         req.log?.error({ err }, 'children-by-ids unhandled error');
-        res.status(500).json({ error: 'Error interno del servidor.' });
+        return res.status(500).json({ error: 'Error interno del servidor.' });
     }
+}
+
+// GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// Se mantiene por compatibilidad, pero con lotes grandes la URL supera el
+// límite del proxy (503 / ERR_FAILED). Preferir el POST de abajo.
+router.get('/children-by-ids', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const ids = (req.query.ids as string)?.split(',');
+    return fetchChildrenByIds(req, res, ids);
+});
+
+// POST /api/v1/students/children-by-ids  { ids: uuid[] }
+// Los IDs van en el body para evitar URLs gigantes cuando el lote es grande.
+router.post('/children-by-ids', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : undefined;
+    return fetchChildrenByIds(req, res, ids);
 });
 
 // ── POST /api/v1/students/bulk ────────────────────────────────────────────────

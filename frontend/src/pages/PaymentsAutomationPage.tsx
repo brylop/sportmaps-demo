@@ -390,12 +390,12 @@ export default function PaymentsAutomationPage() {
       const unregIds = rawEnrollments.map(e => e.unregistered_athlete_id).filter(Boolean);
 
       // 1. Atletas (BFF para menores - soporta multi-school)
-      const childrenData = childIds.length > 0 
-        ? await bffClient.get<any[]>(`/api/v1/students/children-by-ids?ids=${childIds.join(',')}`, { 'x-school-id': schoolId })
+      const childrenData = childIds.length > 0
+        ? await bffClient.post<any[]>(`/api/v1/students/children-by-ids`, { ids: childIds }, { 'x-school-id': schoolId })
         : [];
       const childMap = new Map<string, string>((childrenData ?? []).map(c => [c.id, c.full_name]));
 
-      const { data: profiles } = userIds.length > 0 
+      const { data: profiles } = userIds.length > 0
         ? await supabase.from('profiles').select('id, full_name').in('id', userIds)
         : { data: [] };
       const profileMap = new Map<string, string>((profiles ?? []).map(p => [p.id, p.full_name]));
@@ -1621,12 +1621,12 @@ function BackfillPaymentsCard({
       const planIds  = withoutPayment.map(e => e.offering_plan_id).filter(Boolean);
 
       // 1. Atletas (BFF para menores - soporta multi-school)
-      const childrenData = childIds.length > 0 
-        ? await bffClient.get<any[]>(`/api/v1/students/children-by-ids?ids=${childIds.join(',')}`, { 'x-school-id': schoolId })
+      const childrenData = childIds.length > 0
+        ? await bffClient.post<any[]>(`/api/v1/students/children-by-ids`, { ids: childIds }, { 'x-school-id': schoolId })
         : [];
       const childMap = new Map<string, string>((childrenData ?? []).map(c => [c.id, c.full_name]));
 
-      const { data: profiles } = userIds.length > 0 
+      const { data: profiles } = userIds.length > 0
         ? await supabase.from('profiles').select('id, full_name').in('id', userIds)
         : { data: [] };
       const profileMap = new Map<string, string>((profiles ?? []).map(p => [p.id, p.full_name]));
