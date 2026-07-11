@@ -613,8 +613,16 @@ export default function PaymentsAutomationPage() {
   const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
   const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
-  const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
-  const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
+  // Ingresos = dinero realmente recibido: total de pagos saldados + los abonos
+  // (amount_paid) de los parciales. Antes solo contaba 'paid' y dejaba fuera los abonos.
+  const totalRevenue = payments.reduce((acc, p) => {
+    const paid = Number(p.amount_paid) || 0;
+    if (p.status === 'paid' || p.status === 'approved') return acc + (paid > 0 ? paid : p.amount);
+    if (p.status === 'partial') return acc + paid;
+    return acc;
+  }, 0);
+  // Pendiente = saldo por cobrar (para parciales, total - abonado; no el total).
+  const pendingAmount = pendingPayments.reduce((acc, p) => acc + Math.max(p.amount - (Number(p.amount_paid) || 0), 0), 0);
 
   const getPreferredMethod = (athleteId?: string) => {
     if (!athleteId) return { label: 'Pendiente', icon: Clock };
