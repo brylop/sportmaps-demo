@@ -41,6 +41,9 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
   // Discrepancia: el OCR detectó un monto distinto al saldo por cubrir (tol. 0.5%).
   const hasDiscrepancy = ocrAmount != null && remaining > 0 &&
     Math.abs(ocrAmount - remaining) / remaining * 100 > 0.5;
+  // Hay comprobante subido pero el OCR no pudo leer el monto: avisar para que el
+  // admin verifique manualmente y no apruebe el total por defecto sin querer.
+  const hasReceiptNoOcr = !!payment?.receipt_url && ocrAmount == null;
 
   // Al abrir: si el comprobante cubre menos que el saldo, sugerir modo abono con
   // el valor del comprobante como default. Si no, completar el saldo.
@@ -200,6 +203,16 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
             <p className="text-xs text-amber-700 -mt-2">
               El comprobante no coincide con el valor esperado. Verifica antes de aprobar: puedes registrarlo como <strong>abono</strong>.
             </p>
+          )}
+
+          {/* Comprobante subido pero OCR no leyó el monto: no aprobar el total a ciegas */}
+          {hasReceiptNoOcr && (
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">
+                No se pudo leer el monto del comprobante automáticamente. <strong>Abre el comprobante y verifica el valor</strong> antes de aprobar. Si el pago fue menor al esperado, regístralo como <strong>abono</strong> con el monto real.
+              </p>
+            </div>
           )}
 
           {/* Selector Completo / Abono */}

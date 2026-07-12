@@ -3,6 +3,14 @@
 
 echo "🛡️  Zero-Tolerance Gatekeeper: Checking Code Quality..."
 
+# 0. Migraciones: sin colisiones de timestamp nuevas
+echo "🗂️  Checking migration timestamps..."
+node scripts/check-migration-timestamps.mjs
+if [ $? -ne 0 ]; then
+    echo "❌ Migraciones: colisión de timestamp. Renombra a un prefijo único."
+    exit 1
+fi
+
 # 1. Frontend Checks (Next.js)
 if [ -d "frontend" ]; then
     echo "📦 Checking Frontend (Next.js)..."

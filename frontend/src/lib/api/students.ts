@@ -240,8 +240,9 @@ class StudentsAPI {
 
     if (crossIds.length === 0) return ownAthletes ?? [];
 
-    const crossData = await bffClient.get<any[]>(
-      `/api/v1/students/children-by-ids?ids=${crossIds.join(',')}`,
+    const crossData = await bffClient.post<any[]>(
+      `/api/v1/students/children-by-ids`,
+      { ids: crossIds },
       { 'x-school-id': schoolId }
     );
 

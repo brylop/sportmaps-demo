@@ -40,32 +40,59 @@ const BulkUploadSchema = z.object({
     }).default({ upsert: false }),
 });
 
-// GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// children-by-ids — resuelve nombres/PII de menores por lote.
 // IMPORTANTE: el BFF usa service role (bypassa RLS). Sin el filtro school_id
 // abajo, un admin de la escuela A podía obtener PII medica de niños de la
 // escuela B con sólo saber los UUIDs.
-router.get('/children-by-ids', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+async function fetchChildrenByIds(
+    req: AuthenticatedRequest,
+    res: Response,
+    ids: string[] | undefined,
+): Promise<Response> {
     try {
-        const ids = (req.query.ids as string)?.split(',').filter(Boolean);
-        if (!ids?.length) return res.json([]);
+        const cleanIds = [...new Set((ids ?? []).filter(Boolean))];
+        if (!cleanIds.length) return res.json([]);
 
         const { schoolId } = req;
         if (!schoolId) {
             return res.status(400).json({ error: 'schoolId del request es requerido.' });
         }
 
-        const { data, error } = await supabase
-            .from('children')
-            .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
-            .in('id', ids)
-            .eq('school_id', schoolId);
-
-        if (error) throw error;
-        res.json(data ?? []);
+        // supabase-js traduce .in() a un GET a PostgREST con los IDs en la URL,
+        // así que con lotes grandes la URL de PostgREST también revienta (500).
+        // Chunkeamos para mantener cada query dentro de límites seguros.
+        const CHUNK = 150;
+        const rows: any[] = [];
+        for (let i = 0; i < cleanIds.length; i += CHUNK) {
+            const slice = cleanIds.slice(i, i + CHUNK);
+            const { data, error } = await supabase
+                .from('children')
+                .select('id, full_name, date_of_birth, avatar_url, school_id, medical_info')
+                .in('id', slice)
+                .eq('school_id', schoolId);
+            if (error) throw error;
+            if (data?.length) rows.push(...data);
+        }
+        return res.json(rows);
     } catch (err: any) {
         req.log?.error({ err }, 'children-by-ids unhandled error');
-        res.status(500).json({ error: 'Error interno del servidor.' });
+        return res.status(500).json({ error: 'Error interno del servidor.' });
     }
+}
+
+// GET /api/v1/students/children-by-ids?ids=uuid1,uuid2
+// Se mantiene por compatibilidad, pero con lotes grandes la URL supera el
+// límite del proxy (503 / ERR_FAILED). Preferir el POST de abajo.
+router.get('/children-by-ids', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const ids = (req.query.ids as string)?.split(',');
+    return fetchChildrenByIds(req, res, ids);
+});
+
+// POST /api/v1/students/children-by-ids  { ids: uuid[] }
+// Los IDs van en el body para evitar URLs gigantes cuando el lote es grande.
+router.post('/children-by-ids', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : undefined;
+    return fetchChildrenByIds(req, res, ids);
 });
 
 // ── POST /api/v1/students/bulk ────────────────────────────────────────────────
@@ -380,7 +407,8 @@ router.post(
                             concept: `Mensualidad ${student.team || 'Programa'} - ${student.first_name} ${student.last_name}`.trim(),
                             due_date: dueDate.toISOString().split('T')[0],
                             status: 'pending',
-                            payment_type: 'monthly',
+                            // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
+                            payment_type: 'one_time',
                         });
                     }
                 }
@@ -700,6 +728,9 @@ router.put(
           concept: string,
           startDate: string
         ) => {
+          // El constraint payments_amount_positive exige amount > 0: si no hay
+          // cuota configurada no se genera cobro (evita INSERT fallido silencioso).
+          if (!amount || amount <= 0) return;
           const dueDate = new Date(startDate);
           dueDate.setMonth(dueDate.getMonth() + 1);
           const row: any = {
@@ -708,12 +739,15 @@ router.put(
             concept,
             due_date: dueDate.toISOString().split('T')[0],
             status: 'pending',
-            payment_type: 'monthly',
+            // payment_type solo admite 'one_time' | 'subscription' (constraint
+            // payments_payment_type_check). 'monthly' rompía el INSERT.
+            payment_type: 'one_time',
           };
           if (teamId) row.team_id = teamId;
           if (planId) row.offering_plan_id = planId;
           row[athleteCol] = id;
-          await supabase.from('payments').insert(row);
+          const { error } = await supabase.from('payments').insert(row);
+          if (error) throw new Error(`Error creando cobro pendiente: ${error.message}`);
         };
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────

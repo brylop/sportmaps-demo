@@ -135,7 +135,10 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY no configurada');
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    // gemini-2.0-flash devolvía 404 con las keys nuevas de AI Studio; 2.5-flash
+    // es el estable vigente con visión. Configurable por env si cambia.
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const res = await fetch(url, {
         method: 'POST',

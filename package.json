@@ -310,7 +310,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "prepare": "git config core.hooksPath .husky"
+    "prepare": "git config core.hooksPath .husky",
+    "check:migrations": "node scripts/check-migration-timestamps.mjs"
   },
   "repository": {
     "type": "git",

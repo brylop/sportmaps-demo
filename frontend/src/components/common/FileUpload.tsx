@@ -300,6 +300,17 @@ export function FileUpload({
                     </div>
                   )}
 
+                  {/* Aviso de pago parcial: el comprobante es por menos del valor esperado */}
+                  {expectedAmount != null && expectedAmount > 0 &&
+                   validation.extractedAmount != null && validation.extractedAmount < expectedAmount && (
+                    <div className="mt-1 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2 text-xs text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Pago parcial (abono).</strong> Detectamos {new Intl.NumberFormat('es-CO', { style: 'currency', currency: validation.extractedCurrency || 'COP', maximumFractionDigits: 0 }).format(validation.extractedAmount)} de {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(expectedAmount)}. Se registrará como abono; saldo pendiente {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(expectedAmount - validation.extractedAmount)}.
+                      </span>
+                    </div>
+                  )}
+
                 </div>
               </AlertDescription>
             </Alert>

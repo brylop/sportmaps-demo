@@ -5,6 +5,7 @@ import {
     copToCents,
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
+import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -238,4 +239,41 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Conciliacion de pagos registrada para las 03:30 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Auto-facturación electrónica (trigger automático). Cada 15 min emite la
+    // factura de los pagos 'paid' recientes de escuelas con facturador activo
+    // que aún no tienen documento. Idempotente; cubre todos los caminos a
+    // 'paid' (checkout, webhook, aprobación manual, recurrente).
+    // Kill-switch: DISABLE_AUTO_INVOICING=true.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('*/15 * * * *', async () => {
+        if (process.env.DISABLE_AUTO_INVOICING === 'true') return;
+        try {
+            const r = await autoEmitPendingInvoices();
+            if (r.scanned > 0) {
+                console.log(`[CRON] Auto-facturación (escuela): scanned=${r.scanned} emitted=${r.emitted} skipped=${r.skipped} failed=${r.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación (escuela):', err?.message || err);
+        }
+        try {
+            const rm = await autoEmitPendingMarketplaceInvoices();
+            if (rm.scanned > 0) {
+                console.log(`[CRON] Auto-facturación (marketplace): scanned=${rm.scanned} emitted=${rm.emitted} skipped=${rm.skipped} failed=${rm.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación (marketplace):', err?.message || err);
+        }
+        try {
+            const ro = await autoEmitPendingOrders();
+            if (ro.scanned > 0) {
+                console.log(`[CRON] Auto-facturación (tienda/orders): scanned=${ro.scanned} emitted=${ro.emitted} skipped=${ro.skipped} failed=${ro.failed}`);
+            }
+        } catch (err: any) {
+            console.error('[CRON] Error en auto-facturación (tienda/orders):', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Auto-facturación electrónica registrada (cada 15 min).');
 }

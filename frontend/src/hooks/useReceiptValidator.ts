@@ -191,14 +191,19 @@ export function useReceiptValidator() {
                 const diffPct = Math.abs(amount - expected) / expected * 100;
                 amountMatches = diffPct <= AMOUNT_TOLERANCE_PCT;
             }
+            // En 'fixed', un monto MENOR al esperado es un ABONO válido: no se
+            // bloquea, se sube y la escuela lo aprueba como pago parcial. Solo se
+            // bloquea si el comprobante es por MÁS del esperado (posible
+            // comprobante equivocado o reusado de otro pago mayor).
             if (
                 conceptKind === 'fixed' &&
                 typeof amount === 'number' &&
                 expected &&
-                amountMatches === false
+                amountMatches === false &&
+                amount > expected
             ) {
                 errors.push(
-                    `El comprobante es por ${formatCop(amount)} pero el plan cuesta ${formatCop(expected)}.`,
+                    `El comprobante es por ${formatCop(amount)}, mayor al valor esperado ${formatCop(expected)}. Verifica que sea el comprobante correcto.`,
                 );
             }
 

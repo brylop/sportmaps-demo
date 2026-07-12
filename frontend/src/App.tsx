@@ -105,6 +105,10 @@ const AttendanceSupervisionPage = lazy(() => import("./pages/AttendanceSupervisi
 const ResultsOverviewPage = lazy(() => import("./pages/ResultsOverviewPage"));
 const FinancesPage = lazy(() => import("./pages/FinancesPage"));
 const AccountingPage = lazy(() => import("./pages/AccountingPage"));
+const AccountingSuppliersPage = lazy(() => import("./pages/AccountingSuppliersPage"));
+const PayrollPage = lazy(() => import("./pages/PayrollPage"));
+const AccountingReportsPage = lazy(() => import("./pages/AccountingReportsPage"));
+const AccountingBudgetPage = lazy(() => import("./pages/AccountingBudgetPage"));
 const PaymentsAutomationPage = lazy(() => import("./pages/PaymentsAutomationPage"));
 const PaymentRemindersPage = lazy(() => import("./pages/PaymentRemindersPage"));
 const MessageTemplatesPage = lazy(() => import("./pages/MessageTemplatesPage"));
@@ -146,6 +150,7 @@ const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 const AdminClubsPage = lazy(() => import("./pages/AdminClubsPage"));
 const AdminSchoolsGlobalPage = lazy(() => import("./pages/AdminSchoolsGlobalPage"));
 const AdminActivityLogsPage = lazy(() => import("./pages/AdminActivityLogsPage"));
+const PayrollConfigPage = lazy(() => import("./pages/admin/PayrollConfigPage"));
 const AdminAccessLogsPage = lazy(() => import("./pages/AdminAccessLogsPage"));
 const AthleteCardPublicPage = lazy(() => import("./pages/AthleteCardPublicPage"));
 const SchoolCardsAdminPage = lazy(() => import("./pages/SchoolCardsAdminPage"));
@@ -161,6 +166,8 @@ const SchoolJoinQRsPage = lazy(() => import("./pages/SchoolJoinQRsPage"));
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const MarketplaceDetailPage = lazy(() => import("./pages/MarketplaceDetailPage"));
 const ExplorarGlobalPage = lazy(() => import("./pages/ExplorarGlobalPage"));
+const TiendaPublicaPage = lazy(() => import("./pages/TiendaPublicaPage"));
+const MiTiendaPage = lazy(() => import("./pages/MiTiendaPage"));
 const VendorGuard = lazy(() => import("@/components/vendor/VendorGuard").then(module => ({ default: module.VendorGuard })));
 const VendorOnboardingPage = lazy(() => import("./pages/vendor/VendorOnboardingPage"));
 const VendorDashboardPage = lazy(() => import("./pages/vendor/VendorDashboardPage"));
@@ -326,6 +333,7 @@ const App = () => (
                     <Route path="/explorar" element={<ExplorarGlobalPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/marketplace/:type/:id" element={<MarketplaceDetailPage />} />
+                    <Route path="/tienda/:slug" element={<TiendaPublicaPage />} />
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
@@ -373,6 +381,12 @@ const App = () => (
                           <MyPaymentsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="mi-tienda" element={
+                        <ProtectedRoute allowedRoles={['parent', 'athlete']}>
+                          <MiTiendaPage />
+                        </ProtectedRoute>
+                      } />
+
                       <Route path="children/:id/progress" element={
                         <ProtectedRoute allowedRoles={['parent']}>
                           <AcademicProgressPage />
@@ -466,6 +480,26 @@ const App = () => (
                       <Route path="accounting" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
                           <AccountingPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/suppliers" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingSuppliersPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/payroll" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <PayrollPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/reports" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingReportsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="accounting/budget" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                          <AccountingBudgetPage />
                         </ProtectedRoute>
                       } />
                       <Route path="payments-automation" element={
@@ -729,6 +763,11 @@ const App = () => (
                       <Route path="admin/config" element={
                         <ProtectedRoute allowedRoles={['admin', 'school', 'super_admin']}>
                           <SettingsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="admin/payroll-config" element={
+                        <ProtectedRoute allowedRoles={['super_admin']}>
+                          <PayrollConfigPage />
                         </ProtectedRoute>
                       } />
                       <Route path="admin/logs" element={

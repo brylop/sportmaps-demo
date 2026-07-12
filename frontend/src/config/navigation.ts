@@ -1,6 +1,8 @@
 import {
   Home,
   Calendar,
+  Landmark,
+  PieChart,
   Users,
   Trophy,
   BarChart3,
@@ -173,7 +175,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Progreso Deportivo', href: '/academic-progress', icon: BookOpen },
           { title: 'Asistencias', href: '/parent-attendance', icon: BarChart3 },
-          { title: 'Pagos', href: '/my-payments', icon: DollarSign }
+          { title: 'Pagos', href: '/my-payments', icon: DollarSign },
+          { title: 'Tienda', href: '/mi-tienda', icon: ShoppingBag }
         ]
       },
       {
@@ -271,6 +274,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },
@@ -439,6 +446,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Sistema',
         items: [
           { title: 'Configuración', href: '/admin/config', icon: Settings },
+          { title: 'Parámetros de Nómina', href: '/admin/payroll-config', icon: Landmark },
           { title: 'Notificaciones', href: '/notifications', icon: Bell }
         ]
       }
@@ -487,6 +495,10 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             submenu: [
               { title: 'Finanzas', href: '/finances', icon: DollarSign },
               { title: 'Contabilidad', href: '/accounting', icon: BookOpen },
+              { title: 'Proveedores', href: '/accounting/suppliers', icon: Truck },
+              { title: 'Nómina', href: '/accounting/payroll', icon: Users },
+              { title: 'Estado de resultados', href: '/accounting/reports', icon: BarChart3 },
+              { title: 'Presupuesto', href: '/accounting/budget', icon: PieChart },
               { title: 'Reportes', href: '/school-reports', icon: FileText },
             ],
           },

@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Inbox, MessageSquare, HelpCircle, AlertTriangle, Loader2, ExternalLink } from 'lucide-react';
+import { Inbox, MessageSquare, HelpCircle, AlertTriangle, Loader2, ExternalLink, MessageCircle } from 'lucide-react';
+import { StoreConversationsPanel } from '@/components/store/StoreConversationsPanel';
 
 export default function VendorInboxPage() {
     const { data, isLoading } = useVendorInbox();
@@ -74,7 +75,15 @@ export default function VendorInboxPage() {
                         <HelpCircle className="h-4 w-4" />
                         Preguntas {questionsCount > 0 && <Badge variant="destructive" className="h-4 text-[10px] px-1.5">{questionsCount}</Badge>}
                     </TabsTrigger>
+                    <TabsTrigger value="conversaciones" className="gap-1.5">
+                        <MessageCircle className="h-4 w-4" />
+                        Conversaciones
+                    </TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="conversaciones" className="mt-4">
+                    <StoreConversationsPanel />
+                </TabsContent>
 
                 {/* Reviews tab */}
                 <TabsContent value="reviews" className="space-y-3 mt-4">

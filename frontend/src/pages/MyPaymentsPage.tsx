@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  CreditCard, CheckCircle2, XCircle, Clock, Calendar, 
-  Plus, Eye, Loader2, Info, 
-  Percent, Zap, User 
+import {
+  CreditCard, CheckCircle2, XCircle, Clock, Calendar,
+  Plus, Eye, Loader2, Info,
+  Percent, Zap, User, FileText
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
@@ -78,8 +78,14 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
   awaiting_approval: { label: 'Por Validar', icon: Loader2,     color: 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
   approved:          { label: 'Aprobado',   icon: CheckCircle2, color: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' },
   rejected:          { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  failed:            { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
+  cancelled:         { label: 'Anulado',    icon: XCircle,     color: 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/40 dark:text-zinc-400 dark:border-zinc-700' },
   partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
 };
+
+// Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
+// terminales negativos (rejected/failed/cancelled) NO son pendientes.
+const PENDING_STATES = ['pending', 'awaiting_approval', 'partial'];
 
 interface Subscription {
   id: string;
@@ -128,6 +134,11 @@ export default function MyPaymentsPage() {
 
   const [installments, setInstallments] = useState<any[]>([]);
   const [loadingInstallments, setLoadingInstallments] = useState(false);
+
+  // Facturas electrónicas emitidas, mapeadas por payment_id (para mostrar el
+  // botón "Factura" en los pagos que ya la tienen). La RLS deja al padre leer
+  // la factura de su propio pago.
+  const [invoiceMap, setInvoiceMap] = useState<Record<string, { number: string | null; public_url: string | null }>>({});
 
   useEffect(() => {
     if (user && profile) {
@@ -244,6 +255,22 @@ export default function MyPaymentsPage() {
       }));
       setTransactions(txns);
 
+      // ── PASO 3.5: Facturas electrónicas emitidas por pago ─────────────────
+      if (paymentIds.length > 0) {
+        const { data: invRows } = await supabase
+          .from('electronic_invoices')
+          .select('payment_id, number, public_url, status')
+          .in('payment_id', paymentIds)
+          .in('status', ['accepted', 'sent']);
+        setInvoiceMap(
+          Object.fromEntries(
+            (invRows || [])
+              .filter((r: any) => r.payment_id)
+              .map((r: any) => [r.payment_id, { number: r.number, public_url: r.public_url }]),
+          ),
+        );
+      }
+
       // ── PASO 4: Enrollments (usando childrenData ya cargado) ──────────────
       if (childrenData && childrenData.length > 0) {
         const { data: enrollData, error: enrollError } = await supabase
@@ -252,11 +279,18 @@ export default function MyPaymentsPage() {
             id,
             child_id,
             team_id,
+            offering_plan_id,
+            monthly_fee,
             school_id,
             status,
             team:teams!enrollments_team_id_fkey (
               name,
               price_monthly
+            ),
+            offering_plans!offering_plan_id (
+              name,
+              price,
+              offerings!offering_id ( name )
             ),
             schools (
               name,
@@ -280,21 +314,28 @@ export default function MyPaymentsPage() {
 
           if (activeEnrollments.length > 0) {
             activeEnrollments.forEach((enroll: any) => {
+              const team = Array.isArray(enroll.team) ? enroll.team[0] : enroll.team;
+              const plan = Array.isArray(enroll.offering_plans) ? enroll.offering_plans[0] : enroll.offering_plans;
+              const offering = plan ? (Array.isArray(plan.offerings) ? plan.offerings[0] : plan.offerings) : null;
+              // La cuota individual (enrollments.monthly_fee, editable por escuela/PT)
+              // manda sobre el precio de catálogo del equipo/plan.
+              const catalogPrice = team?.price_monthly ?? plan?.price ?? 0;
+              const resolvedFee = enroll.monthly_fee ?? catalogPrice;
+              const lineName = team?.name
+                ?? (plan ? (offering?.name ? `${offering.name} — ${plan.name}` : plan.name) : 'Mensualidad Deportista');
               flattened.push({
                 id: enroll.id,
                 child_id: child.id,
                 team_id: enroll.team_id || null,
                 school_id: enroll.school_id,
                 children: { full_name: child.full_name },
-                teams: enroll.team ? { 
-                  name: Array.isArray(enroll.team) ? enroll.team[0]?.name : (enroll.team as any).name, 
-                  price_monthly: Array.isArray(enroll.team) ? enroll.team[0]?.price_monthly : (enroll.team as any).price_monthly 
-                } : null,
+                teams: { name: lineName, price_monthly: resolvedFee },
                 schools: enroll.schools,
               });
             });
           }
           else if (child.teams) {
+            const directTeam = Array.isArray(child.teams) ? child.teams[0] : (child.teams as any);
             flattened.push({
               id: `direct-team-${child.id}`,
               child_id: child.id,
@@ -302,8 +343,9 @@ export default function MyPaymentsPage() {
               school_id: child.school_id || '',
               children: { full_name: child.full_name },
               teams: {
-                name: Array.isArray(child.teams) ? child.teams[0]?.name : (child.teams as any)?.name,
-                price_monthly: Array.isArray(child.teams) ? child.teams[0]?.price_monthly : (child.teams as any)?.price_monthly,
+                name: directTeam?.name,
+                // cuota individual del atleta por encima del precio del equipo
+                price_monthly: child.monthly_fee || directTeam?.price_monthly || 0,
               },
               schools: null,
             });
@@ -392,9 +434,9 @@ export default function MyPaymentsPage() {
   };
 
   const summary = {
-    count_pending: transactions.filter(t => t.status === 'pending' || t.status === 'awaiting_approval' || t.status === 'partial').length,
+    count_pending: transactions.filter(t => PENDING_STATES.includes(t.status)).length,
     count_approved: transactions.filter(t => t.status === 'approved').length,
-    pending_total: transactions.filter(t => t.status !== 'approved').reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
+    pending_total: transactions.filter(t => PENDING_STATES.includes(t.status)).reduce((sum, t) => sum + (t.balance_pending || t.amount), 0),
     count_total: transactions.length
   };
 
@@ -410,9 +452,10 @@ export default function MyPaymentsPage() {
     );
 
     return list.map(txn => (
-      <PaymentCard 
+      <PaymentCard
         key={txn.id}
         txn={txn}
+        invoice={invoiceMap[txn.id]}
         onSelect={(p) => {
           if (p.status === 'approved') return;
           setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
@@ -427,13 +470,19 @@ export default function MyPaymentsPage() {
         isSelected={selectedPayment?.paymentId === txn.id}
         onShowProof={handleShowProof}
         onAbonar={(p) => {
-          setSelectedInstallmentPayment({
-            id: p.id,
+          // Abonar reusa el flujo probado: subir comprobante por el saldo →
+          // queda awaiting_approval → la escuela lo registra como abono (suma a
+          // amount_paid). El flujo viejo de payment_installments quedó huérfano
+          // (la escuela no lo revisaba).
+          setSelectedPayment({
+            childId: p.child_id || '',
+            childName: p.child_name || 'Deportista',
+            teamName: p.concept || 'Mensualidad',
+            amount: p.balance_pending || p.amount,
             schoolId: p.school_id || '',
-            balancePending: p.balance_pending || 0,
-            concept: p.concept || ''
+            paymentId: p.id,
           });
-          setShowInstallment(true);
+          setShowCheckout(true);
         }}
       />
     ));
@@ -563,7 +612,7 @@ export default function MyPaymentsPage() {
         </TabsContent>
 
         <TabsContent value="pending" className="space-y-4">
-          {renderPaymentList(transactions.filter(t => t.status !== 'approved'))}
+          {renderPaymentList(transactions.filter(t => PENDING_STATES.includes(t.status)))}
         </TabsContent>
       </Tabs>
 
@@ -741,12 +790,13 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
+  invoice?: { number: string | null; public_url: string | null };
 }) {
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
@@ -820,10 +870,25 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar }: {
               </Badge>
 
               <div className="flex items-center gap-2">
+                {invoice?.public_url && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                    title={invoice.number ? `Factura ${invoice.number}` : 'Factura electrónica'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(invoice.public_url!, '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    <FileText className="h-3.5 w-3.5 mr-1" />
+                    FACTURA
+                  </Button>
+                )}
                 {txn.receipt_url && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="h-8 text-[11px] font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                     onClick={(e) => {
                       e.stopPropagation();

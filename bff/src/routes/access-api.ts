@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { requireAuth, requireRole, AuthenticatedRequest } from '../middlewares/authMiddleware';
-import { invalidateDeviceCache } from './access-adms';
+import { invalidateDeviceCache, invalidateMappingCache } from './access-adms';
 import fs from 'fs';
 import path from 'path';
 
@@ -69,6 +69,14 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (events || []).map((e: any) => e.unregistered_athlete_id).filter(Boolean)
     )];
 
+    // PINs de eventos "huérfanos" (sin user_id ni unregistered_athlete_id guardados)
+    // que puedan tener un mapeo posterior — resuelve el caso del caché/asignación tardía.
+    const orphanPins = [...new Set(
+      (events || [])
+        .filter((e: any) => !e.user_id && !e.unregistered_athlete_id && e.zk_user_id)
+        .map((e: any) => e.zk_user_id)
+    )];
+
     const profileMap: Record<string, string> = {};
     const uaMap: Record<string, string> = {};
 
@@ -88,6 +96,35 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
       (uas || []).forEach((ua: any) => { uaMap[ua.id] = ua.full_name; });
     }
 
+    // Resuelve PINs huérfanos contra el mapeo actual
+    const pinNameMap: Record<number, string> = {};
+    if (orphanPins.length) {
+      const { data: mappings } = await supabase
+        .from('zk_user_mappings')
+        .select('zk_pin, user_id, unregistered_athlete_id')
+        .eq('school_id', schoolId)
+        .in('zk_pin', orphanPins);
+
+      const mappedUserIds = [...new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean))];
+      const mappedUaIds   = [...new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean))];
+
+      const extraProfileMap: Record<string, string> = {};
+      if (mappedUserIds.length) {
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', mappedUserIds);
+        (profiles || []).forEach((p: any) => { extraProfileMap[p.id] = p.full_name; });
+      }
+      const extraUaMap: Record<string, string> = {};
+      if (mappedUaIds.length) {
+        const { data: uas } = await supabase.from('unregistered_athletes').select('id, full_name').in('id', mappedUaIds);
+        (uas || []).forEach((u: any) => { extraUaMap[u.id] = u.full_name; });
+      }
+
+      (mappings || []).forEach((m: any) => {
+        const name = m.user_id ? extraProfileMap[m.user_id] : extraUaMap[m.unregistered_athlete_id];
+        if (name) pinNameMap[m.zk_pin] = name;
+      });
+    }
+
     const enriched = (events || []).map((e: any) => ({
       ...e,
       user_name:
@@ -95,7 +132,7 @@ router.get('/events', requireAuth, requireRole('owner', 'admin', 'school_admin')
           ? profileMap[e.user_id]
           : (e.unregistered_athlete_id && uaMap[e.unregistered_athlete_id])
             ? uaMap[e.unregistered_athlete_id]
-            : `ZK#${e.zk_user_id}`,
+            : (pinNameMap[e.zk_user_id] ?? `ZK#${e.zk_user_id}`),
     }));
 
     return res.json({ events: enriched });
@@ -245,6 +282,8 @@ router.post('/enroll', requireAuth, requireRole('owner', 'admin', 'school_admin'
       { onConflict: 'school_id,zk_pin' },
     );
 
+    invalidateMappingCache(pin);
+
     console.log(`[ENROLL] ${name} (PIN:${pin}) encolado en ${devices.length} dispositivo(s)`);
 
     return res.json({
@@ -298,37 +337,52 @@ router.post('/revoke', requireAuth, requireRole('owner', 'admin', 'school_admin'
 });
 
 // ─── GET /api/v1/access/members ──────────────────────────────────────────────
-// Lista de miembros activos de la escuela para asignar a un PIN (UID del lector).
 router.get('/members', requireAuth, requireRole('owner', 'admin', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { schoolId } = req;
     const q = (req.query.q as string || '').trim();
 
-    const { data: members, error } = await supabase
+    // PINs ya asignados — se excluyen para evitar duplicidad
+    const { data: mappings } = await supabase
+      .from('zk_user_mappings')
+      .select('user_id, unregistered_athlete_id')
+      .eq('school_id', schoolId);
+    const mappedUserIds = new Set((mappings || []).map((m: any) => m.user_id).filter(Boolean));
+    const mappedUaIds   = new Set((mappings || []).map((m: any) => m.unregistered_athlete_id).filter(Boolean));
+
+    // Miembros con login
+    const { data: members } = await supabase
       .from('school_members')
       .select('profile_id, role')
       .eq('school_id', schoolId)
       .eq('status', 'active')
       .limit(500);
-    if (error) throw error;
+    const memberIds = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))]
+      .filter((id: string) => !mappedUserIds.has(id));
 
-    const ids = [...new Set((members || []).map((m: any) => m.profile_id).filter(Boolean))];
-    if (ids.length === 0) return res.json({ members: [] });
+    let registered: any[] = [];
+    if (memberIds.length) {
+      let pq = supabase.from('profiles').select('id, full_name').in('id', memberIds);
+      if (q) pq = pq.ilike('full_name', `%${q}%`);
+      const { data: profiles } = await pq.limit(50);
+      const roleById: Record<string, string> = {};
+      (members || []).forEach((m: any) => { roleById[m.profile_id] = m.role; });
+      registered = (profiles || []).map((p: any) => ({
+        user_id: p.id, full_name: p.full_name, role: roleById[p.id] ?? null, type: 'registered',
+      }));
+    }
 
-    let pq = supabase.from('profiles').select('id, full_name').in('id', ids);
-    if (q) pq = pq.ilike('full_name', `%${q}%`);
-    const { data: profiles } = await pq.limit(50);
+    // Atletas sin login (la mayoría en tu caso)
+    let uaq = supabase.from('unregistered_athletes').select('id, full_name').eq('school_id', schoolId);
+    if (mappedUaIds.size > 0) {
+      uaq = uaq.not('id', 'in', `(${Array.from(mappedUaIds).join(',')})`);
+    }
+    if (q) uaq = uaq.ilike('full_name', `%${q}%`);
+    const { data: uas } = await uaq.limit(50);
+    const unregistered = (uas || [])
+      .map((u: any) => ({ unregistered_athlete_id: u.id, full_name: u.full_name, role: null, type: 'unregistered' }));
 
-    const roleByeId: Record<string, string> = {};
-    (members || []).forEach((m: any) => { roleByeId[m.profile_id] = m.role; });
-
-    const result = (profiles || []).map((p: any) => ({
-      user_id:   p.id,
-      full_name: p.full_name,
-      role:      roleByeId[p.id] ?? null,
-    }));
-
-    return res.json({ members: result });
+    return res.json({ members: [...registered, ...unregistered] });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error al listar miembros' });
   }
@@ -358,6 +412,8 @@ router.post('/assign-user', requireAuth, requireRole('owner', 'admin', 'school_a
       { onConflict: 'school_id,zk_pin' },
     );
     if (error) throw error;
+
+    invalidateMappingCache(zk_pin);
 
     return res.json({ success: true, message: `PIN ${zk_pin} asignado.` });
   } catch (err: any) {

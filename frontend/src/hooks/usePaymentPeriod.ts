@@ -24,10 +24,11 @@ export interface NextPeriod {
   last_active_period: ActivePeriod | null;
 }
 
+// "Cubierto" = el mes ya no admite un pago nuevo. Un mes 'partial' (abono en
+// curso) o 'pending' (cobro sin pagar) NO está cubierto: se debe completar/pagar
+// ESE mismo mes en vez de avanzar al siguiente.
 const ACTIVE_STATUSES: ReadonlySet<PeriodStatus> = new Set([
-  'pending',
   'awaiting_approval',
-  'partial',
   'paid',
   'approved',
 ]);

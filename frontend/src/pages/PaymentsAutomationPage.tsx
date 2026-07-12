@@ -390,12 +390,12 @@ export default function PaymentsAutomationPage() {
       const unregIds = rawEnrollments.map(e => e.unregistered_athlete_id).filter(Boolean);
 
       // 1. Atletas (BFF para menores - soporta multi-school)
-      const childrenData = childIds.length > 0 
-        ? await bffClient.get<any[]>(`/api/v1/students/children-by-ids?ids=${childIds.join(',')}`, { 'x-school-id': schoolId })
+      const childrenData = childIds.length > 0
+        ? await bffClient.post<any[]>(`/api/v1/students/children-by-ids`, { ids: childIds }, { 'x-school-id': schoolId })
         : [];
       const childMap = new Map<string, string>((childrenData ?? []).map(c => [c.id, c.full_name]));
 
-      const { data: profiles } = userIds.length > 0 
+      const { data: profiles } = userIds.length > 0
         ? await supabase.from('profiles').select('id, full_name').in('id', userIds)
         : { data: [] };
       const profileMap = new Map<string, string>((profiles ?? []).map(p => [p.id, p.full_name]));
@@ -448,7 +448,7 @@ export default function PaymentsAutomationPage() {
 
   const handleManualAction = async (paymentId: string, action: 'approve' | 'reject') => {
     setProcessingId(paymentId);
-    const newStatus = action === 'approve' ? 'paid' : 'failed';
+    const newStatus = action === 'approve' ? 'paid' : 'rejected';
     const payment = payments.find(p => p.id === paymentId);
 
     try {
@@ -613,8 +613,16 @@ export default function PaymentsAutomationPage() {
   const historyTotalPages = Math.max(1, Math.ceil(historyPayments.length / HISTORY_PAGE_SIZE));
   const pagedHistory = historyPayments.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
 
-  const totalRevenue = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
-  const pendingAmount = pendingPayments.reduce((acc, p) => acc + p.amount, 0);
+  // Ingresos = dinero realmente recibido: total de pagos saldados + los abonos
+  // (amount_paid) de los parciales. Antes solo contaba 'paid' y dejaba fuera los abonos.
+  const totalRevenue = payments.reduce((acc, p) => {
+    const paid = Number(p.amount_paid) || 0;
+    if (p.status === 'paid' || p.status === 'approved') return acc + (paid > 0 ? paid : p.amount);
+    if (p.status === 'partial') return acc + paid;
+    return acc;
+  }, 0);
+  // Pendiente = saldo por cobrar (para parciales, total - abonado; no el total).
+  const pendingAmount = pendingPayments.reduce((acc, p) => acc + Math.max(p.amount - (Number(p.amount_paid) || 0), 0), 0);
 
   const getPreferredMethod = (athleteId?: string) => {
     if (!athleteId) return { label: 'Pendiente', icon: Clock };
@@ -844,7 +852,21 @@ export default function PaymentsAutomationPage() {
                               </div>
                             </TableCell>
                             <TableCell><span className="text-sm">{(payment as any).parent_responsible || <span className="text-muted-foreground text-xs">—</span>}</span></TableCell>
-                            <TableCell className="font-bold text-primary">{formatCurrency(payment.amount)}</TableCell>
+                            <TableCell className="font-bold text-primary whitespace-nowrap align-top">
+                              <div className="flex flex-col gap-0.5">
+                                <span>{formatCurrency(payment.amount)}</span>
+                                {(payment.status === 'partial' || (Number(payment.amount_paid) || 0) > 0) && (
+                                  <>
+                                    <Badge variant="outline" className="w-fit whitespace-nowrap text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200 py-0 h-4 px-1.5 font-semibold">
+                                      Abono parcial
+                                    </Badge>
+                                    <span className="text-[10px] font-normal text-muted-foreground whitespace-nowrap">
+                                      Abonado {formatCurrency(Number(payment.amount_paid) || 0)} · saldo {formatCurrency(Math.max(payment.amount - (Number(payment.amount_paid) || 0), 0))}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
@@ -1621,12 +1643,12 @@ function BackfillPaymentsCard({
       const planIds  = withoutPayment.map(e => e.offering_plan_id).filter(Boolean);
 
       // 1. Atletas (BFF para menores - soporta multi-school)
-      const childrenData = childIds.length > 0 
-        ? await bffClient.get<any[]>(`/api/v1/students/children-by-ids?ids=${childIds.join(',')}`, { 'x-school-id': schoolId })
+      const childrenData = childIds.length > 0
+        ? await bffClient.post<any[]>(`/api/v1/students/children-by-ids`, { ids: childIds }, { 'x-school-id': schoolId })
         : [];
       const childMap = new Map<string, string>((childrenData ?? []).map(c => [c.id, c.full_name]));
 
-      const { data: profiles } = userIds.length > 0 
+      const { data: profiles } = userIds.length > 0
         ? await supabase.from('profiles').select('id, full_name').in('id', userIds)
         : { data: [] };
       const profileMap = new Map<string, string>((profiles ?? []).map(p => [p.id, p.full_name]));
