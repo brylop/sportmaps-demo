@@ -208,7 +208,7 @@ export default function PublicSchoolPage() {
 
                             <TabsContent value="teams" className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-500">
                                 <div className="grid md:grid-cols-2 gap-4">
-                                    {school.teams?.map((prog: any, idx: number) => (
+                                    {(school.teams ?? []).map((prog: any, idx: number) => (
                                         <Card key={idx} className="overflow-hidden hover:shadow-lg transition-all group border-l-4 border-l-primary/0 hover:border-l-primary">
                                             <CardHeader className="bg-muted/30 pb-3">
                                                 <div className="flex justify-between items-start">
@@ -230,6 +230,12 @@ export default function PublicSchoolPage() {
                                             </CardFooter>
                                         </Card>
                                     ))}
+                                    {(school.teams ?? []).length === 0 && (
+                                        <div className="col-span-full py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay equipos publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 
@@ -240,7 +246,7 @@ export default function PublicSchoolPage() {
                                             <div className="h-48 bg-muted relative">
                                                 {/* Placeholder image based on type */}
                                                 <img
-                                                    src={facility.type.includes('Piscina')
+                                                    src={(facility.type || '').includes('Piscina')
                                                         ? 'https://images.unsplash.com/photo-1576435728678-368297b5d3c6?auto=format&fit=crop&q=80&w=800'
                                                         : 'https://images.unsplash.com/photo-1575361204480-aadea25e6e68?auto=format&fit=crop&q=80&w=800'}
                                                     alt={facility.name}
@@ -280,7 +286,7 @@ export default function PublicSchoolPage() {
 
                             <TabsContent value="services" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <div className="grid gap-4">
-                                    {school.services.map((service: any, idx: number) => (
+                                    {(school.services ?? []).map((service: any, idx: number) => (
                                         <div key={idx} className="flex flex-col sm:flex-row items-center justify-between p-6 bg-white border rounded-xl hover:shadow-md transition-shadow">
                                             <div className="flex items-start gap-4 mb-4 sm:mb-0">
                                                 <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -297,12 +303,18 @@ export default function PublicSchoolPage() {
                                             </div>
                                         </div>
                                     ))}
+                                    {(school.services ?? []).length === 0 && (
+                                        <div className="py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <CheckCircle2 className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay servicios publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 
                             <TabsContent value="staff" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <div className="grid md:grid-cols-2 gap-6">
-                                    {school.staff.map((member: any, idx: number) => (
+                                    {(school.staff ?? []).map((member: any, idx: number) => (
                                         <div key={idx} className="flex items-center gap-4 p-4 border rounded-lg bg-white shadow-sm">
                                             <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden">
                                                 <span className="text-xl font-bold text-slate-500">{member.name[0]}</span>
@@ -314,6 +326,12 @@ export default function PublicSchoolPage() {
                                             </div>
                                         </div>
                                     ))}
+                                    {(school.staff ?? []).length === 0 && (
+                                        <div className="col-span-full py-12 text-center text-muted-foreground border-2 border-dashed rounded-xl bg-muted/20">
+                                            <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                            No hay entrenadores publicados por el momento
+                                        </div>
+                                    )}
                                 </div>
                             </TabsContent>
 
