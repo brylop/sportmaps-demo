@@ -19,11 +19,12 @@
 // ============================================================
 
 export type TierCode =
-  | 'starter'
-  | 'crecimiento'
-  | 'profesional'
-  | 'elite'
-  | 'enterprise';
+  | 'starter'      // Free Start (gratis)
+  | 'start'        // Escuela Start
+  | 'crecimiento'  // Escuela Crecimiento
+  | 'profesional'  // Escuela Pro
+  | 'elite'        // Escuela Elite
+  | 'enterprise';  // Custom
 
 export type TierInternal = 'free' | 'pro' | 'enterprise';
 
@@ -166,61 +167,76 @@ export type FeatureDefinition =
 // Tiers Academia
 // ============================================================
 
+// Precios alineados con la landing pública (v3.0): Free Start / Start $69k /
+// Crecimiento $99k / Pro $159k / Elite $349k / Custom. Los CÓDIGOS internos se
+// mantienen (starter/crecimiento/profesional/elite/enterprise) + 'start' nuevo,
+// para no romper school_subscriptions.plan_code ni las RPCs existentes.
 export const ACADEMY_TIERS: Record<TierCode, TierDefinition> = {
   starter: {
     code: 'starter',
     internal: 'free',
-    name: 'Starter',
+    name: 'Free Start',
     priceCents: 0,
     annualDiscountPct: 0,
-    trialDays: 0, // free para siempre, no necesita trial
-    tagline: 'Para empezar',
+    trialDays: 0, // gratis permanente
+    tagline: 'Gratis para empezar',
     order: 0,
+  },
+  start: {
+    code: 'start',
+    internal: 'pro',
+    name: 'Escuela Start',
+    priceCents: 6_900_000,   // $69.000/mes
+    annualDiscountPct: 15,   // ~$59.000/mes anual
+    trialDays: 14,
+    tagline: 'Para escuelas pequeñas',
+    order: 1,
   },
   crecimiento: {
     code: 'crecimiento',
     internal: 'pro',
-    name: 'Crecimiento',
-    priceCents: 14_900_000,
-    annualDiscountPct: 17,
+    name: 'Escuela Crecimiento',
+    priceCents: 9_900_000,   // $99.000/mes
+    annualDiscountPct: 15,   // ~$89.000/mes anual
     trialDays: 14,
     tagline: 'Para escuelas en expansión',
-    order: 1,
+    order: 2,
   },
   profesional: {
     code: 'profesional',
     internal: 'pro',
-    name: 'Profesional',
-    priceCents: 34_900_000,
-    annualDiscountPct: 17,
+    name: 'Escuela Pro',
+    priceCents: 15_900_000,  // $159.000/mes
+    annualDiscountPct: 13,   // ~$139.000/mes anual
     trialDays: 14,
-    tagline: 'Para operación robusta',
-    order: 2,
+    tagline: 'El más elegido',
+    order: 3,
   },
   elite: {
     code: 'elite',
     internal: 'pro',
-    name: 'Elite',
-    priceCents: 79_900_000,
-    annualDiscountPct: 17,
-    trialDays: 7, // trial más corto, alto valor — incentiva decisión rápida
-    tagline: 'Para clubes consolidados',
-    order: 3,
+    name: 'Escuela Elite',
+    priceCents: 34_900_000,  // $349.000/mes — ecosistema incluido
+    annualDiscountPct: 14,   // ~$299.000/mes anual
+    trialDays: 7,
+    tagline: 'Todo el software en uno',
+    order: 4,
   },
   enterprise: {
     code: 'enterprise',
     internal: 'enterprise',
-    name: 'Enterprise',
-    priceCents: -1,
+    name: 'Custom',
+    priceCents: -1,          // desde $750.000 / a medida
     annualDiscountPct: 0,
-    trialDays: 0, // solo demo asistida
-    tagline: 'A medida',
-    order: 4,
+    trialDays: 0,
+    tagline: 'Holdings y federaciones',
+    order: 5,
   },
 };
 
 export const TIER_ORDER: TierCode[] = [
   'starter',
+  'start',
   'crecimiento',
   'profesional',
   'elite',
@@ -248,7 +264,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'Americanos, brackets eliminatorios y ranking PWR.',
     priceCents: 4_900_000,
     setupCents: 0,
-    includedIn: [],
+    includedIn: ['elite', 'enterprise'],
     salesLed: false,
   },
   access_control: {
@@ -257,7 +273,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'Integración con Suprema / BioStar2 para entrada física.',
     priceCents: 9_900_000,
     setupCents: 0,
-    includedIn: [],
+    includedIn: ['enterprise'],
     salesLed: true,
   },
   biomech: {
@@ -266,7 +282,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'Análisis postural, asimetrías y prevención de lesiones.',
     priceCents: 9_900_000,
     setupCents: 0,
-    includedIn: [],
+    includedIn: ['enterprise'],
     salesLed: false,
   },
   nutrition: {
@@ -276,7 +292,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
       'Seguimiento nutricional integral con planes personalizados por atleta.',
     priceCents: 4_900_000,
     setupCents: 0,
-    includedIn: [],
+    includedIn: ['enterprise'],
     salesLed: false,
   },
   whitelabel: {
@@ -285,7 +301,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'App propia con tu marca, splash y deep links.',
     priceCents: 29_900_000,
     setupCents: 150_000_000,
-    includedIn: [],
+    includedIn: ['enterprise'],
     salesLed: true,
   },
   whatsapp: {
@@ -303,7 +319,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'PSE, Nequi, tarjetas y transferencias.',
     priceCents: 5_000_000,
     setupCents: 0,
-    includedIn: ['profesional', 'elite'], // Profesional incluye 1, Elite ambas
+    includedIn: ['start', 'crecimiento', 'profesional', 'elite', 'enterprise'], // Wompi desde Start
     salesLed: false,
   },
   mp: {
@@ -312,7 +328,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     description: 'Cobros con MercadoPago, billetera y QR.',
     priceCents: 9_000_000,
     setupCents: 0,
-    includedIn: ['elite'],
+    includedIn: ['elite', 'enterprise'],
     salesLed: false,
   },
   store: {
@@ -322,7 +338,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
       'Vende uniformes, kits, mercancía y servicios desde la escuela. Productos, variantes, envíos y cobros integrados.',
     priceCents: 4_900_000,
     setupCents: 0,
-    includedIn: [],
+    includedIn: ['elite', 'enterprise'],
     salesLed: false,
   },
   accounting: {
@@ -332,7 +348,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
       'Ingresos y egresos, proveedores, nómina, presupuestos y estado de resultados. Incluido en Elite.',
     priceCents: 4_900_000,
     setupCents: 0,
-    includedIn: ['elite'],
+    includedIn: ['elite', 'enterprise'],
     salesLed: false,
   },
   invoicing: {
@@ -342,7 +358,7 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
       'Emisión de factura electrónica DIAN (Factus). Cobro por volumen de documentos. Incluida en Elite.',
     priceCents: -1, // por volumen / pass-through del PAC (a definir)
     setupCents: 0,
-    includedIn: ['elite'],
+    includedIn: ['elite', 'enterprise'],
     salesLed: false,
   },
 };
@@ -365,8 +381,9 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     minTier: 'starter',
     unit: 'atletas',
     limits: {
-      starter: 30,
-      crecimiento: 100,
+      starter: 20,
+      start: 50,
+      crecimiento: 120,
       profesional: 300,
       elite: 800,
       enterprise: -1,
@@ -379,9 +396,10 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     minTier: 'starter',
     unit: 'equipos',
     limits: {
-      starter: 3,
+      starter: 1,
+      start: 5,
       crecimiento: 10,
-      profesional: 30,
+      profesional: 20,
       elite: -1,
       enterprise: -1,
     },
@@ -394,8 +412,9 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     unit: 'sedes',
     limits: {
       starter: 1,
+      start: 1,
       crecimiento: 2,
-      profesional: 5,
+      profesional: 3,
       elite: -1,
       enterprise: -1,
     },
@@ -407,9 +426,10 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     minTier: 'starter',
     unit: 'coaches',
     limits: {
-      starter: 2,
+      starter: 1,
+      start: 3,
       crecimiento: 5,
-      profesional: 15,
+      profesional: 10,
       elite: -1,
       enterprise: -1,
     },
@@ -425,7 +445,7 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
   attendance_qr: {
     key: 'attendance_qr',
     kind: 'tier',
-    minTier: 'crecimiento',
+    minTier: 'start',
     label: 'Asistencia con QR',
     description: 'Check-in rápido con código QR escaneado en sede.',
   },
@@ -478,7 +498,7 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     label: 'Envíos masivos',
     unit: 'envíos/mes',
     limits: {
-      crecimiento: 200,
+      crecimiento: 500,
       profesional: -1,
       elite: -1,
       enterprise: -1,
@@ -492,6 +512,7 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
     unit: 'anuncios/mes',
     limits: {
       starter: 5,
+      start: 10,
       crecimiento: -1,
       profesional: -1,
       elite: -1,
@@ -509,7 +530,7 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
   payments_online_addon: {
     key: 'payments_online_addon',
     kind: 'tier',
-    minTier: 'crecimiento',
+    minTier: 'start',
     label: 'Pasarela online (addon)',
     description: 'Wompi o MercadoPago activable como addon.',
   },
@@ -559,7 +580,7 @@ export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
   reports_basic: {
     key: 'reports_basic',
     kind: 'tier',
-    minTier: 'crecimiento',
+    minTier: 'start',
     label: 'Reportes básicos',
   },
   analytics_advanced: {
