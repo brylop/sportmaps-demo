@@ -65,6 +65,9 @@ export default function SchoolCardsAdminPage() {
 
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueTarget, setIssueTarget] = useState<Athlete | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<CardRow | null>(null);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [revoking, setRevoking] = useState(false);
   const [validUntil, setValidUntil] = useState<string>(
     new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   );
@@ -322,17 +325,25 @@ export default function SchoolCardsAdminPage() {
     if (token) await openPreview(token);
   }
 
-  async function revoke(card: CardRow) {
-    const reason = window.prompt('Motivo de la revocación (opcional):') ?? null;
+  function revoke(card: CardRow) {
+    setRevokeTarget(card);
+    setRevokeReason('');
+  }
+
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
+    setRevoking(true);
     const { error } = await supabase.rpc('revoke_athlete_id_card' as any, {
-      p_card_id: card.id,
-      p_reason: reason,
+      p_card_id: revokeTarget.id,
+      p_reason: revokeReason.trim() || null,
     });
+    setRevoking(false);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return;
     }
     toast({ title: 'Carnet revocado' });
+    setRevokeTarget(null);
     void loadCards();
   }
 
@@ -697,6 +708,36 @@ export default function SchoolCardsAdminPage() {
             <Button onClick={confirmIssue} disabled={issuing}>
               {issuing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Emitir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke dialog */}
+      <Dialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Revocar carnet</DialogTitle>
+            <DialogDescription>
+              El carnet de <strong>{revokeTarget?.athlete_name}</strong> quedará inválido y el QR mostrará "revocado". Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="revoke_reason">Motivo (opcional)</Label>
+            <Input
+              id="revoke_reason"
+              value={revokeReason}
+              onChange={(e) => setRevokeReason(e.target.value)}
+              placeholder="Ej: reportado como perdido"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && !revoking) void confirmRevoke(); }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeTarget(null)} disabled={revoking}>Cancelar</Button>
+            <Button variant="destructive" onClick={confirmRevoke} disabled={revoking} className="gap-1">
+              {revoking && <Loader2 className="h-4 w-4 animate-spin" />}
+              Revocar carnet
             </Button>
           </DialogFooter>
         </DialogContent>
