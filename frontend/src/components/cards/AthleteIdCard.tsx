@@ -70,9 +70,11 @@ interface Props {
   data: CardData;
   publicUrl: string;
   className?: string;
+  /** Cara a mostrar. 'back' muestra datos de emergencia/médicos. Default 'front'. */
+  face?: 'front' | 'back';
 }
 
-export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '' }, ref) => {
+export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUrl, className = '', face = 'front' }, ref) => {
   const branding = data.school?.branding_settings || {};
   const primaryColor: string = data.template?.accent_color || branding.primary_color || '#0ea5e9';
   const secondaryColor: string = branding.secondary_color || '#1e40af';
@@ -140,6 +142,7 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
         </div>
       </div>
 
+      {face === 'front' && (<>
       {/* Foto + nombre */}
       <div className="relative px-5 pt-4 flex flex-col items-center text-center">
         {show.photo && (
@@ -241,6 +244,11 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
           </p>
         )}
       </div>
+      </>)}
+
+      {face === 'back' && (
+        <BackFace data={data} publicUrl={publicUrl} ink={ink} inkColor={inkColor} />
+      )}
 
       {/* Watermark SportMaps si la escuela no es paid-tier */}
       {showWatermark && (
@@ -285,6 +293,53 @@ function Row({ icon: Icon, label, value, ink, inkColor }: { icon: typeof ShieldC
       </div>
       <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: ink(0.7) }}>{label}</span>
       <span className="text-xs font-medium truncate flex-1">{value}</span>
+    </div>
+  );
+}
+
+// Reverso del carnet: datos médicos / de emergencia + QR + términos.
+function BackFace({ data, publicUrl, ink, inkColor }: { data: CardData; publicUrl: string; ink: (a: number) => string; inkColor: string }) {
+  const a = data.athlete;
+  const rows: [string, string | null | undefined][] = [
+    ['Contacto de emergencia', a?.emergency_contact],
+    ['EPS', a?.eps_name],
+    ['RH', a?.blood_type],
+    ['Talla', a?.tshirt_size],
+  ];
+  const shown = rows.filter(([, v]) => !!v);
+  return (
+    <div className="relative px-5 pt-4 pb-4 flex flex-col" style={{ color: inkColor, height: 464 }}>
+      <p className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: ink(0.75) }}>
+        Datos de emergencia
+      </p>
+      <div className="mt-3 space-y-3">
+        {shown.length > 0 ? (
+          shown.map(([k, v]) => (
+            <div key={k}>
+              <div className="text-[9px] uppercase tracking-wider" style={{ color: ink(0.6) }}>{k}</div>
+              <div className="text-sm font-semibold">{v}</div>
+            </div>
+          ))
+        ) : (
+          <p className="text-xs" style={{ color: ink(0.6) }}>
+            Sin datos médicos configurados en la plantilla de este carnet.
+          </p>
+        )}
+      </div>
+
+      <div className="my-4" style={{ borderTop: `1px solid ${ink(0.2)}` }} />
+
+      <div className="flex items-center gap-3">
+        <div className="bg-white p-1.5 rounded-lg"><QRCodeSVG value={publicUrl} size={54} level="M" /></div>
+        <p className="text-[10px] leading-snug" style={{ color: ink(0.85) }}>
+          Escanea para <strong>validar este carnet</strong> en línea. Estado en tiempo real.
+        </p>
+      </div>
+
+      <p className="text-[9px] leading-relaxed mt-auto" style={{ color: ink(0.6) }}>
+        {data.template?.footer_text
+          || 'Documento de identificación deportiva. Válido solo con foto y QR legibles. En caso de pérdida, la escuela puede revocarlo y reemitir una nueva versión.'}
+      </p>
     </div>
   );
 }

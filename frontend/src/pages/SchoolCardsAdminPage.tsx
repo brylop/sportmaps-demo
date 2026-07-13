@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Search, IdCard, Plus, Eye, ShieldOff, Download, ExternalLink } from 'lucide-react';
+import { Loader2, Search, IdCard, Plus, Eye, ShieldOff, Download, ExternalLink, RotateCw, Send } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,6 +70,7 @@ export default function SchoolCardsAdminPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<CardData | null>(null);
   const [previewToken, setPreviewToken] = useState<string | null>(null);
+  const [previewFace, setPreviewFace] = useState<'front' | 'back'>('front');
   const previewRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -316,9 +317,22 @@ export default function SchoolCardsAdminPage() {
     void loadCards();
   }
 
+  // Comparte el link público del carnet con el padre (WhatsApp o share nativo).
+  function shareCard(qrToken: string, name?: string | null) {
+    const url = `${window.location.origin}/c/${qrToken}`;
+    const text = `Carnet deportivo de ${name || 'tu deportista'} — valida y consúltalo aquí: ${url}`;
+    const nav = navigator as any;
+    if (nav.share) {
+      nav.share({ title: 'Carnet deportivo', text, url }).catch(() => {});
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    }
+  }
+
   async function openPreview(qrToken: string) {
     setPreviewToken(qrToken);
     setPreviewData(null);
+    setPreviewFace('front');
     setPreviewOpen(true);
     const { data, error } = await supabase.rpc('verify_athlete_id_card_public' as any, {
       p_qr_token: qrToken,
@@ -596,6 +610,12 @@ export default function SchoolCardsAdminPage() {
                             Ver
                           </Button>
                           {c.status === 'active' && (
+                            <Button size="sm" variant="outline" onClick={() => shareCard(c.qr_token, c.athlete_name)} className="gap-1">
+                              <Send className="h-3.5 w-3.5" />
+                              Enviar
+                            </Button>
+                          )}
+                          {c.status === 'active' && (
                             <Button size="sm" variant="outline" onClick={() => revoke(c)} className="gap-1 text-red-600 hover:bg-red-50">
                               <ShieldOff className="h-3.5 w-3.5" />
                               Revocar
@@ -658,20 +678,43 @@ export default function SchoolCardsAdminPage() {
               <AthleteIdCard
                 ref={previewRef}
                 data={previewData}
+                face={previewFace}
                 publicUrl={`${publicCardOrigin}/${previewToken}`}
               />
             )}
+            {previewData && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewFace((f) => (f === 'front' ? 'back' : 'front'))}
+                className="gap-1"
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+                {previewFace === 'front' ? 'Ver reverso' : 'Ver frente'}
+              </Button>
+            )}
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
-            <Button
-              variant="outline"
-              onClick={() => previewToken && window.open(`/c/${previewToken}`, '_blank')}
-              className="gap-1"
-              disabled={!previewToken}
-            >
-              <ExternalLink className="h-4 w-4" />
-              Abrir en pestaña nueva
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => previewToken && window.open(`/c/${previewToken}`, '_blank')}
+                className="gap-1"
+                disabled={!previewToken}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Abrir
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => previewToken && shareCard(previewToken, previewData?.athlete?.full_name)}
+                className="gap-1"
+                disabled={!previewToken}
+              >
+                <Send className="h-4 w-4" />
+                Enviar al padre
+              </Button>
+            </div>
             <Button onClick={downloadPreview} disabled={downloading || !previewData} className="gap-1">
               {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Descargar PNG
