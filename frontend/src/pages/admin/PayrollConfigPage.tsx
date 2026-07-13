@@ -154,6 +154,13 @@ function EditConfigDialog({ config, onClose, onSaved }: { config: Config; onClos
     const mutation = useMutation({
         mutationFn: async () => {
             const { year, arl_rates, notes, ...rest } = f;
+            if (!Number.isFinite(f.smmlv) || f.smmlv <= 0) throw new Error('SMMLV debe ser mayor a 0');
+            const pctFields: (keyof Config)[] = ['health_pct', 'pension_pct', 'fsp_pct', 'emp_health_pct', 'emp_pension_pct', 'caja_pct', 'sena_pct', 'icbf_pct', 'cesantias_pct', 'prima_pct', 'vacaciones_pct'];
+            for (const k of pctFields) {
+                const v = Number(f[k]);
+                if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error(`"${k}" debe estar entre 0 y 1 (decimal)`);
+            }
+            if (f.transport_aid < 0 || (f.uvt ?? 0) < 0) throw new Error('Auxilio/UVT no pueden ser negativos');
             const { error } = await supabase.from('payroll_config').update({ ...rest }).eq('year', config.year);
             if (error) throw error;
         },
@@ -235,8 +242,10 @@ function AddYearDialog({ open, onOpenChange, existing, onSaved }: {
 
     const mutation = useMutation({
         mutationFn: async () => {
+            if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Año inválido (2000–2100)');
             if (existing.includes(year)) throw new Error(`El año ${year} ya existe`);
-            if (smmlv <= 0) throw new Error('SMMLV requerido');
+            if (!Number.isFinite(smmlv) || smmlv <= 0) throw new Error('SMMLV debe ser mayor a 0');
+            if (aux < 0 || uvt < 0) throw new Error('Auxilio/UVT no pueden ser negativos');
             const { error } = await supabase.from('payroll_config').insert({
                 year, smmlv, transport_aid: aux, uvt: uvt || null,
             });

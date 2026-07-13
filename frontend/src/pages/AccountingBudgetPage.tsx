@@ -87,6 +87,13 @@ export default function AccountingBudgetPage() {
     const saveMutation = useMutation({
         mutationFn: async () => {
             if (!schoolId || !user?.id) throw new Error('Sin escuela/usuario');
+            // Validación: montos numéricos y no negativos.
+            for (const c of categoriesQuery.data ?? []) {
+                const raw = amounts[c.id];
+                if (raw === undefined || raw === '') continue;
+                const n = Number(raw);
+                if (!Number.isFinite(n) || n < 0) throw new Error(`"${c.name}": el presupuesto debe ser un número ≥ 0`);
+            }
             const rows = (categoriesQuery.data ?? [])
                 .filter((c) => amounts[c.id] !== undefined && amounts[c.id] !== '')
                 .map((c) => ({
@@ -181,7 +188,7 @@ export default function AccountingBudgetPage() {
                                             <TableCell className="font-medium">{c.name}</TableCell>
                                             <TableCell>
                                                 <Input
-                                                    type="number" min="0" className="h-8"
+                                                    type="number" min="0" step="1000" inputMode="numeric" className="h-8"
                                                     value={amounts[c.id] ?? ''}
                                                     onChange={(e) => setAmounts((p) => ({ ...p, [c.id]: e.target.value }))}
                                                     placeholder="0"

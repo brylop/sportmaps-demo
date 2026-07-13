@@ -15,6 +15,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Truck, Plus, Loader2, AlertCircle, RefreshCw, Wallet, CalendarClock, DollarSign } from 'lucide-react';
+import { z } from 'zod';
+import { validate, zRequiredText, zOptionalText, zEmailOptional, zPhoneOptional, zAmountPositive } from '@/lib/formValidation';
+
+const Err = ({ msg }: { msg?: string }) => (msg ? <p className="text-xs text-destructive mt-1">{msg}</p> : null);
+
+const supplierSchema = z.object({
+    name: zRequiredText('El nombre'),
+    nit: z.string().trim().regex(/^[\d.\-]*$/, 'El NIT debe ser numérico').max(20, 'Máximo 20').optional().or(z.literal('')),
+    contact: zOptionalText(120),
+    email: zEmailOptional(),
+    phone: zPhoneOptional(),
+});
+const billSchema = z.object({
+    supplier_id: zRequiredText('El proveedor'),
+    invoice_no: zOptionalText(60),
+    amount: zAmountPositive('El monto'),
+});
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -267,11 +284,11 @@ function SupplierDialog({ open, onOpenChange, onSaved, owner }: {
     const { toast } = useToast();
     const [name, setName] = useState(''); const [nit, setNit] = useState('');
     const [contact, setContact] = useState(''); const [email, setEmail] = useState(''); const [phone, setPhone] = useState('');
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
     const mutation = useMutation({
         mutationFn: async () => {
             if (!owner.owner_id) throw new Error('Sin escuela');
-            if (!name.trim()) throw new Error('Nombre requerido');
             const { error } = await supabase.from('suppliers').insert({
                 owner_type: owner.owner_type, owner_id: owner.owner_id,
                 name: name.trim(), nit: nit || null, contact_name: contact || null,
@@ -282,29 +299,39 @@ function SupplierDialog({ open, onOpenChange, onSaved, owner }: {
         onError: (e: any) => toast({ title: 'No se pudo guardar', description: e.message, variant: 'destructive' }),
         onSuccess: () => {
             toast({ title: 'Proveedor agregado' });
-            setName(''); setNit(''); setContact(''); setEmail(''); setPhone('');
+            setName(''); setNit(''); setContact(''); setEmail(''); setPhone(''); setErrors({});
             onOpenChange(false); onSaved();
         },
     });
+
+    const handleSubmit = () => {
+        const r = validate(supplierSchema, { name, nit, contact, email, phone });
+        if (r.errors) { setErrors(r.errors); return; }
+        setErrors({}); mutation.mutate();
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader><DialogTitle>Nuevo proveedor</DialogTitle><DialogDescription>Datos del proveedor.</DialogDescription></DialogHeader>
                 <div className="grid gap-4 py-2">
-                    <div className="grid gap-2"><Label>Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+                    <div className="grid gap-2">
+                        <Label>Nombre <span className="text-destructive">*</span></Label>
+                        <Input value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!errors.name} />
+                        <Err msg={errors.name} />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2"><Label>NIT/CC</Label><Input value={nit} onChange={(e) => setNit(e.target.value)} /></div>
-                        <div className="grid gap-2"><Label>Teléfono</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>NIT/CC</Label><Input inputMode="numeric" value={nit} onChange={(e) => setNit(e.target.value)} aria-invalid={!!errors.nit} /><Err msg={errors.nit} /></div>
+                        <div className="grid gap-2"><Label>Teléfono</Label><Input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!errors.phone} /><Err msg={errors.phone} /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2"><Label>Contacto</Label><Input value={contact} onChange={(e) => setContact(e.target.value)} /></div>
-                        <div className="grid gap-2"><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!errors.email} /><Err msg={errors.email} /></div>
                     </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancelar</Button>
-                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+                    <Button onClick={handleSubmit} disabled={mutation.isPending}>
                         {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Guardar
                     </Button>
                 </DialogFooter>
@@ -322,17 +349,15 @@ function BillDialog({ open, onOpenChange, suppliers, categories, userId, owner, 
     const [supplierId, setSupplierId] = useState(''); const [categoryId, setCategoryId] = useState('');
     const [invoiceNo, setInvoiceNo] = useState(''); const [amount, setAmount] = useState('');
     const [issueDate, setIssueDate] = useState(todayIso()); const [dueDate, setDueDate] = useState(todayIso());
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
     const mutation = useMutation({
         mutationFn: async () => {
             if (!owner.owner_id || !userId) throw new Error('Sin escuela/usuario');
-            if (!supplierId) throw new Error('Selecciona proveedor');
-            const amt = Number(amount);
-            if (!Number.isFinite(amt) || amt <= 0) throw new Error('Monto inválido');
             const { error } = await supabase.from('supplier_bills').insert({
                 owner_type: owner.owner_type, owner_id: owner.owner_id,
                 supplier_id: supplierId, category_id: categoryId || null,
-                invoice_no: invoiceNo || null, amount: amt,
+                invoice_no: invoiceNo || null, amount: Number(amount),
                 issue_date: issueDate, due_date: dueDate, created_by: userId,
             });
             if (error) throw error;
@@ -340,10 +365,18 @@ function BillDialog({ open, onOpenChange, suppliers, categories, userId, owner, 
         onError: (e: any) => toast({ title: 'No se pudo guardar', description: e.message, variant: 'destructive' }),
         onSuccess: () => {
             toast({ title: 'Factura registrada' });
-            setSupplierId(''); setCategoryId(''); setInvoiceNo(''); setAmount(''); setIssueDate(todayIso()); setDueDate(todayIso());
+            setSupplierId(''); setCategoryId(''); setInvoiceNo(''); setAmount(''); setIssueDate(todayIso()); setDueDate(todayIso()); setErrors({});
             onOpenChange(false); onSaved();
         },
     });
+
+    const handleSubmit = () => {
+        const base = validate(billSchema, { supplier_id: supplierId, invoice_no: invoiceNo, amount });
+        const errs = base.errors ?? {};
+        if (dueDate < issueDate) errs.dueDate = 'El vencimiento no puede ser antes de la emisión';
+        if (Object.keys(errs).length) { setErrors(errs); return; }
+        setErrors({}); mutation.mutate();
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -351,15 +384,16 @@ function BillDialog({ open, onOpenChange, suppliers, categories, userId, owner, 
                 <DialogHeader><DialogTitle>Nueva factura por pagar</DialogTitle><DialogDescription>Cuenta por pagar a un proveedor.</DialogDescription></DialogHeader>
                 <div className="grid gap-4 py-2">
                     <div className="grid gap-2">
-                        <Label>Proveedor</Label>
+                        <Label>Proveedor <span className="text-destructive">*</span></Label>
                         <Select value={supplierId} onValueChange={setSupplierId}>
-                            <SelectTrigger><SelectValue placeholder="Selecciona proveedor" /></SelectTrigger>
+                            <SelectTrigger aria-invalid={!!errors.supplier_id}><SelectValue placeholder="Selecciona proveedor" /></SelectTrigger>
                             <SelectContent>{suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
                         </Select>
+                        <Err msg={errors.supplier_id} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2"><Label># Factura</Label><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></div>
-                        <div className="grid gap-2"><Label>Monto (COP)</Label><Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>Monto (COP) <span className="text-destructive">*</span></Label><Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} aria-invalid={!!errors.amount} /><Err msg={errors.amount} /></div>
                     </div>
                     <div className="grid gap-2">
                         <Label>Categoría (opcional)</Label>
@@ -370,12 +404,12 @@ function BillDialog({ open, onOpenChange, suppliers, categories, userId, owner, 
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2"><Label>Emisión</Label><Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
-                        <div className="grid gap-2"><Label>Vence</Label><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+                        <div className="grid gap-2"><Label>Vence</Label><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} aria-invalid={!!errors.dueDate} /><Err msg={errors.dueDate} /></div>
                     </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancelar</Button>
-                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+                    <Button onClick={handleSubmit} disabled={mutation.isPending}>
                         {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Guardar
                     </Button>
                 </DialogFooter>

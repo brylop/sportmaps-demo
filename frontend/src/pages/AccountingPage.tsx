@@ -26,6 +26,15 @@ import {
     BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip,
 } from 'lucide-react';
 import { InvoicingTab } from '@/components/accounting/InvoicingTab';
+import { z } from 'zod';
+import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
+
+const expenseSchema = z.object({
+    category_id: zRequiredText('La categoría'),
+    concept: zRequiredText('El concepto'),
+    amount: zAmountPositive('El monto'),
+});
+const ExpErr = ({ msg }: { msg?: string }) => (msg ? <p className="text-xs text-destructive mt-1">{msg}</p> : null);
 
 interface LedgerRow {
     direction: 'income' | 'expense';
@@ -354,17 +363,14 @@ function RegisterExpenseDialog({
     const [reference, setReference] = useState('');
     const [notes, setNotes] = useState('');
     const [file, setFile] = useState<File | null>(null);
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
     const mutation = useMutation({
         mutationFn: async () => {
-            const amt = Number(amount);
-            if (!categoryId) throw new Error('Selecciona una categoría');
-            if (!concept.trim()) throw new Error('Escribe un concepto');
-            if (!Number.isFinite(amt) || amt <= 0) throw new Error('Monto inválido');
             await onSubmit({
                 category_id: categoryId,
                 concept: concept.trim(),
-                amount: amt,
+                amount: Number(amount),
                 expense_date: expenseDate,
                 paid_date: expenseDate,
                 payment_method: paymentMethod,
@@ -378,9 +384,15 @@ function RegisterExpenseDialog({
         },
         onSuccess: () => {
             setCategoryId(''); setConcept(''); setAmount(''); setExpenseDate(todayIso());
-            setPaymentMethod('transfer'); setReference(''); setNotes(''); setFile(null);
+            setPaymentMethod('transfer'); setReference(''); setNotes(''); setFile(null); setErrors({});
         },
     });
+
+    const handleSubmit = () => {
+        const r = validate(expenseSchema, { category_id: categoryId, concept, amount });
+        if (r.errors) { setErrors(r.errors); return; }
+        setErrors({}); mutation.mutate();
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -396,24 +408,27 @@ function RegisterExpenseDialog({
                 </DialogHeader>
                 <div className="grid gap-4 py-2">
                     <div className="grid gap-2">
-                        <Label>Categoría</Label>
+                        <Label>Categoría <span className="text-destructive">*</span></Label>
                         <Select value={categoryId} onValueChange={setCategoryId}>
-                            <SelectTrigger><SelectValue placeholder="Selecciona categoría" /></SelectTrigger>
+                            <SelectTrigger aria-invalid={!!errors.category_id}><SelectValue placeholder="Selecciona categoría" /></SelectTrigger>
                             <SelectContent>
                                 {categories.map((c) => (
                                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
+                        <ExpErr msg={errors.category_id} />
                     </div>
                     <div className="grid gap-2">
-                        <Label>Concepto</Label>
-                        <Input value={concept} onChange={(e) => setConcept(e.target.value)} placeholder="Ej. Arriendo julio sede norte" />
+                        <Label>Concepto <span className="text-destructive">*</span></Label>
+                        <Input value={concept} onChange={(e) => setConcept(e.target.value)} placeholder="Ej. Arriendo julio sede norte" aria-invalid={!!errors.concept} />
+                        <ExpErr msg={errors.concept} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label>Monto (COP)</Label>
-                            <Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+                            <Label>Monto (COP) <span className="text-destructive">*</span></Label>
+                            <Input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" aria-invalid={!!errors.amount} />
+                            <ExpErr msg={errors.amount} />
                         </div>
                         <div className="grid gap-2">
                             <Label>Fecha</Label>
@@ -455,7 +470,7 @@ function RegisterExpenseDialog({
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancelar</Button>
-                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+                    <Button onClick={handleSubmit} disabled={mutation.isPending}>
                         {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                         Guardar gasto
                     </Button>
