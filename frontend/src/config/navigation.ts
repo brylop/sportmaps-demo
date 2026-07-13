@@ -404,6 +404,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Gestión Global',
         items: [
           { title: 'Escuelas',  href: '/admin/schools', icon: Building },
+          { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
           { title: 'Usuarios',  href: '/admin/users',   icon: Users },
           { title: 'Reportes',  href: '/admin/reports', icon: FileText }
         ]
@@ -431,6 +432,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Gestión Global',
         items: [
           { title: 'Escuelas', href: '/admin/schools', icon: Building },
+          { title: 'Suscripciones', href: '/admin/subscriptions', icon: DollarSign },
           { title: 'Usuarios', href: '/admin/users', icon: Users },
           { title: 'Reportes', href: '/admin/reports', icon: FileText }
         ]
