@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
@@ -57,6 +58,7 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
   const [form, setForm] = useState<CardTemplate>(emptyTemplate());
   const [saving, setSaving] = useState(false);
   const [school, setSchool] = useState<{ name: string; branding_settings: any } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CardTemplate | null>(null);
 
   useEffect(() => {
     if (!schoolId) return;
@@ -128,13 +130,14 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
     }
   }
 
-  async function remove(t: CardTemplate) {
-    if (!t.id) return;
-    if (!window.confirm(`¿Eliminar la plantilla "${t.name}"?`)) return;
+  async function confirmDelete() {
+    const t = deleteTarget;
+    if (!t?.id) return;
     const { error } = await supabase.from('athlete_id_card_templates').delete().eq('id', t.id);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Plantilla eliminada' });
     if (form.id === t.id) newTemplate();
+    setDeleteTarget(null);
     void load();
   }
 
@@ -201,7 +204,7 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
                       <div className="text-xs text-muted-foreground truncate">{t.header_text || '—'}</div>
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => edit(t)}>Editar</Button>
-                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => remove(t)}>
+                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setDeleteTarget(t)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -278,6 +281,22 @@ export function CardTemplatesManager({ schoolId }: { schoolId: string | null | u
           <AthleteIdCard data={preview} publicUrl="https://sportmaps.co/c/preview" />
         </div>
       </div>
+
+      {/* Confirmar eliminación */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Eliminar plantilla</DialogTitle>
+            <DialogDescription>
+              ¿Eliminar la plantilla <strong>{deleteTarget?.name}</strong>? Los carnets ya emitidos no se ven afectados.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Eliminar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
