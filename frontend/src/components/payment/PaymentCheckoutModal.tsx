@@ -70,6 +70,8 @@ export function PaymentCheckoutModal({
   const [showOnlineConfirm, setShowOnlineConfirm] = useState(false);
   const [wompiEnabled, setWompiEnabled] = useState(false);
   const [onlineFeePct, setOnlineFeePct] = useState(3);
+  const [allowInstallments, setAllowInstallments] = useState(false);
+  const [minInstallmentAmount, setMinInstallmentAmount] = useState(0);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   // Resultado del OCR del comprobante manual. Se persiste en el pago para que
   // el admin vea el monto detectado y la alerta de discrepancia en Cobros por
@@ -111,12 +113,14 @@ export function PaymentCheckoutModal({
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount')
         .eq('school_id', schoolId).single()
         .then(({ data }) => {
           setBankDetails(data);
           setWompiEnabled(!!(data as any)?.wompi_enabled);
           setOnlineFeePct(Number((data as any)?.online_fee_pct ?? 3));
+          setAllowInstallments(!!(data as any)?.allow_installments);
+          setMinInstallmentAmount(Number((data as any)?.min_installment_amount) || 0);
         });
     }
   }, [open, schoolId]);
@@ -829,6 +833,8 @@ export function PaymentCheckoutModal({
                         ? 'fixed'
                         : 'lenient'
                     }
+                    allowPartial={allowInstallments}
+                    minPartialAmount={minInstallmentAmount}
                   />
                   {proofUrl && (
                     <p className="text-xs text-green-600 flex items-center gap-1">

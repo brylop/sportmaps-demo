@@ -59,6 +59,9 @@ export default function ParentCheckoutPage() {
 
   // Feature Flag State
   const [paymentSettings, setPaymentSettings] = useState<{ allow_online: boolean; allow_manual: boolean } | null>(null);
+  // Config de abonos (school_settings). Gatea el OCR: si allow_installments es
+  // false, un comprobante por menos del esperado se bloquea.
+  const [installmentCfg, setInstallmentCfg] = useState<{ allow_installments: boolean; min_installment_amount: number }>({ allow_installments: false, min_installment_amount: 0 });
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [showFullQr, setShowFullQr] = useState(false);
 
@@ -134,25 +137,33 @@ export default function ParentCheckoutPage() {
 
       const { data } = await query.maybeSingle();
 
-      if (data) {
-        const settings = data.payment_settings as any || { allow_online: false, allow_manual: true };
-        setPaymentSettings(settings);
-        // Default Logic
-        if (settings.allow_online && !settings.allow_manual) setPaymentFlow('wompi');
-        else if (!settings.allow_online && settings.allow_manual) setPaymentFlow('manual');
-        else setPaymentFlow('wompi'); // Default fallback
+      // La fuente de verdad de "pagos online" es school_settings.wompi_enabled
+      // (lo que edita el owner en SportMaps Pay). schools.payment_settings es
+      // un JSONB legacy que sólo tenía el default y nunca se actualizaba, por
+      // lo que el toggle del owner nunca llegaba al padre. Se deja como OR de
+      // respaldo por si alguna escuela vieja lo tuviera seteado.
+      const legacy = (data?.payment_settings as any) || { allow_online: false };
+
+      if (data?.id) {
+        const { data: ss } = await supabase.from('school_settings')
+          .select('wompi_enabled, allow_installments, min_installment_amount, bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
+          .eq('school_id', data.id)
+          .maybeSingle();
+
+        const s = ss as any;
+        const allowOnline = Boolean(s?.wompi_enabled) || Boolean(legacy.allow_online);
+        // El pago manual (transferencia + comprobante) siempre está disponible.
+        setPaymentSettings({ allow_online: allowOnline, allow_manual: true });
+        setPaymentFlow(allowOnline ? 'wompi' : 'manual');
+
+        setInstallmentCfg({
+          allow_installments: Boolean(s?.allow_installments),
+          min_installment_amount: Number(s?.min_installment_amount) || 0,
+        });
+        setBankDetails(s);
       } else {
         setPaymentSettings({ allow_online: false, allow_manual: true });
         setPaymentFlow('manual');
-      }
-
-      // Fetch Bank Details if a school was found
-      if (data?.id) {
-        const { data: bankData } = await supabase.from('school_settings')
-          .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url')
-          .eq('school_id', data.id)
-          .single();
-        setBankDetails(bankData);
       }
 
       setLoadingSettings(false);
@@ -739,6 +750,8 @@ export default function ParentCheckoutPage() {
                               validateReceipt={true}
                               expectedAmount={chargeAmount}
                               conceptKind={conceptKind}
+                              allowPartial={installmentCfg.allow_installments}
+                              minPartialAmount={installmentCfg.min_installment_amount}
                             />
                           </div>
                         </div>
