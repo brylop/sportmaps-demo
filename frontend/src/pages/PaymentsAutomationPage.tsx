@@ -252,6 +252,10 @@ export default function PaymentsAutomationPage() {
         breb_number: billing.breb_number,
         transfer_key: billing.transfer_key,
         billing_cycle_type: billing.billing_cycle_type,
+        allow_installments: billing.allow_installments,
+        max_installments_per_payment: billing.max_installments_per_payment,
+        min_installment_amount: billing.min_installment_amount,
+        installment_require_proof: billing.installment_require_proof,
       };
 
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });

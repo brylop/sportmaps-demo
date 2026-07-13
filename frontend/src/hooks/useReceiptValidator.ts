@@ -45,6 +45,13 @@ export type ConceptKind = 'fixed' | 'lenient';
 export interface ValidationOptions {
     expectedAmount?: number;
     conceptKind?: ConceptKind;
+    /** Si la escuela permite abonos (school_settings.allow_installments).
+     *  Si es false, un comprobante por MENOS del esperado se BLOQUEA
+     *  (no se puede pagar parcial). Default: false (más restrictivo). */
+    allowPartial?: boolean;
+    /** Monto mínimo por abono (school_settings.min_installment_amount).
+     *  Solo aplica cuando allowPartial=true. 0 = sin mínimo. */
+    minPartialAmount?: number;
 }
 
 interface OcrResponse {
@@ -191,10 +198,8 @@ export function useReceiptValidator() {
                 const diffPct = Math.abs(amount - expected) / expected * 100;
                 amountMatches = diffPct <= AMOUNT_TOLERANCE_PCT;
             }
-            // En 'fixed', un monto MENOR al esperado es un ABONO válido: no se
-            // bloquea, se sube y la escuela lo aprueba como pago parcial. Solo se
-            // bloquea si el comprobante es por MÁS del esperado (posible
-            // comprobante equivocado o reusado de otro pago mayor).
+            // En 'fixed', un comprobante por MÁS del esperado siempre se bloquea
+            // (posible comprobante equivocado o reusado de otro pago mayor).
             if (
                 conceptKind === 'fixed' &&
                 typeof amount === 'number' &&
@@ -205,6 +210,28 @@ export function useReceiptValidator() {
                 errors.push(
                     `El comprobante es por ${formatCop(amount)}, mayor al valor esperado ${formatCop(expected)}. Verifica que sea el comprobante correcto.`,
                 );
+            }
+
+            // Un monto MENOR al esperado sólo es un ABONO válido si la escuela
+            // permite pagos parciales. Si NO los permite, se BLOQUEA: el padre
+            // debe pagar el valor completo o comunicarse con la escuela.
+            // Si los permite, se valida el monto mínimo por abono.
+            if (
+                conceptKind === 'fixed' &&
+                typeof amount === 'number' &&
+                expected &&
+                amountMatches === false &&
+                amount < expected
+            ) {
+                if (!opts.allowPartial) {
+                    errors.push(
+                        `El comprobante es por ${formatCop(amount)}, inferior al valor requerido ${formatCop(expected)}. Esta escuela no permite pagos parciales (abonos); paga el valor completo o comunícate con la escuela para gestionar esta situación.`,
+                    );
+                } else if (opts.minPartialAmount && amount < opts.minPartialAmount) {
+                    errors.push(
+                        `El abono mínimo permitido es ${formatCop(opts.minPartialAmount)}. El comprobante es por ${formatCop(amount)}.`,
+                    );
+                }
             }
 
             // 4.b) Endurecimiento de concept 'fixed': exigir que el OCR haya

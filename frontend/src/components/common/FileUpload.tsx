@@ -26,6 +26,11 @@ interface FileUploadProps {
   /** 'fixed' = bloquea por monto y fecha (mensualidad/inscripcion fija).
    *  'lenient' = solo bloquea por fecha distinta a hoy (default). */
   conceptKind?: ConceptKind;
+  /** Si la escuela permite abonos. Si es false, el OCR bloquea comprobantes
+   *  por menos del esperado (conceptKind='fixed'). Default: false. */
+  allowPartial?: boolean;
+  /** Monto mínimo por abono (solo si allowPartial=true). */
+  minPartialAmount?: number;
 }
 
 export function FileUpload({
@@ -39,6 +44,8 @@ export function FileUpload({
   onValidationResult,
   expectedAmount,
   conceptKind = 'lenient',
+  allowPartial = false,
+  minPartialAmount,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -97,7 +104,7 @@ export function FileUpload({
     try {
       let result: ReceiptValidationResult;
       try {
-        result = await validate(toUse[0], { expectedAmount, conceptKind });
+        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount });
       } catch (ocrErr) {
         // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
         // comprobante igual y que la escuela lo valide visualmente. El OCR es
