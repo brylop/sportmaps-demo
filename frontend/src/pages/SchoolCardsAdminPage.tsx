@@ -13,6 +13,7 @@ import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { AthleteIdCard, type CardData } from '@/components/cards/AthleteIdCard';
+import { CardTemplatesManager } from '@/components/cards/CardTemplatesManager';
 
 type Athlete = {
   kind: 'child' | 'profile';
@@ -51,7 +52,9 @@ export default function SchoolCardsAdminPage() {
   const { schoolId } = useSchoolContext();
   const { toast } = useToast();
 
-  const [tab, setTab] = useState<'athletes' | 'cards'>('athletes');
+  const [tab, setTab] = useState<'athletes' | 'cards' | 'templates'>('athletes');
+  const [templates, setTemplates] = useState<{ id: string; name: string; is_default: boolean }[]>([]);
+  const [issueTemplate, setIssueTemplate] = useState<string>('default');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
@@ -97,9 +100,25 @@ export default function SchoolCardsAdminPage() {
   useEffect(() => {
     if (!schoolId) return;
     if (tab === 'athletes') void loadAthletes();
-    else void loadCards();
+    else if (tab === 'cards') void loadCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, tab, search, statusFilter]);
+
+  // Plantillas activas (para elegir cuál usar al emitir).
+  useEffect(() => {
+    if (!schoolId) return;
+    supabase
+      .from('athlete_id_card_templates')
+      .select('id, name, is_default')
+      .eq('school_id', schoolId)
+      .eq('active', true)
+      .order('is_default', { ascending: false })
+      .then(({ data }) => setTemplates((data as any) || []));
+  }, [schoolId, tab]);
+
+  // Resuelve el template_id a usar al emitir ('default' → deja que la RPC use la
+  // plantilla predeterminada; un id concreto → esa plantilla).
+  const resolveTemplateId = () => (issueTemplate === 'default' ? null : issueTemplate);
 
   async function loadAthletes() {
     if (!schoolId) return;
@@ -190,7 +209,7 @@ export default function SchoolCardsAdminPage() {
         p_school_id: schoolId,
         p_child_id: a.kind === 'child' ? a.athlete_id : null,
         p_profile_id: a.kind === 'profile' ? a.athlete_id : null,
-        p_template_id: null,
+        p_template_id: resolveTemplateId(),
         p_valid_until: validUntil,
         p_photo_url: null,
       });
@@ -385,6 +404,7 @@ export default function SchoolCardsAdminPage() {
         <TabsList>
           <TabsTrigger value="athletes">Emitir nuevo</TabsTrigger>
           <TabsTrigger value="cards">Carnets emitidos</TabsTrigger>
+          <TabsTrigger value="templates">Plantillas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="athletes">
@@ -630,6 +650,10 @@ export default function SchoolCardsAdminPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="templates">
+          <CardTemplatesManager schoolId={schoolId} />
+        </TabsContent>
       </Tabs>
 
       {/* Issue dialog */}
@@ -644,6 +668,20 @@ export default function SchoolCardsAdminPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {templates.length > 0 && (
+              <div>
+                <Label>Plantilla</Label>
+                <Select value={issueTemplate} onValueChange={setIssueTemplate}>
+                  <SelectTrigger><SelectValue placeholder="Plantilla" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Predeterminada de la escuela</SelectItem>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}{t.is_default ? ' ★' : ''}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label htmlFor="valid_until">Vence el</Label>
               <Input
