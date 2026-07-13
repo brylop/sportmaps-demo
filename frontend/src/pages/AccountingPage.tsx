@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-    BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip,
+    BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip, Lock,
 } from 'lucide-react';
 import { InvoicingTab } from '@/components/accounting/InvoicingTab';
 import { z } from 'zod';
@@ -61,6 +62,7 @@ export default function AccountingPage() {
     const { schoolId, activeBranchId } = useSchoolContext();
     const { user } = useAuth();
     const { toast } = useToast();
+    const { hasAddon, isLoading: entLoading } = useEntitlements();
     const queryClient = useQueryClient();
     const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -148,6 +150,26 @@ export default function AccountingPage() {
                         </Button>
                     </AlertDescription>
                 </Alert>
+            </div>
+        );
+    }
+
+    // Módulo de pago: requiere el add-on 'accounting' (incluido en Elite).
+    if (!entLoading && !hasAddon('accounting')) {
+        return (
+            <div className="container mx-auto p-6">
+                <div className="max-w-lg mx-auto text-center rounded-2xl border bg-card p-10 mt-8">
+                    <div className="mx-auto h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                        <Lock className="h-7 w-7 text-primary" />
+                    </div>
+                    <h1 className="text-2xl font-bold">Contabilidad</h1>
+                    <p className="text-muted-foreground mt-2">
+                        Este módulo no está activo en tu plan. La <strong>Contabilidad</strong> viene incluida en el plan <strong>Elite</strong>, o se activa como módulo aparte.
+                    </p>
+                    <a href="/admin/mi-plan" className="inline-flex mt-6 items-center justify-center rounded-lg bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:opacity-90">
+                        Ver planes y activar
+                    </a>
+                </div>
             </div>
         );
     }
@@ -323,7 +345,20 @@ export default function AccountingPage() {
                 </TabsContent>
 
                 <TabsContent value="einvoicing">
-                    {schoolId
+                    {!hasAddon('invoicing') ? (
+                        <div className="max-w-lg mx-auto text-center rounded-2xl border bg-card p-8">
+                            <div className="mx-auto h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+                                <Lock className="h-6 w-6 text-primary" />
+                            </div>
+                            <h3 className="text-lg font-bold">Facturación electrónica</h3>
+                            <p className="text-muted-foreground text-sm mt-2">
+                                Módulo no activo. La facturación electrónica DIAN viene incluida en <strong>Elite</strong> o se activa aparte (cobro por volumen de documentos).
+                            </p>
+                            <a href="/admin/mi-plan" className="inline-flex mt-5 items-center justify-center rounded-lg bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:opacity-90">
+                                Ver planes y activar
+                            </a>
+                        </div>
+                    ) : schoolId
                         ? <InvoicingTab ownerType="school" ownerId={schoolId} />
                         : <p className="text-sm text-muted-foreground">Selecciona una escuela para configurar la facturación.</p>}
                 </TabsContent>

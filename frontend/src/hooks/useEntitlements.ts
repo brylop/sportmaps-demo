@@ -39,6 +39,8 @@ interface EntitlementsResponse {
     has_wompi: boolean;
     has_mp: boolean;
     has_store?: boolean;
+    has_accounting?: boolean;
+    has_invoicing?: boolean;
 }
 
 // ============================================================
@@ -105,6 +107,8 @@ const EMPTY_ENTITLEMENTS: Entitlements = {
         wompi: false,
         mp: false,
         store: false,
+        accounting: false,
+        invoicing: false,
     },
     daysLeftInTrial: null,
     isTrialActive: false,
@@ -185,6 +189,8 @@ export function useEntitlements(): Entitlements & EntitlementsHelpers & {
                 wompi: data.has_wompi,
                 mp: data.has_mp,
                 store: data.has_store ?? false,
+                accounting: data.has_accounting ?? false,
+                invoicing: data.has_invoicing ?? false,
             },
             daysLeftInTrial,
             isTrialActive,

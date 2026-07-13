@@ -64,6 +64,8 @@ router.get('/entitlements', requireAuth, async (req: Request, res: Response) => 
                 has_wompi:            false,
                 has_mp:               false,
                 has_store:            false,
+                has_accounting:       false,
+                has_invoicing:        false,
             });
         }
 
