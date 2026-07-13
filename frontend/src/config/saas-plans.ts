@@ -44,7 +44,9 @@ export type AddonKey =
   | 'whatsapp'
   | 'wompi'
   | 'mp'
-  | 'store';
+  | 'store'
+  | 'accounting'
+  | 'invoicing';
 
 export type FeatureKey =
   // Núcleo Academia
@@ -321,6 +323,26 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
     priceCents: 4_900_000,
     setupCents: 0,
     includedIn: [],
+    salesLed: false,
+  },
+  accounting: {
+    key: 'accounting',
+    name: 'Contabilidad',
+    description:
+      'Ingresos y egresos, proveedores, nómina, presupuestos y estado de resultados. Incluido en Elite.',
+    priceCents: 4_900_000,
+    setupCents: 0,
+    includedIn: ['elite'],
+    salesLed: false,
+  },
+  invoicing: {
+    key: 'invoicing',
+    name: 'Facturación electrónica',
+    description:
+      'Emisión de factura electrónica DIAN (Factus). Cobro por volumen de documentos. Incluida en Elite.',
+    priceCents: -1, // por volumen / pass-through del PAC (a definir)
+    setupCents: 0,
+    includedIn: ['elite'],
     salesLed: false,
   },
 };
