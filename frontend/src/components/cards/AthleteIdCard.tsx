@@ -77,6 +77,16 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
   const primaryColor: string = data.template?.accent_color || branding.primary_color || '#0ea5e9';
   const secondaryColor: string = branding.secondary_color || '#1e40af';
   const showWatermark: boolean = branding.show_sportmaps_watermark !== false;
+
+  // Auto-contraste: si el gradiente de la marca es claro (amarillo/lima/pastel),
+  // el texto pasa a oscuro para que se lea. Antes era siempre blanco → ilegible
+  // sobre marcas claras. Se evalúa el promedio de los dos colores del gradiente.
+  const darkText = isLightColor(primaryColor, secondaryColor);
+  const ink = (a: number) => darkText ? `rgba(20,20,20,${a})` : `rgba(255,255,255,${a})`;
+  const inkColor = darkText ? '#141414' : '#ffffff';
+  const logoBg = darkText ? 'rgba(0,0,0,0.86)' : 'rgba(255,255,255,0.95)';
+  const logoFg = darkText ? '#ffffff' : primaryColor;
+  const initials = getInitials(data.athlete?.full_name);
   const show = data.template?.show_fields || {
     photo: true, doc_number: true, team: true, branch: true, plan: true,
     valid_until: true, fee_status: true, blood_type: false,
@@ -106,24 +116,25 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
       />
 
       {/* Header */}
-      <div className="relative px-5 pt-5 pb-3 flex items-center gap-3 border-b border-white/20">
+      <div className="relative px-5 pt-5 pb-3 flex items-center gap-3" style={{ borderBottom: `1px solid ${ink(0.2)}` }}>
         {data.school?.logo_url ? (
           <img
             src={data.school.logo_url}
             alt=""
-            className="h-12 w-12 rounded-lg bg-white/95 object-contain p-1"
+            className="h-12 w-12 rounded-lg object-contain p-1"
+            style={{ background: 'rgba(255,255,255,0.95)' }}
             crossOrigin="anonymous"
           />
         ) : (
-          <div className="h-12 w-12 rounded-lg bg-white/95 flex items-center justify-center text-xl font-bold" style={{ color: primaryColor }}>
+          <div className="h-12 w-12 rounded-lg flex items-center justify-center text-xl font-bold" style={{ background: logoBg, color: logoFg }}>
             {data.school?.name?.[0] || '?'}
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] uppercase tracking-wider text-white/70 font-medium">
+          <p className="text-[10px] uppercase tracking-wider font-medium" style={{ color: ink(0.7) }}>
             {data.template?.header_text || 'Carnet deportivo'}
           </p>
-          <h3 className="text-white font-bold text-base leading-tight truncate">
+          <h3 className="font-bold text-base leading-tight truncate" style={{ color: inkColor }}>
             {data.school?.name}
           </h3>
         </div>
@@ -132,23 +143,23 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
       {/* Foto + nombre */}
       <div className="relative px-5 pt-4 flex flex-col items-center text-center">
         {show.photo && (
-          <div className="mb-3 rounded-2xl overflow-hidden ring-4 ring-white/40 bg-white/95" style={{ width: 110, height: 110 }}>
+          <div className="mb-3 rounded-2xl overflow-hidden" style={{ width: 110, height: 110, background: 'rgba(255,255,255,0.95)', boxShadow: `0 0 0 4px ${ink(0.35)}` }}>
             {data.athlete?.avatar_url ? (
               <img src={data.athlete.avatar_url} alt={data.athlete.full_name} className="w-full h-full object-cover" crossOrigin="anonymous" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400">
-                <User className="h-12 w-12" />
+              <div className="w-full h-full flex items-center justify-center font-extrabold" style={{ fontSize: 40, color: primaryColor }}>
+                {initials || <User className="h-12 w-12 text-gray-400" />}
               </div>
             )}
           </div>
         )}
 
-        <p className="text-white font-bold text-lg leading-tight max-w-full break-words">
+        <p className="font-bold text-lg leading-tight max-w-full break-words" style={{ color: inkColor }}>
           {data.athlete?.full_name || '—'}
         </p>
 
         {show.doc_number && data.athlete?.doc_number && (
-          <p className="text-white/85 text-xs mt-0.5 flex items-center gap-1">
+          <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: ink(0.85) }}>
             <Hash className="h-3 w-3" />
             {data.athlete.doc_type || 'CC'} {data.athlete.doc_number}
           </p>
@@ -158,29 +169,29 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
       {/* Datos */}
       <div className="relative px-5 mt-3 space-y-1.5">
         {show.branch && data.branch_name && (
-          <Row icon={MapPin} label="Sede" value={data.branch_name} />
+          <Row icon={MapPin} label="Sede" value={data.branch_name} ink={ink} inkColor={inkColor} />
         )}
         {show.team && data.team_name && (
-          <Row icon={Users} label="Equipo" value={data.team_name} />
+          <Row icon={Users} label="Equipo" value={data.team_name} ink={ink} inkColor={inkColor} />
         )}
         {show.blood_type && data.athlete?.blood_type && (
-          <Row icon={Heart} label="RH" value={data.athlete.blood_type} />
+          <Row icon={Heart} label="RH" value={data.athlete.blood_type} ink={ink} inkColor={inkColor} />
         )}
         {show.eps && data.athlete?.eps_name && (
-          <Row icon={Heart} label="EPS" value={data.athlete.eps_name} />
+          <Row icon={Heart} label="EPS" value={data.athlete.eps_name} ink={ink} inkColor={inkColor} />
         )}
         {show.tshirt_size && data.athlete?.tshirt_size && (
-          <Row icon={Shirt} label="Talla" value={data.athlete.tshirt_size} />
+          <Row icon={Shirt} label="Talla" value={data.athlete.tshirt_size} ink={ink} inkColor={inkColor} />
         )}
         {show.emergency_contact && data.athlete?.emergency_contact && (
-          <Row icon={Phone} label="Emergencia" value={data.athlete.emergency_contact} />
+          <Row icon={Phone} label="Emergencia" value={data.athlete.emergency_contact} ink={ink} inkColor={inkColor} />
         )}
       </div>
 
       {/* Bottom: QR + estado */}
-      <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 pt-3 bg-black/15 backdrop-blur-[1px]">
+      <div className="absolute left-0 right-0 bottom-0 px-5 pb-4 pt-3 backdrop-blur-[1px]" style={{ background: darkText ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)' }}>
         {show.fee_status && data.last_payment && (feeKey === 'paid' || feeKey === 'due_soon' || feeKey === 'overdue') && (
-          <div className="mb-2 rounded-md bg-white/15 px-2 py-1 text-[10px] text-white/95 leading-tight">
+          <div className="mb-2 rounded-md px-2 py-1 text-[10px] leading-tight" style={{ background: ink(0.15), color: ink(0.95) }}>
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-medium">
                 {data.last_payment.concept || 'Último pago'}
@@ -192,7 +203,7 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
               )}
             </div>
             {(data.last_payment.payment_date || data.last_payment.created_at) && (
-              <p className="text-white/70 text-[9px] mt-0.5">
+              <p className="text-[9px] mt-0.5" style={{ color: ink(0.7) }}>
                 Pagado {new Date((data.last_payment.payment_date || data.last_payment.created_at)!).toLocaleDateString('es-CO')}
               </p>
             )}
@@ -213,19 +224,19 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
               </div>
             )}
             {show.valid_until && data.valid_until && (
-              <p className="text-white/85 text-[11px] flex items-center justify-end gap-1">
+              <p className="text-[11px] flex items-center justify-end gap-1" style={{ color: ink(0.85) }}>
                 <CalendarDays className="h-3 w-3" />
                 Vence {new Date(data.valid_until).toLocaleDateString('es-CO')}
               </p>
             )}
             {data.version && data.version > 1 && (
-              <p className="text-white/60 text-[10px] mt-0.5">v{data.version}</p>
+              <p className="text-[10px] mt-0.5" style={{ color: ink(0.6) }}>v{data.version}</p>
             )}
           </div>
         </div>
 
         {data.template?.footer_text && (
-          <p className="text-[9px] text-white/60 text-center mt-2 leading-tight">
+          <p className="text-[9px] text-center mt-2 leading-tight" style={{ color: ink(0.6) }}>
             {data.template.footer_text}
           </p>
         )}
@@ -233,7 +244,7 @@ export const AthleteIdCard = forwardRef<HTMLDivElement, Props>(({ data, publicUr
 
       {/* Watermark SportMaps si la escuela no es paid-tier */}
       {showWatermark && (
-        <div className="absolute bottom-1 right-2 text-[8px] text-white/40 select-none">
+        <div className="absolute bottom-1 right-2 text-[8px] select-none" style={{ color: ink(0.4) }}>
           SportMaps
         </div>
       )}
@@ -266,14 +277,40 @@ function formatCop(amount: number): string {
   }
 }
 
-function Row({ icon: Icon, label, value }: { icon: typeof ShieldCheck; label: string; value: string }) {
+function Row({ icon: Icon, label, value, ink, inkColor }: { icon: typeof ShieldCheck; label: string; value: string; ink: (a: number) => string; inkColor: string }) {
   return (
-    <div className="flex items-center gap-2 text-white">
-      <div className="bg-white/20 p-1 rounded">
+    <div className="flex items-center gap-2" style={{ color: inkColor }}>
+      <div className="p-1 rounded" style={{ background: ink(0.2) }}>
         <Icon className="h-3 w-3" />
       </div>
-      <span className="text-[10px] uppercase tracking-wider text-white/70 w-16">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider w-16" style={{ color: ink(0.7) }}>{label}</span>
       <span className="text-xs font-medium truncate flex-1">{value}</span>
     </div>
   );
+}
+
+// Iniciales del atleta (primeras letras de las 2 primeras palabras del nombre).
+function getInitials(name?: string): string {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  const first = parts[0][0] || '';
+  const second = parts.length > 1 ? parts[parts.length - 1][0] || '' : '';
+  return (first + second).toUpperCase();
+}
+
+// ¿El gradiente de la marca es "claro"? Promedia la luminancia relativa de los
+// dos colores; si supera el umbral, el texto debe ir oscuro para ser legible.
+function isLightColor(c1: string, c2: string): boolean {
+  const lum = (hex: string): number => {
+    const h = hex.replace('#', '').trim();
+    const full = h.length === 3 ? h.split('').map((x) => x + x).join('') : h;
+    const r = parseInt(full.slice(0, 2), 16) || 0;
+    const g = parseInt(full.slice(2, 4), 16) || 0;
+    const b = parseInt(full.slice(4, 6), 16) || 0;
+    // luminancia perceptual (0..255)
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  };
+  const avg = (lum(c1) + lum(c2)) / 2;
+  return avg > 165; // umbral: marcas claras (amarillo/lima/pastel) → texto oscuro
 }
