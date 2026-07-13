@@ -73,6 +73,14 @@ export default function SchoolCardsAdminPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
+  // Emisión masiva + filtros
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [teamFilter, setTeamFilter] = useState<string>('all');
+  const [branchFilter, setBranchFilter] = useState<string>('all');
+  const [cardFilter, setCardFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [bulkIssuing, setBulkIssuing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+
   const publicCardOrigin = useMemo(() => {
     if (typeof window === 'undefined') return '';
     return `${window.location.origin}/c`;
@@ -119,6 +127,77 @@ export default function SchoolCardsAdminPage() {
       setCards(((data as any)?.rows ?? []) as CardRow[]);
     }
     setLoadingCards(false);
+  }
+
+  // ── Filtros (cliente) + cobertura ──────────────────────────────────────────
+  const teamOptions = useMemo(
+    () => Array.from(new Set(athletes.map((a) => a.team_name).filter(Boolean))) as string[],
+    [athletes],
+  );
+  const branchOptions = useMemo(
+    () => Array.from(new Set(athletes.map((a) => a.branch_name).filter(Boolean))) as string[],
+    [athletes],
+  );
+  const filteredAthletes = useMemo(
+    () => athletes.filter((a) => {
+      if (teamFilter !== 'all' && a.team_name !== teamFilter) return false;
+      if (branchFilter !== 'all' && a.branch_name !== branchFilter) return false;
+      if (cardFilter === 'with' && !a.has_active_card) return false;
+      if (cardFilter === 'without' && a.has_active_card) return false;
+      return true;
+    }),
+    [athletes, teamFilter, branchFilter, cardFilter],
+  );
+  const coverage = useMemo(() => ({
+    total: athletes.length,
+    withCard: athletes.filter((a) => a.has_active_card).length,
+  }), [athletes]);
+  const selectableWithout = filteredAthletes.filter((a) => !a.has_active_card);
+  const selectedCount = filteredAthletes.filter((a) => selected.has(a.athlete_id)).length;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function selectAllWithout() {
+    setSelected(new Set(selectableWithout.map((a) => a.athlete_id)));
+  }
+  function clearSelection() { setSelected(new Set()); }
+
+  async function bulkIssue() {
+    if (!schoolId) return;
+    const targets = filteredAthletes.filter((a) => selected.has(a.athlete_id) && !a.has_active_card);
+    if (targets.length === 0) {
+      toast({ title: 'Nada que emitir', description: 'Selecciona atletas sin carnet.' });
+      return;
+    }
+    setBulkIssuing(true);
+    setBulkProgress({ done: 0, total: targets.length });
+    let ok = 0; let fail = 0;
+    for (const a of targets) {
+      const { error } = await supabase.rpc('issue_athlete_id_card' as any, {
+        p_school_id: schoolId,
+        p_child_id: a.kind === 'child' ? a.athlete_id : null,
+        p_profile_id: a.kind === 'profile' ? a.athlete_id : null,
+        p_template_id: null,
+        p_valid_until: validUntil,
+        p_photo_url: null,
+      });
+      if (error) fail++; else ok++;
+      setBulkProgress({ done: ok + fail, total: targets.length });
+    }
+    setBulkIssuing(false);
+    setBulkProgress(null);
+    clearSelection();
+    toast({
+      title: `Emitidos ${ok} carnet(s)`,
+      description: fail ? `${fail} fallaron — revisa e inténtalo de nuevo.` : 'Todos correctos.',
+      variant: fail ? 'destructive' : 'default',
+    });
+    void loadAthletes();
   }
 
   function openIssueDialog(a: Athlete) {
@@ -225,27 +304,101 @@ export default function SchoolCardsAdminPage() {
         <TabsContent value="athletes">
           <Card>
             <CardHeader>
-              <CardTitle>Atletas</CardTitle>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <CardTitle>Atletas</CardTitle>
+                {/* Cobertura */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Cobertura</span>
+                  <div className="w-28 h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary rounded-full" style={{ width: `${coverage.total ? Math.round((coverage.withCard / coverage.total) * 100) : 0}%` }} />
+                  </div>
+                  <span className="font-bold tabular-nums">{coverage.withCard}/{coverage.total}</span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="relative mb-4 max-w-sm">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nombre o documento…"
-                  className="pl-8"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+              {/* Filtros */}
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nombre o documento…"
+                    className="pl-8"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <Select value={teamFilter} onValueChange={setTeamFilter}>
+                  <SelectTrigger className="w-auto min-w-[150px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los equipos</SelectItem>
+                    {teamOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={branchFilter} onValueChange={setBranchFilter}>
+                  <SelectTrigger className="w-auto min-w-[130px]"><SelectValue placeholder="Sede" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las sedes</SelectItem>
+                    {branchOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={cardFilter} onValueChange={(v) => setCardFilter(v as any)}>
+                  <SelectTrigger className="w-auto min-w-[140px]"><SelectValue placeholder="Estado" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="without">Sin carnet</SelectItem>
+                    <SelectItem value="with">Con carnet</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
+              {/* Barra de selección masiva */}
+              {selectableWithout.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                  <div className="text-sm">
+                    <span className="font-semibold text-primary">{selectedCount} seleccionado(s)</span>
+                    {selectedCount < selectableWithout.length && (
+                      <button className="ml-2 text-primary underline underline-offset-2" onClick={selectAllWithout}>
+                        Seleccionar todos sin carnet ({selectableWithout.length})
+                      </button>
+                    )}
+                    {selectedCount > 0 && (
+                      <button className="ml-2 text-muted-foreground underline underline-offset-2" onClick={clearSelection}>
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Vence</Label>
+                    <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="h-8 w-[150px]" />
+                    <Button size="sm" disabled={bulkIssuing || selectedCount === 0} onClick={bulkIssue} className="gap-1">
+                      {bulkIssuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {bulkIssuing && bulkProgress
+                        ? `Emitiendo ${bulkProgress.done}/${bulkProgress.total}…`
+                        : `Emitir seleccionados (${selectedCount})`}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {loadingAthletes ? (
                 <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
-              ) : athletes.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">No se encontraron atletas.</p>
+              ) : filteredAthletes.length === 0 ? (
+                <p className="py-8 text-center text-muted-foreground">No se encontraron atletas con esos filtros.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          aria-label="Seleccionar todos sin carnet"
+                          className="h-4 w-4 accent-primary align-middle"
+                          checked={selectableWithout.length > 0 && selectedCount === selectableWithout.length}
+                          onChange={(e) => e.target.checked ? selectAllWithout() : clearSelection()}
+                        />
+                      </TableHead>
                       <TableHead>Atleta</TableHead>
                       <TableHead>Documento</TableHead>
                       <TableHead>Equipo / Sede</TableHead>
@@ -254,10 +407,21 @@ export default function SchoolCardsAdminPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {athletes.map((a) => (
-                      <TableRow key={`${a.kind}-${a.athlete_id}`}>
+                    {filteredAthletes.map((a) => (
+                      <TableRow key={`${a.kind}-${a.athlete_id}`} className={selected.has(a.athlete_id) ? 'bg-primary/5' : ''}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            aria-label={`Seleccionar ${a.full_name}`}
+                            className="h-4 w-4 accent-primary align-middle disabled:opacity-40"
+                            checked={selected.has(a.athlete_id)}
+                            disabled={a.has_active_card}
+                            title={a.has_active_card ? 'Ya tiene carnet activo' : undefined}
+                            onChange={() => toggleSelect(a.athlete_id)}
+                          />
+                        </TableCell>
                         <TableCell className="text-sm font-medium">{a.full_name}</TableCell>
-                        <TableCell className="text-xs">{a.doc_number || '—'}</TableCell>
+                        <TableCell className="text-xs tabular-nums">{a.doc_number || '—'}</TableCell>
                         <TableCell className="text-xs">
                           {a.team_name || '—'}{a.branch_name ? ` · ${a.branch_name}` : ''}
                         </TableCell>
@@ -278,6 +442,7 @@ export default function SchoolCardsAdminPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
