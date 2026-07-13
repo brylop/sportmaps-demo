@@ -81,6 +81,13 @@ export default function SchoolCardsAdminPage() {
   const [bulkIssuing, setBulkIssuing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
+  // Descarga PDF por equipo (encarpetado)
+  const [pdfTeam, setPdfTeam] = useState<string>('all');
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [batch, setBatch] = useState<{ data: CardData; token: string }[]>([]);
+  const batchRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   const publicCardOrigin = useMemo(() => {
     if (typeof window === 'undefined') return '';
     return `${window.location.origin}/c`;
@@ -198,6 +205,71 @@ export default function SchoolCardsAdminPage() {
       variant: fail ? 'destructive' : 'default',
     });
     void loadAthletes();
+  }
+
+  // Equipos disponibles entre los carnets emitidos (para descargar por equipo)
+  const cardTeamOptions = useMemo(
+    () => Array.from(new Set(cards.map((c) => c.team_name).filter(Boolean))) as string[],
+    [cards],
+  );
+
+  // Genera un PDF (tamaño tarjeta CR80, 9 por hoja) con los carnets activos del
+  // equipo elegido (o todos) — para imprimir, plastificar y archivar por equipo.
+  async function downloadCardsPdf() {
+    if (!schoolId) return;
+    const target = cards.filter((c) => c.status === 'active' && (pdfTeam === 'all' || c.team_name === pdfTeam));
+    if (target.length === 0) {
+      toast({ title: 'Sin carnets', description: 'No hay carnets activos para ese equipo.' });
+      return;
+    }
+    setPdfBusy(true);
+    setPdfProgress({ done: 0, total: target.length });
+    try {
+      // 1) Cargar la data completa de cada carnet (branding, foto, estado)
+      const datas: { data: CardData; token: string }[] = [];
+      for (const c of target) {
+        const { data } = await supabase.rpc('verify_athlete_id_card_public' as any, { p_qr_token: c.qr_token });
+        if (data) datas.push({ data: data as CardData, token: c.qr_token });
+      }
+      batchRefs.current = [];
+      setBatch(datas);
+      // 2) Esperar a que React renderice los carnets ocultos
+      await new Promise((r) => setTimeout(r, 500));
+
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageW = 210, margin = 10, cols = 3, rows = 3, gap = 6;
+      const cardW = (pageW - margin * 2 - gap * (cols - 1)) / cols;   // ≈ 54mm (CR80)
+      const cardH = cardW * (476 / 300);                              // ≈ 85.6mm
+      const perPage = cols * rows;
+
+      let idx = 0;
+      for (let i = 0; i < batchRefs.current.length; i++) {
+        const node = batchRefs.current[i];
+        if (!node) continue;
+        const canvas = await html2canvas(node, { scale: 2, useCORS: true, backgroundColor: null, logging: false });
+        const img = canvas.toDataURL('image/png');
+        const pos = idx % perPage;
+        if (idx > 0 && pos === 0) pdf.addPage();
+        const col = pos % cols;
+        const row = Math.floor(pos / cols);
+        const x = margin + col * (cardW + gap);
+        const y = margin + row * (cardH + gap);
+        pdf.addImage(img, 'PNG', x, y, cardW, cardH);
+        idx++;
+        setPdfProgress({ done: idx, total: datas.length });
+      }
+      const slug = pdfTeam === 'all' ? 'todos' : pdfTeam.replace(/\s+/g, '-').toLowerCase();
+      pdf.save(`carnets-${slug}.pdf`);
+      toast({ title: `PDF generado`, description: `${idx} carnet(s) · listos para imprimir (CR80).` });
+    } catch (e: any) {
+      toast({ title: 'No se pudo generar el PDF', description: e?.message || 'Error', variant: 'destructive' });
+    } finally {
+      setPdfBusy(false);
+      setPdfProgress(null);
+      setBatch([]);
+    }
   }
 
   function openIssueDialog(a: Athlete) {
@@ -454,8 +526,8 @@ export default function SchoolCardsAdminPage() {
               <CardTitle>Carnets emitidos</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                <div className="relative">
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <div className="relative flex-1 min-w-[180px]">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Buscar atleta…"
@@ -465,7 +537,7 @@ export default function SchoolCardsAdminPage() {
                   />
                 </div>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger><SelectValue placeholder="Estado" /></SelectTrigger>
+                  <SelectTrigger className="w-auto min-w-[130px]"><SelectValue placeholder="Estado" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos</SelectItem>
                     <SelectItem value="active">Activos</SelectItem>
@@ -473,6 +545,21 @@ export default function SchoolCardsAdminPage() {
                     <SelectItem value="expired">Vencidos</SelectItem>
                   </SelectContent>
                 </Select>
+
+                {/* Descarga por equipo (encarpetado) */}
+                <div className="flex items-center gap-2 ml-auto">
+                  <Select value={pdfTeam} onValueChange={setPdfTeam}>
+                    <SelectTrigger className="w-auto min-w-[160px]"><SelectValue placeholder="Equipo" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los equipos</SelectItem>
+                      {cardTeamOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="outline" disabled={pdfBusy} onClick={downloadCardsPdf} className="gap-1">
+                    {pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                    {pdfBusy && pdfProgress ? `Generando ${pdfProgress.done}/${pdfProgress.total}…` : 'Descargar PDF'}
+                  </Button>
+                </div>
               </div>
 
               {loadingCards ? (
@@ -592,6 +679,17 @@ export default function SchoolCardsAdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Render oculto para generar el PDF por equipo (html2canvas los captura). */}
+      {batch.length > 0 && (
+        <div aria-hidden style={{ position: 'fixed', left: -99999, top: 0, opacity: 0, pointerEvents: 'none' }}>
+          {batch.map((b, i) => (
+            <div key={b.token} ref={(el) => { batchRefs.current[i] = el; }} style={{ marginBottom: 12 }}>
+              <AthleteIdCard data={b.data} publicUrl={`${publicCardOrigin}/${b.token}`} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
