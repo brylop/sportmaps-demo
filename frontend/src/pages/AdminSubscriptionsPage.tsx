@@ -23,11 +23,12 @@ const ADDONS: { key: string; label: string; icon: string; note?: string }[] = [
 ];
 
 const PLANS = [
-  { code: 'starter',     label: 'Starter (gratis)' },
-  { code: 'crecimiento', label: 'Crecimiento' },
-  { code: 'profesional', label: 'Profesional' },
-  { code: 'elite',       label: 'Elite' },
-  { code: 'enterprise',  label: 'Enterprise / Custom' },
+  { code: 'starter',     label: 'Free Start (gratis)' },
+  { code: 'start',       label: 'Escuela Start · $69k' },
+  { code: 'crecimiento', label: 'Escuela Crecimiento · $99k' },
+  { code: 'profesional', label: 'Escuela Pro · $159k' },
+  { code: 'elite',       label: 'Escuela Elite · $349k · todo incluido' },
+  { code: 'enterprise',  label: 'Custom' },
 ];
 
 interface SchoolRow { id: string; name: string; city: string | null; }
