@@ -16,6 +16,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Users, Plus, Loader2, AlertCircle, RefreshCw, Play, DollarSign, FileText } from 'lucide-react';
+import { z } from 'zod';
+import { validate, zRequiredText, zDocument, zAmountNonNeg, zOptionalText } from '@/lib/formValidation';
+
+const employeeSchema = z.object({
+    full_name: zRequiredText('El nombre'),
+    document_id: zDocument('El documento'),
+    base_salary: zAmountNonNeg('El salario'),
+    eps: zOptionalText(80),
+    afp: zOptionalText(80),
+});
+
+function FieldError({ msg }: { msg?: string }) {
+    return msg ? <p className="text-xs text-destructive mt-1">{msg}</p> : null;
+}
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const now = new Date();
@@ -395,17 +409,14 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
     const [arl, setArl] = useState(String(employee?.arl_class ?? 1));
     const [eps, setEps] = useState(employee?.eps ?? '');
     const [afp, setAfp] = useState(employee?.afp ?? '');
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
     const mutation = useMutation({
         mutationFn: async () => {
             if (!schoolId) throw new Error('Sin escuela');
-            if (!name.trim()) throw new Error('Nombre requerido');
-            if (!doc.trim()) throw new Error('Documento requerido');
-            const sal = Number(salary);
-            if (!Number.isFinite(sal) || sal < 0) throw new Error('Salario inválido');
             const payload = {
                 full_name: name.trim(), document_id: doc.trim(), contract_type: contract,
-                base_salary: sal, transport_aid_eligible: aux, arl_class: Number(arl),
+                base_salary: Number(salary), transport_aid_eligible: aux, arl_class: Number(arl),
                 eps: eps || null, afp: afp || null,
             };
             if (employee) {
@@ -424,9 +435,17 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
             if (!employee) {
                 setName(''); setDoc(''); setContract('indefinido'); setSalary(''); setAux(true); setArl('1'); setEps(''); setAfp('');
             }
+            setErrors({});
             onOpenChange(false); onSaved();
         },
     });
+
+    const handleSubmit = () => {
+        const r = validate(employeeSchema, { full_name: name, document_id: doc, base_salary: salary, eps, afp });
+        if (r.errors) { setErrors(r.errors); return; }
+        setErrors({});
+        mutation.mutate();
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -434,8 +453,16 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
                 <DialogHeader><DialogTitle>{employee ? 'Editar empleado' : 'Nuevo empleado'}</DialogTitle><DialogDescription>Contrato laboral para la nómina.</DialogDescription></DialogHeader>
                 <div className="grid gap-4 py-2">
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2"><Label>Nombre</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-                        <div className="grid gap-2"><Label>Documento</Label><Input value={doc} onChange={(e) => setDoc(e.target.value)} /></div>
+                        <div className="grid gap-2">
+                            <Label>Nombre <span className="text-destructive">*</span></Label>
+                            <Input value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!!errors.full_name} />
+                            <FieldError msg={errors.full_name} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Documento <span className="text-destructive">*</span></Label>
+                            <Input inputMode="numeric" value={doc} onChange={(e) => setDoc(e.target.value)} aria-invalid={!!errors.document_id} />
+                            <FieldError msg={errors.document_id} />
+                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
@@ -451,7 +478,11 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className="grid gap-2"><Label>Salario base (COP)</Label><Input type="number" min="0" value={salary} onChange={(e) => setSalary(e.target.value)} /></div>
+                        <div className="grid gap-2">
+                            <Label>Salario base (COP) <span className="text-destructive">*</span></Label>
+                            <Input type="number" min="0" value={salary} onChange={(e) => setSalary(e.target.value)} aria-invalid={!!errors.base_salary} />
+                            <FieldError msg={errors.base_salary} />
+                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
@@ -473,7 +504,7 @@ function EmployeeDialog({ open, onOpenChange, schoolId, onSaved, employee }: {
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancelar</Button>
-                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+                    <Button onClick={handleSubmit} disabled={mutation.isPending}>
                         {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Guardar
                     </Button>
                 </DialogFooter>
