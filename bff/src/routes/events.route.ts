@@ -224,6 +224,218 @@ router.post('/', requireAuth, requireRole('organizer'), async (req: Authenticate
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/events/school-tournament — Crear torneo propiedad de una ESCUELA
+// ------------------------------------------------------------------------------
+// Endpoint aislado (NO reusa el POST '/' del organizador, que está desincronizado
+// con el esquema real). Escribe contra las columnas reales de la DB:
+//   events.creator_role='school', school_id, organizer_id=NULL.
+// Gate: addon 'tournaments' (v_school_entitlements.has_tournaments).
+// Mapeo de casos: interno=school_only, externo privado=invited_only, externo público=public.
+// ─────────────────────────────────────────────────────────────────────────────
+const SchoolTournamentSchema = z.object({
+    title: z.string().min(1, 'El título es requerido'),
+    sport: z.string().min(1, 'El deporte es requerido'),
+    description: z.string().optional().nullable(),
+    event_date: z.string().min(1, 'La fecha es requerida'),
+    start_time: z.string().min(1, 'La hora de inicio es requerida'),
+    end_time: z.string().optional().nullable(),
+    address: z.string().min(1, 'La dirección es requerida'),
+    city: z.string().min(1, 'La ciudad es requerida'),
+    lat: z.number().optional().nullable(),
+    lng: z.number().optional().nullable(),
+    capacity: z.number().int().positive().optional(),
+    image_url: z.string().optional().nullable(),
+    banner_url: z.string().optional().nullable(),
+
+    // Torneo de escuela
+    tournament_scope: z.enum(['internal', 'external']),
+    // Visibilidad real de la DB. Default según scope si no viene.
+    visibility: z.enum(['public', 'invited_only', 'school_only']).optional(),
+    registration_type: z.enum(['individual', 'delegation']).optional().default('delegation'),
+    payer_mode: z.enum(['school', 'parent', 'flexible']).optional().default('school'),
+    payment_gates_approval: z.boolean().optional().default(true),
+    allow_individual_registration: z.boolean().optional().default(false),
+    invited_schools: z.array(z.string().uuid()).optional(),
+
+    registration_deadline: z.string().optional().nullable(),
+    payment_deadline: z.string().optional().nullable(),
+    correction_deadline: z.string().optional().nullable(),
+    crossover_allowed: z.boolean().optional().default(false),
+    payment_methods: z.array(z.string()).optional(),
+
+    // Sub-recursos (columnas reales)
+    categories: z.array(z.any()).optional(),
+    price_phases: z.array(z.any()).optional(),
+});
+
+function slugifyTitle(title: string): string {
+    const base = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 60);
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `${base || 'torneo'}-${suffix}`;
+}
+
+router.post('/school-tournament', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const schoolId = req.schoolId;
+        if (!schoolId) {
+            return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        }
+
+        // Gate: addon 'tournaments' activo para la escuela
+        const { data: ent, error: entErr } = await supabase
+            .from('v_school_entitlements')
+            .select('has_tournaments')
+            .eq('school_id', schoolId)
+            .maybeSingle();
+        if (entErr) {
+            req.log?.error({ err: entErr }, 'Error consultando entitlements de torneos');
+            return res.status(500).json({ error: 'Error verificando el módulo de torneos.' });
+        }
+        if (!ent?.has_tournaments) {
+            return res.status(403).json({
+                error: 'El módulo de Torneos no está activo para esta escuela.',
+                hint: 'Actívalo desde Mi Plan.',
+            });
+        }
+
+        const parsed = SchoolTournamentSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Datos inválidos', details: parsed.error.issues });
+        }
+        const p = parsed.data;
+
+        // Visibilidad por defecto según el alcance
+        const visibility = p.visibility
+            ?? (p.tournament_scope === 'internal' ? 'school_only' : 'public');
+
+        // 1. Insert Event (columnas reales; creator_role='school', organizer_id NULL)
+        const { data: newEvent, error: eventError } = await supabase
+            .from('events')
+            .insert({
+                creator_id: userId,
+                creator_role: 'school',
+                school_id: schoolId,
+                organizer_id: null,
+                title: p.title,
+                sport: p.sport,
+                description: p.description ?? null,
+                event_type: 'tournament',
+                event_date: p.event_date,
+                start_time: p.start_time,
+                end_time: p.end_time ?? null,
+                address: p.address,
+                city: p.city,
+                lat: p.lat ?? null,
+                lng: p.lng ?? null,
+                capacity: p.capacity ?? 50,
+                image_url: p.image_url ?? null,
+                banner_url: p.banner_url ?? null,
+                slug: slugifyTitle(p.title),
+                status: 'draft',
+                tournament_scope: p.tournament_scope,
+                visibility,
+                registration_type: p.registration_type,
+                payer_mode: p.payer_mode,
+                payment_gates_approval: p.payment_gates_approval,
+                allow_individual_registration: p.allow_individual_registration,
+                invited_schools: p.invited_schools ?? [],
+                registration_deadline: p.registration_deadline ?? null,
+                payment_deadline: p.payment_deadline ?? null,
+                correction_deadline: p.correction_deadline ?? null,
+                crossover_allowed: p.crossover_allowed,
+                payment_methods: p.payment_methods ?? [],
+            })
+            .select()
+            .single();
+
+        if (eventError) {
+            req.log?.error({ err: eventError }, 'Error insertando torneo de escuela');
+            return res.status(500).json({ error: 'Error al crear el torneo' });
+        }
+
+        // 2. Categorías (columnas reales: age_min/age_max/team_min/team_max)
+        if (Array.isArray(p.categories) && p.categories.length > 0) {
+            const rows = p.categories.map((c: any, i: number) => ({
+                event_id: newEvent.id,
+                division: c.division || 'General',
+                level: c.level || '1',
+                category: c.category || 'Open',
+                rama: c.rama || 'Mixto',
+                age_min: c.age_min ?? null,
+                age_max: c.age_max ?? null,
+                birth_year_min: c.birth_year_min ?? null,
+                birth_year_max: c.birth_year_max ?? null,
+                team_min: c.team_min ?? 10,
+                team_max: c.team_max ?? 30,
+                routine_max_seconds: c.routine_max_seconds ?? null,
+                scoring_system: c.scoring_system ?? null,
+                crossover_allowed: c.crossover_allowed ?? true,
+                active: c.active ?? true,
+                sort_order: c.sort_order ?? i,
+            }));
+            const { error: catErr } = await supabase.from('event_categories_config').insert(rows);
+            if (catErr) req.log?.warn({ err: catErr }, 'Error insertando categorías (torneo creado igual)');
+        }
+
+        // 3. Fases de precio (columnas reales: price_pkg1.., deposit_percent)
+        if (Array.isArray(p.price_phases) && p.price_phases.length > 0) {
+            const rows = p.price_phases.map((ph: any, i: number) => ({
+                event_id: newEvent.id,
+                phase_name: ph.phase_name || `Fase ${i + 1}`,
+                valid_until: ph.valid_until,
+                kit_type: ph.kit_type || 'gold',
+                deposit_percent: ph.deposit_percent ?? 30,
+                price_pkg1: ph.price_pkg1 ?? 0,
+                price_pkg2: ph.price_pkg2 ?? 0,
+                price_pkg3: ph.price_pkg3 ?? 0,
+                price_solo: ph.price_solo ?? 0,
+                sort_order: ph.sort_order ?? i,
+            }));
+            const { error: phErr } = await supabase.from('event_price_phases').insert(rows);
+            if (phErr) req.log?.warn({ err: phErr }, 'Error insertando fases de precio (torneo creado igual)');
+        }
+
+        return res.status(201).json(newEvent);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado creando torneo de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments — Torneos creados por la escuela (host)
+router.get('/school-tournaments', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+
+        const { data, error } = await supabase
+            .from('events')
+            .select(`
+                id, title, sport, event_date, city, slug, status, visibility,
+                tournament_scope, payer_mode, image_url, created_at,
+                delegations:event_delegations(count)
+            `)
+            .eq('school_id', schoolId)
+            .eq('creator_role', 'school')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            req.log?.error({ err: error }, 'Error listando torneos de la escuela');
+            return res.status(500).json({ error: 'Error al listar torneos' });
+        }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando torneos de escuela');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // GET /api/v1/events/:id/preview - Full event data for preview
 router.get('/:id/preview', requireAuth, requireRole('organizer'), async (req: AuthenticatedRequest, res: Response) => {
     try {

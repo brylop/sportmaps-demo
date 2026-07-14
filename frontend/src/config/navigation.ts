@@ -261,7 +261,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
         ]
       },
       {
@@ -484,7 +485,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
         ]
       },
       {
