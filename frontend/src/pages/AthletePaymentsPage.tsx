@@ -18,6 +18,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { CheckCircle2 as CheckCircle, Loader2 as Loader, CreditCard as CardIcon } from 'lucide-react';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { todayColombia } from '@/lib/dateUtils';
+import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 
 interface Payment {
   id: string;
@@ -43,6 +44,10 @@ interface Payment {
   plan_name?: string;
   child_name?: string;
   program_sport?: string;
+  early_payment_discount_applied?: number | null;
+  early_payment_discount_enabled?: boolean;
+  early_payment_discount_days?: number;
+  early_payment_discount_percentage?: number;
 }
 
 const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
@@ -80,6 +85,20 @@ export default function AthletePaymentsPage() {
   // Facturas electrónicas emitidas, por payment_id (RLS deja al atleta pagador
   // leer la factura de su propio pago). Muestra el botón "Factura".
   const [invoiceMap, setInvoiceMap] = useState<Record<string, { number: string | null; public_url: string | null }>>({});
+
+  const unpaidGroups = new Map<string, string[]>();
+  (payments || []).forEach((p: any) => {
+    if (['pending', 'overdue', 'partial'].includes(p.status)) {
+      const key = `${p.school_id}|${p.child_id ?? p.user_id}`;
+      if (!unpaidGroups.has(key)) unpaidGroups.set(key, []);
+      unpaidGroups.get(key)!.push(p.created_at);
+    }
+  });
+  const hasEarlierUnpaidFor = (schoolId?: string, childId?: string | null, userId?: string | null, createdAt?: string) => {
+    if (!schoolId || !createdAt) return false;
+    const key = `${schoolId}|${childId ?? userId}`;
+    return (unpaidGroups.get(key) || []).some(d => d < createdAt);
+  };
 
   useEffect(() => {
     if (user && profile) {
@@ -249,22 +268,39 @@ export default function AthletePaymentsPage() {
         </CardContent>
       </Card>
     );
-    return list.map(payment => (
-      <PaymentCard
-        key={payment.id}
-        payment={payment}
-        invoice={invoiceMap[payment.id]}
-        formatCurrency={formatCurrencyLocal}
-        formatDate={formatDate}
-        onRefresh={fetchPayments}
-        isSelected={selectedPayment?.id === payment.id}
-        onShowProof={handleShowProof}
-        onSelect={payment.status !== 'approved'
-          ? (p) => setSelectedPayment(prev => prev?.id === p.id ? null : p)
-          : undefined
-        }
-      />
-    ));
+    return list.map(payment => {
+      const earlierUnpaid = hasEarlierUnpaidFor(payment.school_id, payment.child_id, payment.user_id, payment.created_at);
+      const discount = calcEarlyPaymentDiscount(payment.amount, {
+        createdAt: payment.created_at,
+        config: {
+          enabled: !!payment.early_payment_discount_enabled,
+          days: payment.early_payment_discount_days || 5,
+          percentage: payment.early_payment_discount_percentage || 0,
+        },
+        hasEarlierUnpaid: earlierUnpaid,
+        alreadyAppliedAmount: payment.early_payment_discount_applied,
+      });
+
+      return (
+        <PaymentCard
+          key={payment.id}
+          payment={payment}
+          invoice={invoiceMap[payment.id]}
+          formatCurrency={formatCurrencyLocal}
+          formatDate={formatDate}
+          onRefresh={fetchPayments}
+          isSelected={selectedPayment?.id === payment.id}
+          onShowProof={handleShowProof}
+          discountAmount={discount.discountAmount}
+          discountEligible={discount.eligible}
+          discountValidUntil={discount.validUntil}
+          onSelect={payment.status !== 'approved'
+            ? (p) => setSelectedPayment(prev => prev?.id === p.id ? null : p)
+            : undefined
+          }
+        />
+      );
+    });
   };
 
   if (loading && payments.length === 0) {
@@ -576,7 +612,7 @@ export default function AthletePaymentsPage() {
   );
 }
 
-function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected, invoice }: {
+function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect, onShowProof, isSelected, invoice, discountAmount, discountEligible, discountValidUntil }: {
   payment: Payment;
   formatCurrency: (val: number) => string;
   formatDate: (dateStr: string) => string;
@@ -585,6 +621,9 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
   onShowProof?: (url: string, concept: string, amount: number) => void;
   isSelected: boolean;
   invoice?: { number: string | null; public_url: string | null };
+  discountAmount?: number;
+  discountEligible?: boolean;
+  discountValidUntil?: string | null;
 }) {
   const config = statusConfig[payment.status] || statusConfig.pending;
   const StatusIcon = config.icon;
@@ -647,14 +686,30 @@ function PaymentCard({ payment, formatCurrency, formatDate, onRefresh, onSelect,
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-base sm:text-lg text-foreground">
-                {formatCurrency(payment.amount)}
-              </p>
+              {discountEligible && (discountAmount ?? 0) > 0 && ['pending', 'processing', 'partial'].includes(payment.status) ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xs text-muted-foreground line-through font-normal">
+                    {formatCurrency(payment.amount)}
+                  </span>
+                  <span className="font-bold text-base sm:text-lg text-primary">
+                    {formatCurrency(payment.amount - discountAmount!)}
+                  </span>
+                </div>
+              ) : (
+                <p className="font-bold text-base sm:text-lg text-foreground">
+                  {formatCurrency(payment.amount)}
+                </p>
+              )}
               <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 
                                                    border-none ${config.color}`}>
                 {config.label}
               </Badge>
             </div>
+            {discountEligible && (discountAmount ?? 0) > 0 && ['pending', 'processing', 'partial'].includes(payment.status) && (
+              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold leading-none">
+                Ahorra {formatCurrency(discountAmount!)} pagando antes del {discountValidUntil}
+              </p>
+            )}
 
             {/* Fila 3: Metadatos */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 

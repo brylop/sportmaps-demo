@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { NumberStepper } from '@/components/ui/number-stepper';
 import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
@@ -55,6 +56,9 @@ interface BillingSettings {
   min_installment_amount: number;
   installment_require_proof: boolean;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+  early_payment_discount_enabled: boolean;
+  early_payment_discount_days: number;
+  early_payment_discount_percentage: number;
 }
 
 
@@ -73,6 +77,9 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   min_installment_amount: 10000,
   installment_require_proof: true,
   billing_cycle_type: 'prorated',
+  early_payment_discount_enabled: false,
+  early_payment_discount_days: 5,
+  early_payment_discount_percentage: 0,
 };
 
 
@@ -142,6 +149,7 @@ interface PaymentTransaction {
   athlete_name?: string | null;
   parent_responsible?: string | null;
   plan?: { name: string } | null;
+  early_payment_discount_applied?: number | null;
   // OCR del comprobante manual (LLM Vision). Null si no se logro leer o si es Wompi.
   ocr_amount?: number | null;
   ocr_currency?: string | null;
@@ -256,6 +264,9 @@ export default function PaymentsAutomationPage() {
         max_installments_per_payment: billing.max_installments_per_payment,
         min_installment_amount: billing.min_installment_amount,
         installment_require_proof: billing.installment_require_proof,
+        early_payment_discount_enabled: billing.early_payment_discount_enabled,
+        early_payment_discount_days: billing.early_payment_discount_days,
+        early_payment_discount_percentage: billing.early_payment_discount_percentage,
       };
 
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
@@ -279,7 +290,7 @@ export default function PaymentsAutomationPage() {
         .select(`
           id, amount, amount_paid, status, created_at, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
-          unregistered_athlete_id,
+          unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           parent:profiles!payments_parent_id_fkey(full_name, email),
@@ -332,6 +343,7 @@ export default function PaymentsAutomationPage() {
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
         unregistered_athlete_id: p.unregistered_athlete_id,
+        early_payment_discount_applied: p.early_payment_discount_applied,
         ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
         ocr_date: p.ocr_date, ocr_bank: p.ocr_bank,
         ocr_reference: p.ocr_reference, ocr_provider: p.ocr_provider,
@@ -461,7 +473,7 @@ export default function PaymentsAutomationPage() {
       if (action === 'approve' && profile && payment) {
         updatePayload.approved_by = profile.id;
         updatePayload.approved_at = new Date().toISOString();
-        updatePayload.amount_paid = payment.amount;
+        updatePayload.amount_paid = payment.amount - (Number(payment.early_payment_discount_applied) || 0);
       }
 
       const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
@@ -1260,7 +1272,11 @@ export default function PaymentsAutomationPage() {
                   <div className="space-y-2">
                     <Label htmlFor="due_day">Día de corte del mes</Label>
                     <div className="flex items-center gap-2">
-                      <Input id="due_day" type="number" min={1} max={28} className="w-24" value={billing.payment_cutoff_day} onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)} />
+                      <NumberStepper
+                        min={1} max={28} className="w-28 h-9"
+                        value={billing.payment_cutoff_day}
+                        onChange={v => updateBilling('payment_cutoff_day', v === "" ? 5 : v)}
+                      />
                       <span className="text-sm text-muted-foreground">de cada mes</span>
                     </div>
                   </div>
@@ -1303,7 +1319,11 @@ export default function PaymentsAutomationPage() {
                   <div className="space-y-2">
                     <Label htmlFor="grace">Días de gracia</Label>
                     <div className="flex items-center gap-2">
-                      <Input id="grace" type="number" min={0} max={15} className="w-24" value={billing.payment_grace_days} onChange={e => updateBilling('payment_grace_days', parseInt(e.target.value) || 0)} />
+                      <NumberStepper
+                        min={0} max={15} className="w-28 h-9"
+                        value={billing.payment_grace_days}
+                        onChange={v => updateBilling('payment_grace_days', v === "" ? 0 : v)}
+                      />
                       <span className="text-sm text-muted-foreground">días después del corte</span>
                     </div>
                   </div>
@@ -1315,6 +1335,46 @@ export default function PaymentsAutomationPage() {
                     </div>
                     <Switch checked={billing.auto_generate_payments} onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
                   </div>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Descuento por pronto pago</Label>
+                      <p className="text-xs text-muted-foreground">Premia a quien paga apenas se genera el cobro</p>
+                    </div>
+                    <Switch
+                      checked={billing.early_payment_discount_enabled}
+                      onCheckedChange={v => updateBilling('early_payment_discount_enabled', v)}
+                    />
+                  </div>
+                  {billing.early_payment_discount_enabled && (
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                      <div className="space-y-2">
+                        <Label htmlFor="epd_days">Días de vigencia</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={30} className="w-28 h-9"
+                            value={billing.early_payment_discount_days}
+                            onChange={v => updateBilling('early_payment_discount_days', v === "" ? 5 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">días desde que se genera el cobro</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="epd_pct">Porcentaje de descuento</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={50} className="w-28 h-9"
+                            value={billing.early_payment_discount_percentage}
+                            onChange={v => updateBilling('early_payment_discount_percentage', v === "" ? 0 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">% de descuento</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        No aplica si el deportista tiene otro cobro pendiente o vencido de un mes anterior en esta escuela.
+                      </p>
+                    </div>
+                  )}
 
                 </CardContent>
               </Card>
@@ -1335,7 +1395,11 @@ export default function PaymentsAutomationPage() {
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
                       <Label htmlFor="late_pct">Porcentaje de recargo</Label>
                       <div className="flex items-center gap-2">
-                        <Input id="late_pct" type="number" min={1} max={50} className="w-24" value={billing.late_fee_percentage} onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
+                        <NumberStepper
+                          min={1} max={50} className="w-28 h-9"
+                          value={billing.late_fee_percentage}
+                          onChange={v => updateBilling('late_fee_percentage', v === "" ? 5 : v)}
+                        />
                         <span className="text-sm text-muted-foreground">% adicional</span>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug">
@@ -1371,7 +1435,11 @@ export default function PaymentsAutomationPage() {
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
                       <Label htmlFor="reminder_days">Días antes del vencimiento</Label>
                       <div className="flex items-center gap-2">
-                        <Input id="reminder_days" type="number" min={1} max={15} className="w-24" value={billing.reminder_days_before} onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)} />
+                        <NumberStepper
+                          min={1} max={15} className="w-28 h-9"
+                          value={billing.reminder_days_before}
+                          onChange={v => updateBilling('reminder_days_before', v === "" ? 3 : v)}
+                        />
                         <span className="text-sm text-muted-foreground">días antes</span>
                       </div>
                     </div>
