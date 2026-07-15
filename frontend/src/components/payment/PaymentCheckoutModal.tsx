@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2 } from 'lucide-react';
+import { CreditCard, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -148,10 +148,47 @@ export function PaymentCheckoutModal({
     },
   });
 
-  const openCheckout = () => {
-    if (!paymentId) return;
+  const openCheckout = async () => {
+    let effectivePaymentId = paymentId;
+
+    // En modo "create" todavia NO existe una fila en `payments` (a diferencia de
+    // MercadoPago, que la inserta en handleMpSuccess). startSchoolPayment necesita
+    // un paymentId para pedirle la sesion al BFF, asi que primero creamos un cobro
+    // 'pending' con provider wompi. El estado real llega despues por el webhook.
+    if (!effectivePaymentId) {
+      try {
+        const periodYear  = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year  : null;
+        const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+        const reference = `SCH-WOMPI-${Date.now().toString(36).toUpperCase()}`;
+        const { data: inserted, error: insertError } = await supabase.from('payments').insert({
+          parent_id: user?.id,
+          child_id: childId || null,
+          team_id: (teamId && teamId !== '') ? teamId : null,
+          school_id: (schoolId && schoolId !== '') ? schoolId : null,
+          branch_id: branchId || null,
+          amount: finalAmount,
+          concept: finalConcept,
+          status: 'pending',
+          payment_method: 'online',
+          payment_provider: 'wompi',
+          provider_reference: reference,
+          payment_type: 'one_time',
+          due_date: new Date().toISOString().split('T')[0],
+          period_year:  periodYear,
+          period_month: periodMonth,
+        } as any).select('id').single();
+        if (insertError) throw insertError;
+        effectivePaymentId = inserted?.id;
+      } catch (err: any) {
+        toast({ title: 'Error iniciando el pago', description: err?.message || 'No se pudo crear el cobro.', variant: 'destructive' });
+        setShowOnlineConfirm(false);
+        return;
+      }
+    }
+
+    if (!effectivePaymentId) return;
     return startSchoolPayment({
-      paymentId,
+      paymentId: effectivePaymentId,
       schoolId,
       studentName: childName,
     });
@@ -251,8 +288,6 @@ export function PaymentCheckoutModal({
     }] : []),
     // ── Pago manual (siempre disponible) ──────────────────────────────────
     { id: 'transfer' as const, name: 'Transferencia / Nequi / Daviplata', description: 'Nequi, Daviplata o transferencia bancaria', icon: Smartphone, popular: !wompiEnabled && !mpEnabled, enabled: true },
-    { id: 'pse' as const, name: 'PSE', description: 'Pago con débito bancario', icon: Building2, popular: false, enabled: false },
-    { id: 'card' as const, name: 'Tarjeta', description: 'Visa o Mastercard', icon: CreditCard, popular: false, enabled: false },
   ];
 
   // Generar reference MP una sola vez cuando MP esta habilitado para esta

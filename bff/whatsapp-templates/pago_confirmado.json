@@ -1,0 +1,18 @@
+{
+  "name": "pago_confirmado",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "✅ Pago recibido: {{1}} por la mensualidad de {{2}} en {{3}}. ¡Gracias! Tu comprobante está disponible en el botón.",
+      "example": { "body_text": [["$150.000", "Samuel", "Academia Tigres FC"]] }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        { "type": "URL", "text": "Ver comprobante", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/gH9wN6qT"] }
+      ]
+    }
+  ]
+}
