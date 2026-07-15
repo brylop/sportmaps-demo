@@ -99,8 +99,9 @@ export default function EventPublicPage() {
     );
   }
 
-  const isPublished = event.status === 'published';
-  const isOpen = isPublished && (!event.registration_deadline || new Date(event.registration_deadline) >= new Date());
+  const isPublished = event.status === 'active' || event.status === 'published';
+  const isOpen = isPublished && event.registrations_open !== false
+    && (!event.registration_deadline || new Date(event.registration_deadline) >= new Date());
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -194,7 +195,7 @@ export default function EventPublicPage() {
                                 <TableCell className="font-medium">{c.division} {c.level && c.level !== 'N/A' ? `L${c.level}` : ''}</TableCell>
                                 <TableCell>{c.category}</TableCell>
                                 <TableCell>{c.rama}</TableCell>
-                                <TableCell>{c.min_age} a {c.max_age} años</TableCell>
+                                <TableCell>{c.age_min ?? '—'} a {c.age_max ?? '—'} años</TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -221,10 +222,10 @@ export default function EventPublicPage() {
                               <Badge variant="outline" className="mt-2 text-xs">Kit {p.kit_type}</Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-4 text-sm text-right">
-                              <div><span className="text-slate-500 block">Solo Competencia</span><span className="font-semibold">${p.pkg_solo_price?.toLocaleString()}</span></div>
-                              {p.pkg_3_price > 0 && <div><span className="text-slate-500 block">2 Noches</span><span className="font-semibold">${p.pkg_3_price?.toLocaleString()}</span></div>}
-                              {p.pkg_2_price > 0 && <div><span className="text-slate-500 block">3 Noches</span><span className="font-semibold">${p.pkg_2_price?.toLocaleString()}</span></div>}
-                              {p.pkg_1_price > 0 && <div><span className="text-slate-500 block">4 Noches</span><span className="font-semibold">${p.pkg_1_price?.toLocaleString()}</span></div>}
+                              <div><span className="text-slate-500 block">Solo Competencia</span><span className="font-semibold">${p.price_solo?.toLocaleString()}</span></div>
+                              {p.price_pkg3 > 0 && <div><span className="text-slate-500 block">2 Noches</span><span className="font-semibold">${p.price_pkg3?.toLocaleString()}</span></div>}
+                              {p.price_pkg2 > 0 && <div><span className="text-slate-500 block">3 Noches</span><span className="font-semibold">${p.price_pkg2?.toLocaleString()}</span></div>}
+                              {p.price_pkg1 > 0 && <div><span className="text-slate-500 block">4 Noches</span><span className="font-semibold">${p.price_pkg1?.toLocaleString()}</span></div>}
                             </div>
                           </div>
                         ))}

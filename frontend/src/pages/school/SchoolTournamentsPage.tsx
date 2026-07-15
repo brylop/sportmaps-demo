@@ -102,7 +102,7 @@ export default function SchoolTournamentsPage() {
             const st = STATUS_LABEL[t.status] ?? { label: t.status, variant: 'outline' as const };
             const delegCount = t.delegations?.[0]?.count ?? 0;
             return (
-              <Card key={t.id} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/event/${t.slug}`)}>
+              <Card key={t.id} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/school/tournaments/${t.id}`)}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">{t.title}</CardTitle>
