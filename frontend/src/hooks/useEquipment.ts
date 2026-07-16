@@ -14,6 +14,33 @@ export type AssignmentStatus =
   | 'pendiente_aceptacion' | 'pendiente_aprobacion_entrega' | 'activa'
   | 'en_disputa' | 'rechazada' | 'cancelada' | 'cerrada';
 
+export type AssignmentMode = 'admin_delivery' | 'self_checkout';
+
+export interface CoachAssignment {
+  id: string;
+  status: AssignmentStatus;
+  mode: AssignmentMode;
+  quantity: number;
+  returned_quantity: number;
+  return_due_at: string | null;
+  checkout_photo_url: string | null;
+  acta_folio: string | null;
+  acta_pdf_url: string | null;
+  created_at: string;
+  item_name: string;
+  size: string | null;
+  branch_name: string | null;
+  school_name: string | null;
+}
+
+export interface SelfCheckoutItem {
+  id: string;
+  name: string;
+  size: string | null;
+  quantity_available: number;
+  branch_id: string | null;
+}
+
 export interface EquipmentItem {
   id: string;
   name: string;
@@ -180,5 +207,41 @@ export const equipmentApi = {
   },
   closeWithShortage(assignmentId: string, note: string) {
     return rpc<void>('equipment_close_with_shortage', { p_assignment_id: assignmentId, p_note: note });
+  },
+
+  // ── Lado entrenador (Fase 3) ──────────────────────────────────────────────
+  myAssignments() {
+    return rpc<CoachAssignment[]>('equipment_my_assignments');
+  },
+  accept(assignmentId: string) {
+    return rpc<void>('equipment_accept', { p_assignment_id: assignmentId });
+  },
+  reportDifference(assignmentId: string, reportedQuantity: number, note: string) {
+    return rpc<void>('equipment_report_difference', {
+      p_assignment_id: assignmentId,
+      p_reported_quantity: reportedQuantity,
+      p_note: note,
+    });
+  },
+  availableForSelfCheckout(schoolId: string) {
+    return rpc<SelfCheckoutItem[]>('equipment_available_for_self_checkout', { p_school_id: schoolId });
+  },
+  selfCheckout(p: {
+    p_item_id: string;
+    p_quantity: number;
+    p_photo_url: string;
+    p_branch_id?: string | null;
+    p_note?: string | null;
+  }) {
+    return rpc<string>('equipment_self_checkout', p);
+  },
+  requestReturn(p: {
+    p_assignment_id: string;
+    p_quantity: number;
+    p_condition: ReturnCondition;
+    p_photo_url?: string | null;
+    p_note?: string | null;
+  }) {
+    return rpc<string>('equipment_request_return', p);
   },
 };

@@ -200,6 +200,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
+          { title: 'Mi Dotación', href: '/coach/dotacion', icon: Dumbbell },
           { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]

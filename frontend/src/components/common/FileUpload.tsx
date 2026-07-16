@@ -31,6 +31,9 @@ interface FileUploadProps {
   allowPartial?: boolean;
   /** Monto mínimo por abono (solo si allowPartial=true). */
   minPartialAmount?: number;
+  /** Fuerza captura de cámara en móvil ('environment' = cámara trasera).
+   *  No garantiza bloquear la galería en desktop (el browser puede ignorarlo). */
+  capture?: boolean | 'user' | 'environment';
 }
 
 export function FileUpload({
@@ -46,6 +49,7 @@ export function FileUpload({
   conceptKind = 'lenient',
   allowPartial = false,
   minPartialAmount,
+  capture,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -175,6 +179,7 @@ export function FileUpload({
           ref={fileInputRef}
           type="file"
           accept={accept}
+          capture={capture}
           multiple={multiple}
           onChange={handleFileSelect}
           className="hidden"
