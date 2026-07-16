@@ -26,6 +26,7 @@ interface Delegation {
   contact_name: string | null; submitted_at: string | null; created_at: string;
   school: { id: string; name: string; city: string | null } | null;
   teams: { count: number }[]; members: { count: number }[];
+  payments?: { id: string; amount: number; status: string; payment_method: string; proof_url: string | null; created_at: string }[];
 }
 interface Detail {
   id: string; title: string; sport: string; description: string | null; slug: string;
@@ -124,6 +125,12 @@ export default function SchoolTournamentDetailPage() {
     try {
       await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}`, { action: 'reject', rejection_reason: reason });
       toast({ title: 'Delegación rechazada' }); await loadDelegations();
+    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+  };
+  const verifyPayment = async (d: Delegation, payId: string, action: 'verify' | 'reject') => {
+    try {
+      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}/payments/${payId}`, { action });
+      toast({ title: action === 'verify' ? 'Pago verificado' : 'Pago rechazado' }); await loadDelegations();
     } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
   };
 
@@ -325,15 +332,25 @@ export default function SchoolTournamentDetailPage() {
                             <TableCell><Badge variant={ps.variant}>{ps.label}</Badge></TableCell>
                             <TableCell><Badge variant="outline">{d.status}</Badge></TableCell>
                             <TableCell className="text-right">
-                              {['submitted', 'draft', 'pending_payment'].includes(d.status) ? (
-                                <div className="flex justify-end gap-1">
-                                  <Button size="sm" variant="outline" onClick={() => recordPayment(d)}>Pago</Button>
-                                  <Button size="sm" onClick={() => approveDel(d)}>Aprobar</Button>
-                                  <Button size="sm" variant="ghost" onClick={() => rejectDel(d)}>Rechazar</Button>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              )}
+                              <div className="flex flex-col items-end gap-1">
+                                {(d.payments ?? []).filter((p) => p.status === 'pending').map((p) => (
+                                  <div key={p.id} className="flex items-center gap-1 rounded bg-amber-50 px-2 py-1 text-xs dark:bg-amber-950/30">
+                                    <span className="text-amber-700 dark:text-amber-400">Comprobante {money(Number(p.amount))}</span>
+                                    {p.proof_url && <a href={p.proof_url} target="_blank" rel="noreferrer" className="underline">ver</a>}
+                                    <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => verifyPayment(d, p.id, 'verify')}>✓</Button>
+                                    <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => verifyPayment(d, p.id, 'reject')}>✕</Button>
+                                  </div>
+                                ))}
+                                {['submitted', 'draft', 'pending_payment'].includes(d.status) ? (
+                                  <div className="flex justify-end gap-1">
+                                    <Button size="sm" variant="outline" onClick={() => recordPayment(d)}>Pago</Button>
+                                    <Button size="sm" onClick={() => approveDel(d)}>Aprobar</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => rejectDel(d)}>Rechazar</Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

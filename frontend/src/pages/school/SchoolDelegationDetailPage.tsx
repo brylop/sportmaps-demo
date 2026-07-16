@@ -90,6 +90,10 @@ export default function SchoolDelegationDetailPage() {
   const [delegation, setDelegation] = useState<DelegationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('transfer');
+  const [payFile, setPayFile] = useState<File | null>(null);
+  const [paying, setPaying] = useState(false);
 
   useEffect(() => {
     if (id) loadDetail();
@@ -130,6 +134,33 @@ export default function SchoolDelegationDetailPage() {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setUploadingFor(null);
+    }
+  };
+
+  const submitPayment = async () => {
+    const amount = Number(payAmount);
+    if (!amount || amount <= 0) { toast({ title: 'Monto inválido', variant: 'destructive' }); return; }
+    if (!delegation) return;
+    setPaying(true);
+    try {
+      let proof_url: string | null = null;
+      if (payFile) {
+        const ext = payFile.name.split('.').pop();
+        const path = `delegations/${delegation.id}/proof-${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from('identity-documents').upload(path, payFile);
+        if (error) throw error;
+        proof_url = supabase.storage.from('identity-documents').getPublicUrl(path).data.publicUrl;
+      }
+      await bffClient.post(`/api/v1/events/${delegation.event_id}/delegations/mine/payment`, {
+        amount, payment_method: payMethod, proof_url,
+      });
+      toast({ title: 'Pago registrado', description: 'Queda pendiente de verificación por el organizador.' });
+      setPayAmount(''); setPayFile(null);
+      loadDetail();
+    } catch (err: any) {
+      toast({ title: 'Error al registrar el pago', description: err.message, variant: 'destructive' });
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -245,6 +276,34 @@ export default function SchoolDelegationDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Registrar pago con comprobante */}
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2"><DollarSign className="h-4 w-4" /> Registrar pago</CardTitle>
+          <CardDescription>Sube el comprobante de tu transferencia o consignación. El organizador lo verifica.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-4 items-end">
+          <div className="space-y-1.5">
+            <Label>Monto (COP)</Label>
+            <Input type="number" min={1} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Método</Label>
+            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+              <option value="transfer">Transferencia</option>
+              <option value="cash">Efectivo</option>
+              <option value="nequi">Nequi</option>
+              <option value="daviplata">Daviplata</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Comprobante</Label>
+            <Input type="file" accept="image/*,application/pdf" onChange={(e) => setPayFile(e.target.files?.[0] ?? null)} />
+          </div>
+          <Button onClick={submitPayment} disabled={paying}>{paying ? 'Enviando…' : 'Registrar pago'}</Button>
+        </CardContent>
+      </Card>
 
       {/* Tabs: Equipos | Documentos */}
       <Tabs defaultValue="equipos">

@@ -648,7 +648,8 @@ router.get('/school-tournaments/:id/delegations', requireAuth, requireRole('scho
                 submitted_at, created_at,
                 school:schools(id, name, city),
                 teams:event_teams(count),
-                members:event_team_members(count)
+                members:event_team_members(count),
+                payments:event_delegation_payments(id, amount, status, payment_method, proof_url, created_at)
             `)
             .eq('event_id', id)
             .order('created_at', { ascending: false });
@@ -737,6 +738,85 @@ router.post('/school-tournaments/:id/delegations/:delId/record-payment', require
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado registrando pago');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// POST /api/v1/events/:eventId/delegations/mine/payment — el PARTICIPANTE declara un pago (comprobante)
+// Crea event_delegation_payments status='pending' para SU delegación; el host lo verifica luego.
+router.post('/:eventId/delegations/mine/payment', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.eventId);
+
+        const amount = Number(req.body?.amount);
+        const method = (req.body?.payment_method as string) || 'transfer';
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+        // La delegación de ESTA escuela en ESTE evento
+        const { data: del } = await supabase
+            .from('event_delegations')
+            .select('id, school_id')
+            .eq('event_id', eventId).eq('school_id', schoolId).maybeSingle();
+        if (!del) return res.status(404).json({ error: 'No tienes una delegación inscrita en este torneo.' });
+
+        const { data, error } = await supabase.from('event_delegation_payments').insert({
+            delegation_id: del.id, event_id: eventId, school_id: schoolId,
+            amount, currency: 'COP', payment_method: method, status: 'pending',
+            proof_url: req.body?.proof_url ?? null, notes: req.body?.notes ?? null,
+        }).select().single();
+        if (error) { req.log?.error({ err: error }, 'Error registrando pago participante'); return res.status(500).json({ error: 'Error al registrar el pago' }); }
+        return res.status(201).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado pago participante');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/school-tournaments/:id/delegations/:delId/payments/:payId — host verifica/rechaza un pago
+router.patch('/school-tournaments/:id/delegations/:delId/payments/:payId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const delId = String(req.params.delId);
+        const payId = String(req.params.payId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const action = req.body?.action as string;
+        if (!['verify', 'reject'].includes(action)) return res.status(400).json({ error: 'Acción inválida' });
+
+        const { data: pay } = await supabase
+            .from('event_delegation_payments')
+            .select('id, amount, status, delegation_id')
+            .eq('id', payId).eq('event_id', eventId).eq('delegation_id', delId).maybeSingle();
+        if (!pay) return res.status(404).json({ error: 'Pago no encontrado' });
+        if (pay.status !== 'pending') return res.status(409).json({ error: 'Este pago ya fue procesado.' });
+
+        if (action === 'reject') {
+            const { data, error } = await supabase.from('event_delegation_payments')
+                .update({ status: 'rejected', reviewed_by: req.user!.id, reviewed_at: new Date().toISOString(), rejection_reason: req.body?.rejection_reason ?? null, updated_at: new Date().toISOString() })
+                .eq('id', payId).select().single();
+            if (error) return res.status(500).json({ error: 'Error al rechazar el pago' });
+            return res.status(200).json(data);
+        }
+
+        // verify → aprobar + sumar a total_paid
+        const { error: upPayErr } = await supabase.from('event_delegation_payments')
+            .update({ status: 'approved', reviewed_by: req.user!.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', payId).eq('status', 'pending');
+        if (upPayErr) return res.status(500).json({ error: 'Error al verificar el pago' });
+
+        const { data: del } = await supabase.from('event_delegations').select('total_paid').eq('id', delId).single();
+        const newPaid = Number(del?.total_paid || 0) + Number(pay.amount);
+        const { data, error } = await supabase.from('event_delegations')
+            .update({ total_paid: newPaid, updated_at: new Date().toISOString() })
+            .eq('id', delId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al actualizar el saldo' });
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado verificando pago');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
