@@ -102,6 +102,31 @@ export default function SchoolTournamentDetailPage() {
     }
   }, [id, toast]);
 
+  const recordPayment = async (d: Delegation) => {
+    const remaining = Math.max(Number(d.total_owed || 0) - Number(d.total_paid || 0), 0);
+    const raw = window.prompt('Monto recibido (COP):', String(remaining || ''));
+    if (raw == null) return;
+    const amount = Number(raw);
+    if (!amount || amount <= 0) { toast({ title: 'Monto inválido', variant: 'destructive' }); return; }
+    try {
+      await bffClient.post(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}/record-payment`, { amount, payment_method: 'cash' });
+      toast({ title: 'Pago registrado' }); await loadDelegations();
+    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+  };
+  const approveDel = async (d: Delegation) => {
+    try {
+      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}`, { action: 'approve' });
+      toast({ title: 'Delegación aprobada' }); await loadDelegations();
+    } catch (e: any) { toast({ title: 'No se pudo aprobar', description: e?.message, variant: 'destructive' }); }
+  };
+  const rejectDel = async (d: Delegation) => {
+    const reason = window.prompt('Motivo del rechazo (opcional):') ?? undefined;
+    try {
+      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}`, { action: 'reject', rejection_reason: reason });
+      toast({ title: 'Delegación rechazada' }); await loadDelegations();
+    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+  };
+
   const fmt = (d?: string | null) => d ? new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
   const money = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(n || 0);
   const publicUrl = t ? `${window.location.origin}/event/${t.slug}` : '';
@@ -285,6 +310,7 @@ export default function SchoolTournamentDetailPage() {
                     <TableHeader><TableRow>
                       <TableHead>Academia</TableHead><TableHead>Equipos</TableHead><TableHead>Atletas</TableHead>
                       <TableHead>Adeudado</TableHead><TableHead>Pagado</TableHead><TableHead>Pago</TableHead><TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow></TableHeader>
                     <TableBody>
                       {dels.map((d) => {
@@ -298,6 +324,17 @@ export default function SchoolTournamentDetailPage() {
                             <TableCell>{money(Number(d.total_paid))}</TableCell>
                             <TableCell><Badge variant={ps.variant}>{ps.label}</Badge></TableCell>
                             <TableCell><Badge variant="outline">{d.status}</Badge></TableCell>
+                            <TableCell className="text-right">
+                              {['submitted', 'draft', 'pending_payment'].includes(d.status) ? (
+                                <div className="flex justify-end gap-1">
+                                  <Button size="sm" variant="outline" onClick={() => recordPayment(d)}>Pago</Button>
+                                  <Button size="sm" onClick={() => approveDel(d)}>Aprobar</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => rejectDel(d)}>Rechazar</Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
