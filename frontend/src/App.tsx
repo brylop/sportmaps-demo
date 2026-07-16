@@ -190,6 +190,7 @@ const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDas
 const OrganizerProfilePage = lazy(() => import("./pages/organizer/OrganizerProfilePage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
 const SchoolTournamentsPage = lazy(() => import("./pages/school/SchoolTournamentsPage"));
+const SchoolEquipmentPage = lazy(() => import("./pages/school/SchoolEquipmentPage"));
 const SchoolTournamentDetailPage = lazy(() => import("./pages/school/SchoolTournamentDetailPage"));
 const CreateTournamentPage = lazy(() => import("./pages/school/CreateTournamentPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
@@ -449,6 +450,11 @@ const App = () => (
                       <Route path="school/tournaments/:id" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolTournamentDetailPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/equipment" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolEquipmentPage />
                         </ProtectedRoute>
                       } />
                       <Route path="school/delegations/:id" element={

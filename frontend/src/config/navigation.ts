@@ -263,6 +263,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Resultados', href: '/results-overview', icon: Trophy },
           { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
@@ -487,6 +488,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Resultados', href: '/results-overview', icon: Trophy },
           { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
