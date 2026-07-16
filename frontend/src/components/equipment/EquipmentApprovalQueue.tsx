@@ -130,7 +130,7 @@ export function EquipmentApprovalQueue({ open, onOpenChange, schoolId, onChanged
                             Rechazar
                           </Button>
                           <Button size="sm" disabled={busyId === d.id}
-                            onClick={() => void run(d.id, () => equipmentApi.approveDelivery(d.id), 'Toma aprobada')}>
+                            onClick={() => void run(d.id, async () => { await equipmentApi.approveDelivery(d.id); try { await equipmentApi.generateActa(d.id); } catch { /* acta best-effort */ } }, 'Toma aprobada')}>
                             {busyId === d.id && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Aprobar
                           </Button>
                         </div>

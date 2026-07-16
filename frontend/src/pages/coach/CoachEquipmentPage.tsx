@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Dumbbell, Camera, Loader2, Check, AlertTriangle, Undo2, FileDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
-import { supabase } from '@/integrations/supabase/client';
 import { equipmentApi, type CoachAssignment } from '@/hooks/useEquipment';
 import { EquipmentReturnModal } from '@/components/equipment/EquipmentReturnModal';
 import { EquipmentCheckoutModal } from '@/components/equipment/EquipmentCheckoutModal';
@@ -25,9 +24,9 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('es-CO', { dateStyle: 'medium' });
 }
 
-async function downloadActa(path: string) {
-  const { data } = await supabase.storage.from('certificates').createSignedUrl(path, 3600);
-  if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+async function downloadActa(assignmentId: string) {
+  const { url } = await equipmentApi.actaSignedUrl(assignmentId);
+  if (url) window.open(url, '_blank');
 }
 
 export default function CoachEquipmentPage() {
@@ -88,7 +87,7 @@ export default function CoachEquipmentPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {a.acta_pdf_url && (
-            <Button size="sm" variant="ghost" onClick={() => void downloadActa(a.acta_pdf_url!)} title="Descargar acta">
+            <Button size="sm" variant="ghost" onClick={() => void downloadActa(a.id)} title="Descargar acta">
               <FileDown className="h-4 w-4" />
             </Button>
           )}
@@ -127,7 +126,7 @@ export default function CoachEquipmentPage() {
                     <Button size="sm" variant="outline" disabled={busyId === a.id} onClick={() => handleReportDifference(a)}>
                       <AlertTriangle className="h-4 w-4 mr-1" /> Diferencia
                     </Button>
-                    <Button size="sm" disabled={busyId === a.id} onClick={() => void run(a.id, () => equipmentApi.accept(a.id), 'Recibido aceptado')}>
+                    <Button size="sm" disabled={busyId === a.id} onClick={() => void run(a.id, async () => { await equipmentApi.accept(a.id); try { await equipmentApi.generateActa(a.id); } catch { /* acta best-effort */ } }, 'Recibido aceptado')}>
                       {busyId === a.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />} Acepto
                     </Button>
                   </>

@@ -4,6 +4,7 @@
  * Aislado del marketplace.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { bffClient } from '@/lib/api/bffClient';
 
 // ── Tipos de dominio ─────────────────────────────────────────────────────────
 export type EquipmentCondition = 'nuevo' | 'usado' | 'deteriorado';
@@ -243,5 +244,15 @@ export const equipmentApi = {
     p_note?: string | null;
   }) {
     return rpc<string>('equipment_request_return', p);
+  },
+
+  // ── Acta PDF (vía BFF, Fase 4) ────────────────────────────────────────────
+  generateActa(assignmentId: string) {
+    return bffClient.post<{ ok: boolean; pdf_path: string }>(
+      `/api/v1/equipment/assignments/${assignmentId}/acta-pdf`, {});
+  },
+  actaSignedUrl(assignmentId: string) {
+    return bffClient.get<{ ok: boolean; url: string }>(
+      `/api/v1/equipment/assignments/${assignmentId}/acta-signed-url`);
   },
 };
