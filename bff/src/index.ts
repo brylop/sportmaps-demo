@@ -54,6 +54,7 @@ import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
+import equipmentActaRouter from './routes/equipment.route';
 import joinQrRouter from './routes/join-qr';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
@@ -248,6 +249,7 @@ app.use('/api/v1/invoicing', generalLimiter, invoicingRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
 app.use('/api/v1/me', generalLimiter, meRouter);
+app.use('/api/v1/equipment/assignments', generalLimiter, equipmentActaRouter);
 app.use('/api/v1/upgrade-requests', generalLimiter, upgradeRequestsRouter);
 // Schools: branding (white-label), settings. Rate-limit propio del router
 // (10/hora por escuela en branding). generalLimiter actua como segundo cap.
