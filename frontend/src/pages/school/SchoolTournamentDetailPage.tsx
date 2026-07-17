@@ -62,12 +62,20 @@ export default function SchoolTournamentDetailPage() {
   const [info, setInfo] = useState<Partial<Detail>>({});
   const [cats, setCats] = useState<Category[]>([]);
   const [phases, setPhases] = useState<Phase[]>([]);
+  const [tpls, setTpls] = useState<any[]>([]);
   const [savingInfo, setSavingInfo] = useState(false);
   const [savingCats, setSavingCats] = useState(false);
 
   // inscritos
   const [dels, setDels] = useState<Delegation[]>([]);
   const [delsLoaded, setDelsLoaded] = useState(false);
+
+  // resultados (liga)
+  const [resCatId, setResCatId] = useState<string>('');
+  const [matches, setMatches] = useState<any[]>([]);
+  const [standings, setStandings] = useState<any[]>([]);
+  const [scorers, setScorers] = useState<any[]>([]);
+  const [scoreEdits, setScoreEdits] = useState<Record<string, { h: string; a: string }>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +95,10 @@ export default function SchoolTournamentDetailPage() {
         phase_name: p.phase_name, valid_until: p.valid_until, deposit_percent: p.deposit_percent,
         price_solo: p.price_solo, price_pkg1: p.price_pkg1,
       })));
+      try {
+        const tp = await bffClient.get<any[]>(`/api/v1/events/category-templates?sport=${encodeURIComponent(d.sport || '')}`);
+        setTpls(tp);
+      } catch { /* sin plantillas para este deporte */ }
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message ?? 'No se pudo cargar.', variant: 'destructive' });
     } finally { setLoading(false); }
@@ -131,6 +143,33 @@ export default function SchoolTournamentDetailPage() {
     try {
       await bffClient.patch(`/api/v1/events/school-tournaments/${id}/delegations/${d.id}/payments/${payId}`, { action });
       toast({ title: action === 'verify' ? 'Pago verificado' : 'Pago rechazado' }); await loadDelegations();
+    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+  };
+
+  const loadResults = useCallback(async (catId: string) => {
+    if (!catId) return;
+    try {
+      const [m, s] = await Promise.all([
+        bffClient.get<any[]>(`/api/v1/events/school-tournaments/${id}/matches?category_id=${catId}`),
+        bffClient.get<{ standings: any[]; scorers: any[] }>(`/api/v1/events/school-tournaments/${id}/standings?category_id=${catId}`),
+      ]);
+      setMatches(m); setStandings(s.standings || []); setScorers(s.scorers || []);
+    } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+  }, [id, toast]);
+
+  const genFixtures = async (catId: string) => {
+    try {
+      const r = await bffClient.post<{ matches: number }>(`/api/v1/events/school-tournaments/${id}/categories/${catId}/generate-fixtures`, {});
+      toast({ title: 'Calendario generado', description: `${r.matches} partidos.` });
+      await loadResults(catId);
+    } catch (e: any) { toast({ title: 'No se pudo generar', description: e?.message, variant: 'destructive' }); }
+  };
+  const saveResult = async (matchId: string) => {
+    const ed = scoreEdits[matchId];
+    if (!ed || ed.h === '' || ed.a === '') { toast({ title: 'Ingresa el marcador', variant: 'destructive' }); return; }
+    try {
+      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/matches/${matchId}`, { home_score: Number(ed.h), away_score: Number(ed.a) });
+      toast({ title: 'Resultado guardado' }); await loadResults(resCatId);
     } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
   };
 
@@ -223,11 +262,18 @@ export default function SchoolTournamentDetailPage() {
         </CardContent></Card>
       )}
 
-      <Tabs defaultValue="info" onValueChange={(v) => { if (v === 'inscritos' && !delsLoaded) void loadDelegations(); }}>
+      <Tabs defaultValue="info" onValueChange={(v) => {
+        if (v === 'inscritos' && !delsLoaded) void loadDelegations();
+        if (v === 'resultados') {
+          const c = resCatId || savedCats[0]?.id || '';
+          if (c) { setResCatId(c); void loadResults(c); }
+        }
+      }}>
         <TabsList>
           <TabsTrigger value="info">Info</TabsTrigger>
           <TabsTrigger value="cats">Categorías y Precios</TabsTrigger>
           <TabsTrigger value="inscritos" disabled={isInternal}>Inscritos</TabsTrigger>
+          <TabsTrigger value="resultados">Resultados</TabsTrigger>
         </TabsList>
 
         {/* ─── INFO (editable) ─── */}
@@ -261,7 +307,21 @@ export default function SchoolTournamentDetailPage() {
               <Button size="sm" variant="outline" onClick={() => setCats([...cats, emptyCat()])}><Plus className="mr-1 h-4 w-4" /> Agregar</Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {cats.length === 0 && <p className="text-sm text-muted-foreground">Sin categorías. Agrega al menos una para poder publicar.</p>}
+              {tpls.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-2">
+                  <span className="text-xs font-medium text-muted-foreground">Sugeridas para {t.sport}:</span>
+                  {tpls.map((tp, k) => (
+                    <Button key={k} size="sm" variant="secondary" className="h-7"
+                      onClick={() => setCats([...cats, {
+                        division: tp.division, level: tp.level ?? '1', category: tp.category, rama: tp.rama,
+                        age_min: tp.age_min, age_max: tp.age_max, team_min: tp.team_min, team_max: tp.team_max,
+                      }])}>
+                      + {tp.category}{tp.rama !== 'Mixto' ? ` ${tp.rama[0]}` : ''}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {cats.length === 0 && <p className="text-sm text-muted-foreground">Sin categorías. Agrega una sugerida o crea la tuya para poder publicar.</p>}
               {cats.map((c, i) => (
                 <div key={i} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-7">
                   <Input className="sm:col-span-2" placeholder="División" value={c.division} onChange={(e) => setCats(cats.map((x, j) => j === i ? { ...x, division: e.target.value } : x))} />
@@ -361,6 +421,88 @@ export default function SchoolTournamentDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ─── RESULTADOS (Liga) ─── */}
+        <TabsContent value="resultados" className="mt-4 space-y-6">
+          {savedCats.length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+              Primero agrega categorías (pestaña Categorías y Precios) para generar el calendario.
+            </CardContent></Card>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <select className={selectCls + ' max-w-xs'} value={resCatId}
+                  onChange={(e) => { setResCatId(e.target.value); void loadResults(e.target.value); }}>
+                  {savedCats.map((c: any) => <option key={c.id} value={c.id}>{c.division} · {c.category} ({c.rama})</option>)}
+                </select>
+                <Button variant="outline" onClick={() => genFixtures(resCatId)}>Generar calendario (Liga)</Button>
+              </div>
+
+              {/* Tabla de posiciones */}
+              <Card>
+                <CardHeader><CardTitle className="text-base">Tabla de posiciones</CardTitle></CardHeader>
+                <CardContent>
+                  {standings.length === 0 ? <p className="text-sm text-muted-foreground">Sin equipos/partidos aún.</p> : (
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader><TableRow>
+                          <TableHead>Equipo</TableHead><TableHead>PJ</TableHead><TableHead>G</TableHead><TableHead>E</TableHead><TableHead>P</TableHead>
+                          <TableHead>GF</TableHead><TableHead>GC</TableHead><TableHead>DG</TableHead><TableHead className="font-bold">Pts</TableHead>
+                        </TableRow></TableHeader>
+                        <TableBody>
+                          {standings.map((r: any, i: number) => (
+                            <TableRow key={r.team_id}>
+                              <TableCell className="font-medium">{i + 1}. {r.team_name}</TableCell>
+                              <TableCell>{r.P}</TableCell><TableCell>{r.W}</TableCell><TableCell>{r.D}</TableCell><TableCell>{r.L}</TableCell>
+                              <TableCell>{r.GF}</TableCell><TableCell>{r.GA}</TableCell><TableCell>{r.GD}</TableCell><TableCell className="font-bold">{r.Pts}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Goleadores */}
+              {scorers.length > 0 && (
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Goleadores</CardTitle></CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    {scorers.map((s: any, i: number) => (
+                      <div key={i} className="flex justify-between border-b py-1 last:border-0">
+                        <span>{i + 1}. {s.name}</span><span className="font-semibold">{s.goals}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Partidos */}
+              <Card>
+                <CardHeader><CardTitle className="text-base">Partidos</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  {matches.length === 0 ? <p className="text-sm text-muted-foreground">Genera el calendario para ver los partidos.</p> : matches.map((m: any) => (
+                    <div key={m.id} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
+                      <Badge variant="outline">J{m.round}</Badge>
+                      <span className="flex-1 text-right">{m.home?.team_name ?? '—'}</span>
+                      <Input className="h-8 w-12 text-center" type="number" min={0}
+                        defaultValue={m.home_score ?? ''}
+                        onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: e.target.value, a: p[m.id]?.a ?? (m.away_score ?? '') } }))} />
+                      <span>-</span>
+                      <Input className="h-8 w-12 text-center" type="number" min={0}
+                        defaultValue={m.away_score ?? ''}
+                        onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: p[m.id]?.h ?? (m.home_score ?? ''), a: e.target.value } }))} />
+                      <span className="flex-1">{m.away?.team_name ?? '—'}</span>
+                      <Button size="sm" variant="ghost" onClick={() => saveResult(m.id)}>Guardar</Button>
+                      {m.status === 'played' && <Badge variant="secondary">jugado</Badge>}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
       </Tabs>
     </div>

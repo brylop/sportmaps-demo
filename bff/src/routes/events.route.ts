@@ -821,6 +821,25 @@ router.patch('/school-tournaments/:id/delegations/:delId/payments/:payId', requi
     }
 });
 
+// GET /api/v1/events/category-templates?sport=xxx — sugerencias de categorías por deporte
+router.get('/category-templates', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const sport = String(req.query.sport || '').trim().toLowerCase();
+        if (!sport) return res.status(200).json([]);
+        const { data, error } = await supabase
+            .from('sport_category_templates')
+            .select('sport, archetype, division, category, rama, level, age_min, age_max, team_min, team_max, sort_order')
+            .eq('is_active', true)
+            .ilike('sport', sport)
+            .order('sort_order');
+        if (error) { req.log?.error({ err: error }, 'Error plantillas de categorías'); return res.status(500).json({ error: 'Error al cargar plantillas' }); }
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado plantillas de categorías');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 // GET /api/v1/events/:id/enroll-info — datos para inscribir (participante)
 router.get('/:id/enroll-info', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -995,6 +1014,173 @@ router.post('/school-tournaments/:id/enroll', requireAuth, requireRole('school',
         return res.status(201).json(finalDel);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado inscribiendo delegación');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// ── Resultados de torneo (Liga) ──────────────────────────────────────────────
+// Round-robin (método del círculo). Devuelve jornadas → pares [local, visitante].
+function roundRobinRounds(ids: string[]): Array<Array<[string, string]>> {
+    const teams: (string | null)[] = [...ids];
+    if (teams.length % 2 !== 0) teams.push(null); // bye
+    const n = teams.length;
+    const rounds: Array<Array<[string, string]>> = [];
+    for (let r = 0; r < n - 1; r++) {
+        const pairs: Array<[string, string]> = [];
+        for (let i = 0; i < n / 2; i++) {
+            const a = teams[i], b = teams[n - 1 - i];
+            if (a && b) pairs.push(r % 2 === 0 ? [a, b] : [b, a]); // alterna localía
+        }
+        rounds.push(pairs);
+        teams.splice(1, 0, teams.pop()!); // rota dejando el primero fijo
+    }
+    return rounds;
+}
+
+// POST /api/v1/events/school-tournaments/:id/categories/:catId/generate-fixtures
+router.post('/school-tournaments/:id/categories/:catId/generate-fixtures', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const catId = String(req.params.catId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data: teams } = await supabase
+            .from('event_teams')
+            .select('id')
+            .eq('event_id', eventId).eq('category_id', catId)
+            .neq('status', 'rejected');
+        const ids = (teams || []).map((t) => t.id);
+        if (ids.length < 2) return res.status(400).json({ error: 'Se necesitan al menos 2 equipos en la categoría.' });
+
+        // Borrar partidos aún no jugados de esta categoría (regenerar)
+        await supabase.from('tournament_matches').delete().eq('event_id', eventId).eq('category_id', catId).eq('status', 'scheduled');
+
+        const rounds = roundRobinRounds(ids);
+        const rows: any[] = [];
+        rounds.forEach((pairs, ri) => pairs.forEach((pair, si) => rows.push({
+            event_id: eventId, category_id: catId, round: ri + 1, slot: si + 1,
+            home_team_id: pair[0], away_team_id: pair[1], status: 'scheduled',
+        })));
+        if (rows.length > 0) {
+            const { error } = await supabase.from('tournament_matches').insert(rows);
+            if (error) { req.log?.error({ err: error }, 'Error generando fixtures'); return res.status(500).json({ error: 'Error al generar el calendario' }); }
+        }
+        await supabase.from('events').update({ competition_format: 'liga', updated_at: new Date().toISOString() }).eq('id', eventId).is('competition_format', null);
+        return res.status(201).json({ matches: rows.length, rounds: rounds.length });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado generando fixtures');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/matches?category_id=
+router.get('/school-tournaments/:id/matches', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        let q = supabase.from('tournament_matches')
+            .select('id, category_id, round, slot, home_team_id, away_team_id, home_score, away_score, status, scheduled_at, home:home_team_id(team_name), away:away_team_id(team_name)')
+            .eq('event_id', eventId).order('round').order('slot');
+        if (req.query.category_id) q = q.eq('category_id', String(req.query.category_id));
+        const { data, error } = await q;
+        if (error) return res.status(500).json({ error: 'Error al listar partidos' });
+        return res.status(200).json(data || []);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado listando partidos');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// PATCH /api/v1/events/school-tournaments/:id/matches/:matchId — cargar resultado
+router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const matchId = String(req.params.matchId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const hs = Number(req.body?.home_score);
+        const as = Number(req.body?.away_score);
+        if (!Number.isInteger(hs) || !Number.isInteger(as) || hs < 0 || as < 0) return res.status(400).json({ error: 'Marcador inválido' });
+
+        const { data: match } = await supabase.from('tournament_matches').select('id').eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        if (!match) return res.status(404).json({ error: 'Partido no encontrado' });
+
+        const { data, error } = await supabase.from('tournament_matches')
+            .update({ home_score: hs, away_score: as, status: 'played', updated_at: new Date().toISOString() })
+            .eq('id', matchId).select().single();
+        if (error) return res.status(500).json({ error: 'Error al guardar el resultado' });
+
+        // Goles opcionales: [{ team_id, member_id?, minute? }]
+        const goals = Array.isArray(req.body?.goals) ? req.body.goals : [];
+        if (goals.length > 0) {
+            await supabase.from('tournament_match_events').delete().eq('match_id', matchId).eq('type', 'goal');
+            const rows = goals.filter((g: any) => g.team_id).map((g: any) => ({
+                match_id: matchId, event_id: eventId, team_id: g.team_id,
+                member_id: g.member_id ?? null, type: 'goal', minute: g.minute ?? null,
+            }));
+            if (rows.length > 0) await supabase.from('tournament_match_events').insert(rows);
+        }
+        return res.status(200).json(data);
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado guardando resultado');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/standings?category_id= — tabla + goleadores
+router.get('/school-tournaments/:id/standings', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const catId = req.query.category_id ? String(req.query.category_id) : null;
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        // Equipos de la categoría
+        let teamsQ = supabase.from('event_teams').select('id, team_name').eq('event_id', eventId).neq('status', 'rejected');
+        if (catId) teamsQ = teamsQ.eq('category_id', catId);
+        const { data: teams } = await teamsQ;
+        const table: Record<string, any> = {};
+        (teams || []).forEach((t) => { table[t.id] = { team_id: t.id, team_name: t.team_name, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, GD: 0, Pts: 0 }; });
+
+        // Partidos jugados
+        let mQ = supabase.from('tournament_matches').select('home_team_id, away_team_id, home_score, away_score').eq('event_id', eventId).eq('status', 'played');
+        if (catId) mQ = mQ.eq('category_id', catId);
+        const { data: matches } = await mQ;
+        (matches || []).forEach((m) => {
+            const h = table[m.home_team_id!], a = table[m.away_team_id!];
+            if (!h || !a) return;
+            const hs = Number(m.home_score), as = Number(m.away_score);
+            h.P++; a.P++; h.GF += hs; h.GA += as; a.GF += as; a.GA += hs;
+            if (hs > as) { h.W++; a.L++; h.Pts += 3; }
+            else if (hs < as) { a.W++; h.L++; a.Pts += 3; }
+            else { h.D++; a.D++; h.Pts++; a.Pts++; }
+        });
+        const standings = Object.values(table).map((r: any) => ({ ...r, GD: r.GF - r.GA }))
+            .sort((a: any, b: any) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF);
+
+        // Goleadores
+        let gQ = supabase.from('tournament_match_events').select('member_id, team_id, scorer:member_id(full_name)').eq('event_id', eventId).eq('type', 'goal');
+        if (catId) gQ = gQ; // los goles ya cuelgan del evento; filtrar por categoría requeriría join a match — se omite en MVP
+        const { data: goals } = await gQ;
+        const scorerMap: Record<string, any> = {};
+        (goals || []).forEach((g: any) => {
+            const key = g.member_id || 'sin';
+            if (!scorerMap[key]) scorerMap[key] = { member_id: g.member_id, name: g.scorer?.full_name ?? 'Sin registrar', goals: 0 };
+            scorerMap[key].goals++;
+        });
+        const scorers = Object.values(scorerMap).sort((a: any, b: any) => b.goals - a.goals).slice(0, 20);
+
+        return res.status(200).json({ standings, scorers });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado calculando tabla');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
