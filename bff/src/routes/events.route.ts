@@ -1037,6 +1037,28 @@ function roundRobinRounds(ids: string[]): Array<Array<[string, string]>> {
     return rounds;
 }
 
+// Copa: avanza el ganador de (round,slot) a la ronda siguiente (slot padre = ceil(slot/2); local si slot impar).
+async function advanceWinner(eventId: string, catId: string, round: number, slot: number, winnerId: string) {
+    const parentSlot = Math.ceil(slot / 2);
+    const isHome = slot % 2 === 1;
+    const { data: parent } = await supabase.from('tournament_matches')
+        .select('id').eq('event_id', eventId).eq('category_id', catId).eq('round', round + 1).eq('slot', parentSlot).maybeSingle();
+    if (!parent) return;
+    await supabase.from('tournament_matches')
+        .update(isHome ? { home_team_id: winnerId } : { away_team_id: winnerId })
+        .eq('id', parent.id);
+}
+// Copa: los partidos de ronda 1 con un solo equipo (bye) avanzan automáticamente.
+async function advanceByes(eventId: string, catId: string) {
+    const { data: r1 } = await supabase.from('tournament_matches')
+        .select('id, slot, home_team_id, away_team_id').eq('event_id', eventId).eq('category_id', catId).eq('round', 1);
+    for (const m of (r1 || [])) {
+        const h = m.home_team_id as string | null, a = m.away_team_id as string | null;
+        if (h && !a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 1, away_score: 0 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, h); }
+        else if (!h && a) { await supabase.from('tournament_matches').update({ status: 'walkover', home_score: 0, away_score: 1 }).eq('id', m.id); await advanceWinner(eventId, catId, 1, m.slot, a); }
+    }
+}
+
 // POST /api/v1/events/school-tournaments/:id/categories/:catId/generate-fixtures
 router.post('/school-tournaments/:id/categories/:catId/generate-fixtures', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -1054,21 +1076,38 @@ router.post('/school-tournaments/:id/categories/:catId/generate-fixtures', requi
         const ids = (teams || []).map((t) => t.id);
         if (ids.length < 2) return res.status(400).json({ error: 'Se necesitan al menos 2 equipos en la categoría.' });
 
+        const format = (req.body?.format as string) === 'copa' ? 'copa' : 'liga';
         // Borrar partidos aún no jugados de esta categoría (regenerar)
         await supabase.from('tournament_matches').delete().eq('event_id', eventId).eq('category_id', catId).eq('status', 'scheduled');
 
-        const rounds = roundRobinRounds(ids);
         const rows: any[] = [];
-        rounds.forEach((pairs, ri) => pairs.forEach((pair, si) => rows.push({
-            event_id: eventId, category_id: catId, round: ri + 1, slot: si + 1,
-            home_team_id: pair[0], away_team_id: pair[1], status: 'scheduled',
-        })));
+        if (format === 'liga') {
+            const rounds = roundRobinRounds(ids);
+            rounds.forEach((pairs, ri) => pairs.forEach((pair, si) => rows.push({
+                event_id: eventId, category_id: catId, round: ri + 1, slot: si + 1,
+                home_team_id: pair[0], away_team_id: pair[1], status: 'scheduled',
+            })));
+        } else {
+            // Copa: eliminación simple. Sembrar a potencia de 2 con byes (1vsN, 2vsN-1…).
+            let size = 1; while (size < ids.length) size *= 2;
+            const seeded: (string | null)[] = [...ids];
+            while (seeded.length < size) seeded.push(null);
+            const totalRounds = Math.round(Math.log2(size));
+            for (let i = 0; i < size / 2; i++) {
+                rows.push({ event_id: eventId, category_id: catId, round: 1, slot: i + 1, home_team_id: seeded[i], away_team_id: seeded[size - 1 - i], status: 'scheduled' });
+            }
+            for (let r = 2; r <= totalRounds; r++) {
+                const count = size / Math.pow(2, r);
+                for (let s = 0; s < count; s++) rows.push({ event_id: eventId, category_id: catId, round: r, slot: s + 1, home_team_id: null, away_team_id: null, status: 'scheduled' });
+            }
+        }
         if (rows.length > 0) {
             const { error } = await supabase.from('tournament_matches').insert(rows);
             if (error) { req.log?.error({ err: error }, 'Error generando fixtures'); return res.status(500).json({ error: 'Error al generar el calendario' }); }
         }
-        await supabase.from('events').update({ competition_format: 'liga', updated_at: new Date().toISOString() }).eq('id', eventId).is('competition_format', null);
-        return res.status(201).json({ matches: rows.length, rounds: rounds.length });
+        await supabase.from('events').update({ competition_format: format, updated_at: new Date().toISOString() }).eq('id', eventId);
+        if (format === 'copa') await advanceByes(eventId, catId);
+        return res.status(201).json({ matches: rows.length, format });
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado generando fixtures');
         return res.status(500).json({ error: 'Error interno del servidor' });
@@ -1109,13 +1148,22 @@ router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRol
         const as = Number(req.body?.away_score);
         if (!Number.isInteger(hs) || !Number.isInteger(as) || hs < 0 || as < 0) return res.status(400).json({ error: 'Marcador inválido' });
 
-        const { data: match } = await supabase.from('tournament_matches').select('id').eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        const { data: match } = await supabase.from('tournament_matches')
+            .select('id, round, slot, category_id, home_team_id, away_team_id')
+            .eq('id', matchId).eq('event_id', eventId).maybeSingle();
         if (!match) return res.status(404).json({ error: 'Partido no encontrado' });
 
         const { data, error } = await supabase.from('tournament_matches')
             .update({ home_score: hs, away_score: as, status: 'played', updated_at: new Date().toISOString() })
             .eq('id', matchId).select().single();
         if (error) return res.status(500).json({ error: 'Error al guardar el resultado' });
+
+        // Copa: avanzar al ganador a la ronda siguiente (empates no avanzan)
+        const { data: evFmt } = await supabase.from('events').select('competition_format').eq('id', eventId).single();
+        if (evFmt?.competition_format === 'copa' && hs !== as && match.category_id) {
+            const winner = hs > as ? match.home_team_id : match.away_team_id;
+            if (winner) await advanceWinner(eventId, String(match.category_id), match.round, match.slot, winner as string);
+        }
 
         // Goles opcionales: [{ team_id, member_id?, minute? }]
         const goals = Array.isArray(req.body?.goals) ? req.body.goals : [];
@@ -1130,6 +1178,36 @@ router.patch('/school-tournaments/:id/matches/:matchId', requireAuth, requireRol
         return res.status(200).json(data);
     } catch (err: any) {
         req.log?.error({ err }, 'Error inesperado guardando resultado');
+        return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// GET /api/v1/events/school-tournaments/:id/matches/:matchId/rosters — jugadores de los 2 equipos (goleadores)
+router.get('/school-tournaments/:id/matches/:matchId/rosters', requireAuth, requireRole('school', 'school_admin'), async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const schoolId = req.schoolId;
+        if (!schoolId) return res.status(403).json({ error: 'No se pudo resolver la escuela del usuario.' });
+        const eventId = String(req.params.id);
+        const matchId = String(req.params.matchId);
+        if (!(await assertOwnedSchoolTournament(eventId, schoolId))) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+        const { data: m } = await supabase.from('tournament_matches')
+            .select('home_team_id, away_team_id, home:home_team_id(team_name), away:away_team_id(team_name)')
+            .eq('id', matchId).eq('event_id', eventId).maybeSingle();
+        if (!m) return res.status(404).json({ error: 'Partido no encontrado' });
+
+        const teamIds = [m.home_team_id, m.away_team_id].filter(Boolean) as string[];
+        const { data: members } = teamIds.length
+            ? await supabase.from('event_team_members').select('id, full_name, team_id').in('team_id', teamIds)
+            : { data: [] as any[] };
+
+        const byTeam = (tid: string | null) => (members || []).filter((x: any) => x.team_id === tid).map((x: any) => ({ id: x.id, full_name: x.full_name }));
+        return res.status(200).json({
+            home: { team_id: m.home_team_id, team_name: (m as any).home?.team_name ?? null, members: byTeam(m.home_team_id) },
+            away: { team_id: m.away_team_id, team_name: (m as any).away?.team_name ?? null, members: byTeam(m.away_team_id) },
+        });
+    } catch (err: any) {
+        req.log?.error({ err }, 'Error inesperado rosters de partido');
         return res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

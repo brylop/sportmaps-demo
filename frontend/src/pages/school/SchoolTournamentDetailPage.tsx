@@ -76,6 +76,11 @@ export default function SchoolTournamentDetailPage() {
   const [standings, setStandings] = useState<any[]>([]);
   const [scorers, setScorers] = useState<any[]>([]);
   const [scoreEdits, setScoreEdits] = useState<Record<string, { h: string; a: string }>>({});
+  const [genFormat, setGenFormat] = useState<'liga' | 'copa'>('liga');
+  const [openGoals, setOpenGoals] = useState<string | null>(null);
+  const [rosters, setRosters] = useState<Record<string, any>>({});
+  const [goalDraft, setGoalDraft] = useState<Record<string, Array<{ team_id: string; member_id: string; name: string }>>>({});
+  const [goalSel, setGoalSel] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,17 +164,36 @@ export default function SchoolTournamentDetailPage() {
 
   const genFixtures = async (catId: string) => {
     try {
-      const r = await bffClient.post<{ matches: number }>(`/api/v1/events/school-tournaments/${id}/categories/${catId}/generate-fixtures`, {});
-      toast({ title: 'Calendario generado', description: `${r.matches} partidos.` });
+      const r = await bffClient.post<{ matches: number }>(`/api/v1/events/school-tournaments/${id}/categories/${catId}/generate-fixtures`, { format: genFormat });
+      toast({ title: 'Calendario generado', description: `${r.matches} partidos (${genFormat}).` });
       await loadResults(catId);
     } catch (e: any) { toast({ title: 'No se pudo generar', description: e?.message, variant: 'destructive' }); }
+  };
+  const toggleGoals = async (matchId: string) => {
+    if (openGoals === matchId) { setOpenGoals(null); return; }
+    setOpenGoals(matchId);
+    if (!rosters[matchId]) {
+      try {
+        const r = await bffClient.get<any>(`/api/v1/events/school-tournaments/${id}/matches/${matchId}/rosters`);
+        setRosters((p) => ({ ...p, [matchId]: r }));
+      } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
+    }
+  };
+  const addGoal = (matchId: string, team_id: string, member_id: string, name: string) => {
+    if (!team_id || !member_id) return;
+    setGoalDraft((p) => ({ ...p, [matchId]: [...(p[matchId] || []), { team_id, member_id, name }] }));
   };
   const saveResult = async (matchId: string) => {
     const ed = scoreEdits[matchId];
     if (!ed || ed.h === '' || ed.a === '') { toast({ title: 'Ingresa el marcador', variant: 'destructive' }); return; }
     try {
-      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/matches/${matchId}`, { home_score: Number(ed.h), away_score: Number(ed.a) });
-      toast({ title: 'Resultado guardado' }); await loadResults(resCatId);
+      await bffClient.patch(`/api/v1/events/school-tournaments/${id}/matches/${matchId}`, {
+        home_score: Number(ed.h), away_score: Number(ed.a),
+        goals: (goalDraft[matchId] || []).map((g) => ({ team_id: g.team_id, member_id: g.member_id })),
+      });
+      toast({ title: 'Resultado guardado' });
+      setOpenGoals(null); setGoalDraft((p) => ({ ...p, [matchId]: [] }));
+      await loadResults(resCatId);
     } catch (e: any) { toast({ title: 'Error', description: e?.message, variant: 'destructive' }); }
   };
 
@@ -436,7 +460,11 @@ export default function SchoolTournamentDetailPage() {
                   onChange={(e) => { setResCatId(e.target.value); void loadResults(e.target.value); }}>
                   {savedCats.map((c: any) => <option key={c.id} value={c.id}>{c.division} · {c.category} ({c.rama})</option>)}
                 </select>
-                <Button variant="outline" onClick={() => genFixtures(resCatId)}>Generar calendario (Liga)</Button>
+                <select className={selectCls + ' w-28'} value={genFormat} onChange={(e) => setGenFormat(e.target.value as 'liga' | 'copa')}>
+                  <option value="liga">Liga</option>
+                  <option value="copa">Copa</option>
+                </select>
+                <Button variant="outline" onClick={() => genFixtures(resCatId)}>Generar calendario</Button>
               </div>
 
               {/* Tabla de posiciones */}
@@ -483,22 +511,60 @@ export default function SchoolTournamentDetailPage() {
               <Card>
                 <CardHeader><CardTitle className="text-base">Partidos</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {matches.length === 0 ? <p className="text-sm text-muted-foreground">Genera el calendario para ver los partidos.</p> : matches.map((m: any) => (
-                    <div key={m.id} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
-                      <Badge variant="outline">J{m.round}</Badge>
-                      <span className="flex-1 text-right">{m.home?.team_name ?? '—'}</span>
-                      <Input className="h-8 w-12 text-center" type="number" min={0}
-                        defaultValue={m.home_score ?? ''}
-                        onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: e.target.value, a: p[m.id]?.a ?? (m.away_score ?? '') } }))} />
-                      <span>-</span>
-                      <Input className="h-8 w-12 text-center" type="number" min={0}
-                        defaultValue={m.away_score ?? ''}
-                        onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: p[m.id]?.h ?? (m.home_score ?? ''), a: e.target.value } }))} />
-                      <span className="flex-1">{m.away?.team_name ?? '—'}</span>
-                      <Button size="sm" variant="ghost" onClick={() => saveResult(m.id)}>Guardar</Button>
-                      {m.status === 'played' && <Badge variant="secondary">jugado</Badge>}
+                  {matches.length === 0 ? <p className="text-sm text-muted-foreground">Genera el calendario para ver los partidos.</p> : matches.map((m: any) => {
+                    const r = rosters[m.id];
+                    const draft = goalDraft[m.id] || [];
+                    return (
+                    <div key={m.id} className="space-y-2 rounded-md border p-2 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">R{m.round}</Badge>
+                        <span className="flex-1 text-right">{m.home?.team_name ?? '—'}</span>
+                        <Input className="h-8 w-12 text-center" type="number" min={0}
+                          defaultValue={m.home_score ?? ''}
+                          onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: e.target.value, a: p[m.id]?.a ?? (m.away_score ?? '') } }))} />
+                        <span>-</span>
+                        <Input className="h-8 w-12 text-center" type="number" min={0}
+                          defaultValue={m.away_score ?? ''}
+                          onChange={(e) => setScoreEdits((p) => ({ ...p, [m.id]: { h: p[m.id]?.h ?? (m.home_score ?? ''), a: e.target.value } }))} />
+                        <span className="flex-1">{m.away?.team_name ?? '—'}</span>
+                        <Button size="sm" variant="ghost" onClick={() => toggleGoals(m.id)} title="Goleadores">⚽</Button>
+                        <Button size="sm" variant="ghost" onClick={() => saveResult(m.id)}>Guardar</Button>
+                        {m.status === 'played' && <Badge variant="secondary">jugado</Badge>}
+                      </div>
+                      {openGoals === m.id && (
+                        <div className="space-y-2 rounded bg-muted/40 p-2">
+                          {!r ? <span className="text-xs text-muted-foreground">Cargando jugadores…</span> : (
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {[r.home, r.away].map((tm: any, ti: number) => tm?.team_id ? (
+                                <div key={ti} className="space-y-1">
+                                  <div className="text-xs font-medium">{tm.team_name}</div>
+                                  <div className="flex gap-1">
+                                    <select className={selectCls + ' h-8'} value={goalSel[`${m.id}-${ti}`] ?? ''}
+                                      onChange={(e) => setGoalSel((p) => ({ ...p, [`${m.id}-${ti}`]: e.target.value }))}>
+                                      <option value="">— jugador —</option>
+                                      {(tm.members || []).map((mm: any) => <option key={mm.id} value={mm.id}>{mm.full_name}</option>)}
+                                    </select>
+                                    <Button size="sm" variant="outline" className="h-8" onClick={() => {
+                                      const sel = goalSel[`${m.id}-${ti}`];
+                                      const mm = (tm.members || []).find((x: any) => x.id === sel);
+                                      if (mm) addGoal(m.id, tm.team_id, mm.id, mm.full_name);
+                                    }}>+ gol</Button>
+                                  </div>
+                                </div>
+                              ) : null)}
+                            </div>
+                          )}
+                          {draft.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {draft.map((g, gi) => <Badge key={gi} variant="secondary">⚽ {g.name}</Badge>)}
+                            </div>
+                          )}
+                          <p className="text-xs text-muted-foreground">Los goles se guardan al presionar "Guardar".</p>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </CardContent>
               </Card>
             </>
