@@ -230,11 +230,29 @@ function useSchoolContextManager(): SchoolContext {
                     if (found) {
                         selectSchool(found);
                     } else {
-                        // Para atletas: preferir academia sobre PT en la selección inicial
-                        // Para owners/admins/coaches: el primero siempre es su escuela principal
+                        // Selección inicial determinista (sin localStorage previo).
+                        // La query de school_members no garantiza orden, así que
+                        // NO tomar "la primera" al azar: se ordena por criterio.
+                        //  1) Rol: donde el usuario administra (owner/admin) pesa más
+                        //     que donde solo participa (parent/athlete). Evita caer en
+                        //     una escuela ajena/demo cuando el usuario es dueño de otra.
+                        //  2) Academia antes que otros tipos (preserva "academia > PT"
+                        //     para atletas con doble membresía).
+                        //  3) Nombre como desempate estable (determinista entre requests).
+                        const ROLE_PRIORITY: Record<string, number> = {
+                            owner: 0, super_admin: 1, school_admin: 2, admin: 3,
+                            coach: 4, reporter: 5, viewer: 6, parent: 7, athlete: 8,
+                        };
+                        const rank = (r: string) => ROLE_PRIORITY[r] ?? 99;
                         const preferredSchool =
-                            mappedSchools.find(s => s.schoolType === 'academy')
-                            ?? mappedSchools[0];
+                            [...mappedSchools].sort((a, b) => {
+                                const byRole = rank(a.role) - rank(b.role);
+                                if (byRole !== 0) return byRole;
+                                const aAcademy = a.schoolType === 'academy' ? 0 : 1;
+                                const bAcademy = b.schoolType === 'academy' ? 0 : 1;
+                                if (aAcademy !== bAcademy) return aAcademy - bAcademy;
+                                return a.schoolName.localeCompare(b.schoolName);
+                            })[0] ?? mappedSchools[0];
                         selectSchool(preferredSchool);
                     }
                 } else {

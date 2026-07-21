@@ -48,6 +48,11 @@ interface PaymentLinkData {
 type PageState = 'loading' | 'success' | 'pending' | 'error' | 'not_found';
 
 function resolveBffUrl(): string {
+    // Prioriza la env var (igual que el resto del código). Imprescindible en
+    // nativo: en Capacitor el WebView sirve desde hostname 'localhost', y sin
+    // esto la app apuntaría a http://localhost:3000 (roto en el dispositivo).
+    const envUrl = import.meta.env.VITE_BFF_URL || import.meta.env.VITE_API_URL;
+    if (envUrl) return envUrl as string;
     if (typeof window === 'undefined') return 'http://localhost:3000';
     const { hostname } = window.location;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
