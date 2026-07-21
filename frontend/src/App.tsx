@@ -479,7 +479,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="mi-plan" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'athlete', 'parent', 'coach', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
                           <MiPlanPage />
                         </ProtectedRoute>
                       } />

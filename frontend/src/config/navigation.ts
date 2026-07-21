@@ -31,7 +31,8 @@ import {
   FileCheck2,
   QrCode,
   Truck,
-  ShieldCheck
+  ShieldCheck,
+  CreditCard
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -150,6 +151,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
@@ -188,6 +190,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
           { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -226,6 +229,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Anuncios', href: '/announcements', icon: Bell },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -315,6 +319,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -355,6 +360,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -389,6 +395,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -417,7 +424,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Configuración',     href: '/admin/config',  icon: Settings },
           { title: 'Notificaciones',    href: '/notifications', icon: Bell },
-          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare }
+          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare },
+          { title: 'Facturación',       href: '/mi-plan',       icon: CreditCard }
         ]
       }
     ],
@@ -539,6 +547,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -565,6 +574,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Perfil', href: '/organizer/profile', icon: Users },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/organizer/settings', icon: Settings }
         ]
       }
@@ -583,6 +593,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -615,6 +626,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/trainer/profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
