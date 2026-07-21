@@ -31,6 +31,11 @@ interface FileUploadProps {
   allowPartial?: boolean;
   /** Monto mínimo por abono (solo si allowPartial=true). */
   minPartialAmount?: number;
+  /** Escuela del cobro. Si se pasa con validateReceipt, el BFF computa el
+   *  veredicto (modo sombra) y FileUpload lo reenvía en onValidationResult. */
+  schoolId?: string;
+  /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
+  paymentId?: string;
   /** Fuerza captura de cámara en móvil ('environment' = cámara trasera).
    *  No garantiza bloquear la galería en desktop (el browser puede ignorarlo). */
   capture?: boolean | 'user' | 'environment';
@@ -49,6 +54,8 @@ export function FileUpload({
   conceptKind = 'lenient',
   allowPartial = false,
   minPartialAmount,
+  schoolId,
+  paymentId,
   capture,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -108,7 +115,7 @@ export function FileUpload({
     try {
       let result: ReceiptValidationResult;
       try {
-        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount });
+        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId });
       } catch (ocrErr) {
         // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
         // comprobante igual y que la escuela lo valide visualmente. El OCR es

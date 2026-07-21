@@ -6,6 +6,7 @@ import {
 } from '../services/wompi.service';
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
+import { runGlosaNotifications } from './glosa-notifications.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -276,4 +277,20 @@ export function initMaintenanceJobs() {
     });
 
     console.log('[CRON] Auto-facturación electrónica registrada (cada 15 min).');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Correos de glosa que el cron SQL no puede mandar: recordatorio "vence
+    // mañana" y ratificación automática. 08:05 COT (después del pg_cron de
+    // ratificación 08:00 UTC/03:00 COT — ya ratificó lo vencido). Idempotente
+    // por claim atómico sobre reminder_sent_at / ratify_email_sent_at.
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('5 8 * * *', async () => {
+        try {
+            await runGlosaNotifications();
+        } catch (err: any) {
+            console.error('[CRON] Error en notificaciones de glosa:', err?.message || err);
+        }
+    }, { timezone: 'America/Bogota' });
+
+    console.log('[CRON] Notificaciones de glosa registradas para las 08:05 COT.');
 }

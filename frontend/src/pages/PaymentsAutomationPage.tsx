@@ -28,6 +28,9 @@ import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { bffClient } from '@/lib/api/bffClient';
+import { GlosaConciliationDialog } from '@/components/payment/GlosaConciliationDialog';
+import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
+import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 
 
 interface BillingSettings {
@@ -116,6 +119,24 @@ function OcrMatchBadge({ payment }: { payment: { amount: number; ocr_amount?: nu
   );
 }
 
+// Badge read-only del veredicto de reglas (modo sombra, Fase 2). Informativo:
+// NO cambia la decisión de aprobar/rechazar — sirve para calibrar antes de activar.
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
+  if (!verdict) return null;
+  const cfg: Record<string, { label: string; className: string }> = {
+    verde: { label: 'Veredicto: verde', className: 'bg-green-50 text-green-700 border-green-300' },
+    amarillo: { label: 'Veredicto: amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300' },
+    rojo: { label: 'Veredicto: rojo', className: 'bg-red-50 text-red-700 border-red-300' },
+  };
+  const c = cfg[verdict];
+  if (!c) return null;
+  return (
+    <Badge variant="outline" title="Veredicto automático de reglas (informativo, no decide)" className={`text-[10px] py-0 h-5 ${c.className}`}>
+      {c.label}
+    </Badge>
+  );
+}
+
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
   rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-700 border-red-200' },
@@ -157,6 +178,10 @@ interface PaymentTransaction {
   ocr_bank?: string | null;
   ocr_reference?: string | null;
   ocr_provider?: string | null;
+  // Veredicto de reglas (modo sombra, Fase 2). Informativo.
+  receipt_verdict?: string | null;
+  ocr_destination?: string | null;
+  receipt_verdict_reasons?: unknown[] | null;
 }
 
 interface TeamSubscription {
@@ -189,6 +214,10 @@ export default function PaymentsAutomationPage() {
     open: false, url: '', student: '', amount: 0,
   });
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Glosas (aclaraciones) de la escuela.
+  const [glosas, setGlosas] = useState<Glosa[]>([]);
+  const [conciliatingGlosa, setConciliatingGlosa] = useState<Glosa | null>(null);
+  const [creatingGlosaPayment, setCreatingGlosaPayment] = useState<PaymentTransaction | null>(null);
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
@@ -225,8 +254,19 @@ export default function PaymentsAutomationPage() {
       loadBillingSettings();
       fetchPayments();
       loadTeamSubscriptions();
+      fetchGlosas();
     }
   }, [schoolId, activeBranchId]);
+
+  const fetchGlosas = async () => {
+    if (!schoolId) return;
+    try {
+      const rows = await listSchoolGlosas();
+      setGlosas(rows);
+    } catch {
+      setGlosas([]);
+    }
+  };
 
   const loadBillingSettings = async () => {
     if (!schoolId) return;
@@ -293,6 +333,7 @@ export default function PaymentsAutomationPage() {
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
+          receipt_verdict, ocr_destination, receipt_verdict_reasons,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
@@ -347,6 +388,9 @@ export default function PaymentsAutomationPage() {
         ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
         ocr_date: p.ocr_date, ocr_bank: p.ocr_bank,
         ocr_reference: p.ocr_reference, ocr_provider: p.ocr_provider,
+        receipt_verdict: p.receipt_verdict ?? null,
+        ocr_destination: p.ocr_destination ?? null,
+        receipt_verdict_reasons: p.receipt_verdict_reasons ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
         period_label: monthLabel(p.period_year, p.period_month),
@@ -720,6 +764,7 @@ export default function PaymentsAutomationPage() {
           <TabsList className="w-max min-w-full sm:w-auto">
             <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
             <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos y Planes</TabsTrigger>
+            <TabsTrigger value="glosas" className="text-xs sm:text-sm">Glosas</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
@@ -792,12 +837,13 @@ export default function PaymentsAutomationPage() {
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
-                            <div className="mt-1">
+                            <div className="mt-1 flex flex-wrap gap-1 justify-end">
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
                               ) : (
                                 <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
                               )}
+                              <VerdictBadge verdict={payment.receipt_verdict} />
                             </div>
                           </div>
                         </div>
@@ -814,6 +860,10 @@ export default function PaymentsAutomationPage() {
                           <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
                             <XCircle className="h-3 w-3 mr-1" />
                             Rechazar
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Glosar
                           </Button>
                         </div>
                       </div>
@@ -1084,6 +1134,61 @@ export default function PaymentsAutomationPage() {
                    </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Glosas (aclaraciones) ───────────────────────────────── */}
+        <TabsContent value="glosas">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-orange-500" /> Aclaraciones (glosas)
+              </CardTitle>
+              <CardDescription>
+                Comprobantes que necesitan una aclaración del acudiente. Concilia en vez de rechazar.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(() => {
+                const today = todayColombia();
+                const open = glosas.filter(g => OPEN_GLOSA_STATUSES.includes(g.status));
+                const overdue = open.filter(g => g.responds_by < today).length;
+                const dueSoon = open.filter(g => g.responds_by >= today && g.responds_by <= today).length;
+                return (
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Abiertas: {open.length}</Badge>
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Vencidas: {overdue}</Badge>
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Vencen hoy: {dueSoon}</Badge>
+                  </div>
+                );
+              })()}
+
+              {glosas.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No hay aclaraciones. Abre una desde un comprobante con el botón "Glosar".
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {glosas.map(g => (
+                    <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-sm truncate">{g.payments?.parent?.full_name || g.payments?.child?.full_name || 'Acudiente'}</span>
+                          <Badge variant="outline" className="text-[10px]">{REASON_ADMIN_LABELS[g.reason]}</Badge>
+                          <Badge variant="outline" className="text-[10px] bg-muted">{STATUS_LABELS[g.status]}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {g.payments?.concept || 'Cobro'} · {formatCurrency(g.payments?.amount || 0)} · responde antes del {g.responds_by}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => setConciliatingGlosa(g)}>
+                        {OPEN_GLOSA_STATUSES.includes(g.status) ? 'Conciliar' : 'Ver'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1632,14 +1737,26 @@ export default function PaymentsAutomationPage() {
         onOpenChange={setShowCashModal} 
         onSuccess={fetchPayments} 
       />
-      <ApprovePaymentMethodSheet 
-        open={!!paymentToApprove} 
-        onOpenChange={(open) => !open && setPaymentToApprove(null)} 
-        payment={paymentToApprove} 
+      <ApprovePaymentMethodSheet
+        open={!!paymentToApprove}
+        onOpenChange={(open) => !open && setPaymentToApprove(null)}
+        payment={paymentToApprove}
         onSuccess={() => {
           setPaymentToApprove(null);
           fetchPayments();
-        }} 
+        }}
+      />
+      <CreateGlosaDialog
+        payment={creatingGlosaPayment}
+        open={!!creatingGlosaPayment}
+        onOpenChange={(o) => { if (!o) setCreatingGlosaPayment(null); }}
+        onSuccess={() => { fetchPayments(); fetchGlosas(); }}
+      />
+      <GlosaConciliationDialog
+        glosa={conciliatingGlosa}
+        open={!!conciliatingGlosa}
+        onOpenChange={(o) => { if (!o) setConciliatingGlosa(null); }}
+        onSuccess={() => { fetchPayments(); fetchGlosas(); }}
       />
     </div>
   );

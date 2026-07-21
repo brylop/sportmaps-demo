@@ -24,6 +24,9 @@
 
 import { useState } from 'react';
 import { bffClient } from '@/lib/api/bffClient';
+import { sha256File } from '@/lib/sha256File';
+
+export type ReceiptVerdict = 'verde' | 'amarillo' | 'rojo';
 
 export interface ReceiptValidationResult {
     valid: boolean;
@@ -38,6 +41,23 @@ export interface ReceiptValidationResult {
     /** Respuesta cruda del LLM (string JSON o texto). Se persiste en
      *  payments.ocr_raw_response para auditoria/forensia. */
     rawResponse?: string;
+    // ── Campos v2 extraídos (schema nuevo). Opcionales; se persisten en payments. ──
+    extractedTime?: string | null;
+    extractedDestination?: string | null;
+    extractedDestinationName?: string | null;
+    extractedOriginName?: string | null;
+    // ── Fase 2 (modo sombra): veredicto de reglas + dedup. Todos opcionales para
+    //    no romper los literales de fallback/reset que construyen este objeto. ──
+    /** Veredicto determinístico computado por el BFF. null si no se envió schoolId. */
+    verdict?: ReceiptVerdict | null;
+    /** Razones {check, code, level, message, detail} del veredicto. */
+    verdictReasons?: unknown[] | null;
+    /** Referencia normalizada para dedup. */
+    referenceNorm?: string | null;
+    /** SHA-256 de la imagen original (para persistir en el pago). */
+    imageSha256?: string | null;
+    /** Origen del hash: 'client_original' | 'server_base64'. */
+    imageSha256Source?: string | null;
 }
 
 export type ConceptKind = 'fixed' | 'lenient';
@@ -52,6 +72,10 @@ export interface ValidationOptions {
     /** Monto mínimo por abono (school_settings.min_installment_amount).
      *  Solo aplica cuando allowPartial=true. 0 = sin mínimo. */
     minPartialAmount?: number;
+    /** Escuela del cobro. Si se pasa, el BFF computa el veredicto (modo sombra). */
+    schoolId?: string;
+    /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
+    paymentId?: string;
 }
 
 interface OcrResponse {
@@ -62,6 +86,16 @@ interface OcrResponse {
     reference: string | null;
     provider?: string;
     rawResponse?: string;
+    time?: string | null;
+    destination?: string | null;
+    destinationName?: string | null;
+    originName?: string | null;
+    // Fase 2 (modo sombra) — el BFF los agrega cuando recibe schoolId.
+    verdict?: ReceiptVerdict | null;
+    verdictReasons?: unknown[] | null;
+    referenceNorm?: string | null;
+    imageSha256?: string | null;
+    imageSha256Source?: string | null;
 }
 
 // Tolerancia: monto OCR puede diferir del esperado en hasta esto y se considera match.
@@ -150,14 +184,24 @@ export function useReceiptValidator() {
                 }
             }
 
+            // Hash de la imagen ORIGINAL (antes del PDF→PNG) para dedup determinista.
+            // No bloquea si crypto.subtle no está disponible (contexto no seguro).
+            let imageSha256: string | null = null;
+            try { imageSha256 = await sha256File(file); } catch { imageSha256 = null; }
+
             const base64 = await blobToBase64(imageBlob);
 
-            // 2) Llamar al BFF (LLM Vision)
+            // 2) Llamar al BFF (LLM Vision + veredicto en modo sombra si hay schoolId)
             let ocr: OcrResponse;
             try {
                 ocr = await bffClient.post<OcrResponse>('/api/v1/payments/extract-receipt', {
                     imageBase64: base64,
                     mimeType,
+                    schoolId: opts.schoolId,
+                    expectedAmount: opts.expectedAmount,
+                    conceptKind: opts.conceptKind ?? 'lenient',
+                    imageSha256: imageSha256 ?? undefined,
+                    paymentId: opts.paymentId,
                 });
             } catch (err: any) {
                 console.error('[OCR] error llamando al BFF:', err);
@@ -167,6 +211,23 @@ export function useReceiptValidator() {
             }
 
             const { amount, date, reference, bank, currency, provider, rawResponse } = ocr;
+            // Campos del veredicto (modo sombra). El hash resuelto es el del BFF si lo
+            // devolvió, si no el que calculamos localmente.
+            const verdict = ocr.verdict ?? null;
+            const verdictReasons = ocr.verdictReasons ?? null;
+            const referenceNorm = ocr.referenceNorm ?? null;
+            const resolvedHash = ocr.imageSha256 ?? imageSha256 ?? null;
+            const imageSha256Source = ocr.imageSha256Source ?? (imageSha256 ? 'client_original' : null);
+            const extractedTime = ocr.time ?? null;
+            const extractedDestination = ocr.destination ?? null;
+            const extractedDestinationName = ocr.destinationName ?? null;
+            const extractedOriginName = ocr.originName ?? null;
+
+            const v2Fields = {
+                extractedTime, extractedDestination, extractedDestinationName, extractedOriginName,
+                verdict, verdictReasons, referenceNorm,
+                imageSha256: resolvedHash, imageSha256Source,
+            };
 
             // 3) Validacion de fecha (hoy en Bogota) — SIEMPRE bloquea fechas
             //    distintas a hoy (vencidas o futuras), independiente del conceptKind.
@@ -261,6 +322,7 @@ export function useReceiptValidator() {
                     extractedCurrency: currency,
                     provider,
                     rawResponse,
+                    ...v2Fields,
                     rejectionReason: errors.join(' ') + ' Sube el comprobante correcto.',
                 };
             }
@@ -276,6 +338,7 @@ export function useReceiptValidator() {
                 extractedCurrency: currency,
                 provider,
                 rawResponse,
+                ...v2Fields,
                 rejectionReason: null,
             };
         } catch (err) {

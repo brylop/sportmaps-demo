@@ -14,29 +14,57 @@ export interface OcrResult {
     amount: number | null;
     currency: string | null;
     date: string | null;          // ISO yyyy-mm-dd
+    time: string | null;          // HH:MM (24h)
     bank: string | null;
     reference: string | null;
+    /** Numero de cuenta/celular/llave AL QUE SE ENVIO el dinero (destino). */
+    destination: string | null;
+    /** Nombre del titular destino (etiqueta "Para"). Señal informativa, no bloquea. */
+    destinationName: string | null;
+    /** Nombre de quien envia. */
+    originName: string | null;
+    /** false si la imagen no es un comprobante de pago individual. */
+    isReceipt: boolean;
+    /** true si es un pantallazo de lista de movimientos (no un comprobante individual). */
+    isTransactionList: boolean;
+    /** Campos del schema que el modelo NO pudo ver/leer en la imagen. */
+    missingFields: string[];
     rawResponse?: string;
     provider: string;
 }
 
-const SYSTEM_PROMPT =
-    'Eres un extractor de datos de comprobantes de pago colombianos (DaviPlata, Nequi, Bancolombia, BBVA, Davivienda, Movii, etc.). ' +
-    'Devuelve UNICAMENTE un JSON valido con el siguiente schema, sin texto adicional:\n' +
-    '{\n' +
-    '  "amount": <numero sin separadores de miles, sin moneda, ej 150000>,\n' +
-    '  "currency": "COP" | "USD" | null,\n' +
-    '  "date": "YYYY-MM-DD" o null si no la encuentras,\n' +
-    '  "bank": "DaviPlata" | "Nequi" | "Bancolombia" | "BBVA" | "Davivienda" | "Movii" | "Otro" | null,\n' +
-    '  "reference": "<numero de operacion/aprobacion/transaccion>" o null\n' +
-    '}\n' +
-    'Reglas:\n' +
-    '- amount: SOLO el monto principal de la transaccion (campo "Valor", "Monto", "Total"). Ignora costos, comisiones, saldos.\n' +
-    '- currency: detecta por simbolo ($, COP) o contexto.\n' +
-    '- date: convierte cualquier formato a ISO. "Abril 28 de 2026" -> "2026-04-28".\n' +
-    '- Si la imagen NO es un comprobante de pago, devuelve todos los campos null.\n' +
-    '- Si un campo no es legible, devuelve null para ese campo individualmente.\n' +
-    '- NUNCA inventes datos.';
+// El LLM SOLO extrae. Nunca aprueba ni rechaza. La decision vive en
+// receipt-verdict.ts (reglas determinísticas). No pedir "confianza" al modelo.
+const SYSTEM_PROMPT = `Eres un extractor de datos de comprobantes de pago colombianos (DaviPlata, Nequi,
+Bancolombia, BBVA, Davivienda, Movii, Bre-B, PSE, etc.).
+Devuelve UNICAMENTE un JSON valido con este schema, sin texto adicional:
+{
+  "amount": <numero sin separadores, ej 150000> | null,
+  "currency": "COP" | "USD" | null,
+  "date": "YYYY-MM-DD" | null,
+  "time": "HH:MM" | null,
+  "bank": "DaviPlata"|"Nequi"|"Bancolombia"|"BBVA"|"Davivienda"|"Movii"|"BreB"|"PSE"|"Otro" | null,
+  "reference": "<numero de operacion/aprobacion/comprobante/CUS>" | null,
+  "destination": "<numero de cuenta, celular o llave A LA QUE SE ENVIO el dinero>" | null,
+  "destination_name": "<nombre del titular destino, etiqueta 'Para'>" | null,
+  "origin_name": "<nombre de quien envia>" | null,
+  "is_receipt": true | false,
+  "is_transaction_list": true | false,
+  "missing_fields": ["<campos que NO son visibles o legibles en la imagen>"]
+}
+Reglas:
+- amount: SOLO el monto principal ("Valor", "Monto", "Total"). Ignora comisiones y saldos.
+- amount: el formato colombiano usa punto de miles y coma decimal.
+  "$ 1.000,00" -> 1000. "$ 150.000" -> 150000.
+- date/time: convierte cualquier formato. "Abril 28 de 2026, 11:51 p.m." -> "2026-04-28", "23:51".
+- destination: el numero DESTINO (a quien le llego la plata), NO el de quien envia.
+  Busca etiquetas como "Llave", "Para", "Cuenta destino", "Banco destino", "Numero Nequi".
+  En envios por llave (Bre-B/Nequi), destination es el numero de la llave.
+- is_receipt: false si la imagen no es un comprobante de pago individual.
+- is_transaction_list: true si es un pantallazo de lista de movimientos, no un comprobante individual.
+- missing_fields: lista todo campo del schema que no aparece o no es legible.
+  Reporta lo que VES; no juzgues validez.
+- NUNCA inventes datos. Campo no legible = null + entrada en missing_fields.`;
 
 const USER_PROMPT = 'Extrae los datos de este comprobante de pago:';
 
@@ -175,22 +203,40 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
 // ─────────────────────────────────────────────────────────────────────────────
 // Parser comun + entry point con fallback
 // ─────────────────────────────────────────────────────────────────────────────
+const asStr = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
 function parseLlmJson(content: string, provider: string): OcrResult {
     try {
         const cleaned = content.replace(/^```json\s*|\s*```$/g, '').trim();
         const data = JSON.parse(cleaned);
         return {
             amount: typeof data.amount === 'number' ? data.amount : null,
-            currency: typeof data.currency === 'string' ? data.currency : null,
-            date: typeof data.date === 'string' ? data.date : null,
-            bank: typeof data.bank === 'string' ? data.bank : null,
-            reference: typeof data.reference === 'string' ? data.reference : null,
+            currency: asStr(data.currency),
+            date: asStr(data.date),
+            time: asStr(data.time),
+            bank: asStr(data.bank),
+            reference: asStr(data.reference),
+            destination: asStr(data.destination),
+            destinationName: asStr(data.destination_name),
+            originName: asStr(data.origin_name),
+            // Default true: solo marcamos "no es comprobante" si el modelo lo afirma
+            // explícitamente. Un campo omitido no debe disparar un ROJO falso.
+            isReceipt: data.is_receipt === false ? false : true,
+            isTransactionList: data.is_transaction_list === true,
+            missingFields: Array.isArray(data.missing_fields)
+                ? data.missing_fields.filter((f: unknown): f is string => typeof f === 'string')
+                : [],
             rawResponse: content,
             provider,
         };
     } catch {
+        // JSON ilegible: tratamos como comprobante no leído (todo null/vacío).
+        // isReceipt=true para no rechazar en falso; el pipeline lo mandará a
+        // AMARILLO por campos faltantes, no a ROJO.
         return {
-            amount: null, currency: null, date: null, bank: null, reference: null,
+            amount: null, currency: null, date: null, time: null, bank: null,
+            reference: null, destination: null, destinationName: null, originName: null,
+            isReceipt: true, isTransactionList: false, missingFields: ['amount', 'date', 'reference'],
             rawResponse: content,
             provider,
         };

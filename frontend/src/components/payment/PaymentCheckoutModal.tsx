@@ -40,6 +40,7 @@ import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
 import { useWompiCheckout } from '@/hooks/useWompiCheckout';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
+import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import {
   useNextUnpaidPeriod,
   fetchPeriodStatus,
@@ -488,6 +489,30 @@ export function PaymentCheckoutModal({
 
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
+        // Campos OCR + veredicto (modo sombra) del comprobante, comunes a insert/update.
+        const receiptOcrFields = {
+          ocr_amount: ocrResult?.extractedAmount ?? null,
+          ocr_currency: ocrResult?.extractedCurrency ?? null,
+          ocr_date: ocrResult?.extractedDate ?? null,
+          ocr_bank: ocrResult?.extractedBank ?? null,
+          ocr_reference: ocrResult?.extractedReference ?? null,
+          ocr_provider: ocrResult?.provider ?? null,
+          ocr_destination: ocrResult?.extractedDestination ?? null,
+          ocr_destination_name: ocrResult?.extractedDestinationName ?? null,
+          ocr_origin_name: ocrResult?.extractedOriginName ?? null,
+          ocr_time: ocrResult?.extractedTime ?? null,
+          ocr_raw_response: ocrResult?.rawResponse
+            ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
+            : null,
+          // Veredicto de reglas: se guarda pero NO cambia el status (sombra).
+          receipt_verdict: ocrResult?.verdict ?? null,
+          receipt_verdict_reasons: ocrResult?.verdictReasons ?? null,
+          receipt_reference_norm: ocrResult?.referenceNorm ?? null,
+          receipt_image_sha256: ocrResult?.imageSha256 ?? null,
+          receipt_image_sha256_source: ocrResult?.imageSha256Source ?? null,
+          receipt_verdict_at: ocrResult?.verdict ? new Date().toISOString() : null,
+        };
+        let glosaPaymentId: string | null = (mode === 'update' && paymentId) ? paymentId : null;
         if (mode === 'update' && paymentId) {
           const { error: updateError } = await supabase.from('payments').update({
             status: 'awaiting_approval',
@@ -497,21 +522,12 @@ export function PaymentCheckoutModal({
             period_year: periodYear,
             period_month: periodMonth,
             early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
-            // OCR del comprobante — el admin lo usa para detectar discrepancias.
-            ocr_amount: ocrResult?.extractedAmount ?? null,
-            ocr_currency: ocrResult?.extractedCurrency ?? null,
-            ocr_date: ocrResult?.extractedDate ?? null,
-            ocr_bank: ocrResult?.extractedBank ?? null,
-            ocr_reference: ocrResult?.extractedReference ?? null,
-            ocr_provider: ocrResult?.provider ?? null,
-            ocr_raw_response: ocrResult?.rawResponse
-              ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
-              : null,
+            ...receiptOcrFields,
             updated_at: new Date().toISOString()
           } as any).eq('id', paymentId);
           if (updateError) throw updateError;
         } else {
-          const { error: insertError } = await supabase.from('payments').insert({
+          const ins = await supabase.from('payments').insert({
             parent_id: user?.id,
             child_id: payloadChildId,
             team_id: (teamId && teamId !== '') ? teamId : null,
@@ -528,19 +544,15 @@ export function PaymentCheckoutModal({
             period_year: periodYear,
             period_month: periodMonth,
             early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
-            // OCR del comprobante — el admin lo usa para detectar discrepancias.
-            ocr_amount: ocrResult?.extractedAmount ?? null,
-            ocr_currency: ocrResult?.extractedCurrency ?? null,
-            ocr_date: ocrResult?.extractedDate ?? null,
-            ocr_bank: ocrResult?.extractedBank ?? null,
-            ocr_reference: ocrResult?.extractedReference ?? null,
-            ocr_provider: ocrResult?.provider ?? null,
-            ocr_raw_response: ocrResult?.rawResponse
-              ? safeParseJson(ocrResult.rawResponse) ?? ocrResult.rawResponse
-              : null,
+            ...receiptOcrFields,
             reference: `TRF-${Date.now().toString(36).toUpperCase()}`
-          } as any);
-          if (insertError) throw insertError;
+          } as any).select('id').single();
+          if (ins.error) throw ins.error;
+          glosaPaymentId = ins.data?.id ?? null;
+        }
+        // Auto-glosa app-layer (dormant si auto_glosa_enabled=false). Fire-and-forget.
+        if (glosaPaymentId && ocrResult?.verdict === 'amarillo') {
+          autoEvaluateGlosa(glosaPaymentId).catch(() => { /* dormant/no-op tolerado */ });
         }
         // Notificar al owner de la escuela con el mes especifico
         // (fire-and-forget; un fallo aqui no debe romper el flujo del padre).
@@ -640,9 +652,19 @@ export function PaymentCheckoutModal({
       toast({ title: "¡Pago exitoso!", description: `Tu pago de ${formatCurrency(chargeAmount)} fue procesado correctamente` });
       setTimeout(() => { onSuccess?.(); onOpenChange(false); setPaymentStatus('idle'); setSelectedMethod(null); }, 2000);
     } catch (error: unknown) {
-      const err = error as { message?: string };
+      const err = error as { message?: string; code?: string };
       setPaymentStatus('error');
-      toast({ title: "Error en el pago", description: err.message || "No se pudo procesar tu pago.", variant: "destructive" });
+      // 23505 = comprobante ya usado (unique index de referencia o de hash de imagen).
+      const dupMsg = err.message?.toLowerCase() ?? '';
+      const isDuplicate = err.code === '23505'
+        && (dupMsg.includes('ocr_reference') || dupMsg.includes('receipt_hash') || dupMsg.includes('receipt_image_sha256'));
+      toast({
+        title: isDuplicate ? "Comprobante ya usado" : "Error en el pago",
+        description: isDuplicate
+          ? "Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración."
+          : (err.message || "No se pudo procesar tu pago."),
+        variant: "destructive",
+      });
       setTimeout(() => setPaymentStatus('idle'), 2000);
     } finally {
       setProcessing(false);
@@ -953,6 +975,8 @@ export function PaymentCheckoutModal({
                       bucket="payment-receipts"
                       accept="image/*,application/pdf"
                       validateReceipt={true}
+                      schoolId={schoolId || undefined}
+                      paymentId={mode === 'update' ? (paymentId || undefined) : undefined}
                       onUploadComplete={(url) => setProofUrl(url)}
                       onValidationResult={(r) => setOcrResult(r)}
                       expectedAmount={chargeAmount}

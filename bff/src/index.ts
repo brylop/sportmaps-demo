@@ -27,6 +27,7 @@ import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
 import paymentsRouter from './routes/payments.routes';
+import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
 import recurringRouter from './routes/recurring.routes';
@@ -268,6 +269,8 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+// Glosas: montado ANTES de /api/v1/payments para que la ruta más específica gane.
+app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico

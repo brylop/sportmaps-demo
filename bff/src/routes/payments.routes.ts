@@ -20,6 +20,8 @@ import { generateReference, copToCents, assertUserNotBlocked, UserPaymentBlocked
 import { generateMpReference } from '../services/mercadopago.service';
 import { resolveProvider, type PaymentProvider } from '../services/payment-provider.resolver';
 import { extractReceipt } from '../services/ocr.service';
+import { evaluateVerdict, normalizeReference } from '../services/receipt-verdict';
+import { buildVerdictContext } from '../services/receipt-context.service';
 
 const router = Router();
 
@@ -334,6 +336,16 @@ const ExtractSchema = z.object({
         .min(100, 'Imagen demasiado pequena')
         .max(MAX_BASE64_LENGTH, 'Imagen demasiado grande (max ~6 MB).'),
     mimeType: z.enum(ALLOWED_MIME_TYPES).optional(),
+    // Contexto opcional para computar el veredicto (Fase 2, modo sombra). Si no
+    // viene schoolId, el endpoint responde el OcrResult como antes (verdict null) —
+    // backward-compatible con callers viejos.
+    schoolId: z.string().uuid().optional(),
+    expectedAmount: z.number().nonnegative().optional(),
+    conceptKind: z.enum(['fixed', 'lenient']).optional(),
+    // SHA-256 hex de la imagen ORIGINAL (calculado en el front antes del PDF→PNG).
+    imageSha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+    // En el flujo de update: pago a excluir del dedup.
+    paymentId: z.string().uuid().optional(),
 });
 
 const ocrLimiter = rateLimit({
@@ -380,10 +392,47 @@ router.post(
                     details: parsed.error.issues,
                 });
             }
-            const { imageBase64, mimeType } = parsed.data;
+            const { imageBase64, mimeType, schoolId, expectedAmount, imageSha256, paymentId } = parsed.data;
 
             const result = await extractReceipt(imageBase64, mimeType || 'image/png');
-            return res.json(result);
+
+            // Hash: preferimos el que mandó el front (SHA-256 del File original,
+            // determinista cross-device). Si no vino, lo calculamos del base64
+            // recibido — ojo: para PDFs eso ya es el PNG convertido, otro espacio
+            // de hash. Registramos la fuente para no perseguir fantasmas al calibrar.
+            let hash: string | null = imageSha256 ?? null;
+            let hashSource: 'client_original' | 'server_base64' | null = imageSha256 ? 'client_original' : null;
+            if (!hash) {
+                hash = crypto.createHash('sha256').update(imageBase64).digest('hex');
+                hashSource = 'server_base64';
+            }
+            const referenceNorm = normalizeReference(result.reference);
+
+            // Veredicto (modo sombra): solo si hay schoolId para resolver el contexto.
+            // Cualquier fallo aquí NO debe tumbar la extracción — degradamos a null.
+            let verdict = null as null | ReturnType<typeof evaluateVerdict>;
+            if (schoolId) {
+                try {
+                    const ctx = await buildVerdictContext(schoolId, {
+                        referenceNorm,
+                        imageSha256: hash,
+                        expectedAmount,
+                        paymentId,
+                    });
+                    verdict = evaluateVerdict(result, ctx);
+                } catch (err) {
+                    req.log?.warn({ err }, '[OCR] no se pudo computar el veredicto; se devuelve sin él');
+                }
+            }
+
+            return res.json({
+                ...result,
+                referenceNorm,
+                imageSha256: hash,
+                imageSha256Source: hashSource,
+                verdict: verdict?.verdict ?? null,
+                verdictReasons: verdict?.reasons ?? null,
+            });
         } catch (err: any) {
             req.log?.error({ err }, 'Error extracting receipt with LLM Vision');
             return res.status(502).json({

@@ -6,11 +6,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   CreditCard, CheckCircle2, XCircle, Clock, Calendar,
-  Plus, Eye, Loader2, Info,
+  Plus, Eye, Loader2, Info, AlertTriangle,
   Percent, Zap, User, FileText
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
+import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
@@ -85,11 +87,12 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
   failed:            { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
   cancelled:         { label: 'Anulado',    icon: XCircle,     color: 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/40 dark:text-zinc-400 dark:border-zinc-700' },
   partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
+  glosado:           { label: 'Necesita aclaración', icon: AlertTriangle, color: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800' },
 };
 
 // Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
 // terminales negativos (rejected/failed/cancelled) NO son pendientes.
-const PENDING_STATES = ['pending', 'awaiting_approval', 'partial'];
+const PENDING_STATES = ['pending', 'awaiting_approval', 'partial', 'glosado'];
 
 interface Subscription {
   id: string;
@@ -107,6 +110,9 @@ export default function MyPaymentsPage() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  // Glosas abiertas del acudiente, indexadas por payment_id (para el botón Responder).
+  const [glosaMap, setGlosaMap] = useState<Map<string, Glosa>>(new Map());
+  const [respondingGlosa, setRespondingGlosa] = useState<Glosa | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showChildPicker, setShowChildPicker] = useState(false);
@@ -309,6 +315,19 @@ export default function MyPaymentsPage() {
       });
       setTransactions(txns);
 
+      // ── PASO 3.4: Glosas abiertas del acudiente (para "Necesita aclaración") ──
+      try {
+        const glosas = await listMyGlosas();
+        const m = new Map<string, Glosa>();
+        for (const g of glosas) {
+          if (OPEN_GLOSA_STATUSES.includes(g.status)) m.set(g.payment_id, g);
+        }
+        setGlosaMap(m);
+      } catch {
+        // Si el BFF no responde, no rompemos la vista de pagos.
+        setGlosaMap(new Map());
+      }
+
       // ── PASO 3.5: Facturas electrónicas emitidas por pago ─────────────────
       if (paymentIds.length > 0) {
         const { data: invRows } = await supabase
@@ -510,8 +529,10 @@ export default function MyPaymentsPage() {
         key={txn.id}
         txn={txn}
         invoice={invoiceMap[txn.id]}
+        openGlosa={glosaMap.get(txn.id) || null}
+        onRespondGlosa={(g) => setRespondingGlosa(g)}
         onSelect={(p) => {
-          if (p.status === 'approved') return;
+          if (p.status === 'approved' || p.status === 'glosado') return;
           setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
             childId: p.child_id || '',
             childName: p.child_name || 'Deportista',
@@ -763,6 +784,14 @@ export default function MyPaymentsPage() {
         />
       )}
 
+      {/* Responder glosa (aclaración) */}
+      <GlosaRespondModal
+        glosa={respondingGlosa}
+        open={!!respondingGlosa}
+        onOpenChange={(o) => { if (!o) setRespondingGlosa(null); }}
+        onSuccess={fetchPaymentData}
+      />
+
       {/* Installment Checkout Modal */}
       {selectedInstallmentPayment && (
         <InstallmentCheckoutModal
@@ -859,20 +888,23 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice, openGlosa, onRespondGlosa }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
   invoice?: { number: string | null; public_url: string | null };
+  openGlosa?: Glosa | null;
+  onRespondGlosa?: (g: Glosa) => void;
 }) {
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
+  const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
 
   return (
     <Card
-      className={`transition-all overflow-hidden ${txn.status === 'approved' ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
+      className={`transition-all overflow-hidden ${nonInteractive ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
         isSelected
           ? 'border-primary bg-primary/5 shadow-md ring-1 ring-primary/20'
           : 'border-border'
@@ -948,6 +980,23 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
               </div>
             </div>
 
+            {txn.status === 'glosado' && (
+              <div className="mt-2 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/30 p-2 text-xs text-orange-800 dark:text-orange-300">
+                <p className="font-semibold flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {openGlosa ? REASON_LABELS[openGlosa.reason] : 'Tu comprobante necesita una aclaración.'}
+                </p>
+                {openGlosa?.responds_by && (
+                  <p className="mt-0.5">
+                    Responde antes del{' '}
+                    <strong>
+                      {new Date(openGlosa.responds_by + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </strong>.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-3 border-t mt-3 sm:mt-4">
               <Badge variant="outline" className={`h-6 text-[10px] font-bold ${config.color}`}>
                 <StatusIcon className="h-3 w-3 mr-1" />
@@ -996,6 +1045,20 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" />
                     ABONAR
+                  </Button>
+                )}
+                {txn.status === 'glosado' && openGlosa && onRespondGlosa && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRespondGlosa(openGlosa);
+                    }}
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                    RESPONDER
                   </Button>
                 )}
               </div>
