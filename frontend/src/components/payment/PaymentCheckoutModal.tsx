@@ -219,7 +219,9 @@ export function PaymentCheckoutModal({
           amount: finalAmount,
           concept: finalConcept,
           status: 'pending',
-          payment_method: 'online',
+          // 'online' NO es un pay_method válido (pse|card|transfer|cash|other) → rompía
+          // payments_payment_method_check. La pasarela resuelve el instrumento real por webhook.
+          payment_method: 'other',
           payment_provider: 'wompi',
           provider_reference: reference,
           payment_type: 'one_time',
