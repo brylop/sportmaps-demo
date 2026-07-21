@@ -648,9 +648,11 @@ export async function createStudentWithPendingPayment(params: {
     const dueDate = new Date();
     dueDate.setMonth(dueDate.getMonth() + 1);
 
+    let paymentError: any = null;
+
     // Solo se genera cobro si hay cuota (constraint payments_amount_positive: amount > 0)
     if (monthlyFee && monthlyFee > 0) {
-        const { error: paymentError } = await supabase
+        const { error } = await supabase
             .from('payments')
             .insert({
                 parent_id: null,
@@ -664,6 +666,7 @@ export async function createStudentWithPendingPayment(params: {
                 // 'one_time'|'subscription' (payments_payment_type_check); 'monthly' rompía el INSERT
                 payment_type: 'one_time',
             });
+        paymentError = error;
 
         if (paymentError) {
             console.error('Payment insert failed:', paymentError.message);

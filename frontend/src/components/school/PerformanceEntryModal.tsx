@@ -13,13 +13,22 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { Loader2, Activity, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Activity, CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   useSchoolPerformanceMetrics,
   useCreatePerformanceEntries,
 } from '@/hooks/usePerformanceData';
-import type { MetricCategory, SportMetricDefinition } from '@/lib/school/performanceQueries';
+import {
+  computeMetricBand,
+  type MetricBand,
+  type MetricCategory,
+  type SportMetricDefinition,
+} from '@/lib/school/performanceQueries';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface PerformanceEntryModalProps {
   open: boolean;
@@ -37,10 +46,35 @@ const CATEGORY_CONFIG: Record<MetricCategory, { label: string; color: string }> 
   attendance: { label: 'Asistencia', color: 'text-green-600' },
 };
 
-function groupByCategory(metrics: SportMetricDefinition[]) {
+const SUBCATEGORY_LABEL: Record<string, string> = {
+  tecnica_gmb_gma: 'Recepción (GMB/GMA)',
+  tecnica_saque: 'Saque',
+  tecnica_remate_bloqueo: 'Remate y Bloqueo',
+  fisico: 'Físico',
+  tactica: 'Táctica',
+};
+
+const BAND_DOT: Record<NonNullable<MetricBand>, string> = {
+  green: 'bg-green-500',
+  yellow: 'bg-amber-500',
+  red: 'bg-red-500',
+};
+
+function groupByCategoryAndSubcategory(metrics: SportMetricDefinition[]) {
   const groups = new Map<string, SportMetricDefinition[]>();
   for (const m of metrics) {
     const key = m.category ?? 'other';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(m);
+  }
+  // Dentro de cada categoría, sub-agrupa por subcategory (o deja plano si no hay)
+  return groups;
+}
+
+function groupBySubcategory(metrics: SportMetricDefinition[]) {
+  const groups = new Map<string, SportMetricDefinition[]>();
+  for (const m of metrics) {
+    const key = m.subcategory ?? '_flat';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(m);
   }
@@ -72,7 +106,7 @@ export function PerformanceEntryModal({
   }, [open, subjectId]);
 
   const activeMetrics = metricsData?.metrics.filter((m) => m.is_active) ?? [];
-  const grouped = useMemo(() => groupByCategory(activeMetrics), [activeMetrics]);
+  const grouped = useMemo(() => groupByCategoryAndSubcategory(activeMetrics), [activeMetrics]);
   const filledCount = Object.values(values).filter((v) => v !== '' && v !== undefined).length;
 
   const handleSubmit = async () => {
@@ -93,7 +127,7 @@ export function PerformanceEntryModal({
     }
 
     try {
-      await createEntries.mutateAsync(entries);
+      await createEntries.mutateAsync({ entries });
       toast({
         title: '✅ Rendimiento registrado',
         description: `${entries.length} métrica(s) guardada(s) para ${subjectName}.`,
@@ -145,41 +179,75 @@ export function PerformanceEntryModal({
           </div>
         ) : (
           <div className="space-y-5">
-            <div className="space-y-2">
+            <div className="space-y-2 flex flex-col">
               <Label>Fecha del registro</Label>
-              <Input
-                type="date"
-                value={recordedAt}
-                onChange={(e) => setRecordedAt(e.target.value)}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal bg-background border-input">
+                    <Calendar className="mr-2 h-4 w-4 opacity-75" />
+                    {recordedAt ? (
+                      format(new Date(recordedAt + 'T12:00:00'), 'PPP', { locale: es })
+                    ) : (
+                      <span>Seleccionar fecha</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-xl border-border/60 shadow-xl" align="start">
+                  <CalendarPicker
+                    mode="single"
+                    selected={recordedAt ? new Date(recordedAt + 'T12:00:00') : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        setRecordedAt(format(date, 'yyyy-MM-dd'));
+                      }
+                    }}
+                    locale={es}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
-            {[...grouped.entries()].map(([category, metrics]) => {
+            {[...grouped.entries()].map(([category, categoryMetrics]) => {
               const cfg = CATEGORY_CONFIG[category as MetricCategory] ?? { label: 'Otros', color: 'text-muted-foreground' };
+              const bySubcat = groupBySubcategory(categoryMetrics);
               return (
                 <div key={category} className="space-y-3">
                   <p className={`text-[10px] font-black uppercase tracking-widest ${cfg.color}`}>
                     {cfg.label}
                   </p>
-                  <div className="space-y-3">
-                    {metrics.map((m) => (
-                      <div key={m.metric_key} className="flex items-center justify-between gap-3">
-                        <Label className="text-sm font-medium flex-1">
-                          {m.display_name}
-                          {m.unit && <span className="text-xs text-muted-foreground ml-1">({m.unit})</span>}
-                        </Label>
-                        <div className="w-32 shrink-0">
-                          <NumberStepper
-                            value={values[m.metric_key] ?? ''}
-                            onChange={(val) => setValues((prev) => ({ ...prev, [m.metric_key]: val }))}
-                            min={0}
-                            max={m.data_type === 'rating' ? 10 : undefined}
-                            step={m.data_type === 'rating' ? 1 : m.unit === '%' ? 1 : 1}
-                          />
-                        </div>
+                  {[...bySubcat.entries()].map(([subcat, metrics]) => (
+                    <div key={subcat} className="space-y-2">
+                      {subcat !== '_flat' && (
+                        <p className="text-[10px] font-semibold text-muted-foreground pl-1">
+                          {SUBCATEGORY_LABEL[subcat] ?? subcat}
+                        </p>
+                      )}
+                      <div className="space-y-3">
+                        {metrics.map((m) => {
+                          const band = computeMetricBand(values[m.metric_key], m.thresholds);
+                          return (
+                            <div key={m.metric_key} className="flex items-center justify-between gap-3">
+                              <Label className="text-sm font-medium flex-1 flex items-center gap-1.5">
+                                {band && <span className={`h-1.5 w-1.5 rounded-full ${BAND_DOT[band]}`} />}
+                                {m.display_name}
+                                {m.unit && <span className="text-xs text-muted-foreground ml-1">({m.unit})</span>}
+                              </Label>
+                              <div className="w-32 shrink-0">
+                                <NumberStepper
+                                  value={values[m.metric_key] ?? ''}
+                                  onChange={(val) => setValues((prev) => ({ ...prev, [m.metric_key]: val }))}
+                                  min={m.min_value ?? 0}
+                                  max={m.max_value ?? undefined}
+                                  step={1}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               );
             })}

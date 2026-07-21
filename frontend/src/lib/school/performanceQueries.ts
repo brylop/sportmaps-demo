@@ -8,6 +8,13 @@ import { bffClient } from '@/lib/api/bffClient';
 
 export type MetricDataType = 'numeric' | 'duration' | 'count' | 'rating';
 export type MetricCategory = 'physical' | 'technical' | 'tactical' | 'attendance';
+export type MetricBand = 'green' | 'yellow' | 'red' | null;
+
+export interface MetricThreshold {
+  band: 'green' | 'yellow' | 'red';
+  min_value: number | null;
+  max_value: number | null;
+}
 
 export interface SportMetricDefinition {
   id: string;
@@ -16,7 +23,29 @@ export interface SportMetricDefinition {
   data_type: MetricDataType;
   unit: string | null;
   category: MetricCategory | null;
+  subcategory: string | null;
+  min_value: number | null;
+  max_value: number | null;
+  higher_is_better: boolean;
   is_active: boolean;
+  thresholds?: MetricThreshold[];
+}
+
+/**
+ * Calcula la banda (verde/amarillo/rojo) de un valor según los umbrales
+ * de su métrica. Vive en el cliente para dar feedback en vivo mientras
+ * el coach escribe, sin esperar a guardar.
+ */
+export function computeMetricBand(value: number | '' | undefined, thresholds?: MetricThreshold[]): MetricBand {
+  if (value === '' || value === undefined || value === null) return null;
+  if (!thresholds || thresholds.length === 0) return null;
+  const num = Number(value);
+  for (const t of thresholds) {
+    const aboveMin = t.min_value === null || num >= t.min_value;
+    const belowMax = t.max_value === null || num <= t.max_value;
+    if (aboveMin && belowMax) return t.band;
+  }
+  return null;
 }
 
 export interface SchoolMetricsResponse {
@@ -67,8 +96,8 @@ export async function getSchoolPerformanceEntries(filters: {
   return bffClient.get<PerformanceEntry[]>(`/api/v1/school/performance/entries?${params}`);
 }
 
-export async function postPerformanceEntries(entries: NewPerformanceEntry[]): Promise<PerformanceEntry[]> {
-  return bffClient.post('/api/v1/school/performance/entries', { entries });
+export async function postPerformanceEntries(entries: NewPerformanceEntry[], teamId?: string): Promise<PerformanceEntry[]> {
+  return bffClient.post('/api/v1/school/performance/entries', { entries, team_id: teamId });
 }
 
 export async function updatePerformanceEntry(
@@ -107,7 +136,7 @@ export interface TeamPerformanceRoster {
   sport_category_id: string | null;
   metrics: SportMetricDefinition[];
   subjects: RosterSubject[];
-  latest_values: Record<string, { value: number; recorded_at: string }>;
+  latest_values: Record<string, { value: number; recorded_at: string; band?: MetricBand }>;
   message?: string;
 }
 

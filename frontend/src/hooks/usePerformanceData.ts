@@ -55,11 +55,12 @@ export function useSubjectPerformanceEvolution(subjectType?: string, subjectId?:
 export function useCreatePerformanceEntries() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (entries: NewPerformanceEntry[]) => postPerformanceEntries(entries),
+    mutationFn: ({ entries, teamId }: { entries: NewPerformanceEntry[]; teamId?: string }) =>
+      postPerformanceEntries(entries, teamId),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['school-performance-entries'] });
       queryClient.invalidateQueries({ queryKey: ['team-performance-roster'] });
-      const subjectId = variables[0]?.subject_id;
+      const subjectId = variables.entries[0]?.subject_id;
       if (subjectId) {
         queryClient.invalidateQueries({ queryKey: ['subject-performance-evolution'] });
       }

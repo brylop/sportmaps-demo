@@ -36,16 +36,35 @@ router.get(
 
       const { data: metrics, error: metricsErr } = await supabase
         .from('sport_metric_definitions')
-        .select('id, metric_key, display_name, data_type, unit, category, is_active')
+        .select('id, metric_key, display_name, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active')
         .eq('sport_category_id', school.category_id)
         .eq('is_active', true)
         .order('category', { ascending: true });
 
       if (metricsErr) throw metricsErr;
 
+      // Adjuntar bandas de semáforo por métrica (mismo patrón que en /roster)
+      const metricIds = (metrics ?? []).map((m: any) => m.id);
+      let thresholdsByMetric: Record<string, any[]> = {};
+      if (metricIds.length > 0) {
+        const { data: thresholds } = await supabase
+          .from('sport_metric_thresholds')
+          .select('metric_id, band, min_value, max_value')
+          .in('metric_id', metricIds);
+        for (const t of thresholds ?? []) {
+          if (!thresholdsByMetric[t.metric_id]) thresholdsByMetric[t.metric_id] = [];
+          thresholdsByMetric[t.metric_id].push({ band: t.band, min_value: t.min_value, max_value: t.max_value });
+        }
+      }
+
+      const metricsWithThresholds = (metrics ?? []).map((m: any) => ({
+        ...m,
+        thresholds: thresholdsByMetric[m.id] ?? [],
+      }));
+
       res.json({
         sport_category_id: school.category_id,
-        metrics: metrics ?? [],
+        metrics: metricsWithThresholds,
       });
     } catch (err: any) {
       req.log?.error({ err }, 'school/performance unhandled error');
@@ -93,11 +112,36 @@ router.get(
 
       const { data: metrics, error: metricsErr } = await supabase
         .from('sport_metric_definitions')
-        .select('id, metric_key, display_name, data_type, unit, category, is_active')
+        .select('id, metric_key, display_name, data_type, unit, category, subcategory, min_value, max_value, higher_is_better, is_active')
         .eq('sport_category_id', school.category_id)
         .eq('is_active', true)
         .order('category', { ascending: true });
       if (metricsErr) throw metricsErr;
+
+      // NUEVO: bandas de todas las métricas del catálogo, en un solo query
+      const metricIds = (metrics ?? []).map((m: any) => m.id);
+      let thresholdsByMetric: Record<string, { band: string; min_value: number | null; max_value: number | null }[]> = {};
+      if (metricIds.length > 0) {
+        const { data: thresholds } = await supabase
+          .from('sport_metric_thresholds')
+          .select('metric_id, band, min_value, max_value')
+          .in('metric_id', metricIds);
+        for (const t of thresholds ?? []) {
+          if (!thresholdsByMetric[t.metric_id]) thresholdsByMetric[t.metric_id] = [];
+          thresholdsByMetric[t.metric_id].push(t);
+        }
+      }
+
+      function computeBand(value: number, metric: any): 'green' | 'yellow' | 'red' | null {
+        const bands = thresholdsByMetric[metric.id];
+        if (!bands || bands.length === 0) return null;
+        for (const b of bands) {
+          const aboveMin = b.min_value === null || value >= b.min_value;
+          const belowMax = b.max_value === null || value <= b.max_value;
+          if (aboveMin && belowMax) return b.band as any;
+        }
+        return null;
+      }
 
       // 2. Roster del equipo o plan, vía la vista unificada school_athletes
       let rosterQuery = supabase
@@ -121,7 +165,7 @@ router.get(
 
       // 3. Último valor registrado por atleta+métrica, para precargar la grilla
       const subjectIds = subjects.map((s) => s.subject_id);
-      let latestValues: Record<string, { value: number; recorded_at: string }> = {};
+      let latestValues: Record<string, { value: number; recorded_at: string; band: 'green' | 'yellow' | 'red' | null }> = {};
 
       if (subjectIds.length > 0) {
         const { data: recentEntries } = await supabase
@@ -135,14 +179,26 @@ router.get(
         for (const e of recentEntries ?? []) {
           const key = `${e.subject_id}:${e.metric_key}`;
           if (!latestValues[key]) {
-            latestValues[key] = { value: Number(e.value), recorded_at: e.recorded_at };
+            const metric = (metrics ?? []).find((m: any) => m.metric_key === e.metric_key);
+            latestValues[key] = {
+              value: Number(e.value),
+              recorded_at: e.recorded_at,
+              band: metric ? computeBand(Number(e.value), metric) : null,
+            };
           }
         }
       }
 
+      const { data: metricsWithThresholds } = {
+        data: (metrics ?? []).map((m: any) => ({
+          ...m,
+          thresholds: thresholdsByMetric[m.id] ?? [],
+        }))
+      };
+
       res.json({
         sport_category_id: school.category_id,
-        metrics: metrics ?? [],
+        metrics: metricsWithThresholds, // antes: metrics ?? []
         subjects,
         latest_values: latestValues,
       });
@@ -201,7 +257,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { schoolId, user } = req;
-      const { entries } = req.body;
+      const { entries, team_id } = req.body;
 
       if (!Array.isArray(entries) || entries.length === 0) {
         return res.status(400).json({ error: 'entries debe ser un array no vacío.' });
@@ -217,26 +273,39 @@ router.post(
         }
       }
 
-      // Validar que las metric_key correspondan al deporte de la escuela
-      const { data: school } = await supabase
-        .from('schools')
-        .select('category_id')
-        .eq('id', schoolId)
-        .maybeSingle();
+      // Resolver el deporte: si viene team_id (grilla de equipo), usar el deporte REAL
+      // del equipo; si no (registro individual sin contexto de equipo), caer al deporte
+      // por defecto de la escuela — comportamiento idéntico al de hoy.
+      let sportCategoryId: string | null = null;
+      if (team_id) {
+        const { data: team } = await supabase.from('teams').select('sport').eq('id', team_id).maybeSingle();
+        if (team?.sport) {
+          const { data: cat } = await supabase
+            .from('sports_categories')
+            .select('id')
+            .ilike('name', team.sport)
+            .maybeSingle();
+          sportCategoryId = cat?.id ?? null;
+        }
+      }
+      if (!sportCategoryId) {
+        const { data: school } = await supabase.from('schools').select('category_id').eq('id', schoolId).maybeSingle();
+        sportCategoryId = school?.category_id ?? null;
+      }
 
-      if (school?.category_id) {
+      if (sportCategoryId) {
         const metricKeys = [...new Set(entries.map((e: any) => e.metric_key))];
         const { data: validMetrics } = await supabase
           .from('sport_metric_definitions')
           .select('metric_key')
-          .eq('sport_category_id', school.category_id)
+          .eq('sport_category_id', sportCategoryId)
           .in('metric_key', metricKeys);
 
         const validSet = new Set((validMetrics ?? []).map((m: any) => m.metric_key));
         const invalid = metricKeys.filter((k) => !validSet.has(k));
         if (invalid.length > 0) {
           return res.status(400).json({
-            error: `Estas métricas no están activas para el deporte de la escuela: ${invalid.join(', ')}`,
+            error: `Estas métricas no están activas para el deporte del equipo/escuela: ${invalid.join(', ')}`,
           });
         }
       }

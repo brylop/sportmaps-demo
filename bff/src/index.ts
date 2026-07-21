@@ -75,6 +75,7 @@ import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
 import athleteBiomechRouter from './routes/athlete/biomech';
 import schoolPerformanceRouter from './routes/school/performance';
+import schoolCompetitionResultsRouter from './routes/school/competition-results';
 import athletePerformanceRouter from './routes/athlete/performance';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
@@ -290,6 +291,7 @@ app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
+app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
 
