@@ -260,6 +260,14 @@ export function PaymentCheckoutModal({
     }
 
     if (!effectivePaymentId) return;
+
+    // Cerramos NUESTRO modal antes de abrir el Widget de Wompi. El Dialog de
+    // Radix aplica aria-hidden + pointer-events:none + scroll-lock al resto de
+    // la página; el Widget de Wompi se monta como overlay aparte y, con el modal
+    // abierto, queda recortado y peleando el foco ("Blocked aria-hidden…").
+    setShowOnlineConfirm(false);
+    onOpenChange(false);
+
     return startSchoolPayment({
       paymentId: effectivePaymentId,
       schoolId,
