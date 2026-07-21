@@ -295,22 +295,14 @@ export function useReceiptValidator() {
                 }
             }
 
-            // 4.b) Endurecimiento de concept 'fixed': exigir que el OCR haya
-            //      detectado al menos fecha y monto. En 'fixed' no aceptamos
-            //      comprobantes ilegibles como advisory — el padre debe subir
-            //      uno legible o el flujo se cae a aprobacion manual del admin.
-            if (conceptKind === 'fixed') {
-                if (!date) {
-                    errors.push(
-                        'No se pudo leer la fecha del comprobante. Sube una imagen mas nitida.',
-                    );
-                }
-                if (typeof amount !== 'number') {
-                    errors.push(
-                        'No se pudo leer el monto del comprobante. Sube una imagen mas nitida.',
-                    );
-                }
-            }
+            // 4.b) OCR ilegible (no leyó fecha/monto) → NO se bloquea al acudiente.
+            //      Con comprobantes v2 el motor de reglas + el admin (o la auto-
+            //      aprobación server-side) deciden; un OCR vacío se sube como
+            //      advisory y queda en 'awaiting_approval' para revisión. Solo
+            //      bloquean los conflictos DUROS de arriba (moneda, fecha vencida,
+            //      monto leído que no cuadra). Antes esto hacía un hard-block que
+            //      dejaba al papá sin poder pagar cuando el OCR no leía la imagen.
+            const ocrUnreadable = !date || typeof amount !== 'number';
 
             if (errors.length > 0) {
                 return {
@@ -339,7 +331,10 @@ export function useReceiptValidator() {
                 provider,
                 rawResponse,
                 ...v2Fields,
-                rejectionReason: null,
+                // OCR ilegible: sube igual (advisory), la escuela lo revisará. No es un bloqueo.
+                rejectionReason: ocrUnreadable
+                    ? 'No pudimos leer todos los datos automáticamente; la escuela revisará tu comprobante.'
+                    : null,
             };
         } catch (err) {
             console.error('Error en OCR:', err);
