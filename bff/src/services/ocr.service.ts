@@ -79,6 +79,7 @@ async function extractWithGroq(base64Image: string, mimeType: string): Promise<O
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(20_000),
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
@@ -124,6 +125,7 @@ async function extractWithOpenAI(base64Image: string, mimeType: string): Promise
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(20_000),
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
@@ -170,6 +172,7 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
 
     const res = await fetch(url, {
         method: 'POST',
+        signal: AbortSignal.timeout(20_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -264,4 +267,31 @@ export async function extractReceipt(base64Image: string, mimeType: string = 'im
         }
     }
     throw lastErr ?? new Error('Todos los providers de OCR fallaron');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extracción por proveedor explícito — para la DOBLE extracción de Fase 5
+// (cross-check con dos providers DISTINTOS). Cada uno ya tiene AbortSignal.timeout.
+// ─────────────────────────────────────────────────────────────────────────────
+export type OcrProvider = 'groq' | 'gemini' | 'openai';
+
+/** Providers con API key configurada, en orden de preferencia (groq, gemini, openai). */
+export function listConfiguredProviders(): OcrProvider[] {
+    const out: OcrProvider[] = [];
+    if (process.env.GROQ_API_KEY) out.push('groq');
+    if (process.env.GEMINI_API_KEY) out.push('gemini');
+    if (process.env.OPENAI_API_KEY) out.push('openai');
+    return out;
+}
+
+export function extractReceiptWith(
+    provider: OcrProvider,
+    base64Image: string,
+    mimeType: string = 'image/png',
+): Promise<OcrResult> {
+    switch (provider) {
+        case 'groq': return extractWithGroq(base64Image, mimeType);
+        case 'gemini': return extractWithGemini(base64Image, mimeType);
+        case 'openai': return extractWithOpenAI(base64Image, mimeType);
+    }
 }

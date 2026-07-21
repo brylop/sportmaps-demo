@@ -260,16 +260,36 @@ export async function maybeAutoCreateGlosa(paymentId: string, log?: Logger): Pro
         if (pErr || !payment) return null;
         if (payment.receipt_verdict !== 'amarillo') return null;
 
-        const { data: settings } = await supabase
-            .from('school_settings')
-            .select('auto_glosa_enabled')
-            .eq('school_id', payment.school_id)
-            .single();
-        if (!settings?.auto_glosa_enabled) return null;
-
         const reasons: VerdictReasonRow[] = Array.isArray(payment.receipt_verdict_reasons)
             ? (payment.receipt_verdict_reasons as VerdictReasonRow[])
             : [];
+        return await autoCreateGlosaFromReasons(paymentId, payment.school_id, reasons, log);
+    } catch (err) {
+        (log ?? console).warn?.({ err, paymentId }, '[glosa] auto-create falló');
+        return null;
+    }
+}
+
+/**
+ * Abre una glosa de sistema (p_actor=NULL) mapeando el primer motivo amarillo de
+ * `reasons`, gateada por `auto_glosa_enabled` de la escuela. La usa tanto
+ * maybeAutoCreateGlosa (con el veredicto persistido) como el evaluador de Fase 5
+ * (con el veredicto RE-COMPUTADO server-side). Devuelve el id de la glosa o null.
+ */
+export async function autoCreateGlosaFromReasons(
+    paymentId: string,
+    schoolId: string,
+    reasons: VerdictReasonRow[],
+    log?: Logger,
+): Promise<string | null> {
+    try {
+        const { data: settings } = await supabase
+            .from('school_settings')
+            .select('auto_glosa_enabled')
+            .eq('school_id', schoolId)
+            .single();
+        if (!settings?.auto_glosa_enabled) return null;
+
         const firstYellow = reasons.find((r) => r.level === 'amarillo' && r.code);
         const glosaReason: GlosaReason = firstYellow?.code
             ? AMARILLO_TO_GLOSA[firstYellow.code] ?? 'OTRO'
@@ -277,7 +297,7 @@ export async function maybeAutoCreateGlosa(paymentId: string, log?: Logger): Pro
 
         return await createGlosa(null, paymentId, glosaReason, firstYellow?.detail ?? null);
     } catch (err) {
-        (log ?? console).warn?.({ err, paymentId }, '[glosa] auto-create falló');
+        (log ?? console).warn?.({ err, paymentId }, '[glosa] auto-create-from-reasons falló');
         return null;
     }
 }

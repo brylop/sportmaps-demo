@@ -347,9 +347,9 @@ export default function ParentCheckoutPage() {
       return;
     }
 
-    // Auto-glosa app-layer (dormant si auto_glosa_enabled=false). Fire-and-forget:
-    // si el comprobante quedó amarillo, el BFF decide si abre glosa automáticamente.
-    if (resolvedPaymentId && manualOcrResult?.verdict === 'amarillo') {
+    // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF decide server-side
+    // auto-aprobar (verde+doble extracción+toggle+tope) / abrir glosa (amarillo) / nada.
+    if (resolvedPaymentId && (manualOcrResult?.verdict === 'verde' || manualOcrResult?.verdict === 'amarillo')) {
       autoEvaluateGlosa(resolvedPaymentId).catch(() => { /* dormant/no-op tolerado */ });
     }
 

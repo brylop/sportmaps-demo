@@ -550,8 +550,9 @@ export function PaymentCheckoutModal({
           if (ins.error) throw ins.error;
           glosaPaymentId = ins.data?.id ?? null;
         }
-        // Auto-glosa app-layer (dormant si auto_glosa_enabled=false). Fire-and-forget.
-        if (glosaPaymentId && ocrResult?.verdict === 'amarillo') {
+        // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF auto-aprueba (verde) /
+        // abre glosa (amarillo) / deja manual, server-authoritative.
+        if (glosaPaymentId && (ocrResult?.verdict === 'verde' || ocrResult?.verdict === 'amarillo')) {
           autoEvaluateGlosa(glosaPaymentId).catch(() => { /* dormant/no-op tolerado */ });
         }
         // Notificar al owner de la escuela con el mes especifico

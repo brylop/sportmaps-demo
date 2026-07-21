@@ -10,13 +10,15 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../config/supabase';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/authMiddleware';
 import {
     createGlosa, respondGlosa, conciliateGlosa, resolveGlosa, reopenGlosa,
-    listGlosasBySchool, listGlosasForParent, maybeAutoCreateGlosa,
+    listGlosasBySchool, listGlosasForParent,
     sendGlosaCreatedEmail, sendGlosaRespondedEmail, sendGlosaResolvedEmail,
     GlosaRpcError,
 } from '../services/glosa.service';
+import { evaluatePaymentReceipt } from '../services/receipt-approval.service';
 
 const router = Router();
 
@@ -140,12 +142,21 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) =>
     }
 });
 
-// auto-evaluate: dormant en Fase 3 (flag off). Fase 4 lo llama tras un insert amarillo.
-router.post('/auto-evaluate', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+// auto-evaluate (Fase 5): el frontend lo llama tras insertar un comprobante con veredicto.
+// El servidor decide (auto-aprobar / glosa / nada) de forma server-authoritative. JWT liviano
+// porque lo dispara el acudiente (no es school_member); verifica que sea dueño del pago.
+router.post('/auto-evaluate', async (req: AuthenticatedRequest, res: Response) => {
+    const user = await getJwtUser(req, res);
+    if (!user) return;
     const paymentId = typeof req.body?.paymentId === 'string' ? req.body.paymentId : null;
     if (!paymentId) return res.status(400).json({ error: 'paymentId requerido' });
-    const id = await maybeAutoCreateGlosa(paymentId, req.log);
-    return res.json({ glosaId: id }); // null si no aplicaba
+    // Ownership: solo el acudiente del pago puede disparar su evaluación (evita abuso/DoS de re-OCR).
+    const { data: owner } = await supabase.from('payments').select('parent_id').eq('id', paymentId).single();
+    if (!owner || owner.parent_id !== user.id) {
+        return res.status(403).json({ error: 'No autorizado sobre este pago.' });
+    }
+    const result = await evaluatePaymentReceipt(paymentId, req.log);
+    return res.json(result); // { action: 'approved'|'glosa'|'none', glosaId? }
 });
 
 // ── Acudiente (JWT liviano) ──────────────────────────────────────────────────

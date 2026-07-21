@@ -141,4 +141,51 @@ BEGIN
     RAISE NOTICE 'OK reopen — glosa GLOSADA, payment glosado, marcas de correo reseteadas ✓';
 END $$;
 
+-- ── auto_approve_payment idempotente + paridad + conciliación (Fase 5) ─────
+DO $$
+DECLARE
+    v_school uuid; v_parent uuid;
+    v_pid uuid; v_ok boolean; v_ok2 boolean;
+    v_status text; v_recon text; v_paid numeric; v_appr uuid;
+BEGIN
+    SELECT school_id, parent_id INTO v_school, v_parent FROM _p;
+
+    INSERT INTO public.payments (school_id, parent_id, concept, amount, due_date, payment_date, status, payment_type, early_payment_discount_applied)
+    VALUES (v_school, v_parent, 'SMOKE auto-approve', 80000, current_date, current_date, 'awaiting_approval', 'one_time', 0)
+    RETURNING id INTO v_pid;
+
+    v_ok := public.auto_approve_payment(v_pid);
+    IF v_ok IS NOT TRUE THEN RAISE EXCEPTION 'FAIL auto_approve: devolvió %', v_ok; END IF;
+
+    SELECT status, reconciliation_status, amount_paid, approved_by
+    INTO v_status, v_recon, v_paid, v_appr FROM public.payments WHERE id = v_pid;
+    IF v_status <> 'paid' THEN RAISE EXCEPTION 'FAIL auto_approve: status=% (esperaba paid)', v_status; END IF;
+    IF v_recon <> 'pendiente' THEN RAISE EXCEPTION 'FAIL auto_approve: reconciliation=% (esperaba pendiente)', v_recon; END IF;
+    IF v_paid <> 80000 THEN RAISE EXCEPTION 'FAIL auto_approve: amount_paid=% (esperaba 80000)', v_paid; END IF;
+    IF v_appr IS NOT NULL THEN RAISE EXCEPTION 'FAIL auto_approve: approved_by no es NULL (sistema)'; END IF;
+
+    -- Idempotencia: 2ª llamada no-op (ya no está awaiting_approval).
+    v_ok2 := public.auto_approve_payment(v_pid);
+    IF v_ok2 IS NOT FALSE THEN RAISE EXCEPTION 'FAIL auto_approve idempotencia: 2ª llamada devolvió %', v_ok2; END IF;
+
+    RAISE NOTICE 'OK auto_approve_payment — paid + pendiente + approved_by NULL + idempotente ✓';
+END $$;
+
+-- ── fix #3: un pago NO se marca referencia-duplicada contra sí mismo ────────
+-- (buildVerdictContext excluye p_actor/paymentId propio; aquí verificamos el índice
+--  crudo: un solo pago con su reference_norm NO debe contarse como 2.)
+DO $$
+DECLARE v_school uuid; v_parent uuid; v_pid uuid; v_dupes int;
+BEGIN
+    SELECT school_id, parent_id INTO v_school, v_parent FROM _p;
+    INSERT INTO public.payments (school_id, parent_id, concept, amount, due_date, payment_date, status, payment_type, receipt_reference_norm)
+    VALUES (v_school, v_parent, 'SMOKE self-ref', 60000, current_date, current_date, 'awaiting_approval', 'one_time', 'SELFREF123')
+    RETURNING id INTO v_pid;
+    -- Conteo excluyendo el propio pago: debe ser 0 (no hay OTRO con la misma referencia).
+    SELECT count(*) INTO v_dupes FROM public.payments
+     WHERE school_id = v_school AND receipt_reference_norm = 'SELFREF123' AND id <> v_pid;
+    IF v_dupes <> 0 THEN RAISE EXCEPTION 'FAIL self-ref: % duplicados contra sí mismo (esperaba 0)', v_dupes; END IF;
+    RAISE NOTICE 'OK self-ref — un pago no se marca duplicado contra sí mismo ✓';
+END $$;
+
 ROLLBACK;  -- no persistir nada del smoke

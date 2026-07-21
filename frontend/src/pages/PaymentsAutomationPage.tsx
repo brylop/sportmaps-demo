@@ -182,6 +182,7 @@ interface PaymentTransaction {
   receipt_verdict?: string | null;
   ocr_destination?: string | null;
   receipt_verdict_reasons?: unknown[] | null;
+  reconciliation_status?: string | null;
 }
 
 interface TeamSubscription {
@@ -333,7 +334,7 @@ export default function PaymentsAutomationPage() {
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
-          receipt_verdict, ocr_destination, receipt_verdict_reasons,
+          receipt_verdict, ocr_destination, receipt_verdict_reasons, reconciliation_status,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
@@ -391,6 +392,7 @@ export default function PaymentsAutomationPage() {
         receipt_verdict: p.receipt_verdict ?? null,
         ocr_destination: p.ocr_destination ?? null,
         receipt_verdict_reasons: p.receipt_verdict_reasons ?? null,
+        reconciliation_status: p.reconciliation_status ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
         period_label: monthLabel(p.period_year, p.period_month),
@@ -518,6 +520,8 @@ export default function PaymentsAutomationPage() {
         updatePayload.approved_by = profile.id;
         updatePayload.approved_at = new Date().toISOString();
         updatePayload.amount_paid = payment.amount - (Number(payment.early_payment_discount_applied) || 0);
+        // Fase 5: todo aprobado (auto o manual) queda pendiente de conciliación bancaria.
+        updatePayload.reconciliation_status = 'pendiente';
       }
 
       const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
@@ -1262,6 +1266,11 @@ export default function PaymentsAutomationPage() {
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
                           <Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
+                          {payment.reconciliation_status === 'pendiente' && (
+                            <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200 py-0 h-4 ml-1" title="Aprobado; pendiente de conciliación bancaria">
+                              pend. conciliación
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
