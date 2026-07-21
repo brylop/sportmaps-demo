@@ -142,10 +142,14 @@ router.post(
 
             // 4. Reutilizar link activo (idempotencia — evita doble cobro accidental).
             //    Consulta y respuesta factorizadas para reusar tambien en el 23505.
+            // Reusar solo un link del MISMO provider — si no, un checkout Wompi
+            // reutilizaba un link MP pendiente (y viceversa) → ref de otro provider
+            // → wompi-sign 404 "Reference no encontrada".
             const fetchActiveLink = () => supabase
                 .from('payment_links')
                 .select('id, status, expires_at, payment_provider, provider_reference, wompi_reference, gross_amount, base_amount, sportmaps_fee, fee_pct')
                 .eq('payment_id', paymentId)
+                .eq('payment_provider', provider)
                 .eq('status', 'pending')
                 .gte('expires_at', new Date().toISOString())
                 .maybeSingle();
