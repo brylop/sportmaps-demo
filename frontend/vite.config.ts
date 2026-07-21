@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => ({
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
+      // NO inyectar el registerSW.js automático: registramos el SW manualmente
+      // en src/pwa/register.ts (como type:'module'). El script inyectado lo
+      // registraba en paralelo como worker clásico → doble registro del mismo
+      // scope con tipos distintos → controllerchange en bucle → recargas.
+      injectRegister: null,
       includeAssets: ['favicon.png', 'sportmaps-logo.png'],
       manifest: {
         name: 'SportMaps - Revolucionando el sistema deportivo',
@@ -134,7 +139,9 @@ export default defineConfig(({ mode }) => ({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
       devOptions: {
-        enabled: true,
+        // Desactivado: el dev-SW se regenera con cada HMR y provoca recargas en
+        // bucle durante el desarrollo. Solo activamos el SW en producción.
+        enabled: false,
         type: 'module',
       }
     })
