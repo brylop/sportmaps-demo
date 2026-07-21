@@ -123,7 +123,7 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
             amountInCents: params.amountInCents,
             customerEmail: params.customerEmail || user?.email || '',
             customerName: params.customerName || profile?.full_name || 'Cliente',
-            customerPhone: params.customerPhone,
+            customerPhone: params.customerPhone || profile?.phone || undefined,
             schoolId: params.schoolId,
             schoolName: params.schoolName,
             studentName: params.studentName,
