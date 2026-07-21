@@ -3,11 +3,25 @@ export async function registerSW() {
 
   try {
     const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
-    const reg = await navigator.serviceWorker.register(swUrl, { 
+    const reg = await navigator.serviceWorker.register(swUrl, {
       scope: '/',
       type: 'module'
     });
     console.log('[PWA] SW registrado:', reg.scope);
+
+    // Auto-actualización: cuando el nuevo SW toma control (sw.js hace skipWaiting+
+    // claim), recargamos UNA vez para servir el bundle nuevo. Así el usuario no ve
+    // la versión vieja ni tiene que darle "Actualizar ahora" manual. Solo si ya
+    // había un controller (es una ACTUALIZACIÓN, no la primera instalación) — así
+    // no recargamos innecesariamente en la primera visita.
+    if (navigator.serviceWorker.controller) {
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
+    }
 
     // Detectar actualización disponible
     reg.addEventListener('updatefound', () => {

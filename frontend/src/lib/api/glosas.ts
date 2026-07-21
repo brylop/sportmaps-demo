@@ -26,6 +26,8 @@ export interface GlosaPaymentInfo {
     due_date: string | null;
     payment_date: string | null;
     receipt_url: string | null;
+    /** URL firmada por el BFF (service-role) para ver el comprobante sin chocar RLS. */
+    receipt_signed_url?: string | null;
     ocr_amount: number | null;
     ocr_currency: string | null;
     ocr_date: string | null;

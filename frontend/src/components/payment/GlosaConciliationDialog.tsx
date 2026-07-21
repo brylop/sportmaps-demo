@@ -41,19 +41,28 @@ export function GlosaConciliationDialog({ glosa, open, onOpenChange, onSuccess }
     const [note, setNote] = useState('');
     const [submitting, setSubmitting] = useState<null | 'ACEPTADA' | 'RATIFICADA'>(null);
     const [imgUrl, setImgUrl] = useState<string | null>(null);
+    const [imgFailed, setImgFailed] = useState(false);
 
     const pay = glosa?.payments ?? null;
 
-    // Regenerar el signed URL al abrir (no reusar uno viejo del listado).
+    // Imagen del comprobante: preferimos la URL firmada por el BFF (service-role,
+    // no choca RLS del admin). Si no vino, intentamos firmar client-side. Si nada
+    // resuelve (p.ej. el objeto no existe), mostramos un placeholder, no un roto.
     useEffect(() => {
         let alive = true;
         setNote('');
         setImgUrl(null);
-        if (open && pay?.receipt_url) {
-            signReceipt(pay.receipt_url).then((u) => { if (alive) setImgUrl(u); });
+        setImgFailed(false);
+        if (!open) return;
+        if (pay?.receipt_signed_url) { setImgUrl(pay.receipt_signed_url); return; }
+        if (pay?.receipt_url) {
+            signReceipt(pay.receipt_url).then((u) => {
+                if (!alive) return;
+                if (u) setImgUrl(u); else setImgFailed(true);
+            });
         }
         return () => { alive = false; };
-    }, [open, pay?.receipt_url]);
+    }, [open, pay?.receipt_signed_url, pay?.receipt_url]);
 
     const handleResolve = async (outcome: 'ACEPTADA' | 'RATIFICADA') => {
         if (!glosa) return;
@@ -116,8 +125,17 @@ export function GlosaConciliationDialog({ glosa, open, onOpenChange, onSuccess }
                         <p className="text-sm"><strong>Destino:</strong> {pay?.ocr_destination || '—'}</p>
                         {imgUrl ? (
                             <a href={imgUrl} target="_blank" rel="noopener noreferrer">
-                                <img src={imgUrl} alt="Comprobante" className="mt-2 max-h-48 w-full object-contain rounded border bg-muted" />
+                                <img
+                                    src={imgUrl}
+                                    alt="Comprobante"
+                                    className="mt-2 max-h-48 w-full object-contain rounded border bg-muted"
+                                    onError={() => { setImgUrl(null); setImgFailed(true); }}
+                                />
                             </a>
+                        ) : imgFailed ? (
+                            <div className="mt-2 h-24 flex items-center justify-center rounded border border-dashed bg-muted text-xs text-muted-foreground text-center px-2">
+                                No se pudo cargar la imagen del comprobante.
+                            </div>
                         ) : pay?.receipt_url ? (
                             <div className="mt-2 h-24 flex items-center justify-center text-xs text-muted-foreground">
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Cargando imagen...

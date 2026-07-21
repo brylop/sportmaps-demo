@@ -128,7 +128,40 @@ export async function listGlosasBySchool(schoolId: string, status?: string) {
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
     if (error) throw new GlosaRpcError(error.message, (error as { code?: string }).code);
-    return data ?? [];
+
+    // Firmar la URL del comprobante con service-role (bypassa RLS): el admin NO es
+    // dueño del objeto en storage, así que su sign client-side da 400. Aquí lo
+    // firmamos server-side y lo adjuntamos para que la conciliación muestre la imagen.
+    const rows = (data ?? []) as any[];
+    await Promise.all(rows.map(async (g) => {
+        const url = g?.payments?.receipt_url as string | undefined;
+        if (url && g.payments) {
+            g.payments.receipt_signed_url = await signReceiptObject(url);
+        }
+    }));
+    return rows;
+}
+
+/** Firma un objeto de payment-receipts con service-role. null si no existe / falla. */
+async function signReceiptObject(receiptUrl: string): Promise<string | null> {
+    try {
+        // Normalizar a path relativo (soporta URL completa o prefijo de bucket).
+        let path = receiptUrl.trim();
+        if (path.startsWith('http')) {
+            const marker = '/storage/v1/object/';
+            const idx = path.indexOf(marker);
+            if (idx === -1) return path.includes('supabase.co') ? null : path; // externo → tal cual
+            path = path.substring(idx + marker.length).split('/').slice(2).join('/');
+        }
+        if (path.startsWith('payment-receipts/')) path = path.substring('payment-receipts/'.length);
+        if (path.startsWith('/')) path = path.substring(1);
+        if (!path) return null;
+        const { data, error } = await supabase.storage.from('payment-receipts').createSignedUrl(path, 900);
+        if (error) return null;
+        return data?.signedUrl ?? null;
+    } catch {
+        return null;
+    }
 }
 
 export async function listGlosasForParent(parentId: string) {
