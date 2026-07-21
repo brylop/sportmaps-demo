@@ -229,8 +229,29 @@ export function PaymentCheckoutModal({
           period_year:  periodYear,
           period_month: periodMonth,
         } as any).select('id').single();
-        if (insertError) throw insertError;
-        effectivePaymentId = inserted?.id;
+        if (insertError) {
+          // 23505 en uniq_payment_active_period_per_child: ya existe un cobro activo
+          // para este child+período. En vez de duplicar, reutilizamos el existente
+          // (el pago online se aplica sobre ese cobro).
+          if ((insertError as any).code === '23505' && childId) {
+            let q = supabase.from('payments').select('id')
+              .eq('school_id', schoolId)
+              .eq('child_id', childId)
+              .in('status', ['pending', 'awaiting_approval', 'overdue', 'partial'])
+              .order('created_at', { ascending: false })
+              .limit(1);
+            if (periodYear != null && periodMonth != null) {
+              q = q.eq('period_year', periodYear).eq('period_month', periodMonth);
+            }
+            const { data: existing } = await q;
+            effectivePaymentId = existing?.[0]?.id;
+            if (!effectivePaymentId) throw insertError;
+          } else {
+            throw insertError;
+          }
+        } else {
+          effectivePaymentId = inserted?.id;
+        }
       } catch (err: any) {
         toast({ title: 'Error iniciando el pago', description: err?.message || 'No se pudo crear el cobro.', variant: 'destructive' });
         setShowOnlineConfirm(false);
