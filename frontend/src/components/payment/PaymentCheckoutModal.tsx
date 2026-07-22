@@ -847,14 +847,14 @@ export function PaymentCheckoutModal({
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pago</Label>
                       <Select value={conceptType} onValueChange={(v: any) => setConceptType(v)}>
-                        <SelectTrigger className="bg-white">
+                        <SelectTrigger className="bg-white text-gray-900 border-gray-300 data-[placeholder]:text-gray-500">
                           <SelectValue placeholder="Concepto" />
                         </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="mensualidad">Mensualidad ({concept})</SelectItem>
-                          <SelectItem value="inscripcion_fija">Inscripción Anual (Monto Fijo)</SelectItem>
-                          <SelectItem value="inscripcion_variable">Inscripción Anual (Monto Variable)</SelectItem>
-                          <SelectItem value="otro">Otro Concepto / Abono libre</SelectItem>
+                        <SelectContent className="bg-white text-gray-900">
+                          <SelectItem value="mensualidad" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Mensualidad ({concept})</SelectItem>
+                          <SelectItem value="inscripcion_fija" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Fijo)</SelectItem>
+                          <SelectItem value="inscripcion_variable" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Inscripción Anual (Monto Variable)</SelectItem>
+                          <SelectItem value="otro" className="text-gray-900 focus:bg-gray-100 focus:text-gray-900">Otro Concepto / Abono libre</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
