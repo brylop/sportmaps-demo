@@ -62,6 +62,10 @@ interface BillingSettings {
   early_payment_discount_enabled: boolean;
   early_payment_discount_days: number;
   early_payment_discount_percentage: number;
+  // Validación automática de comprobantes (Fase 5)
+  auto_approve_enabled: boolean;
+  auto_approve_max_amount: number;
+  auto_glosa_enabled: boolean;
 }
 
 
@@ -83,6 +87,9 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   early_payment_discount_enabled: false,
   early_payment_discount_days: 5,
   early_payment_discount_percentage: 0,
+  auto_approve_enabled: false,
+  auto_approve_max_amount: 0,
+  auto_glosa_enabled: false,
 };
 
 
@@ -308,6 +315,9 @@ export default function PaymentsAutomationPage() {
         early_payment_discount_enabled: billing.early_payment_discount_enabled,
         early_payment_discount_days: billing.early_payment_discount_days,
         early_payment_discount_percentage: billing.early_payment_discount_percentage,
+        auto_approve_enabled: billing.auto_approve_enabled,
+        auto_approve_max_amount: billing.auto_approve_max_amount,
+        auto_glosa_enabled: billing.auto_glosa_enabled,
       };
 
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
@@ -962,6 +972,9 @@ export default function PaymentsAutomationPage() {
                                 <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
                                   <XCircle className="h-3 w-3 mr-1" /> Rechazar
                                 </Button>
+                                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
+                                  <AlertTriangle className="h-3 w-3 mr-1" /> Glosar
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1529,6 +1542,55 @@ export default function PaymentsAutomationPage() {
                       <p className="text-xs text-muted-foreground">Los padres deben subir foto del recibo</p>
                     </div>
                     <Switch checked={billing.require_payment_proof} onCheckedChange={v => updateBilling('require_payment_proof', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-5 w-5 text-green-500" />Validación automática de comprobantes</CardTitle>
+                  <CardDescription>El sistema lee el comprobante y decide por reglas (el servidor nunca confía en el cliente).</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <Label className="font-medium">Auto-aprobar comprobantes verdes</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Un comprobante nítido, del monto exacto, a tu cuenta, con fecha reciente y no
+                        duplicado se aprueba solo (doble lectura del servidor). Requiere 2 proveedores OCR.
+                      </p>
+                    </div>
+                    <Switch checked={billing.auto_approve_enabled} onCheckedChange={v => updateBilling('auto_approve_enabled', v)} />
+                  </div>
+                  {billing.auto_approve_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="auto_approve_max">Tope de auto-aprobación (COP)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="auto_approve_max"
+                          type="number"
+                          min={0}
+                          className="w-40 h-9"
+                          value={billing.auto_approve_max_amount || ''}
+                          onChange={e => updateBilling('auto_approve_max_amount', Number(e.target.value) || 0)}
+                        />
+                        <span className="text-sm text-muted-foreground">máx. por pago</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Solo se auto-aprueban cobros de <strong>{formatCurrency(billing.auto_approve_max_amount || 0)}</strong> o menos.
+                        Montos mayores siempre pasan por revisión manual. Déjalo en 0 para no auto-aprobar por monto.
+                      </p>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <Label className="font-medium">Abrir glosa automática</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Si un comprobante tiene inconsistencias (monto/fecha/referencia), el sistema abre
+                        una aclaración al acudiente en vez de dejarlo en revisión manual.
+                      </p>
+                    </div>
+                    <Switch checked={billing.auto_glosa_enabled} onCheckedChange={v => updateBilling('auto_glosa_enabled', v)} />
                   </div>
                 </CardContent>
               </Card>
