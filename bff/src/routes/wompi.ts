@@ -212,8 +212,21 @@ export async function routeWompiTransaction(
 
 // ─── SCH: pagos de escuela ─────────────────────────────────────────────────
 
+// Wompi entrega el tipo de instrumento (CARD/PSE/NEQUI/…). La constraint
+// payments_payment_method_check solo admite pse|card|transfer|cash|other, así
+// que 'wompi' NO es válido (rompía el UPDATE en silencio). Mapeamos al enum.
+const WOMPI_METHOD_MAP: Record<string, string> = {
+    CARD: 'card',
+    PSE: 'pse',
+    NEQUI: 'transfer',
+    DAVIPLATA: 'transfer',
+    BANCOLOMBIA_TRANSFER: 'transfer',
+    BANCOLOMBIA_QR: 'transfer',
+    BANCOLOMBIA_COLLECT: 'transfer',
+};
+
 async function handleSchoolPayment({
-    req, txId, txReference, internalStatus, txAmountCop,
+    req, txId, txReference, internalStatus, txAmountCop, paymentMethodType,
 }: HandlerArgs): Promise<HandlerResult> {
     // 1. Buscar payment_link por referencia
     const { data: link, error: linkErr } = await supabase
@@ -250,13 +263,17 @@ async function handleSchoolPayment({
 
         const today = new Date().toISOString().split('T')[0];
 
-        // 4. Marcar payment como pagado
-        await supabase
+        // 4. Marcar payment como pagado.
+        //    payment_method DEBE ser un valor de payments_payment_method_check
+        //    (pse|card|transfer|cash|other); 'wompi' lo violaba y el UPDATE
+        //    fallaba en silencio (el pago quedaba pending pese al webhook OK).
+        const payMethod = WOMPI_METHOD_MAP[String(paymentMethodType || '').toUpperCase()] ?? 'other';
+        const { error: payUpdErr } = await supabase
             .from('payments')
             .update({
                 status: 'paid',
                 payment_channel: 'online',
-                payment_method: 'wompi',
+                payment_method: payMethod,
                 payment_date: today,
                 approved_at: new Date().toISOString(),
                 wompi_reference: txReference,
@@ -266,6 +283,17 @@ async function handleSchoolPayment({
                 updated_at: new Date().toISOString(),
             })
             .eq('id', link.payment_id);
+
+        // Si el UPDATE del pago falla, NO seguimos marcando link/split como si
+        // todo hubiera ido bien. Devolvemos 500 → el webhook se marca 'failed'
+        // (reintentable) en vez de un falso 'processed'.
+        if (payUpdErr) {
+            req.log?.error(
+                { err: payUpdErr, paymentId: link.payment_id, txReference },
+                'School payment: FALLÓ marcar payment como paid',
+            );
+            return { status: 500, body: { error: 'payment_update_failed', detail: payUpdErr.message } };
+        }
 
         // 5. Marcar payment_link
         await supabase
