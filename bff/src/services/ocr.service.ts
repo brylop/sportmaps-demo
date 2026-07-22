@@ -187,7 +187,13 @@ async function extractWithGemini(base64Image: string, mimeType: string): Promise
             ],
             generationConfig: {
                 temperature: 0,
-                maxOutputTokens: 500,
+                // Gemini 2.5 Flash es un modelo de "thinking": los tokens de
+                // razonamiento se descuentan de maxOutputTokens. Con 500 el JSON
+                // salía TRUNCADO (se cortaba a mitad de "reference") → JSON.parse
+                // fallaba → todos los campos null. Desactivamos el thinking y
+                // damos margen para que el JSON siempre cierre.
+                thinkingConfig: { thinkingBudget: 0 },
+                maxOutputTokens: 1024,
                 responseMimeType: 'application/json',
             },
         }),
@@ -232,8 +238,13 @@ function parseLlmJson(content: string, provider: string): OcrResult {
             rawResponse: content,
             provider,
         };
-    } catch {
-        // JSON ilegible: tratamos como comprobante no leído (todo null/vacío).
+    } catch (err) {
+        // JSON ilegible (p.ej. truncado por maxOutputTokens): lo dejamos visible
+        // en logs para diagnosticar, y tratamos como comprobante no leído.
+        console.warn(
+            `[OCR] ${provider}: no se pudo parsear el JSON (¿truncado?). ` +
+            `len=${content.length} tail=${JSON.stringify(content.slice(-40))}`,
+        );
         // isReceipt=true para no rechazar en falso; el pipeline lo mandará a
         // AMARILLO por campos faltantes, no a ROJO.
         return {
