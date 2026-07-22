@@ -1,3 +1,5 @@
+import { requestPwaReload } from './reloadGuard';
+
 export async function registerSW() {
   if (!('serviceWorker' in navigator)) return;
 
@@ -26,9 +28,9 @@ export async function registerSW() {
     // sesión y por versión de SW.
     if (navigator.serviceWorker.controller) {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (sessionStorage.getItem('sw-reloaded')) return;
-        sessionStorage.setItem('sw-reloaded', '1');
-        window.location.reload();
+        // Diferido si hay un flujo crítico activo (p.ej. modal de pago con un
+        // comprobante ya subido): recarga cuando se libere, no en medio del pago.
+        requestPwaReload();
       });
     }
 

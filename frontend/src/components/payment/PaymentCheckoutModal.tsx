@@ -38,6 +38,7 @@ import { emailClient } from '@/lib/email-client';
 import { getPaymentPayload, SchoolAthlete } from '@/lib/athleteUtils';
 import { PaymentConfirmModal } from '@/components/payment/PaymentConfirmModal';
 import { useWompiCheckout } from '@/hooks/useWompiCheckout';
+import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
@@ -101,6 +102,15 @@ export function PaymentCheckoutModal({
   const [paymentCreatedAt, setPaymentCreatedAt] = useState<string | null>(null);
   const [alreadyAppliedDiscount, setAlreadyAppliedDiscount] = useState<number | null>(null);
   const [hasEarlierUnpaid, setHasEarlierUnpaid] = useState(false);
+
+  // Mientras el modal de pago esté abierto, bloqueamos la auto-recarga del PWA:
+  // si un SW nuevo toma control justo cuando el usuario ya subió el comprobante,
+  // el reload borraría todo. La recarga queda pendiente y se aplica al cerrar.
+  useEffect(() => {
+    if (!open) return;
+    blockPwaReload();
+    return () => unblockPwaReload();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

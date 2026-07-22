@@ -23,6 +23,7 @@ import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
+import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import { useNextUnpaidPeriod, isPeriodActive, type PeriodStatus } from '@/hooks/usePaymentPeriod';
 
 /** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
@@ -100,6 +101,13 @@ export default function ParentCheckoutPage() {
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
 
   // Fetch DIAN Profile Data
+  // Bloquear auto-recarga del PWA mientras el acudiente está en el checkout
+  // (evita perder el comprobante subido si un SW nuevo toma control).
+  useEffect(() => {
+    blockPwaReload();
+    return () => unblockPwaReload();
+  }, []);
+
   useEffect(() => {
     if (user?.id) {
       const checkProfile = async () => {
