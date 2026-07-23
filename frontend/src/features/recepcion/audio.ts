@@ -55,6 +55,7 @@ export function playSound(name: SoundName, volume = 1): void {
     if (!armed || name === 'none') return;
     const c = getCtx();
     if (!c) return;
+    if (c.state === 'suspended') { void c.resume(); } // iOS suspende al ocultar la pestaña
     const seq = SEQUENCES[name] || [];
     let t = c.currentTime;
     for (const [freq, dur] of seq) {
@@ -108,24 +109,41 @@ function pickVoice(uri: string | null): SpeechSynthesisVoice | undefined {
 }
 
 function drain() {
+    const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+    if (!synth) { queue.length = 0; return; }
+    // Desincronía: si creemos que hablamos pero el motor ya no habla (iOS suele
+    // "tragarse" el utterance sin disparar onend), destrabamos.
+    if (speaking && !synth.speaking && !synth.pending) speaking = false;
     if (speaking || queue.length === 0) return;
-    if (!('speechSynthesis' in window)) { queue.length = 0; return; }
+
     const item = queue.shift()!;
-    // Chrome corta utterances largos → recortar a ~200 chars.
-    const u = new SpeechSynthesisUtterance(item.text.slice(0, 200));
+    const u = new SpeechSynthesisUtterance(item.text.slice(0, 200)); // Chrome corta largos
     u.rate = item.rate;
     u.volume = item.volume;
-    u.lang = 'es-CO';
     const v = pickVoice(item.voiceURI);
-    if (v) u.voice = v;
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-ES'; }
+
     speaking = true;
-    u.onend = () => { speaking = false; drain(); };
-    u.onerror = () => { speaking = false; drain(); };
-    try {
-        window.speechSynthesis.speak(u);
-    } catch {
+    let done = false;
+    let watchdog: ReturnType<typeof setTimeout>;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(watchdog);
         speaking = false;
         drain();
+    };
+    u.onend = finish;
+    u.onerror = finish;
+    // Watchdog: si onend/onerror no llegan (bug iOS/Safari), no dejamos la cola
+    // trabada — liberamos y seguimos con el siguiente anuncio.
+    watchdog = setTimeout(finish, Math.max(4000, u.text.length * 130));
+
+    try {
+        synth.resume();  // Chrome/iOS a veces quedan en pausa tras backgrounding
+        synth.speak(u);
+    } catch {
+        finish();
     }
 }
 
