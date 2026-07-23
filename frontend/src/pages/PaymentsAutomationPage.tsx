@@ -29,6 +29,7 @@ import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPayme
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { bffClient } from '@/lib/api/bffClient';
 import { GlosaConciliationDialog } from '@/components/payment/GlosaConciliationDialog';
+import { ReconciliationTab } from '@/components/payment/ReconciliationTab';
 import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
 import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 
@@ -779,6 +780,7 @@ export default function PaymentsAutomationPage() {
             <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
             <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos y Planes</TabsTrigger>
             <TabsTrigger value="glosas" className="text-xs sm:text-sm">Glosas</TabsTrigger>
+            <TabsTrigger value="conciliacion" className="text-xs sm:text-sm">Conciliación</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
@@ -1208,6 +1210,15 @@ export default function PaymentsAutomationPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Tab: Conciliación bancaria (Fase 6) ──────────────────────── */}
+        <TabsContent value="conciliacion">
+          {schoolId ? (
+            <ReconciliationTab schoolId={schoolId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona una escuela para conciliar.</p>
+          )}
         </TabsContent>
 
         {/* ── Tab: Historial ───────────────────────────────────────────── */}
