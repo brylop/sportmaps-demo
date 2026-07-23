@@ -53,6 +53,7 @@ const SchoolPublicProfilePage = lazy(() => import("./pages/school/SchoolPublicPr
 const VendorPublicProfilePage = lazy(() => import("./pages/vendor/VendorPublicProfilePage"));
 const MyAppointmentsPage = lazy(() => import("./pages/wellness/MyAppointmentsPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const RecepcionPage = lazy(() => import("./pages/recepcion/RecepcionPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -343,6 +344,14 @@ const App = () => (
 
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
+
+                    {/* Modo Recepción (F-R) — kiosko full-screen para el admin/recepción.
+                        No usa AuthLayout (sin chrome). SchoolProvider ya vive en la raíz. */}
+                    <Route path="/recepcion" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'reporter']}>
+                        <RecepcionPage />
+                      </ProtectedRoute>
+                    } />
 
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
