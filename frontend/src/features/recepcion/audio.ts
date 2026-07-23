@@ -21,15 +21,32 @@ function getCtx(): AudioContext | null {
 export async function armAudio(): Promise<void> {
     const c = getCtx();
     if (c && c.state === 'suspended') { try { await c.resume(); } catch { /* noop */ } }
-    // "Calienta" speechSynthesis con un utterance vacío (algunos navegadores lo exigen).
+    armed = true;
+    // Desbloqueo de voz: en iOS un utterance VACÍO/volumen 0 no siempre habilita
+    // los speak() posteriores (los disparados por eventos en vivo, sin gesto).
+    // Hablar una frase REAL dentro del gesto desbloquea el motor y de paso
+    // confirma al usuario que el audio funciona.
     try {
         if ('speechSynthesis' in window) {
-            const u = new SpeechSynthesisUtterance(' ');
-            u.volume = 0;
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.resume();
+            const u = new SpeechSynthesisUtterance('Recepción activada');
+            const v = pickVoice(null);
+            if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'es-ES'; }
+            u.volume = 1;
+            u.rate = 0.95;
             window.speechSynthesis.speak(u);
         }
     } catch { /* noop */ }
-    armed = true;
+}
+
+/** Mantiene "vivo" el motor de voz (Chrome/iOS lo pausan al estar inactivo). */
+export function keepSpeechWarm(): void {
+    if (!armed || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+        // resume() es no-op si no está pausado; barato y evita que se "duerma".
+        if (!window.speechSynthesis.speaking) window.speechSynthesis.resume();
+    } catch { /* noop */ }
 }
 
 export function isArmed(): boolean {

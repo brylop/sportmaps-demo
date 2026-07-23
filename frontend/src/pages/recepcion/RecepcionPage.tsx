@@ -7,7 +7,7 @@ import {
     loadSettings, saveSettings, isQuietHours, resolvePresentation, formatCop, copSpoken,
     type ReceptionSettings, type ReceptionNotification, type Presentation, type Accent,
 } from '@/features/recepcion/config';
-import { armAudio, playSound, enqueueVoice, listVoices, isArmed } from '@/features/recepcion/audio';
+import { armAudio, playSound, enqueueVoice, listVoices, isArmed, keepSpeechWarm } from '@/features/recepcion/audio';
 import { fireConfetti } from '@/features/recepcion/confetti';
 import { useReceptionFeed, type CatchupSummary } from '@/features/recepcion/useReceptionFeed';
 
@@ -94,6 +94,13 @@ export default function RecepcionPage() {
         document.addEventListener('visibilitychange', onVis);
         return () => document.removeEventListener('visibilitychange', onVis);
     }, [armed, requestWakeLock]);
+
+    // ── Keep-warm de la voz (evita que el motor se "duerma") ─────────────────
+    useEffect(() => {
+        if (!armed) return;
+        const id = setInterval(keepSpeechWarm, 8000);
+        return () => clearInterval(id);
+    }, [armed]);
 
     // ── Semilla del recaudo del día ───────────────────────────────────────────
     useEffect(() => {
