@@ -83,6 +83,7 @@ import upgradeRequestsRouter from './routes/upgrade-requests.routes';
 import schoolsRouter from './routes/schools.routes';
 import customDomainsRouter from './routes/custom-domains.routes';
 import devicesRouter from './routes/devices.routes';
+import internalNotificationsRouter from './routes/internal-notifications.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -262,6 +263,10 @@ app.use('/api/v1/schools', generalLimiter, customDomainsRouter);
 // Devices (Fase 6.1 — base mobile). Web/PWA tambien lo usa para tracking
 // de adopcion. CSRF se aplica dentro del router para state-changing.
 app.use('/api/v1/devices', generalLimiter, devicesRouter);
+// Endpoint INTERNO del despachador de notificaciones (lo llama pg_net desde la
+// DB). Sin JWT: se valida por header secreto (fail-closed). Sin generalLimiter:
+// el disparo es 1 por notificación y el claim es idempotente por lease.
+app.use('/internal/notifications', internalNotificationsRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);

@@ -7,6 +7,7 @@ import {
 import { reprocessOrphanWebhooks } from '../services/webhook-reprocess.service';
 import { autoEmitPendingInvoices, autoEmitPendingMarketplaceInvoices, autoEmitPendingOrders } from '../services/invoicing.service';
 import { runGlosaNotifications } from './glosa-notifications.job';
+import { runNotificationDispatch } from './notifications-dispatch.job';
 
 /**
  * Inicia los trabajos de mantenimiento programados para el BFF.
@@ -293,4 +294,20 @@ export function initMaintenanceJobs() {
     }, { timezone: 'America/Bogota' });
 
     console.log('[CRON] Notificaciones de glosa registradas para las 08:05 COT.');
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Despachador unificado (F1) — red de seguridad. Drena el outbox
+    // notification_deliveries cada minuto: cubre fallos de pg_net, BFF caído,
+    // reintentos con backoff y crashes entre claim y envío (lease expira).
+    // No-op si NOTIF_DISPATCH_ENABLED != 'true'. Claim por lease (idempotente).
+    // ────────────────────────────────────────────────────────────────────────
+    cron.schedule('* * * * *', async () => {
+        try {
+            await runNotificationDispatch();
+        } catch (err: any) {
+            console.error('[CRON] Error en despacho de notificaciones:', err?.message || err);
+        }
+    });
+
+    console.log('[CRON] Despachador de notificaciones registrado (cada minuto).');
 }
