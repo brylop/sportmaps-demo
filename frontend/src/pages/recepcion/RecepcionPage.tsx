@@ -7,7 +7,7 @@ import {
     loadSettings, saveSettings, isQuietHours, resolvePresentation, formatCop,
     type ReceptionSettings, type ReceptionNotification, type Presentation, type Accent,
 } from '@/features/recepcion/config';
-import { armAudio, playSound, enqueueVoice, listVoices } from '@/features/recepcion/audio';
+import { armAudio, playSound, enqueueVoice, listVoices, isArmed } from '@/features/recepcion/audio';
 import { fireConfetti } from '@/features/recepcion/confetti';
 import { useReceptionFeed, type CatchupSummary } from '@/features/recepcion/useReceptionFeed';
 
@@ -30,7 +30,10 @@ export default function RecepcionPage() {
     const { user } = useAuth();
     const { schoolId, schoolName, schoolBranding } = useSchoolContext();
 
-    const [armed, setArmed] = useState(false);
+    // isArmed() persiste a nivel de módulo: al navegar dentro de la SPA y volver,
+    // el audio sigue desbloqueado → no volvemos a mostrar la pantalla de activar.
+    // (Una recarga completa del navegador sí exige el toque de nuevo: regla de autoplay.)
+    const [armed, setArmed] = useState(() => isArmed());
     const [settings, setSettings] = useState<ReceptionSettings>(() => loadSettings());
     const [showSettings, setShowSettings] = useState(false);
     const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -82,11 +85,17 @@ export default function RecepcionPage() {
         (async () => {
             const { data } = await supabase
                 .from('payments')
-                .select('amount_paid')
+                .select('amount_paid, gross_amount, amount')
                 .eq('school_id', schoolId)
                 .eq('status', 'paid')
                 .gte('approved_at', startOfTodayISO());
-            if (data) targetRecaudo.current = data.reduce((s, p: any) => s + (p.amount_paid || 0), 0);
+            // Los pagos por pasarela guardan gross_amount con amount_paid en null;
+            // los de comprobante guardan amount_paid. Coalesce para contarlos todos.
+            if (data) {
+                targetRecaudo.current = data.reduce(
+                    (s, p: any) => s + (p.amount_paid ?? p.gross_amount ?? p.amount ?? 0), 0,
+                );
+            }
         })();
     }, [schoolId, armed]);
 
