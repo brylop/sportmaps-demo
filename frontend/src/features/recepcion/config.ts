@@ -90,8 +90,11 @@ export interface Presentation {
     buildVoice: (s: ReceptionSettings) => string | null;
 }
 
+// Formato peso colombiano DETERMINISTA: "$120.000" (punto de miles, sin decimales).
+// No usamos Intl+COP porque en algunos navegadores/dispositivos cae a formato
+// tipo USD ("$120,000.00") según los datos de locale disponibles → parecía dólares.
 const cop = (n: number) =>
-    new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+    '$' + Math.round(Math.abs(n || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
 const firstName = (full?: string | null) => (full || '').trim().split(/\s+/)[0] || '';
 
