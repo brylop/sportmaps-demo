@@ -16,6 +16,7 @@ import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 import { webhookRouter as mpWebhookRouter, paymentsRouter as mpPaymentsRouter } from './routes/mercadopago';
 import paymentProvidersRouter from './routes/payment-providers.routes';
+import reconciliationRouter from './routes/reconciliation.routes';
 import invoicingRouter from './routes/invoicing.routes';
 import attendanceRouter from './routes/attendance';
 import schoolContextRouter from './routes/school-context';
@@ -277,6 +278,7 @@ app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
 // Glosas: montado ANTES de /api/v1/payments para que la ruta más específica gane.
 app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
+app.use('/api/v1/payments/reconciliation', paymentLimiter, reconciliationRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
