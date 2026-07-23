@@ -108,6 +108,8 @@ export function resolvePresentation(n: ReceptionNotification): Presentation {
     const concept = (d.concept as string | undefined) || n.title;
     const amount = typeof d.amount === 'number' ? d.amount : undefined;
     const amountTxt = amount != null ? cop(amount) : '';
+    // Para VOZ usamos "120000 pesos" (el TTS lee "$" como "dólares").
+    const amountSpoken = amount != null ? copSpoken(amount) : '';
 
     switch (cat) {
         case 'payment': {
@@ -127,7 +129,7 @@ export function resolvePresentation(n: ReceptionNotification): Presentation {
                         s.modo_voz === 'solo_chime' ? null
                             : s.modo_voz === 'discreto'
                                 ? `Pago recibido de ${firstName(payer) || 'un acudiente'}`
-                                : `Pago recibido: ${payer || 'acudiente'}, ${amountTxt}, ${concept}`,
+                                : `Pago recibido: ${payer || 'acudiente'}, ${amountSpoken}, ${concept}`,
                 };
             }
             return {
@@ -151,7 +153,7 @@ export function resolvePresentation(n: ReceptionNotification): Presentation {
                     s.modo_voz === 'solo_chime' ? null
                         : s.modo_voz === 'discreto'
                             ? `Abono recibido de ${firstName(payer) || 'un acudiente'}`
-                            : `Abono recibido de ${payer || 'acudiente'}: ${amountTxt}`,
+                            : `Abono recibido de ${payer || 'acudiente'}: ${amountSpoken}`,
             };
         case 'glosa': {
             const resolved = /aprob|resolv|acept|ratific/i.test(`${n.title} ${n.message}`);
@@ -215,3 +217,5 @@ export function resolvePresentation(n: ReceptionNotification): Presentation {
 }
 
 export const formatCop = cop;
+// Monto hablado para TTS: "120000 pesos" (sin "$" ni puntos, que el motor lee mal).
+export const copSpoken = (n: number) => `${Math.round(Math.abs(n || 0))} pesos`;

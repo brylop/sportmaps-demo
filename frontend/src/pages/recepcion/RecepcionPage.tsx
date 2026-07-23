@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
-    loadSettings, saveSettings, isQuietHours, resolvePresentation, formatCop,
+    loadSettings, saveSettings, isQuietHours, resolvePresentation, formatCop, copSpoken,
     type ReceptionSettings, type ReceptionNotification, type Presentation, type Accent,
 } from '@/features/recepcion/config';
 import { armAudio, playSound, enqueueVoice, listVoices, isArmed } from '@/features/recepcion/audio';
@@ -48,6 +48,22 @@ export default function RecepcionPage() {
     const burstTimes = useRef<number[]>([]);
     const pendingSummary = useRef<{ count: number; recaudo: number }>({ count: 0, recaudo: 0 });
     const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // ── Kiosko: bloquear scroll del documento + fondo oscuro (evita el espacio
+    //    blanco y el "deslizamiento infinito" del navegador móvil / overscroll) ──
+    useEffect(() => {
+        const html = document.documentElement;
+        const body = document.body;
+        const prev = { htmlOv: html.style.overflow, bodyOv: body.style.overflow, bodyBg: body.style.backgroundColor };
+        html.style.overflow = 'hidden';
+        body.style.overflow = 'hidden';
+        body.style.backgroundColor = '#020617'; // slate-950: sin flash blanco al hacer overscroll
+        return () => {
+            html.style.overflow = prev.htmlOv;
+            body.style.overflow = prev.bodyOv;
+            body.style.backgroundColor = prev.bodyBg;
+        };
+    }, []);
 
     // ── Contador de recaudo animado (tween por rAF) ──────────────────────────
     useEffect(() => {
@@ -114,7 +130,7 @@ export default function RecepcionPage() {
             const s = settingsRef.current;
             const p = pendingSummary.current;
             if (p.count > 0 && s.announcements_enabled && !isQuietHours(s) && s.modo_voz !== 'solo_chime') {
-                const monto = p.recaudo > 0 ? `, ${formatCop(p.recaudo)}` : '';
+                const monto = p.recaudo > 0 ? `, ${copSpoken(p.recaudo)}` : '';
                 enqueueVoice(`${p.count} movimientos en la última hora${monto}`, {
                     rate: s.rate, volume: s.volume, voiceURI: s.voice_uri,
                 });
