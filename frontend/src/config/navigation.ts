@@ -32,7 +32,8 @@ import {
   QrCode,
   Truck,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  MonitorSpeaker
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -275,6 +276,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
             title: 'Finanzas y Contabilidad',
             icon: BookOpen,
@@ -504,6 +506,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
             title: 'Finanzas y Contabilidad',
             icon: BookOpen,

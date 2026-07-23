@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Volume2, Wifi, WifiOff, Settings as SettingsIcon, X, Bell } from 'lucide-react';
+import { Volume2, Wifi, WifiOff, Settings as SettingsIcon, X, Bell, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -29,6 +30,7 @@ const startOfTodayISO = () => {
 export default function RecepcionPage() {
     const { user } = useAuth();
     const { schoolId, schoolName, schoolBranding } = useSchoolContext();
+    const navigate = useNavigate();
 
     // isArmed() persiste a nivel de módulo: al navegar dentro de la SPA y volver,
     // el audio sigue desbloqueado → no volvemos a mostrar la pantalla de activar.
@@ -320,6 +322,7 @@ export default function RecepcionPage() {
                     settings={settings}
                     onChange={updateSettings}
                     onClose={() => setShowSettings(false)}
+                    onExit={() => navigate('/dashboard')}
                     onTest={() => handleEvent({
                         id: 'test', title: 'Pago de prueba', message: 'Prueba de recepción',
                         type: 'success', category: 'payment', link: null,
@@ -333,10 +336,11 @@ export default function RecepcionPage() {
 }
 
 // ── Panel de ajustes ─────────────────────────────────────────────────────────
-function SettingsPanel({ settings, onChange, onClose, onTest }: {
+function SettingsPanel({ settings, onChange, onClose, onExit, onTest }: {
     settings: ReceptionSettings;
     onChange: (p: Partial<ReceptionSettings>) => void;
     onClose: () => void;
+    onExit: () => void;
     onTest: () => void;
 }) {
     const [voices, setVoices] = useState(() => listVoices());
@@ -419,6 +423,10 @@ function SettingsPanel({ settings, onChange, onClose, onTest }: {
 
                 <button onClick={onTest} className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center gap-2">
                     <Volume2 className="h-4 w-4" /> Probar anuncio
+                </button>
+
+                <button onClick={onExit} className="w-full py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center gap-2">
+                    <LogOut className="h-4 w-4" /> Salir de recepción
                 </button>
             </div>
         </div>
