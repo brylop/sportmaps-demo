@@ -196,6 +196,7 @@ export async function dispatchDelivery(row: DeliveryRow): Promise<void> {
     if (row.web_sent === 0) {
         const r = await sendWebPushToUser(notif.user_id, buildWebPayload(notif));
         wSent = r.sent; wFail = r.failed; rev += r.revoked;
+        if (r.lastError) errors.push(r.lastError);
     }
 
     // Nativo FCM — solo si el canal no tuvo éxito previo.

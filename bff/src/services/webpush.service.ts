@@ -23,6 +23,7 @@ export interface WebPushResult {
     sent: number;
     failed: number;
     revoked: number;
+    lastError?: string; // detalle del último fallo no-fatal (p.ej. 403 VAPID mismatch)
 }
 
 const MAX_PAYLOAD_BYTES = 3800; // margen bajo el límite real (~4096) de Web Push
@@ -56,6 +57,7 @@ export async function sendWebPushToUser(userId: string, payload: WebPushPayload)
     const dead: string[] = [];
     let sent = 0;
     let failed = 0;
+    let lastError: string | undefined;
 
     await Promise.all(
         subs.map(async (s) => {
@@ -71,6 +73,8 @@ export async function sendWebPushToUser(userId: string, payload: WebPushPayload)
                     dead.push(s.id); // suscripción muerta → borrar
                 } else {
                     failed++;
+                    // Guardamos el detalle para diagnóstico (403 = VAPID mismatch, etc.)
+                    lastError = `web ${code ?? ''} ${String(err?.body || err?.message || '').slice(0, 200)}`.trim();
                 }
             }
         }),
@@ -85,5 +89,5 @@ export async function sendWebPushToUser(userId: string, payload: WebPushPayload)
         if (!delErr) revoked = count ?? dead.length;
     }
 
-    return { sent, failed, revoked };
+    return { sent, failed, revoked, lastError };
 }
