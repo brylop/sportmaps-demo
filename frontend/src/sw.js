@@ -164,7 +164,12 @@ self.addEventListener('fetch', (event) => {
 // ─── Push Notifications ───────────────────────────────────────────────────────
 
 self.addEventListener('push', (event) => {
-  const data = event.data?.json() ?? {}
+  // Tolerante: payload JSON (BFF) o texto plano (botón Push de DevTools).
+  let data = {}
+  if (event.data) {
+    try { data = event.data.json() }
+    catch { data = { body: event.data.text() } }
+  }
   const { title = 'SportMaps', body = '', url = '/', type = 'default' } = data
 
   const iconMap = {
