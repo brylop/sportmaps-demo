@@ -10,6 +10,7 @@ import {
 import { createTrainingLog, deleteTrainingLog } from '@/lib/athlete/queries';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { SessionExecution } from '@/components/athlete/SessionExecution';
+import { AthleteVisibleRoutines } from '@/components/athlete/AthleteVisibleRoutines';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +42,7 @@ const intensityConfig = {
 };
 
 export default function TrainingPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -53,6 +54,29 @@ export default function TrainingPage() {
   // ── Session execution modal ──────────────────────────────────
   const [executingSession, setExecutingSession] = useState<any | null>(null);
   const [viewingSession, setViewingSession] = useState<any | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<any | null>(null);
+
+  const handleDeleteSelfAssigned = async (planId: string) => {
+    setDeletingSessionId(planId);
+    try {
+      const BFF_URL = import.meta.env.VITE_BFF_URL || 'http://localhost:3000';
+      const res = await fetch(`${BFF_URL}/api/v1/athlete/training/session-plans/${planId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'No se pudo eliminar.');
+      toast({ title: 'Sesión eliminada' });
+      queryClient.invalidateQueries({ queryKey: ['athlete-training-today'] });
+      queryClient.invalidateQueries({ queryKey: ['athlete-training-history'] });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message ?? 'No se pudo eliminar.', variant: 'destructive' });
+    } finally {
+      setDeletingSessionId(null);
+      setSessionToDelete(null);
+    }
+  };
 
   // ── Free activity form ───────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -332,6 +356,19 @@ export default function TrainingPage() {
                           Iniciar
                         </Button>
                       )}
+                      {session.assignment_source === 'self' && !isCompleted && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={() => setSessionToDelete(session)}
+                          disabled={deletingSessionId === session.id}
+                        >
+                          {deletingSessionId === session.id
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Trash2 className="h-4 w-4" />}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -340,6 +377,9 @@ export default function TrainingPage() {
           })}
         </div>
       )}
+
+      {/* ── Biblioteca de Rutinas Visibles para el Atleta ── */}
+      <AthleteVisibleRoutines />
 
       {/* ── Historial PT + Actividad libre ── */}
       <Card>
@@ -581,6 +621,27 @@ export default function TrainingPage() {
             queryClient.invalidateQueries({ queryKey: ['athlete-training-history'] });
           }}
         />
+      )}
+
+      {sessionToDelete && (
+        <AlertDialog open={!!sessionToDelete} onOpenChange={(o) => !o && setSessionToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Eliminar esta rutina?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {sessionToDelete.status === 'in_progress'
+                  ? `"${sessionToDelete.name}" ya está en progreso, con series registradas. ¿Seguro que quieres eliminarla? Se perderá el avance guardado.`
+                  : `Se eliminará "${sessionToDelete.name}" de tus entrenamientos de hoy.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => handleDeleteSelfAssigned(sessionToDelete.id)}>
+                Sí, eliminar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );

@@ -13,7 +13,7 @@ import { Permission } from '@/lib/permissions';
 type UserRole =
     | 'athlete' | 'parent' | 'coach' | 'school' | 'school_admin'
     | 'super_admin' | 'wellness_professional' | 'store_owner'
-    | 'admin' | 'organizer' | 'reporter';
+    | 'admin' | 'organizer' | 'reporter' | 'personal_trainer';
 
 export interface RoutePermission {
     /** Roles que pueden acceder. Si vacío, cualquier autenticado puede acceder. */
@@ -101,6 +101,7 @@ export const ROLE_ROUTES: Record<string, RoutePermission> = {
     '/school/enroll/:eventId': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Inscripción a evento' },
     '/school/delegations': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Delegaciones de escuela' },
     '/school/delegations/:id': { allowedRoles: ['school', 'admin', 'school_admin'], description: 'Detalle de delegación' },
+    '/school/routines': { allowedRoles: ['school', 'school_admin', 'admin', 'super_admin', 'coach'], description: 'Biblioteca de rutinas del gimnasio' },
     '/students': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], requiredPermission: 'students:view', description: 'Gestión de deportistas' },
     '/invitations': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin', 'coach'], description: 'Gestión de invitaciones' },
     '/staff': { allowedRoles: ['school', 'admin', 'school_admin', 'super_admin'], description: 'Gestión de entrenadores' },

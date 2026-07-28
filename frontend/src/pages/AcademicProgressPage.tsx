@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useState, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useSearchParams, useParams } from 'react-router-dom';
+import { AthleteVisibleRoutines } from '@/components/athlete/AthleteVisibleRoutines';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WellnessModule } from '@/components/wellness/WellnessModule';
 import { useChildExerciseStats } from '@/hooks/useAthleteData';
@@ -880,6 +881,11 @@ export default function AcademicProgressPage() {
               </TabsContent>
             )}
           </Tabs>
+
+          {/* ── Biblioteca de Rutinas Visibles para el Hijo (Padre visualiza) ── */}
+          <div className="mt-8">
+            <AthleteVisibleRoutines childId={selectedChildId} />
+          </div>
         </>
       ) : (
         <Card>

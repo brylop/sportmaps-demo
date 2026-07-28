@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ArrowLeft, Trophy, TrendingUp, Star, Calendar, Dumbbell, CheckCircle2, Clock } from 'lucide-react';
+import { AthleteVisibleRoutines } from '@/components/athlete/AthleteVisibleRoutines';
 
 export default function ChildProgressPage() {
   const { id } = useParams<{ id: string }>();
@@ -340,6 +341,11 @@ export default function ChildProgressPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* ── Biblioteca de Rutinas Visibles para el Hijo (Padre visualiza) ── */}
+      <div className="mt-8">
+        <AthleteVisibleRoutines childId={id} />
+      </div>
     </div>
   );
 }

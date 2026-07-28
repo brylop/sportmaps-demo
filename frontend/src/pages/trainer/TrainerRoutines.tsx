@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { RoutineCard } from '@/components/trainer/RoutineCard';
 import { RoutineFormModal } from '@/components/trainer/RoutineFormModal';
@@ -36,6 +37,7 @@ export default function TrainerRoutines() {
   const [editingRoutine, setEditingRoutine] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRoutines();
@@ -107,7 +109,8 @@ export default function TrainerRoutines() {
   const filteredRoutines = routines.filter(r => {
     const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesTab = activeTab === 'Todas' || r.category === activeTab;
-    return matchesSearch && matchesTab;
+    const matchesTag = !selectedTag || (r.tags && r.tags.includes(selectedTag));
+    return matchesSearch && matchesTab && matchesTag;
   });
 
   const categories = ['Todas', ...Array.from(new Set(routines.map(r => r.category)))];
@@ -134,14 +137,30 @@ export default function TrainerRoutines() {
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center">
-        <div className="relative w-full md:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Buscar por nombre..." 
-            className="pl-9 bg-muted/20 border-border/40 h-11 font-medium"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex items-center gap-2 w-full md:max-w-md">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Buscar por nombre..." 
+              className="pl-9 bg-muted/20 border-border/40 h-11 font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          {selectedTag && (
+            <Badge 
+              variant="secondary" 
+              className="h-11 px-3 gap-2 bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 rounded-xl shrink-0"
+            >
+              #{selectedTag}
+              <button 
+                onClick={() => setSelectedTag(null)} 
+                className="font-bold hover:text-destructive text-sm"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
         </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -188,6 +207,7 @@ export default function TrainerRoutines() {
                 setUseRoutine(routine);
               }}
               onDelete={(id) => setDeleteId(id)}
+              onTagClick={(tag) => setSelectedTag(tag === selectedTag ? null : tag)}
             />
           ))}
         </div>

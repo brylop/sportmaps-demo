@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
-import { hydrateBlocksWithLocalTranslations } from '../trainer/wger';
+import { hydrateBlocksWithLocalTranslations, hydrateRoutineWithCalories } from '../trainer/wger';
 
 const router = Router();
 
@@ -13,9 +13,10 @@ router.get('/training/today', async (req: Request, res: Response) => {
     const [sessionsRes, logsRes] = await Promise.all([
       supabase
         .from('trainer_session_plans')
-        .select('id, name, status, session_date, custom_notes, blocks, trainer_id, school_id')
+        .select('id, name, status, session_date, custom_notes, blocks, trainer_id, school_id, assignment_source')
         .eq('client_id', athleteId)
         .eq('session_date', today)
+        .neq('status', 'cancelled')
         .or(`visible_from.is.null,visible_from.lte.${today}`)
         .order('created_at'),
 
@@ -756,6 +757,200 @@ router.delete('/training/cancel-pt-session', async (req: Request, res: Response)
     res.json(data);
   } catch (err: any) {
     req.log?.error({ err }, 'athlete/training unhandled error');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// GET /api/v1/athlete/training/routines-visible
+// GET /api/v1/athlete/training/routines-visible?child_id=<uuid>  (vista del padre)
+router.get('/training/routines-visible', async (req: Request, res: Response) => {
+  try {
+    const callerId = req.user.id;
+    const childId = req.query.child_id as string | undefined;
+
+    let enrollQuery = supabase
+      .from('enrollments')
+      .select('school_id')
+      .eq('status', 'active');
+
+    if (childId) {
+      // Validar que el caller es efectivamente el padre de este hijo
+      // antes de resolver sus escuelas — mismo patrón de autorización
+      // que ya usan las páginas de progreso del padre (ChildProgressPage).
+      const { data: child } = await supabase
+        .from('children')
+        .select('id')
+        .eq('id', childId)
+        .eq('parent_id', callerId)
+        .maybeSingle();
+
+      if (!child) {
+        return res.status(403).json({ error: 'No tienes permisos sobre este perfil.' });
+      }
+      enrollQuery = enrollQuery.eq('child_id', childId);
+    } else {
+      enrollQuery = enrollQuery.eq('user_id', callerId);
+    }
+
+    const { data: enrollments, error: enrollErr } = await enrollQuery;
+    if (enrollErr) throw enrollErr;
+
+    // Todas las escuelas donde el atleta (o el hijo) tiene inscripción
+    // activa AHORA MISMO — sin importar cuál esté "activa" en el sidebar.
+    const schoolIds = [...new Set((enrollments ?? []).map((e: any) => e.school_id).filter(Boolean))];
+
+    if (schoolIds.length === 0) {
+      return res.json([]);
+    }
+
+    const orFilter = `school_id.in.(${schoolIds.join(',')}),scope.eq.global`;
+
+    const targetClientId = childId || callerId;
+    const { data: latestMetric } = await supabase
+      .from('body_metrics')
+      .select('weight_kg')
+      .eq('client_id', targetClientId)
+      .order('measured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const weightKg = latestMetric?.weight_kg || 70;
+
+    const { data, error } = await supabase
+      .from('trainer_routines')
+      .select('id, name, category, difficulty, estimated_minutes, estimated_calories, blocks, warmup, cooldown, school_id, scope')
+      .eq('visible_to_athletes', true)
+      .or(orFilter);
+
+    if (error) throw error;
+
+    const hydratedData = (data || []).map((r: any) => hydrateRoutineWithCalories(r, weightKg));
+
+    res.json(hydratedData);
+  } catch (err: any) {
+    req.log?.error({ err }, 'Error fetching athlete-visible routines');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+/**
+ * POST /training/routines/:routineId/self-assign
+ * Body: { client_id, client_type ('registered'|'child'), session_date }
+ * El propio atleta (o el padre, con client_type='child') se asigna
+ * una rutina visible de su catalogo. Requiere membresia activa en
+ * la escuela dueña de la rutina (o cualquier escuela activa, si la
+ * rutina es del catalogo global).
+ */
+router.post('/training/routines/:routineId/self-assign', async (req: Request, res: Response) => {
+  try {
+    const callerId = req.user.id;
+    const { routineId } = req.params;
+    const { client_id, client_type, session_date } = req.body;
+
+    if (!client_id || !client_type || !session_date) {
+      return res.status(400).json({ error: 'client_id, client_type y session_date son requeridos.' });
+    }
+
+    if (client_type === 'child') {
+      const { data: child } = await supabase
+        .from('children')
+        .select('id')
+        .eq('id', client_id)
+        .eq('parent_id', callerId)
+        .maybeSingle();
+      if (!child) return res.status(403).json({ error: 'No tienes permisos sobre este perfil.' });
+    } else if (client_id !== callerId) {
+      return res.status(403).json({ error: 'Solo puedes auto-asignarte rutinas a ti mismo.' });
+    }
+
+    const { data: routine } = await supabase
+      .from('trainer_routines')
+      .select('id, scope, school_id, visible_to_athletes')
+      .eq('id', routineId)
+      .maybeSingle();
+
+    if (!routine) return res.status(404).json({ error: 'Rutina no encontrada.' });
+    if (!routine.visible_to_athletes) {
+      return res.status(403).json({ error: 'Esta rutina no esta disponible para auto-asignacion.' });
+    }
+
+    let targetSchoolId: string | null = null;
+
+    if (routine.scope === 'school') {
+      targetSchoolId = routine.school_id;
+    } else {
+      let enrollQuery = supabase.from('enrollments').select('school_id').eq('status', 'active');
+      enrollQuery = client_type === 'child'
+        ? enrollQuery.eq('child_id', client_id)
+        : enrollQuery.eq('user_id', client_id);
+      const { data: enr } = await enrollQuery.order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!enr) return res.status(403).json({ error: 'No tienes una membresia activa para usar esta rutina.' });
+      targetSchoolId = enr.school_id;
+    }
+
+    if (!targetSchoolId) {
+      return res.status(403).json({ error: 'No se pudo determinar la escuela para esta asignacion.' });
+    }
+
+    const { data: existing } = await supabase
+      .from('trainer_session_plans')
+      .select('id')
+      .eq('client_id', client_id)
+      .eq('session_date', session_date)
+      .not('status', 'in', '("cancelled","completed")')
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({
+        error: 'Ya existe una sesion activa para esta fecha.',
+        existing_plan_id: existing.id,
+      });
+    }
+
+    const { data, error } = await supabase.rpc('fn_create_plan_from_routine', {
+      p_routine_id:        routineId,
+      p_client_id:         client_id,
+      p_client_type:       client_type,
+      p_session_date:      session_date,
+      p_trainer_id:        callerId,
+      p_school_id:         targetSchoolId,
+      p_enrollment_id:     null,
+      p_assignment_source: 'self',
+    });
+
+    if (error) throw error;
+    if (!data?.success) return res.status(400).json(data);
+
+    res.status(201).json(data);
+  } catch (err: any) {
+    req.log?.error({ err }, 'Error self-assigning routine');
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+/**
+ * DELETE /training/session-plans/:planId
+ * El atleta (o su padre) elimina SOLO una sesion que el mismo se
+ * auto-asigno (assignment_source='self'). Permite 'assigned' e
+ * 'in_progress' - la confirmacion extra por progreso en curso la
+ * maneja el frontend.
+ */
+router.delete('/training/session-plans/:planId', async (req: Request, res: Response) => {
+  try {
+    const callerId = req.user.id;
+    const { planId } = req.params;
+
+    const { data, error } = await supabase.rpc('fn_delete_self_assigned_session', {
+      p_plan_id:   planId,
+      p_caller_id: callerId,
+    });
+
+    if (error) throw error;
+    if (!data?.success) return res.status(400).json(data);
+
+    res.json(data);
+  } catch (err: any) {
+    req.log?.error({ err }, 'Error deleting self-assigned session');
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });

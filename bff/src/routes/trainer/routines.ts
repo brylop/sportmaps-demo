@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../../config/supabase';
-import { hydrateBlocksWithLocalTranslations } from './wger';
+import { hydrateBlocksWithLocalTranslations, hydrateRoutineWithCalories } from './wger';
 
 const router = Router();
 
@@ -24,10 +24,7 @@ router.get('/routines', async (req: Request, res: Response) => {
 
         if (error) throw error;
         
-        const hydratedData = (data || []).map((r: any) => ({
-            ...r,
-            blocks: hydrateBlocksWithLocalTranslations(r.blocks)
-        }));
+        const hydratedData = (data || []).map((r: any) => hydrateRoutineWithCalories(r, 70));
         
         res.json(hydratedData);
     } catch (err) {
@@ -57,8 +54,8 @@ router.get('/routines/:routineId', async (req: Request, res: Response) => {
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Rutina no encontrada.' });
 
-        data.blocks = hydrateBlocksWithLocalTranslations(data.blocks);
-        res.json(data);
+        const hydrated = hydrateRoutineWithCalories(data, 70);
+        res.json(hydrated);
     } catch (err) {
         (req as any).log?.error({ err }, 'Error fetching trainer routine detail');
         res.status(500).json({ error: 'Error al obtener detalle de la rutina.' });
