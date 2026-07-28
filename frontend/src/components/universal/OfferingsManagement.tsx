@@ -23,6 +23,7 @@ import { SPORTS_LIST, SPORTS_CATALOG } from '@/lib/constants/sportsCatalog';
 import { getSportVisual } from '@/lib/sportVisuals';
 import { Plus, Package, Search, X, ChevronDown, Edit, Minus, DollarSign, Clock, Zap, UserPlus, Trash2, ArrowRight, Copy } from 'lucide-react';
 import { OfferingCoachesPanel } from './OfferingCoachesPanel';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 const MIN_SEARCH_CHARS = 1;
 
@@ -35,11 +36,15 @@ const OFFERING_TYPE_LABELS: Record<string, string> = {
 };
 
 const PLAN_DURATION_OPTIONS = [
-    { label: 'Mensual', value: '30' },
-    { label: '3 meses', value: '90' },
-    { label: '6 meses', value: '180' },
-    { label: '12 meses', value: '365' },
+    { label: 'Semanal (7 días)', value: '7' },
+    { label: 'Quincenal (15 días)', value: '15' },
+    { label: 'Mensual (30 días)', value: '30' },
+    { label: '3 meses (90 días)', value: '90' },
+    { label: '6 meses (180 días)', value: '180' },
+    { label: '12 meses (365 días)', value: '365' },
+    { label: 'Personalizado...', value: 'custom' },
 ];
+
 
 const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const HOUR_OPTIONS = [
@@ -450,6 +455,9 @@ export function OfferingsManagement() {
         schedule: [] as ScheduleSlot[],
     });
 
+    const [isCustomDays, setIsCustomDays] = useState(false);
+    const [customDays, setCustomDays] = useState('30');
+
     const resetOfferingForm = () => {
         setNewOffering({ name: '', description: '', offering_type: 'membership', sport: '' });
         setEditingOfferingId(null);
@@ -457,8 +465,11 @@ export function OfferingsManagement() {
 
     const resetPlanForm = () => {
         setNewPlan({ name: '', max_sessions: '', max_secondary_sessions: '0', secondary_session_label: '', duration_days: '30', price: '', auto_renew: false, schedule_type: 'general', schedule: [] });
+        setIsCustomDays(false);
+        setCustomDays('30');
         setEditingPlanId(null);
     };
+
 
     const handleSaveOffering = () => {
         const payload = {
@@ -483,11 +494,15 @@ export function OfferingsManagement() {
     };
 
     const handleSavePlan = (offeringId: string) => {
+        const durationValue = newPlan.duration_days === 'custom'
+            ? parseInt(customDays)
+            : parseInt(newPlan.duration_days);
+
         const payload = {
             name: newPlan.name,
             max_sessions: newPlan.max_sessions ? parseInt(newPlan.max_sessions) : null,
             max_secondary_sessions: parseInt(newPlan.max_secondary_sessions) || 0,
-            duration_days: parseInt(newPlan.duration_days) || 30,
+            duration_days: durationValue || 30,
             price: parseFloat(newPlan.price) || 0,
             auto_renew: newPlan.auto_renew,
             metadata: {
@@ -526,20 +541,25 @@ export function OfferingsManagement() {
         const plan = offering?.offering_plans?.find((p) => p.id === planId);
         if (plan) {
             setEditingPlanId(planId);
+            const durationStr = plan.duration_days?.toString() || '30';
+            const isPreset = ['7', '15', '30', '90', '180', '365'].includes(durationStr);
             setNewPlan({
                 name: plan.name,
                 max_sessions: plan.max_sessions?.toString() || '',
                 max_secondary_sessions: plan.max_secondary_sessions?.toString() || '0',
                 secondary_session_label: (plan.metadata?.secondary_session_label as string) || '',
-                duration_days: plan.duration_days?.toString() || '30',
+                duration_days: isPreset ? durationStr : 'custom',
                 price: plan.price?.toString() || '',
                 auto_renew: plan.auto_renew || false,
                 schedule_type: (plan.metadata?.schedule_type as 'general' | 'specific') || 'general',
                 schedule: (plan.metadata?.schedule as ScheduleSlot[]) || [],
             });
+            setIsCustomDays(!isPreset);
+            setCustomDays(!isPreset ? durationStr : '30');
             setShowCreatePlan(offeringId);
         }
     };
+
 
     const handleOpenEnroll = (offering: Offering, plan: any) => {
         setEnrollModal({
@@ -836,7 +856,10 @@ export function OfferingsManagement() {
                                 </Label>
                                 <Select
                                     value={newPlan.duration_days}
-                                    onValueChange={(v) => setNewPlan((prev) => ({ ...prev, duration_days: v }))}
+                                    onValueChange={(v) => {
+                                        setNewPlan((prev) => ({ ...prev, duration_days: v }));
+                                        setIsCustomDays(v === 'custom');
+                                    }}
                                 >
                                     <SelectTrigger className="h-9">
                                         <SelectValue placeholder="Seleccionar duración" />
@@ -851,6 +874,25 @@ export function OfferingsManagement() {
                                 </Select>
                             </div>
                         </div>
+
+                        {isCustomDays && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                    <Clock className="h-3.5 w-3.5 text-blue-500" /> Días de duración <span className="text-destructive">*</span>
+                                </Label>
+                                <div className="flex items-center gap-2">
+                                    <NumberStepper
+                                        id="custom-duration-days"
+                                        value={customDays}
+                                        onChange={(v) => setCustomDays(v)}
+                                        placeholder="30"
+                                        min={1}
+                                        step={1}
+                                    />
+                                    <span className="text-sm text-muted-foreground font-medium">días</span>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Sessions row */}
                         <div className="grid grid-cols-2 gap-3">
@@ -1142,7 +1184,7 @@ function OfferingCard({
                                             )}
                                             <span className="text-foreground/80 flex items-center gap-0.5">
                                                 <Clock className="h-3 w-3" />
-                                                {PLAN_DURATION_OPTIONS.find(opt => opt.value === plan.duration_days.toString())?.label || `${plan.duration_days}d`}
+                                                {formatFriendlyDuration(plan.duration_days)}
                                             </span>
                                             <span className="font-bold text-primary ml-1">
                                                 ${formatCurrency(plan.price)}

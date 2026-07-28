@@ -20,6 +20,7 @@ import {
 import { PublishedSuccessModal } from '@/components/settings/PublishedSuccessModal';
 import { PlanCard, type PlanFeature, type PlanDuration } from '@/components/explore/PlanCard';
 import { useStorage } from '@/hooks/useStorage';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 interface SchoolRow {
   id: string;
@@ -67,12 +68,7 @@ interface OfferingRow {
 
 function formatDurationLabel(days: number, price: number) {
   const priceFmt = `$${price.toLocaleString('es-CO')}`;
-  if (days === 30) return `1 mes - 30 días / ${priceFmt}`;
-  if (days === 90) return `3 meses - 90 días / ${priceFmt}`;
-  if (days === 180) return `6 meses - 180 días / ${priceFmt}`;
-  if (days === 365) return `1 año - 365 días / ${priceFmt}`;
-  if (days >= 28 && days <= 32) return `1 mes - ${days} días / ${priceFmt}`;
-  return `${days} días / ${priceFmt}`;
+  return `${formatFriendlyDuration(days)} / ${priceFmt}`;
 }
 
 export default function SchoolPublicProfilePage() {

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { Loader2, CheckCircle2, AlertCircle, UserPlus, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 /**
  * Pagina publica de auto-registro por plan (offering_plan).
@@ -250,7 +251,7 @@ export default function JoinPlanPage() {
             {planInfo.duration_days != null && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Duracion:</span>
-                <span className="font-medium">{planInfo.duration_days} dias</span>
+                <span className="font-medium">{formatFriendlyDuration(planInfo.duration_days)}</span>
               </div>
             )}
           </div>

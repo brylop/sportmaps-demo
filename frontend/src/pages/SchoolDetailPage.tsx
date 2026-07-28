@@ -34,6 +34,7 @@ import { PaymentModal } from '@/components/payment/PaymentModal';
 import { ChildSelectorModal } from '@/components/enrollment/ChildSelectorModal';
 import { DirectionsButton } from '@/components/common/DirectionsButton';
 import { FacilityReservationModal } from '@/components/school/FacilityReservationModal';
+import { formatFriendlyDuration } from '@/lib/utils';
 
 interface School {
   id: string;
@@ -618,11 +619,7 @@ export default function SchoolDetailPage() {
 
                         const durations: PlanDuration[] = activePlans.map(p => {
                           const priceFmt = `$${p.price.toLocaleString('es-CO')}`;
-                          const label = p.duration_days === 30 ? `1 mes / ${priceFmt}`
-                            : p.duration_days === 90 ? `3 meses / ${priceFmt}`
-                            : p.duration_days === 180 ? `6 meses / ${priceFmt}`
-                            : p.duration_days === 365 ? `1 año / ${priceFmt}`
-                            : `${p.duration_days} días / ${priceFmt}`;
+                          const label = `${formatFriendlyDuration(p.duration_days)} / ${priceFmt}`;
                           return {
                             key: p.id,
                             label: p.name ? `${p.name} - ${label}` : label,

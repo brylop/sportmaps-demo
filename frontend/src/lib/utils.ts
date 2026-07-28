@@ -46,3 +46,28 @@ export function maskSensitive(value: string | null | undefined): string {
   if (value.length <= 4) return value;
   return "*".repeat(value.length - 4) + value.slice(-4);
 }
+
+/**
+ * Formats a duration in days into a friendly human-readable Spanish text.
+ * Handles weeks, 15 days, months, and years nicely.
+ */
+export function formatFriendlyDuration(days: number): string {
+  if (days === 7) return '1 semana';
+  if (days === 14) return '2 semanas';
+  if (days === 15) return '15 días';
+  if (days === 30) return '1 mes';
+  if (days === 90) return '3 meses';
+  if (days === 180) return '6 meses';
+  if (days === 365) return '1 año';
+
+  if (days % 30 === 0) {
+    const months = days / 30;
+    return `${months} ${months === 1 ? 'mes' : 'meses'}`;
+  }
+  if (days % 7 === 0) {
+    const weeks = days / 7;
+    return `${weeks} ${weeks === 1 ? 'semana' : 'semanas'}`;
+  }
+  return `${days} días`;
+}
+

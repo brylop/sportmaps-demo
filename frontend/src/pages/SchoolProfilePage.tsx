@@ -7,6 +7,7 @@ import type { SchoolDetail, Team, Offering, Review } from "@/types/school.types"
 import { Target, CreditCard, Building2, MapPin, Star } from "lucide-react";
 
 // ─── utils ───────────────────────────────────────────────────────────────────
+import { formatFriendlyDuration } from "@/lib/utils";
 
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const SPORT_COLORS: Record<string, string> = {
@@ -206,7 +207,7 @@ function OfferingCard({ offering, accent }: { offering: Offering; accent: string
             <span style={{ fontSize: 12, fontWeight: 700, color: "#f1f5f9" }}>{plan.name}</span>
             <span style={{ fontSize: 18, fontWeight: 800, color: accent }}>{cop(plan.price)}</span>
             {plan.max_sessions && <span style={{ fontSize: 11, color: "#64748b" }}>{plan.max_sessions} sesiones</span>}
-            {plan.duration_days && <span style={{ fontSize: 11, color: "#64748b" }}>{plan.duration_days} días</span>}
+            {plan.duration_days && <span style={{ fontSize: 11, color: "#64748b" }}>{formatFriendlyDuration(plan.duration_days)}</span>}
           </div>
         ))}
       </div>
