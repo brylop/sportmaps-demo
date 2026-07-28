@@ -1845,10 +1845,10 @@ export default function PaymentsAutomationPage() {
 }
 
 function BackfillPaymentsCard({
-  schoolId, billing, onSuccess,
+  schoolId, onSuccess,
 }: {
   schoolId: string | null;
-  billing: BillingSettings | null;
+  billing?: BillingSettings | null;  // ya no se usa (F0: la generación es server-side); se mantiene por compat del padre
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
@@ -1857,143 +1857,22 @@ function BackfillPaymentsCard({
   const [showPreview, setShowPreview] = useState(false);
   const [generating, setGenerating]  = useState(false);
 
+  // Periodo a abrir = mes actual (hora Colombia). todayColombia() → 'YYYY-MM-DD'.
+  const currentPeriod = () => {
+    const [y, m] = todayColombia().split('-').map(Number);
+    return { p_school_id: schoolId, p_year: y, p_month: m };
+  };
+
+  // F0: la vista previa ahora la calcula el servidor (preview_open_month) con la
+  // MISMA lógica canónica que el cron. Se eliminó el cálculo client-side + el
+  // prorrateo (calcFirstPayment): el prorrateo vive solo en el alta (checkout/QR).
   const loadPreview = async () => {
-    if (!schoolId || !billing) return;
+    if (!schoolId) return;
     setLoading(true);
     try {
-      // Atletas con enrollment activo sin pago pendiente o pagado
-      const { data: enrollments, error: enrollError } = await (supabase
-        .from('enrollments') as any)
-        .select(`
-          id, start_date, child_id, user_id, unregistered_athlete_id,
-          team_id, offering_plan_id
-        `)
-        .eq('school_id', schoolId)
-        .in('status', ['active', 'pending_payment']);
-
-      if (enrollError) throw enrollError;
-
-      const withoutPayment = [];
-      const today = todayColombia();
-
-      for (const e of enrollments || []) {
-        let payQuery = (supabase.from('payments') as any)
-          .select('id, due_date')
-          .eq('school_id', schoolId)
-          .in('status', ['pending', 'awaiting_approval', 'paid']);
-
-        if (e.child_id)                  payQuery = payQuery.eq('child_id', e.child_id);
-        else if (e.user_id)               payQuery = payQuery.eq('user_id', e.user_id);
-        else if (e.unregistered_athlete_id) payQuery = payQuery.eq('unregistered_athlete_id', e.unregistered_athlete_id);
-
-        if (e.team_id)          payQuery = payQuery.eq('team_id', e.team_id);
-        if (e.offering_plan_id) payQuery = payQuery.eq('offering_plan_id', e.offering_plan_id);
-
-        if (billing.billing_cycle_type === 'rolling_30') {
-          const { data: futurePay } = await payQuery.gte('due_date', today).maybeSingle();
-          if (futurePay) continue;
-          withoutPayment.push(e);
-        } else {
-          const { data: existing } = await payQuery.gte('due_date', today).maybeSingle();
-          if (!existing) withoutPayment.push(e);
-        }
-      }
-
-      if (withoutPayment.length === 0) {
-        setPreview([]);
-        setShowPreview(true);
-        setLoading(false);
-        return;
-      }
-
-      // ─── OPTIMIZACIÓN: Fetch en bloque ─────────────────────────────────────
-      const childIds = withoutPayment.map(e => e.child_id).filter(Boolean);
-      const userIds  = withoutPayment.map(e => e.user_id).filter(Boolean);
-      const unregIds = withoutPayment.map(e => e.unregistered_athlete_id).filter(Boolean);
-      const teamIds  = withoutPayment.map(e => e.team_id).filter(Boolean);
-      const planIds  = withoutPayment.map(e => e.offering_plan_id).filter(Boolean);
-
-      // 1. Atletas (BFF para menores - soporta multi-school)
-      const childrenData = childIds.length > 0
-        ? await bffClient.post<any[]>(`/api/v1/students/children-by-ids`, { ids: childIds }, { 'x-school-id': schoolId })
-        : [];
-      const childMap = new Map<string, string>((childrenData ?? []).map(c => [c.id, c.full_name]));
-
-      const { data: profiles } = userIds.length > 0
-        ? await supabase.from('profiles').select('id, full_name').in('id', userIds)
-        : { data: [] };
-      const profileMap = new Map<string, string>((profiles ?? []).map(p => [p.id, p.full_name]));
-
-      const { data: unreg } = unregIds.length > 0
-        ? await (supabase.from('unregistered_athletes') as any).select('id, full_name').in('id', unregIds)
-        : { data: [] };
-      const unregMap = new Map<string, string>((unreg ?? []).map(u => [u.id, u.full_name]));
-
-      // 2. Equipos y Planes (Nombres y Precios)
-      const { data: teamsData } = teamIds.length > 0
-        ? await (supabase.from('teams') as any).select('id, name, price_monthly').in('id', teamIds)
-        : { data: [] };
-      const teamMap = new Map<string, { name: string; fee: number }>((teamsData ?? []).map(t => [t.id, { name: t.name, fee: t.price_monthly || 0 }]));
-
-      const { data: plansData } = planIds.length > 0
-        ? await (supabase.from('offering_plans') as any).select('id, name, price').in('id', planIds)
-        : { data: [] };
-      const planMap = new Map<string, { name: string; fee: number }>((plansData ?? []).map(p => [p.id, { name: p.name, fee: p.price || 0 }]));
-
-      const { calcFirstPayment } = await import('@/lib/prorationUtils');
-
-      const rows = [];
-      for (const e of withoutPayment) {
-        let athleteName = 'Atleta';
-        if (e.child_id)                      athleteName = childMap.get(e.child_id) || athleteName;
-        else if (e.user_id)                   athleteName = profileMap.get(e.user_id) || athleteName;
-        else if (e.unregistered_athlete_id)   athleteName = unregMap.get(e.unregistered_athlete_id) || athleteName;
-
-        let subName = 'Inscripción';
-        let fee = 0;
-        if (e.team_id) {
-          const t = teamMap.get(e.team_id);
-          subName = t?.name || 'Equipo';
-          fee = t?.fee || 0;
-        } else if (e.offering_plan_id) {
-          const p = planMap.get(e.offering_plan_id);
-          subName = p?.name || 'Plan';
-          fee = p?.fee || 0;
-        }
-
-        let lastDueDate: string | null = null;
-        if (billing.billing_cycle_type === 'rolling_30') {
-          const { data: lastPay } = await (supabase.from('payments') as any)
-            .select('due_date')
-            .eq('school_id', schoolId)
-            .in('status', ['pending', 'awaiting_approval', 'paid'])
-            .order('due_date', { ascending: false })
-            .limit(1)
-            .match(e.child_id ? { child_id: e.child_id } : e.user_id ? { user_id: e.user_id } : { unregistered_athlete_id: e.unregistered_athlete_id })
-            .maybeSingle();
-          lastDueDate = lastPay?.due_date || null;
-        }
-
-        const calc = calcFirstPayment(
-          e.start_date,
-          fee,
-          billing.billing_cycle_type || 'prorated',
-          billing.payment_cutoff_day || 10,
-          lastDueDate
-        );
-
-        rows.push({
-          ...e,
-          athlete_name: athleteName,
-          subscription_name: subName,
-          amount: calc.amount,
-          due_date: calc.dueDate,
-          description: calc.description,
-          fee,
-        });
-      }
-
-      setPreview(rows);
+      const { data, error } = await (supabase as any).rpc('preview_open_month', currentPeriod());
+      if (error) throw error;
+      setPreview(((data?.items) ?? []) as any[]);
       setShowPreview(true);
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
@@ -2002,36 +1881,18 @@ function BackfillPaymentsCard({
     }
   };
 
+  // F0: genera vía RPC única open_month (advisory lock + dedup por mes + period
+  // poblado). Se eliminó el INSERT client-side en loop (vulnerable a doble-clic).
   const handleGenerate = async () => {
     if (!schoolId || preview.length === 0) return;
     setGenerating(true);
     try {
-      for (const row of preview) {
-        const record: any = {
-          school_id:    schoolId,
-          amount:       row.amount,
-          concept:      `${row.team_id ? 'Equipo' : 'Plan'} ${row.subscription_name} — ${row.athlete_name} — ${row.description}`,
-          due_date:     row.due_date,
-          status:       'pending',
-          payment_type: 'subscription',
-        };
-
-        // Atleta — solo uno aplica
-        if (row.child_id)                  record.child_id = row.child_id;
-        if (row.user_id)                   record.user_id = row.user_id;
-        if (row.unregistered_athlete_id)   record.unregistered_athlete_id = row.unregistered_athlete_id;
-
-        // Referencia al equipo o plan — solo uno aplica
-        if (row.team_id)                   record.team_id = row.team_id;
-        if (row.offering_plan_id)          record.offering_plan_id = row.offering_plan_id;
-
-        await (supabase.from('payments') as any).insert(record);
-
-
-      }
+      const { data, error } = await (supabase as any).rpc('open_month', currentPeriod());
+      if (error) throw error;
+      const n = data?.generados ?? 0;
       toast({
-        title: `${preview.length} pagos generados`,
-        description: 'Los cobros pendientes han sido creados correctamente.',
+        title: `${n} pago(s) generado(s)`,
+        description: 'Cobros del mes creados por la vía unificada.',
       });
       setShowPreview(false);
       setPreview([]);
@@ -2069,14 +1930,14 @@ function BackfillPaymentsCard({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Se generarán <strong>{preview.length} pago(s)</strong> con el ciclo <strong>{billing?.billing_cycle_type}</strong>:
+              Se generarán <strong>{preview.length} cobro(s)</strong> del mes (cuota completa):
             </p>
             <div className="rounded-lg border overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Atleta</TableHead>
-                    <TableHead>Inscripción</TableHead>
+                    <TableHead>Tipo</TableHead>
                     <TableHead>Monto</TableHead>
                     <TableHead>Vence</TableHead>
                   </TableRow>
@@ -2084,9 +1945,9 @@ function BackfillPaymentsCard({
                 <TableBody>
                   {preview.map((row, i) => (
                     <TableRow key={i}>
-                      <TableCell className="font-medium text-sm">{row.athlete_name}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {row.team_id ? `⚽ ${row.subscription_name}` : `📋 ${row.subscription_name}`}
+                      <TableCell className="font-medium text-sm">{row.athlete}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground capitalize">
+                        {row.tipo === 'menor' ? '🧒 Menor' : row.tipo === 'adulto' ? '🧑 Adulto' : '📋 No registrado'}
                       </TableCell>
                       <TableCell className="font-bold text-primary text-sm">
                         {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(row.amount)}
