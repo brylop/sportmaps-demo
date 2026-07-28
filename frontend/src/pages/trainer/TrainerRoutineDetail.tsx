@@ -58,6 +58,8 @@ export default function TrainerRoutineDetail() {
   const { toast } = useToast();
   const navigate = useNavigate();
   
+  const isSchoolContext = window.location.pathname.startsWith('/school');
+
   const [routine, setRoutine] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,7 +78,10 @@ export default function TrainerRoutineDetail() {
   const fetchRoutineDetail = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${BFF_URL}/api/v1/trainer/routines/${routineId}`, {
+      const url = isSchoolContext 
+        ? `${BFF_URL}/api/v1/school/routines/${routineId}` 
+        : `${BFF_URL}/api/v1/trainer/routines/${routineId}`;
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
@@ -89,6 +94,10 @@ export default function TrainerRoutineDetail() {
   };
 
   const fetchUsageHistory = async () => {
+    if (isSchoolContext) {
+      setUsageHistory([]);
+      return;
+    }
     try {
       const res = await fetch(
         `${BFF_URL}/api/v1/trainer/session-plans?routine_id=${routineId}`,
@@ -104,7 +113,10 @@ export default function TrainerRoutineDetail() {
   const handleSave = async (formData: any) => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${BFF_URL}/api/v1/trainer/routines/${routineId}`, {
+      const url = isSchoolContext
+        ? `${BFF_URL}/api/v1/school/routines/${routineId}`
+        : `${BFF_URL}/api/v1/trainer/routines/${routineId}`;
+      const res = await fetch(url, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -120,6 +132,24 @@ export default function TrainerRoutineDetail() {
       toast({ title: 'Error', description: 'No se pudo actualizar.', variant: 'destructive' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('¿Seguro que deseas eliminar esta rutina?')) return;
+    try {
+      const url = isSchoolContext
+        ? `${BFF_URL}/api/v1/school/routines/${routineId}`
+        : `${BFF_URL}/api/v1/trainer/routines/${routineId}`;
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: 'Rutina eliminada' });
+      navigate(isSchoolContext ? '/school/routines' : '/trainer/routines');
+    } catch (err) {
+      toast({ title: 'Error', description: 'No se pudo eliminar la rutina.', variant: 'destructive' });
     }
   };
 
@@ -139,30 +169,35 @@ export default function TrainerRoutineDetail() {
       <div className="flex items-center justify-between">
         <Button 
           variant="ghost" 
-          onClick={() => navigate('/trainer/routines')} 
+          onClick={() => navigate(isSchoolContext ? '/school/routines' : '/trainer/routines')} 
           className="gap-2 -ml-2 text-muted-foreground hover:bg-transparent hover:text-primary transition-colors font-bold"
         >
           <ChevronLeft className="h-4 w-4" />
           VOLVER AL PANEL
         </Button>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="gap-2 h-10 border-primary/20 hover:bg-primary/5"
-            onClick={() => setIsModalOpen(true)}
-          >
-            <Pencil className="h-4 w-4" />
-            Editar
-          </Button>
-          <Button 
-            variant="destructive" 
-            size="sm" 
-            className="gap-2 h-10 shadow-lg shadow-destructive/20"
-          >
-            <Trash2 className="h-4 w-4" />
-            Eliminar
-          </Button>
+          {routine.scope !== 'global' && (
+            <>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2 h-10 border-primary/20 hover:bg-primary/5"
+                onClick={() => setIsModalOpen(true)}
+              >
+                <Pencil className="h-4 w-4" />
+                Editar
+              </Button>
+              <Button 
+                variant="destructive" 
+                size="sm" 
+                className="gap-2 h-10 shadow-lg shadow-destructive/20"
+                onClick={handleDelete}
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -338,59 +373,61 @@ export default function TrainerRoutineDetail() {
             </CardContent>
           </Card>
 
-          <div className="space-y-4">
-            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <History className="h-3 w-3" /> Historial de Uso
-            </h3>
-            {usageHistory.length === 0 ? (
-              <div className="p-6 text-center border rounded-2xl bg-accent/5">
-                <p className="text-xs text-muted-foreground font-medium italic">Esta rutina aún no ha sido asignada a ningún cliente.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {usageHistory.slice(0, 5).map((plan, i) => {
-                  const initials = plan.client_name?.charAt(0)?.toUpperCase() ?? '?';
-                  const isCompleted = plan.status === 'completed';
-                  return (
-                    <Card
-                      key={i}
-                      className="border-border/50 cursor-pointer hover:border-primary/40 hover:bg-accent/30 transition-all"
-                      onClick={() => setSelectedUsagePlan(plan)}
-                    >
-                      <CardContent className="p-4 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="h-9 w-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-black text-primary text-sm shrink-0">
-                            {plan.client_avatar
-                              ? <img src={plan.client_avatar} alt={plan.client_name} className="h-full w-full object-cover rounded-full" />
-                              : initials}
+          {!isSchoolContext && (
+            <div className="space-y-4">
+              <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <History className="h-3 w-3" /> Historial de Uso
+              </h3>
+              {usageHistory.length === 0 ? (
+                <div className="p-6 text-center border rounded-2xl bg-accent/5">
+                  <p className="text-xs text-muted-foreground font-medium italic">Esta rutina aún no ha sido asignada a ningún cliente.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {usageHistory.slice(0, 5).map((plan, i) => {
+                    const initials = plan.client_name?.charAt(0)?.toUpperCase() ?? '?';
+                    const isCompleted = plan.status === 'completed';
+                    return (
+                      <Card
+                        key={i}
+                        className="border-border/50 cursor-pointer hover:border-primary/40 hover:bg-accent/30 transition-all"
+                        onClick={() => setSelectedUsagePlan(plan)}
+                      >
+                        <CardContent className="p-4 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-9 w-9 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-black text-primary text-sm shrink-0">
+                              {plan.client_avatar
+                                ? <img src={plan.client_avatar} alt={plan.client_name} className="h-full w-full object-cover rounded-full" />
+                                : initials}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold leading-none truncate">{plan.client_name}</p>
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                {new Date(plan.session_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold leading-none truncate">{plan.client_name}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              {new Date(plan.session_date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </p>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isCompleted && (
+                              <span className="text-[9px] font-black uppercase tracking-wider text-green-600 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">
+                                ✓ Completada
+                              </span>
+                            )}
+                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {isCompleted && (
-                            <span className="text-[9px] font-black uppercase tracking-wider text-green-600 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">
-                              ✓ Completada
-                            </span>
-                          )}
-                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-            {usageHistory.length > 5 && (
-              <Button variant="ghost" className="w-full text-xs font-bold uppercase tracking-widest opacity-50">
-                Ver historial completo
-              </Button>
-            )}
-          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+              {usageHistory.length > 5 && (
+                <Button variant="ghost" className="w-full text-xs font-bold uppercase tracking-widest opacity-50">
+                  Ver historial completo
+                </Button>
+              )}
+            </div>
+          )}
 
           <div className="p-6 bg-accent/20 rounded-2xl space-y-3">
             <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
@@ -400,7 +437,7 @@ export default function TrainerRoutineDetail() {
             <Separator className="bg-border/20" />
             <div className="flex justify-between text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
               <span>Tipo</span>
-              <span>Plantilla Reutilizable</span>
+              <span>{isSchoolContext ? (routine.scope === 'global' ? 'Catálogo SportMaps' : 'Rutina del Gym') : 'Plantilla Reutilizable'}</span>
             </div>
           </div>
         </div>
@@ -412,6 +449,7 @@ export default function TrainerRoutineDetail() {
         routine={routine}
         onSave={handleSave}
         isLoading={isSaving}
+        context={isSchoolContext ? 'school' : 'trainer'}
       />
 
       <QuickUseRoutineModal
@@ -423,6 +461,7 @@ export default function TrainerRoutineDetail() {
           fetchUsageHistory();
           fetchRoutineDetail();
         }}
+        useEndpoint={isSchoolContext ? 'school' : 'trainer'}
       />
 
       <SessionUsageDetailModal

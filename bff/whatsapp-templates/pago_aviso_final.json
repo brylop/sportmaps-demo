@@ -1,0 +1,20 @@
+{
+  "name": "pago_aviso_final",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "{{1}}, este es el último recordatorio automático por la mensualidad de {{2}} por {{3}}. A partir de mañana el caso pasa a gestión directa de {{4}}. Puedes ponerte al día desde el botón.",
+      "example": {
+        "body_text": [["Carolina", "Samuel", "$150.000", "Academia Tigres FC"]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        { "type": "URL", "text": "Pagar ahora", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/eF7zM4pS"] }
+      ]
+    }
+  ]
+}

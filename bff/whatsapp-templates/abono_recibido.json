@@ -1,0 +1,20 @@
+{
+  "name": "abono_recibido",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Recibimos tu abono de {{1}} a la mensualidad de {{2}}. Saldo pendiente: {{3}} con fecha límite {{4}}. Puedes ver el detalle en el botón.",
+      "example": {
+        "body_text": [["$75.000", "Samuel", "$75.000", "20 de agosto"]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        { "type": "URL", "text": "Ver detalle", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/jK2vP8rU"] }
+      ]
+    }
+  ]
+}

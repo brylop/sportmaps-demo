@@ -47,6 +47,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+bff/*.log
+bff/tsc_output.txt
+bff/bff_build_err.txt
 dump.rdb
 
 # System files

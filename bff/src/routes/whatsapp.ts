@@ -31,6 +31,7 @@ import {
     type WhatsAppIntegration,
     type ParsedInboundMessage,
 } from '../services/whatsapp.service';
+import { runBotTurn } from '../services/whatsapp-bot.service';
 
 const router = Router();
 
@@ -141,26 +142,29 @@ async function processInboundMessage(req: Request, msg: ParsedInboundMessage): P
 }
 
 /**
- * Punto de entrada del bot (WA2). Aquí entrará:
- *  - verificación de identidad (OTP por email si el contacto no está identificado)
- *  - DeepSeek V3 con function-calling sobre los 5 intents core
- *  - modo asistido (crea draft para aprobación) vs auto (envía directo)
+ * Punto de entrada del bot (WA2):
+ *  - identificación OTP por email si el contacto no está identificado
+ *  - Gemini (fallback DeepSeek) con function-calling sobre los intents
+ *  - modo asistido (draft para aprobación) vs auto (envía directo)
  *
- * Se deja como stub explícito para no enviar respuestas sin tool exitoso
- * (decisión #6: cero alucinaciones). No responde nada hasta WA2.
+ * Solo procesa mensajes de texto por ahora; tipos ricos (imagen, audio…) se
+ * ignoran en el bot pero ya quedaron guardados por la ingesta.
  */
 async function handleBotTurn(
     req: Request,
-    _integration: WhatsAppIntegration,
+    integration: WhatsAppIntegration,
     conversationId: string,
     msg: ParsedInboundMessage,
 ): Promise<void> {
-    req.log?.info(
-        { conversationId, type: msg.type, contactWaId: msg.contactWaId },
-        'WhatsApp: inbound stored. Bot turn pending (WA2: DeepSeek + OTP + intents).',
-    );
-    // TODO(WA2): encolar en pg-boss → identificación OTP → DeepSeek tool-calling
-    // → draft (modo asistido) o envío directo (modo auto).
+    if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'button') {
+        req.log?.info({ conversationId, type: msg.type }, 'WhatsApp: tipo no textual, bot no responde');
+        return;
+    }
+    try {
+        await runBotTurn(integration, conversationId, msg.contactWaId, msg.textBody);
+    } catch (err: any) {
+        req.log?.error({ err: err?.message || err, conversationId }, 'WhatsApp: runBotTurn failed');
+    }
 }
 
 export default router;

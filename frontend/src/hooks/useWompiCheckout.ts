@@ -123,7 +123,7 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
             amountInCents: params.amountInCents,
             customerEmail: params.customerEmail || user?.email || '',
             customerName: params.customerName || profile?.full_name || 'Cliente',
-            customerPhone: params.customerPhone,
+            customerPhone: params.customerPhone || profile?.phone || undefined,
             schoolId: params.schoolId,
             schoolName: params.schoolName,
             studentName: params.studentName,
@@ -155,6 +155,9 @@ export function useWompiCheckout({ onSuccess, onError, onClosed }: UseWompiCheck
                 feePct: number;
             }>('/api/v1/payments/create-session', {
                 paymentId: payload.paymentId,
+                // Este flujo abre el Widget de Wompi → el link DEBE ser wompi, si no
+                // create-session cae al default (MP) y wompi-sign no encuentra la ref.
+                preferredProvider: 'wompi',
                 ...(payload.enrollmentId ? { enrollmentId: payload.enrollmentId } : {}),
             });
 

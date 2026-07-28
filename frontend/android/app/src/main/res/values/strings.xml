@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SportMaps</string>
+    <string name="title_activity_main">SportMaps</string>
+    <string name="package_name">co.sportmaps.app</string>
+    <string name="custom_url_scheme">co.sportmaps.app</string>
+</resources>

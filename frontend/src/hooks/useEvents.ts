@@ -95,6 +95,7 @@ export function useEvents() {
         .from('events')
         .select('id, title, slug, event_date, start_time, city, sport, capacity, image_url, price, status, registrations_open, event_type')
         .eq('status', 'active')
+        .eq('visibility', 'public')
         .eq('registrations_open', true)
         .gte('event_date', new Date().toISOString().split('T')[0]);
 

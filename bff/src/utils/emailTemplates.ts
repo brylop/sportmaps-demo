@@ -128,6 +128,116 @@ export const BrandedEmailTemplates = {
         };
     },
 
+    // ── Glosas (aclaraciones de comprobante) ─────────────────────────────────
+    /** Glosa creada → acudiente: necesita aclarar su comprobante. */
+    glosaCreada: async (params: {
+        parentName: string; concept: string; amount: string; reasonText: string;
+        respondsBy: string; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Tu comprobante necesita una aclaración — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Tu comprobante necesita una aclaración',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `
+                    <p>Revisamos el comprobante de <strong>${escapeHtml(params.concept)}</strong>
+                    (${escapeHtml(params.amount)}) y necesitamos que aclares un detalle:</p>
+                    <table cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="background-color: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin: 16px 0;">
+                        <tr><td style="padding: 16px;">
+                            <p style="margin: 4px 0;">${escapeHtml(params.reasonText)}</p>
+                            <p style="margin: 8px 0 0;"><strong>Responde antes del ${escapeHtml(params.respondsBy)}.</strong></p>
+                        </td></tr>
+                    </table>
+                `,
+                cta: { label: 'Responder ahora', url: params.link },
+                closingHtml: 'Si no respondes a tiempo, el pago quedará pendiente.',
+            }),
+        };
+    },
+
+    /** Acudiente respondió → dueño de la escuela: lista para conciliar. */
+    glosaRespondida: async (params: {
+        parentName: string; concept: string; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Aclaración recibida — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Una aclaración está lista para conciliar',
+                greeting: 'Hola,',
+                bodyHtml: `<p><strong>${escapeHtml(params.parentName)}</strong> respondió la aclaración
+                    del comprobante de <strong>${escapeHtml(params.concept)}</strong>. Ya puedes conciliarla.</p>`,
+                cta: { label: 'Ir a conciliar', url: params.link },
+            }),
+        };
+    },
+
+    /** Glosa aceptada → acudiente: pago aprobado. */
+    glosaAceptada: async (params: {
+        parentName: string; concept: string; amount: string; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Pago aprobado — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: '¡Pago aprobado!',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `<p>Revisamos tu aclaración y tu pago de
+                    <strong>${escapeHtml(params.concept)}</strong> (${escapeHtml(params.amount)})
+                    quedó <span style="color:#059669;font-weight:600;">aprobado</span>. ¡Gracias!</p>`,
+                cta: { label: 'Ver mis pagos', url: params.link },
+            }),
+        };
+    },
+
+    /** Glosa ratificada (o vencida) → acudiente: pago sigue pendiente. */
+    glosaRatificada: async (params: {
+        parentName: string; concept: string; amount: string; link: string; schoolId: string | null;
+        expired?: boolean;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Tu pago sigue pendiente — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Tu pago sigue pendiente',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `<p>${params.expired
+                    ? 'No recibimos tu aclaración a tiempo, así que'
+                    : 'Revisamos tu aclaración pero'} el pago de
+                    <strong>${escapeHtml(params.concept)}</strong> (${escapeHtml(params.amount)})
+                    <strong>sigue pendiente</strong>. Comunícate con la escuela para regularizarlo.</p>`,
+                cta: { label: 'Ver mis pagos', url: params.link },
+            }),
+        };
+    },
+
+    /** Recordatorio: la aclaración vence mañana (última oportunidad). */
+    glosaVenceManana: async (params: {
+        parentName: string; concept: string; respondsBy: string; link: string; schoolId: string | null;
+    }): Promise<{ subject: string; html: string }> => {
+        const branding = await resolveSchoolBranding(params.schoolId);
+        return {
+            subject: `Última oportunidad para aclarar tu comprobante — ${branding.schoolName.replace(/&amp;/g, '&')}`,
+            html: buildBrandedEmail({
+                branding,
+                title: 'Tu aclaración vence mañana',
+                greeting: `Hola ${escapeHtml(params.parentName)},`,
+                bodyHtml: `<p>Te recordamos que la aclaración del comprobante de
+                    <strong>${escapeHtml(params.concept)}</strong> vence
+                    <strong>${escapeHtml(params.respondsBy)}</strong>. Si no respondes, el pago
+                    quedará pendiente.</p>`,
+                cta: { label: 'Responder ahora', url: params.link },
+                closingHtml: 'Es la última oportunidad antes de que el plazo se cierre.',
+            }),
+        };
+    },
+
     /**
      * Bienvenida tras registrarse. Sin schoolId (usuario nuevo sin escuela aún).
      */

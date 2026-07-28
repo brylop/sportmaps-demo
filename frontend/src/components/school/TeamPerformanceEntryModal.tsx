@@ -12,10 +12,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { NumberStepper } from '@/components/ui/number-stepper';
-import { Loader2, Activity, AlertCircle, Users } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loader2, Activity, AlertCircle, Users, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useTeamPerformanceRoster, useCreatePerformanceEntries } from '@/hooks/usePerformanceData';
-import type { MetricCategory } from '@/lib/school/performanceQueries';
+import { computeMetricBand, type MetricBand, type SportMetricDefinition } from '@/lib/school/performanceQueries';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
 interface TeamPerformanceEntryModalProps {
   open: boolean;
@@ -25,15 +30,49 @@ interface TeamPerformanceEntryModalProps {
   teamName: string;
 }
 
-const CATEGORY_LABEL: Record<MetricCategory, string> = {
-  physical: 'Físico',
-  technical: 'Técnico',
-  tactical: 'Táctico',
-  attendance: 'Asistencia',
-};
-
 /** key = `${subject_id}:${metric_key}` */
 type GridValues = Record<string, number | ''>;
+
+const SUBCATEGORY_ORDER = [
+  'tecnica_gmb_gma',
+  'tecnica_saque',
+  'tecnica_remate_bloqueo',
+  'fisico',
+  'tactica',
+  'general',
+];
+
+const SUBCATEGORY_LABEL: Record<string, string> = {
+  tecnica_gmb_gma: 'Recepción (GMB/GMA)',
+  tecnica_saque: 'Saque',
+  tecnica_remate_bloqueo: 'Remate y Bloqueo',
+  fisico: 'Físico',
+  tactica: 'Táctica',
+  general: 'General',
+};
+
+const BAND_DOT: Record<NonNullable<MetricBand>, string> = {
+  green: 'bg-green-500',
+  yellow: 'bg-amber-500',
+  red: 'bg-red-500',
+};
+
+function groupBySubcategory(metrics: SportMetricDefinition[]) {
+  const groups = new Map<string, SportMetricDefinition[]>();
+  for (const m of metrics) {
+    const key = m.subcategory ?? 'general';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(m);
+  }
+  // Ordena según SUBCATEGORY_ORDER; lo que no esté en la lista va al final
+  return new Map(
+    [...groups.entries()].sort((a, b) => {
+      const ia = SUBCATEGORY_ORDER.indexOf(a[0]);
+      const ib = SUBCATEGORY_ORDER.indexOf(b[0]);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    })
+  );
+}
 
 export function TeamPerformanceEntryModal({
   open,
@@ -48,9 +87,14 @@ export function TeamPerformanceEntryModal({
 
   const [values, setValues] = useState<GridValues>({});
   const [recordedAt, setRecordedAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
 
-  const metrics = data?.metrics.filter((m) => m.is_active) ?? [];
+  const allMetrics = data?.metrics.filter((m) => m.is_active) ?? [];
   const subjects = data?.subjects ?? [];
+  const grouped = useMemo(() => groupBySubcategory(allMetrics), [allMetrics]);
+  const subcategoryKeys = useMemo(() => [...grouped.keys()], [grouped]);
+  const currentSubcategory = activeSubcategory ?? subcategoryKeys[0] ?? 'general';
+  const metrics = grouped.get(currentSubcategory) ?? [];
 
   const cellKey = (subjectId: string, metricKey: string) => `${subjectId}:${metricKey}`;
 
@@ -76,12 +120,14 @@ export function TeamPerformanceEntryModal({
   const handleClose = () => {
     setValues({});
     setRecordedAt(new Date().toISOString().split('T')[0]);
+    setActiveSubcategory(null);
     onClose();
   };
 
   const handleSave = async () => {
+    // Guarda TODAS las métricas con valor, de todas las pestañas, no solo la activa
     const entries = subjects.flatMap((s) =>
-      metrics
+      allMetrics
         .filter((m) => {
           const v = values[cellKey(s.subject_id, m.metric_key)];
           return v !== '' && v !== undefined;
@@ -101,7 +147,7 @@ export function TeamPerformanceEntryModal({
     }
 
     try {
-      await createEntries.mutateAsync(entries);
+      await createEntries.mutateAsync({ entries, teamId });
       toast({
         title: '✅ Rendimiento del equipo registrado',
         description: `${entries.length} registro(s) para ${athletesWithDataCount} atleta(s).`,
@@ -114,7 +160,7 @@ export function TeamPerformanceEntryModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -141,7 +187,7 @@ export function TeamPerformanceEntryModal({
               {data?.message ?? 'Esta escuela aún no tiene un deporte asignado.'}
             </p>
           </div>
-        ) : metrics.length === 0 ? (
+        ) : allMetrics.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <AlertCircle className="h-8 w-8 text-amber-500" />
             <p className="text-sm text-muted-foreground">No hay métricas activas para este deporte todavía.</p>
@@ -153,22 +199,51 @@ export function TeamPerformanceEntryModal({
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 py-3 shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 py-3 shrink-0">
               <Label className="shrink-0">Fecha del registro</Label>
-              <Input
-                type="date"
-                className="w-40"
-                value={recordedAt}
-                onChange={(e) => setRecordedAt(e.target.value)}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-44 justify-start text-left font-normal bg-background border-input">
+                    <Calendar className="mr-2 h-4 w-4 opacity-75" />
+                    {recordedAt ? (
+                      format(new Date(recordedAt + 'T12:00:00'), 'PPP', { locale: es })
+                    ) : (
+                      <span>Seleccionar fecha</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 rounded-xl border-border/60 shadow-xl" align="start">
+                  <CalendarPicker
+                    mode="single"
+                    selected={recordedAt ? new Date(recordedAt + 'T12:00:00') : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        setRecordedAt(format(date, 'yyyy-MM-dd'));
+                      }
+                    }}
+                    locale={es}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
               {filledCount > 0 && (
-                <Badge variant="outline" className="gap-1.5 text-green-600 border-green-500/30 bg-green-500/5 ml-auto">
-                  {athletesWithDataCount} de {subjects.length} atletas · {filledCount} registro(s) listos
+                <Badge variant="outline" className="gap-1.5 text-green-600 border-green-500/30 bg-green-500/5 sm:ml-auto">
+                  {athletesWithDataCount} de {subjects.length} atletas · {filledCount} registro(s) listos (todas las pestañas)
                 </Badge>
               )}
             </div>
 
-            <div className="flex-1 overflow-auto rounded-lg border">
+            <Tabs value={currentSubcategory} onValueChange={setActiveSubcategory} className="shrink-0">
+              <TabsList className="flex-wrap h-auto">
+                {subcategoryKeys.map((key) => (
+                  <TabsTrigger key={key} value={key} className="text-xs">
+                    {SUBCATEGORY_LABEL[key] ?? key} ({grouped.get(key)?.length ?? 0})
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            <div className="flex-1 overflow-auto rounded-lg border mt-3">
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                   <tr>
@@ -178,9 +253,6 @@ export function TeamPerformanceEntryModal({
                     {metrics.map((m) => (
                       <th key={m.metric_key} className="text-center font-semibold px-2 py-2 min-w-[110px] border-b border-l">
                         <div className="flex flex-col items-center gap-0.5">
-                          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                            {CATEGORY_LABEL[m.category as MetricCategory] ?? ''}
-                          </span>
                           <span>{m.display_name}</span>
                           {m.unit && <span className="text-[10px] font-normal text-muted-foreground">({m.unit})</span>}
                         </div>
@@ -197,16 +269,22 @@ export function TeamPerformanceEntryModal({
                       {metrics.map((m) => {
                         const key = cellKey(s.subject_id, m.metric_key);
                         const latest = data.latest_values[key];
+                        const currentVal = values[key];
+                        const liveBand = computeMetricBand(currentVal, m.thresholds);
+                        const band = liveBand ?? latest?.band ?? null;
                         return (
                           <td key={m.metric_key} className="px-2 py-1.5 border-b border-l">
                             <div className="flex flex-col items-center gap-0.5">
-                              <NumberStepper
-                                value={values[key] ?? ''}
-                                onChange={(val) => setCell(s.subject_id, m.metric_key, val)}
-                                min={0}
-                                max={m.data_type === 'rating' ? 10 : undefined}
-                                step={1}
-                              />
+                              <div className="flex items-center gap-1">
+                                {band && <span className={`h-1.5 w-1.5 rounded-full ${BAND_DOT[band]}`} />}
+                                <NumberStepper
+                                  value={currentVal ?? ''}
+                                  onChange={(val) => setCell(s.subject_id, m.metric_key, val)}
+                                  min={m.min_value ?? 0}
+                                  max={m.max_value ?? undefined}
+                                  step={1}
+                                />
+                              </div>
                               {latest && (
                                 <span className="text-[9px] text-muted-foreground">
                                   último: {latest.value}
@@ -230,7 +308,7 @@ export function TeamPerformanceEntryModal({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={createEntries.isPending || metrics.length === 0 || subjects.length === 0 || filledCount === 0}
+            disabled={createEntries.isPending || allMetrics.length === 0 || subjects.length === 0 || filledCount === 0}
           >
             {createEntries.isPending ? (
               <>

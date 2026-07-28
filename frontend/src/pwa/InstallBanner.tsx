@@ -1,15 +1,27 @@
 import { useState, useEffect } from 'react'
 
 export function InstallBanner() {
-  const [prompt, setPrompt] = useState<any>(null)
+  // Estado inicial = evento capturado por el script inline del index.html
+  // (Chrome Android puede dispararlo antes de que monte este componente).
+  const [prompt, setPrompt] = useState<any>(() => (window as any).__installPrompt ?? null)
 
   useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault()
-      setPrompt(e)
+    // Reconciliar por si el evento llegó entre el render inicial y este efecto.
+    const stashed = (window as any).__installPrompt
+    if (stashed) setPrompt(stashed)
+
+    const onCanInstall = () => setPrompt((window as any).__installPrompt ?? null)
+    const onBeforePrompt = (e: any) => { e.preventDefault(); setPrompt(e) }
+    const onInstalled = () => setPrompt(null)
+
+    window.addEventListener('pwa:can-install', onCanInstall)
+    window.addEventListener('beforeinstallprompt', onBeforePrompt)
+    window.addEventListener('appinstalled', onInstalled)
+    return () => {
+      window.removeEventListener('pwa:can-install', onCanInstall)
+      window.removeEventListener('beforeinstallprompt', onBeforePrompt)
+      window.removeEventListener('appinstalled', onInstalled)
     }
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
   if (!prompt) return null
@@ -23,7 +35,7 @@ export function InstallBanner() {
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => { prompt.prompt(); setPrompt(null) }}
+          onClick={() => { prompt.prompt(); (window as any).__installPrompt = null; setPrompt(null) }}
           className="bg-sky-500 hover:bg-sky-600 text-white text-sm px-3 py-1.5 rounded-lg font-medium transition-colors"
         >
           Instalar

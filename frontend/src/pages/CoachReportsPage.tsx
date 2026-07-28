@@ -75,6 +75,7 @@ interface CoachReport {
   team: TeamInfo;
   roster: RosterPlayer[];
   results: MatchResult[];
+  results_played_count?: number;
   attendance: AttendanceRow[];
   scorers: ScorerRow[];
 }
@@ -137,7 +138,7 @@ function ResultRow({ r, index }: { r: MatchResult; index: number }) {
     win: { label: 'Victoria', icon: ChevronUp, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/20', border: 'border-green-200 dark:border-green-800' },
     loss: { label: 'Derrota', icon: ChevronDown, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-200 dark:border-red-800' },
     draw: { label: 'Empate', icon: Minus, color: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-900/20', border: 'border-yellow-200 dark:border-yellow-800' },
-    unknown: { label: '—', icon: Minus, color: 'text-muted-foreground', bg: 'bg-muted/30', border: 'border-border' },
+    unknown: { label: 'Programado', icon: Minus, color: 'text-muted-foreground', bg: 'bg-muted/30', border: 'border-border' },
   }[outcome];
 
   const OutcomeIcon = config.icon;
@@ -281,7 +282,7 @@ export default function CoachReportsPage() {
 
     const kpis = [
       { label: 'Jugadores en Nómina', value: totalPlayers },
-      { label: 'Partidos Jugados', value: results.length },
+      { label: 'Partidos Jugados', value: report?.results_played_count ?? results.length },
       { label: 'Asistencia Promedio', value: `${avgAttendance}%` },
       { label: 'Victorias', value: wins },
       { label: 'Empates', value: draws },
@@ -567,7 +568,7 @@ export default function CoachReportsPage() {
             <KpiCard
               icon={Swords}
               label="Partidos"
-              value={results.length}
+              value={report?.results_played_count ?? results.length}
               iconColor="text-purple-600"
             />
             <KpiCard

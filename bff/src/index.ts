@@ -16,6 +16,7 @@ import reportsRouter from './routes/reports';
 import wompiRouter from './routes/wompi';
 import { webhookRouter as mpWebhookRouter, paymentsRouter as mpPaymentsRouter } from './routes/mercadopago';
 import paymentProvidersRouter from './routes/payment-providers.routes';
+import reconciliationRouter from './routes/reconciliation.routes';
 import invoicingRouter from './routes/invoicing.routes';
 import attendanceRouter from './routes/attendance';
 import schoolContextRouter from './routes/school-context';
@@ -27,13 +28,14 @@ import explorarRoutes from './routes/explorar.routes';
 import favoritosRoutes from './routes/favoritos.routes';
 import schoolStaffRouter from './routes/school-staff';
 import paymentsRouter from './routes/payments.routes';
+import glosasRouter from './routes/glosas.routes';
 import adminPaymentsRouter from './routes/admin-payments.routes';
 import paymentTokensRouter from './routes/payment-tokens.routes';
 import recurringRouter from './routes/recurring.routes';
 import { vendorPayoutsRouter, adminPayoutsRouter } from './routes/vendor-payouts.routes';
 import vendorBankAccountsRouter from './routes/vendor-bank-accounts.routes';
 import shippingRouter, { shippingWebhookRouter, vendorShippingRouter } from './routes/shipping.routes';
-import { requireTrainerAuth, requireAthleteAuth } from './middlewares/authMiddleware';
+import { requireTrainerAuth, requireAthleteAuth, requireAuth } from './middlewares/authMiddleware';
 import { requireCsrfHeader } from './middlewares/csrfHeader';
 import systemRouter from './routes/system';
 import whatsappWebhookRouter from './routes/whatsapp';
@@ -54,6 +56,7 @@ import vendorServicesRouter from './routes/vendor-services.routes';
 import marketplaceOrdersRouter from './routes/marketplace-orders.routes';
 import ogPreviewRouter from './routes/og-preview.routes';
 import certificatesRouter from './routes/certificates';
+import equipmentActaRouter from './routes/equipment.route';
 import joinQrRouter from './routes/join-qr';
 import admsRouter from './routes/access-adms';
 import accessApiRouter from './routes/access-api';
@@ -73,6 +76,8 @@ import athleteStatsRouter from './routes/athlete/stats';
 import athleteTrainingRouter from './routes/athlete/training';
 import athleteBiomechRouter from './routes/athlete/biomech';
 import schoolPerformanceRouter from './routes/school/performance';
+import schoolCompetitionResultsRouter from './routes/school/competition-results';
+import schoolRoutinesRouter from './routes/school/routines';
 import athletePerformanceRouter from './routes/athlete/performance';
 import bulkUploadRouter from './routes/athletes/bulkUpload';
 import meRouter from './routes/me.routes';
@@ -80,6 +85,7 @@ import upgradeRequestsRouter from './routes/upgrade-requests.routes';
 import schoolsRouter from './routes/schools.routes';
 import customDomainsRouter from './routes/custom-domains.routes';
 import devicesRouter from './routes/devices.routes';
+import internalNotificationsRouter from './routes/internal-notifications.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -248,6 +254,7 @@ app.use('/api/v1/invoicing', generalLimiter, invoicingRouter);
 app.use('/api/v1/attendance', generalLimiter, attendanceRouter);
 app.use('/api/v1/school/context', generalLimiter, schoolContextRouter);
 app.use('/api/v1/me', generalLimiter, meRouter);
+app.use('/api/v1/equipment/assignments', generalLimiter, equipmentActaRouter);
 app.use('/api/v1/upgrade-requests', generalLimiter, upgradeRequestsRouter);
 // Schools: branding (white-label), settings. Rate-limit propio del router
 // (10/hora por escuela en branding). generalLimiter actua como segundo cap.
@@ -258,6 +265,10 @@ app.use('/api/v1/schools', generalLimiter, customDomainsRouter);
 // Devices (Fase 6.1 — base mobile). Web/PWA tambien lo usa para tracking
 // de adopcion. CSRF se aplica dentro del router para state-changing.
 app.use('/api/v1/devices', generalLimiter, devicesRouter);
+// Endpoint INTERNO del despachador de notificaciones (lo llama pg_net desde la
+// DB). Sin JWT: se valida por header secreto (fail-closed). Sin generalLimiter:
+// el disparo es 1 por notificación y el claim es idempotente por lease.
+app.use('/internal/notifications', internalNotificationsRouter);
 app.use('/api/v1/offerings', generalLimiter, offeringsRouter);
 app.use('/api/v1/sessions', generalLimiter, sessionBookingsRouter);
 app.use('/api/v1/session-bookings', generalLimiter, sessionBookingsRouter);
@@ -266,6 +277,9 @@ app.use('/api/v1/billing-events', generalLimiter, billingEventsRouter);
 app.use('/api/explorar',  generalLimiter, explorarRoutes);
 app.use('/api/favoritos', generalLimiter, favoritosRoutes);
 app.use('/api/v1/school-staff', generalLimiter, schoolStaffRouter);
+// Glosas: montado ANTES de /api/v1/payments para que la ruta más específica gane.
+app.use('/api/v1/payments/glosas', paymentLimiter, glosasRouter);
+app.use('/api/v1/payments/reconciliation', paymentLimiter, reconciliationRouter);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin/payments', generalLimiter, adminPaymentsRouter);
 // payment-tokens y recurring: state-changing → CSRF header + cap especifico
@@ -285,6 +299,8 @@ app.use('/api/v1/organizer', generalLimiter, organizerRouter);
 app.use('/api/v1/events', generalLimiter, eventsRouter);
 app.use('/api/v1/school/delegations', generalLimiter, schoolDelegationsRouter);
 app.use('/api/v1/school', generalLimiter, schoolPerformanceRouter);
+app.use('/api/v1/school', generalLimiter, schoolCompetitionResultsRouter);
+app.use('/api/v1/school', generalLimiter, requireAuth, schoolRoutinesRouter);
 app.use('/api/v1/templates', generalLimiter, templatesRouter);
 app.use('/api/v1/polls', generalLimiter, pollsRouter);
 

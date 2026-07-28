@@ -80,6 +80,8 @@ export type FeatureKey =
   | 'reports_basic'
   | 'analytics_advanced'
   | 'finance_advanced'
+  // Dotación e inventario (incluido desde Pro)
+  | 'equipment_module'
   // Médico / rendimiento
   | 'medical_history'
   | 'physical_evaluations'
@@ -373,6 +375,13 @@ export const ADDONS: Record<AddonKey, AddonDefinition> = {
 // ============================================================
 
 export const FEATURES: Record<FeatureKey, FeatureDefinition> = {
+  // ---------- Dotación e inventario (incluido desde Escuela Pro) ----------
+  equipment_module: {
+    key: 'equipment_module',
+    kind: 'tier',
+    label: 'Dotación e inventario',
+    minTier: 'profesional',
+  },
   // ---------- Núcleo: límites cuantitativos ----------
   athletes: {
     key: 'athletes',

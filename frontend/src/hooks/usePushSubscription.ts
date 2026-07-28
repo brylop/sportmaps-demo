@@ -40,17 +40,30 @@ export function usePushSubscription() {
       }
 
       const registration = await navigator.serviceWorker.ready;
+      const appServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
-        await saveSubscription(existing);
-        setStatus('granted');
-        toast.success('Notificaciones push ya activadas');
-        return true;
+        // Si la suscripción del navegador fue creada con OTRA clave VAPID
+        // (rotación de llaves), el envío falla con 403. Detectarlo comparando
+        // la applicationServerKey y re-suscribir con la clave actual.
+        const existingKey = existing.options?.applicationServerKey;
+        const existingBytes = existingKey ? new Uint8Array(existingKey) : null;
+        const sameKey = !!existingBytes
+          && existingBytes.length === appServerKey.length
+          && existingBytes.every((b, i) => b === appServerKey[i]);
+        if (sameKey) {
+          await saveSubscription(existing);
+          setStatus('granted');
+          toast.success('Notificaciones push ya activadas');
+          return true;
+        }
+        await existing.unsubscribe(); // clave distinta → rotar
       }
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: appServerKey,
       });
 
       await saveSubscription(subscription);

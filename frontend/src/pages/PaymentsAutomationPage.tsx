@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { NumberStepper } from '@/components/ui/number-stepper';
 import { CheckCircle2, Clock, CreditCard, TrendingUp, Download, Eye, EyeOff, Loader2, XCircle, Save, Bell, DollarSign, Shield, Smartphone, Building2, AlertTriangle, Trophy, Zap, Banknote } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
@@ -27,6 +28,10 @@ import { SportMapsPaySettings } from '@/components/settings/SportMapsPaySettings
 import { RegisterCashPaymentModal } from '@/components/payment/RegisterCashPaymentModal';
 import { ApprovePaymentMethodSheet } from '@/components/payment/ApprovePaymentMethodSheet';
 import { bffClient } from '@/lib/api/bffClient';
+import { GlosaConciliationDialog } from '@/components/payment/GlosaConciliationDialog';
+import { ReconciliationTab } from '@/components/payment/ReconciliationTab';
+import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
+import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
 
 
 interface BillingSettings {
@@ -55,6 +60,13 @@ interface BillingSettings {
   min_installment_amount: number;
   installment_require_proof: boolean;
   billing_cycle_type: 'prorated' | 'fixed_calendar' | 'rolling_30';
+  early_payment_discount_enabled: boolean;
+  early_payment_discount_days: number;
+  early_payment_discount_percentage: number;
+  // Validación automática de comprobantes (Fase 5)
+  auto_approve_enabled: boolean;
+  auto_approve_max_amount: number;
+  auto_glosa_enabled: boolean;
 }
 
 
@@ -73,6 +85,12 @@ const DEFAULT_BILLING: Omit<BillingSettings, 'school_id'> = {
   min_installment_amount: 10000,
   installment_require_proof: true,
   billing_cycle_type: 'prorated',
+  early_payment_discount_enabled: false,
+  early_payment_discount_days: 5,
+  early_payment_discount_percentage: 0,
+  auto_approve_enabled: false,
+  auto_approve_max_amount: 0,
+  auto_glosa_enabled: false,
 };
 
 
@@ -105,6 +123,24 @@ function OcrMatchBadge({ payment }: { payment: { amount: number; ocr_amount?: nu
     <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-300 py-0 h-5 font-semibold">
       <AlertTriangle className="h-2.5 w-2.5 mr-1" />
       OCR: {formatCurrency(payment.ocr_amount as number)} ≠ esperado
+    </Badge>
+  );
+}
+
+// Badge read-only del veredicto de reglas (modo sombra, Fase 2). Informativo:
+// NO cambia la decisión de aprobar/rechazar — sirve para calibrar antes de activar.
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
+  if (!verdict) return null;
+  const cfg: Record<string, { label: string; className: string }> = {
+    verde: { label: 'Veredicto: verde', className: 'bg-green-50 text-green-700 border-green-300' },
+    amarillo: { label: 'Veredicto: amarillo', className: 'bg-amber-50 text-amber-700 border-amber-300' },
+    rojo: { label: 'Veredicto: rojo', className: 'bg-red-50 text-red-700 border-red-300' },
+  };
+  const c = cfg[verdict];
+  if (!c) return null;
+  return (
+    <Badge variant="outline" title="Veredicto automático de reglas (informativo, no decide)" className={`text-[10px] py-0 h-5 ${c.className}`}>
+      {c.label}
     </Badge>
   );
 }
@@ -142,6 +178,7 @@ interface PaymentTransaction {
   athlete_name?: string | null;
   parent_responsible?: string | null;
   plan?: { name: string } | null;
+  early_payment_discount_applied?: number | null;
   // OCR del comprobante manual (LLM Vision). Null si no se logro leer o si es Wompi.
   ocr_amount?: number | null;
   ocr_currency?: string | null;
@@ -149,6 +186,11 @@ interface PaymentTransaction {
   ocr_bank?: string | null;
   ocr_reference?: string | null;
   ocr_provider?: string | null;
+  // Veredicto de reglas (modo sombra, Fase 2). Informativo.
+  receipt_verdict?: string | null;
+  ocr_destination?: string | null;
+  receipt_verdict_reasons?: unknown[] | null;
+  reconciliation_status?: string | null;
 }
 
 interface TeamSubscription {
@@ -181,6 +223,10 @@ export default function PaymentsAutomationPage() {
     open: false, url: '', student: '', amount: 0,
   });
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Glosas (aclaraciones) de la escuela.
+  const [glosas, setGlosas] = useState<Glosa[]>([]);
+  const [conciliatingGlosa, setConciliatingGlosa] = useState<Glosa | null>(null);
+  const [creatingGlosaPayment, setCreatingGlosaPayment] = useState<PaymentTransaction | null>(null);
   const [billing, setBilling] = useState<BillingSettings | null>(null);
   const [billingSaving, setBillingSaving] = useState(false);
   const [showSensitive, setShowSensitive] = useState(false);
@@ -217,8 +263,19 @@ export default function PaymentsAutomationPage() {
       loadBillingSettings();
       fetchPayments();
       loadTeamSubscriptions();
+      fetchGlosas();
     }
   }, [schoolId, activeBranchId]);
+
+  const fetchGlosas = async () => {
+    if (!schoolId) return;
+    try {
+      const rows = await listSchoolGlosas();
+      setGlosas(rows);
+    } catch {
+      setGlosas([]);
+    }
+  };
 
   const loadBillingSettings = async () => {
     if (!schoolId) return;
@@ -256,6 +313,12 @@ export default function PaymentsAutomationPage() {
         max_installments_per_payment: billing.max_installments_per_payment,
         min_installment_amount: billing.min_installment_amount,
         installment_require_proof: billing.installment_require_proof,
+        early_payment_discount_enabled: billing.early_payment_discount_enabled,
+        early_payment_discount_days: billing.early_payment_discount_days,
+        early_payment_discount_percentage: billing.early_payment_discount_percentage,
+        auto_approve_enabled: billing.auto_approve_enabled,
+        auto_approve_max_amount: billing.auto_approve_max_amount,
+        auto_glosa_enabled: billing.auto_glosa_enabled,
       };
 
       const { error } = await supabase.from('school_settings').upsert(payload, { onConflict: 'school_id' });
@@ -279,9 +342,10 @@ export default function PaymentsAutomationPage() {
         .select(`
           id, amount, amount_paid, status, created_at, payment_method, payment_type,
           receipt_url, concept, child_id, parent_id, user_id, team_id,
-          unregistered_athlete_id,
+          unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
+          receipt_verdict, ocr_destination, receipt_verdict_reasons, reconciliation_status,
           parent:profiles!payments_parent_id_fkey(full_name, email),
           user:profiles!payments_user_id_fkey(full_name, email),
           child:children!payments_child_id_fkey(full_name),
@@ -332,9 +396,14 @@ export default function PaymentsAutomationPage() {
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
         unregistered_athlete_id: p.unregistered_athlete_id,
+        early_payment_discount_applied: p.early_payment_discount_applied,
         ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
         ocr_date: p.ocr_date, ocr_bank: p.ocr_bank,
         ocr_reference: p.ocr_reference, ocr_provider: p.ocr_provider,
+        receipt_verdict: p.receipt_verdict ?? null,
+        ocr_destination: p.ocr_destination ?? null,
+        receipt_verdict_reasons: p.receipt_verdict_reasons ?? null,
+        reconciliation_status: p.reconciliation_status ?? null,
         period_year:  p.period_year ?? null,
         period_month: p.period_month ?? null,
         period_label: monthLabel(p.period_year, p.period_month),
@@ -461,7 +530,9 @@ export default function PaymentsAutomationPage() {
       if (action === 'approve' && profile && payment) {
         updatePayload.approved_by = profile.id;
         updatePayload.approved_at = new Date().toISOString();
-        updatePayload.amount_paid = payment.amount;
+        updatePayload.amount_paid = payment.amount - (Number(payment.early_payment_discount_applied) || 0);
+        // Fase 5: todo aprobado (auto o manual) queda pendiente de conciliación bancaria.
+        updatePayload.reconciliation_status = 'pendiente';
       }
 
       const { error: updateError } = await supabase.from('payments').update(updatePayload).eq('id', paymentId);
@@ -708,6 +779,8 @@ export default function PaymentsAutomationPage() {
           <TabsList className="w-max min-w-full sm:w-auto">
             <TabsTrigger value="recurrent" className="text-xs sm:text-sm">Cobros</TabsTrigger>
             <TabsTrigger value="teams" className="text-xs sm:text-sm">Equipos y Planes</TabsTrigger>
+            <TabsTrigger value="glosas" className="text-xs sm:text-sm">Glosas</TabsTrigger>
+            <TabsTrigger value="conciliacion" className="text-xs sm:text-sm">Conciliación</TabsTrigger>
             <TabsTrigger value="history" className="text-xs sm:text-sm">Historial</TabsTrigger>
             <TabsTrigger value="config" className="text-xs sm:text-sm">Config</TabsTrigger>
           </TabsList>
@@ -780,12 +853,13 @@ export default function PaymentsAutomationPage() {
                           <div className="text-right shrink-0">
                             <p className="font-bold text-primary text-sm">{formatCurrency(payment.amount)}</p>
                             <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
-                            <div className="mt-1">
+                            <div className="mt-1 flex flex-wrap gap-1 justify-end">
                               {(payment.receipt_url || payment.status === 'awaiting_approval') ? (
                                 <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Transferencia</Badge>
                               ) : (
                                 <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Inscripción QR</Badge>
                               )}
+                              <VerdictBadge verdict={payment.receipt_verdict} />
                             </div>
                           </div>
                         </div>
@@ -802,6 +876,10 @@ export default function PaymentsAutomationPage() {
                           <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
                             <XCircle className="h-3 w-3 mr-1" />
                             Rechazar
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Glosar
                           </Button>
                         </div>
                       </div>
@@ -895,6 +973,9 @@ export default function PaymentsAutomationPage() {
                                 </Button>
                                 <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" disabled={processingId === payment.id} onClick={() => handleManualAction(payment.id, 'reject')}>
                                   <XCircle className="h-3 w-3 mr-1" /> Rechazar
+                                </Button>
+                                <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-50" onClick={() => setCreatingGlosaPayment(payment)}>
+                                  <AlertTriangle className="h-3 w-3 mr-1" /> Glosar
                                 </Button>
                               </div>
                             </TableCell>
@@ -1076,6 +1157,70 @@ export default function PaymentsAutomationPage() {
           </Card>
         </TabsContent>
 
+        {/* ── Tab: Glosas (aclaraciones) ───────────────────────────────── */}
+        <TabsContent value="glosas">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-orange-500" /> Aclaraciones (glosas)
+              </CardTitle>
+              <CardDescription>
+                Comprobantes que necesitan una aclaración del acudiente. Concilia en vez de rechazar.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(() => {
+                const today = todayColombia();
+                const open = glosas.filter(g => OPEN_GLOSA_STATUSES.includes(g.status));
+                const overdue = open.filter(g => g.responds_by < today).length;
+                const dueSoon = open.filter(g => g.responds_by >= today && g.responds_by <= today).length;
+                return (
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Abiertas: {open.length}</Badge>
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Vencidas: {overdue}</Badge>
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Vencen hoy: {dueSoon}</Badge>
+                  </div>
+                );
+              })()}
+
+              {glosas.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No hay aclaraciones. Abre una desde un comprobante con el botón "Glosar".
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {glosas.map(g => (
+                    <div key={g.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-sm truncate">{g.payments?.parent?.full_name || g.payments?.child?.full_name || 'Acudiente'}</span>
+                          <Badge variant="outline" className="text-[10px]">{REASON_ADMIN_LABELS[g.reason]}</Badge>
+                          <Badge variant="outline" className="text-[10px] bg-muted">{STATUS_LABELS[g.status]}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {g.payments?.concept || 'Cobro'} · {formatCurrency(g.payments?.amount || 0)} · responde antes del {g.responds_by}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => setConciliatingGlosa(g)}>
+                        {OPEN_GLOSA_STATUSES.includes(g.status) ? 'Conciliar' : 'Ver'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Conciliación bancaria (Fase 6) ──────────────────────── */}
+        <TabsContent value="conciliacion">
+          {schoolId ? (
+            <ReconciliationTab schoolId={schoolId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona una escuela para conciliar.</p>
+          )}
+        </TabsContent>
+
         {/* ── Tab: Historial ───────────────────────────────────────────── */}
         <TabsContent value="history">
           <Card>
@@ -1145,6 +1290,11 @@ export default function PaymentsAutomationPage() {
                         <div className="text-right shrink-0">
                           <p className="font-bold text-sm">{formatCurrency(payment.amount)}</p>
                           <Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge>
+                          {payment.reconciliation_status === 'pendiente' && (
+                            <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200 py-0 h-4 ml-1" title="Aprobado; pendiente de conciliación bancaria">
+                              pend. conciliación
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1260,7 +1410,11 @@ export default function PaymentsAutomationPage() {
                   <div className="space-y-2">
                     <Label htmlFor="due_day">Día de corte del mes</Label>
                     <div className="flex items-center gap-2">
-                      <Input id="due_day" type="number" min={1} max={28} className="w-24" value={billing.payment_cutoff_day} onChange={e => updateBilling('payment_cutoff_day', parseInt(e.target.value) || 5)} />
+                      <NumberStepper
+                        min={1} max={28} className="w-28 h-9"
+                        value={billing.payment_cutoff_day}
+                        onChange={v => updateBilling('payment_cutoff_day', v === "" ? 5 : v)}
+                      />
                       <span className="text-sm text-muted-foreground">de cada mes</span>
                     </div>
                   </div>
@@ -1303,7 +1457,11 @@ export default function PaymentsAutomationPage() {
                   <div className="space-y-2">
                     <Label htmlFor="grace">Días de gracia</Label>
                     <div className="flex items-center gap-2">
-                      <Input id="grace" type="number" min={0} max={15} className="w-24" value={billing.payment_grace_days} onChange={e => updateBilling('payment_grace_days', parseInt(e.target.value) || 0)} />
+                      <NumberStepper
+                        min={0} max={15} className="w-28 h-9"
+                        value={billing.payment_grace_days}
+                        onChange={v => updateBilling('payment_grace_days', v === "" ? 0 : v)}
+                      />
                       <span className="text-sm text-muted-foreground">días después del corte</span>
                     </div>
                   </div>
@@ -1315,6 +1473,46 @@ export default function PaymentsAutomationPage() {
                     </div>
                     <Switch checked={billing.auto_generate_payments} onCheckedChange={v => updateBilling('auto_generate_payments', v)} />
                   </div>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="font-medium">Descuento por pronto pago</Label>
+                      <p className="text-xs text-muted-foreground">Premia a quien paga apenas se genera el cobro</p>
+                    </div>
+                    <Switch
+                      checked={billing.early_payment_discount_enabled}
+                      onCheckedChange={v => updateBilling('early_payment_discount_enabled', v)}
+                    />
+                  </div>
+                  {billing.early_payment_discount_enabled && (
+                    <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                      <div className="space-y-2">
+                        <Label htmlFor="epd_days">Días de vigencia</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={30} className="w-28 h-9"
+                            value={billing.early_payment_discount_days}
+                            onChange={v => updateBilling('early_payment_discount_days', v === "" ? 5 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">días desde que se genera el cobro</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="epd_pct">Porcentaje de descuento</Label>
+                        <div className="flex items-center gap-2">
+                          <NumberStepper
+                            min={1} max={50} className="w-28 h-9"
+                            value={billing.early_payment_discount_percentage}
+                            onChange={v => updateBilling('early_payment_discount_percentage', v === "" ? 0 : v)}
+                          />
+                          <span className="text-sm text-muted-foreground">% de descuento</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        No aplica si el deportista tiene otro cobro pendiente o vencido de un mes anterior en esta escuela.
+                      </p>
+                    </div>
+                  )}
 
                 </CardContent>
               </Card>
@@ -1335,7 +1533,11 @@ export default function PaymentsAutomationPage() {
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
                       <Label htmlFor="late_pct">Porcentaje de recargo</Label>
                       <div className="flex items-center gap-2">
-                        <Input id="late_pct" type="number" min={1} max={50} className="w-24" value={billing.late_fee_percentage} onChange={e => updateBilling('late_fee_percentage', parseInt(e.target.value) || 5)} />
+                        <NumberStepper
+                          min={1} max={50} className="w-28 h-9"
+                          value={billing.late_fee_percentage}
+                          onChange={v => updateBilling('late_fee_percentage', v === "" ? 5 : v)}
+                        />
                         <span className="text-sm text-muted-foreground">% adicional</span>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug">
@@ -1356,6 +1558,55 @@ export default function PaymentsAutomationPage() {
               </Card>
               <Card>
                 <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base"><CheckCircle2 className="h-5 w-5 text-green-500" />Validación automática de comprobantes</CardTitle>
+                  <CardDescription>El sistema lee el comprobante y decide por reglas (el servidor nunca confía en el cliente).</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <Label className="font-medium">Auto-aprobar comprobantes verdes</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Un comprobante nítido, del monto exacto, a tu cuenta, con fecha reciente y no
+                        duplicado se aprueba solo (doble lectura del servidor). Requiere 2 proveedores OCR.
+                      </p>
+                    </div>
+                    <Switch checked={billing.auto_approve_enabled} onCheckedChange={v => updateBilling('auto_approve_enabled', v)} />
+                  </div>
+                  {billing.auto_approve_enabled && (
+                    <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
+                      <Label htmlFor="auto_approve_max">Tope de auto-aprobación (COP)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="auto_approve_max"
+                          type="number"
+                          min={0}
+                          className="w-40 h-9"
+                          value={billing.auto_approve_max_amount || ''}
+                          onChange={e => updateBilling('auto_approve_max_amount', Number(e.target.value) || 0)}
+                        />
+                        <span className="text-sm text-muted-foreground">máx. por pago</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        Solo se auto-aprueban cobros de <strong>{formatCurrency(billing.auto_approve_max_amount || 0)}</strong> o menos.
+                        Montos mayores siempre pasan por revisión manual. Déjalo en 0 para no auto-aprobar por monto.
+                      </p>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <div className="pr-4">
+                      <Label className="font-medium">Abrir glosa automática</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Si un comprobante tiene inconsistencias (monto/fecha/referencia), el sistema abre
+                        una aclaración al acudiente en vez de dejarlo en revisión manual.
+                      </p>
+                    </div>
+                    <Switch checked={billing.auto_glosa_enabled} onCheckedChange={v => updateBilling('auto_glosa_enabled', v)} />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-5 w-5 text-blue-500" />Recordatorios</CardTitle>
                   <CardDescription>Notificaciones automáticas de pago.</CardDescription>
                 </CardHeader>
@@ -1371,7 +1622,11 @@ export default function PaymentsAutomationPage() {
                     <div className="space-y-2 p-3 rounded-lg border bg-muted/30">
                       <Label htmlFor="reminder_days">Días antes del vencimiento</Label>
                       <div className="flex items-center gap-2">
-                        <Input id="reminder_days" type="number" min={1} max={15} className="w-24" value={billing.reminder_days_before} onChange={e => updateBilling('reminder_days_before', parseInt(e.target.value) || 3)} />
+                        <NumberStepper
+                          min={1} max={15} className="w-28 h-9"
+                          value={billing.reminder_days_before}
+                          onChange={v => updateBilling('reminder_days_before', v === "" ? 3 : v)}
+                        />
                         <span className="text-sm text-muted-foreground">días antes</span>
                       </div>
                     </div>
@@ -1564,14 +1819,26 @@ export default function PaymentsAutomationPage() {
         onOpenChange={setShowCashModal} 
         onSuccess={fetchPayments} 
       />
-      <ApprovePaymentMethodSheet 
-        open={!!paymentToApprove} 
-        onOpenChange={(open) => !open && setPaymentToApprove(null)} 
-        payment={paymentToApprove} 
+      <ApprovePaymentMethodSheet
+        open={!!paymentToApprove}
+        onOpenChange={(open) => !open && setPaymentToApprove(null)}
+        payment={paymentToApprove}
         onSuccess={() => {
           setPaymentToApprove(null);
           fetchPayments();
-        }} 
+        }}
+      />
+      <CreateGlosaDialog
+        payment={creatingGlosaPayment}
+        open={!!creatingGlosaPayment}
+        onOpenChange={(o) => { if (!o) setCreatingGlosaPayment(null); }}
+        onSuccess={() => { fetchPayments(); fetchGlosas(); }}
+      />
+      <GlosaConciliationDialog
+        glosa={conciliatingGlosa}
+        open={!!conciliatingGlosa}
+        onOpenChange={(o) => { if (!o) setConciliatingGlosa(null); }}
+        onSuccess={() => { fetchPayments(); fetchGlosas(); }}
       />
     </div>
   );

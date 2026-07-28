@@ -6,16 +6,19 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   CreditCard, CheckCircle2, XCircle, Clock, Calendar,
-  Plus, Eye, Loader2, Info,
+  Plus, Eye, Loader2, Info, AlertTriangle,
   Percent, Zap, User, FileText
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { PaymentCheckoutModal } from '@/components/payment/PaymentCheckoutModal';
+import { GlosaRespondModal } from '@/components/payment/GlosaRespondModal';
+import { listMine as listMyGlosas, OPEN_GLOSA_STATUSES, REASON_LABELS, type Glosa } from '@/lib/api/glosas';
 import { InstallmentCheckoutModal } from '@/components/payment/InstallmentCheckoutModal';
 import { formatCurrency } from '@/lib/utils';
 import { normalizeReceiptUrl } from '@/lib/normalizeReceiptUrl';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { calcEarlyPaymentDiscount } from '@/lib/earlyPaymentDiscount';
 
 interface Enrollment {
   id: string;
@@ -64,6 +67,9 @@ interface Transaction {
   period_month?: number | null;
   period_label?: string | null;
   late_fee_amount?: number | null;
+  discount_amount?: number;
+  discount_eligible?: boolean;
+  discount_valid_until?: string | null;
 }
 
 const MONTH_NAMES_ES = [
@@ -81,11 +87,12 @@ const statusConfig: Record<string, { label: string; icon: any; color: string }> 
   failed:            { label: 'Rechazado',  icon: XCircle,     color: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
   cancelled:         { label: 'Anulado',    icon: XCircle,     color: 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800/40 dark:text-zinc-400 dark:border-zinc-700' },
   partial:           { label: 'Abono Recibido', icon: Percent,  color: 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800' },
+  glosado:           { label: 'Necesita aclaración', icon: AlertTriangle, color: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800' },
 };
 
 // Estados que cuentan como "pendiente de pago" (dinero por cobrar). Los
 // terminales negativos (rejected/failed/cancelled) NO son pendientes.
-const PENDING_STATES = ['pending', 'awaiting_approval', 'partial'];
+const PENDING_STATES = ['pending', 'awaiting_approval', 'partial', 'glosado'];
 
 interface Subscription {
   id: string;
@@ -103,6 +110,9 @@ export default function MyPaymentsPage() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  // Glosas abiertas del acudiente, indexadas por payment_id (para el botón Responder).
+  const [glosaMap, setGlosaMap] = useState<Map<string, Glosa>>(new Map());
+  const [respondingGlosa, setRespondingGlosa] = useState<Glosa | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showChildPicker, setShowChildPicker] = useState(false);
@@ -114,6 +124,8 @@ export default function MyPaymentsPage() {
     amount: number;
     schoolId: string;
     paymentId?: string;
+    discount_eligible?: boolean;
+    discount_amount?: number;
   } | null>(null);
 
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -202,20 +214,30 @@ export default function MyPaymentsPage() {
       // se regenera incluyendo estos campos, esta query se vuelve redundante
       // pero no rompe nada (devuelve los mismos valores).
       const paymentIds = (payments || []).map((p: any) => p.id).filter(Boolean);
-      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null }> = {};
+      let periodMap: Record<string, { period_year: number | null; period_month: number | null; late_fee_amount?: number | null; created_at: string; early_payment_discount_applied?: number | null; child_id?: string | null; parent_id?: string | null; school_id: string }> = {};
       if (paymentIds.length > 0) {
         const { data: periodRows } = await supabase
           .from('payments')
-          .select('id, period_year, period_month, late_fee_amount')
+          .select('id, period_year, period_month, late_fee_amount, created_at, early_payment_discount_applied, child_id, parent_id, school_id')
           .in('id', paymentIds);
         periodMap = Object.fromEntries(
-          (periodRows || []).map((r: any) => [r.id, { period_year: r.period_year, period_month: r.period_month, late_fee_amount: r.late_fee_amount }]),
+          (periodRows || []).map((r: any) => [r.id, {
+            period_year: r.period_year,
+            period_month: r.period_month,
+            late_fee_amount: r.late_fee_amount,
+            created_at: r.created_at,
+            early_payment_discount_applied: r.early_payment_discount_applied,
+            child_id: r.child_id,
+            parent_id: r.parent_id,
+            school_id: r.school_id,
+          }]),
         );
       }
 
       // ── PASO 3: Enriquecer con school_type ───────────────────────────────
       const transactionSchoolIds = [...new Set((payments || []).map((p: any) => p.school_id).filter(Boolean))];
       let schoolTypeMap: Record<string, string> = {};
+      let discountConfigMap: Record<string, { enabled: boolean; days: number; percentage: number }> = {};
 
       if (transactionSchoolIds.length > 0) {
         const { data: schoolsData } = await supabase
@@ -223,37 +245,88 @@ export default function MyPaymentsPage() {
           .select('id, school_type')
           .in('id', transactionSchoolIds);
         schoolTypeMap = Object.fromEntries((schoolsData || []).map(s => [s.id, s.school_type]));
+
+        const { data: settingsRows } = await supabase
+          .from('school_settings')
+          .select('school_id, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
+          .in('school_id', transactionSchoolIds);
+        discountConfigMap = Object.fromEntries((settingsRows || []).map((s: any) => [s.school_id, {
+          enabled: !!s.early_payment_discount_enabled,
+          days: s.early_payment_discount_days || 5,
+          percentage: s.early_payment_discount_percentage || 0,
+        }]));
       }
 
       const childNameMap = Object.fromEntries((childrenData || []).map(c => [c.id, c.full_name]));
 
-      const txns: Transaction[] = (payments || []).map((p: any) => ({
-        id: p.id,
-        school_id: p.school_id,
-        school_type: schoolTypeMap[p.school_id] || 'academy',
-        amount: p.amount,
-        amount_paid: p.amount_paid,
-        balance_pending: p.balance_pending,
-        pct_paid: p.pct_paid,
-        installments_pending: p.installments_pending,
-        concept: p.concept,
-        child_id: p.child_id,
-        child_name: childNameMap[p.child_id] || 'Deportista',
-        payment_method: p.payment_type || 'transfer',
-        status: p.status === 'paid' ? 'approved' : p.status,
-        reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
-        transaction_date: p.payment_date || p.created_at,
-        authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
-        receipt_url: p.receipt_url,
-        period_year:  periodMap[p.id]?.period_year ?? p.period_year ?? null,
-        period_month: periodMap[p.id]?.period_month ?? p.period_month ?? null,
-        period_label: formatPeriodLabel(
-          periodMap[p.id]?.period_year ?? p.period_year,
-          periodMap[p.id]?.period_month ?? p.period_month,
-        ),
-        late_fee_amount: periodMap[p.id]?.late_fee_amount ?? p.late_fee_amount ?? null,
-      }));
+      const unpaidGroups = new Map<string, string[]>();
+      (payments || []).forEach((p: any) => {
+        if (['pending', 'overdue', 'partial'].includes(p.status)) {
+          const key = `${p.school_id}|${p.child_id ?? p.parent_id}`;
+          if (!unpaidGroups.has(key)) unpaidGroups.set(key, []);
+          unpaidGroups.get(key)!.push(p.created_at);
+        }
+      });
+      const hasEarlierUnpaidFor = (schoolId: string, childId: string | null, parentId: string | null, createdAt: string) => {
+        const key = `${schoolId}|${childId ?? parentId}`;
+        return (unpaidGroups.get(key) || []).some(d => d < createdAt);
+      };
+
+      const txns: Transaction[] = (payments || []).map((p: any) => {
+        const created_at = periodMap[p.id]?.created_at ?? p.created_at;
+        const discountCfg = discountConfigMap[p.school_id] ?? { enabled: false, days: 5, percentage: 0 };
+        const earlierUnpaid = hasEarlierUnpaidFor(p.school_id, p.child_id, p.parent_id, created_at);
+        const discount = calcEarlyPaymentDiscount(p.amount, {
+          createdAt: created_at,
+          config: discountCfg,
+          hasEarlierUnpaid: earlierUnpaid,
+          alreadyAppliedAmount: periodMap[p.id]?.early_payment_discount_applied ?? null,
+        });
+
+        return {
+          id: p.id,
+          school_id: p.school_id,
+          school_type: schoolTypeMap[p.school_id] || 'academy',
+          amount: p.amount,
+          amount_paid: p.amount_paid,
+          balance_pending: p.balance_pending,
+          pct_paid: p.pct_paid,
+          installments_pending: p.installments_pending,
+          concept: p.concept,
+          child_id: p.child_id,
+          child_name: childNameMap[p.child_id] || 'Deportista',
+          payment_method: p.payment_type || 'transfer',
+          status: p.status === 'paid' ? 'approved' : p.status,
+          reference: p.receipt_number || `SP-${p.id.slice(0, 8).toUpperCase()}`,
+          transaction_date: p.payment_date || p.created_at,
+          authorization_code: p.status === 'paid' ? `AUTH-${p.id.slice(0, 5).toUpperCase()}` : undefined,
+          receipt_url: p.receipt_url,
+          period_year:  periodMap[p.id]?.period_year ?? p.period_year ?? null,
+          period_month: periodMap[p.id]?.period_month ?? p.period_month ?? null,
+          period_label: formatPeriodLabel(
+            periodMap[p.id]?.period_year ?? p.period_year,
+            periodMap[p.id]?.period_month ?? p.period_month,
+          ),
+          late_fee_amount: periodMap[p.id]?.late_fee_amount ?? p.late_fee_amount ?? null,
+          discount_amount: discount.discountAmount,
+          discount_eligible: discount.eligible,
+          discount_valid_until: discount.validUntil,
+        };
+      });
       setTransactions(txns);
+
+      // ── PASO 3.4: Glosas abiertas del acudiente (para "Necesita aclaración") ──
+      try {
+        const glosas = await listMyGlosas();
+        const m = new Map<string, Glosa>();
+        for (const g of glosas) {
+          if (OPEN_GLOSA_STATUSES.includes(g.status)) m.set(g.payment_id, g);
+        }
+        setGlosaMap(m);
+      } catch {
+        // Si el BFF no responde, no rompemos la vista de pagos.
+        setGlosaMap(new Map());
+      }
 
       // ── PASO 3.5: Facturas electrónicas emitidas por pago ─────────────────
       if (paymentIds.length > 0) {
@@ -456,15 +529,19 @@ export default function MyPaymentsPage() {
         key={txn.id}
         txn={txn}
         invoice={invoiceMap[txn.id]}
+        openGlosa={glosaMap.get(txn.id) || null}
+        onRespondGlosa={(g) => setRespondingGlosa(g)}
         onSelect={(p) => {
-          if (p.status === 'approved') return;
+          if (p.status === 'approved' || p.status === 'glosado') return;
           setSelectedPayment(prev => prev?.paymentId === p.id ? null : {
             childId: p.child_id || '',
             childName: p.child_name || 'Deportista',
             teamName: p.concept || 'Mensualidad',
             amount: p.balance_pending || p.amount,
             schoolId: p.school_id || '',
-            paymentId: p.id
+            paymentId: p.id,
+            discount_eligible: p.discount_eligible,
+            discount_amount: p.discount_amount
           });
         }}
         isSelected={selectedPayment?.paymentId === txn.id}
@@ -481,6 +558,8 @@ export default function MyPaymentsPage() {
             amount: p.balance_pending || p.amount,
             schoolId: p.school_id || '',
             paymentId: p.id,
+            discount_eligible: p.discount_eligible,
+            discount_amount: p.discount_amount
           });
           setShowCheckout(true);
         }}
@@ -705,6 +784,14 @@ export default function MyPaymentsPage() {
         />
       )}
 
+      {/* Responder glosa (aclaración) */}
+      <GlosaRespondModal
+        glosa={respondingGlosa}
+        open={!!respondingGlosa}
+        onOpenChange={(o) => { if (!o) setRespondingGlosa(null); }}
+        onSuccess={fetchPaymentData}
+      />
+
       {/* Installment Checkout Modal */}
       {selectedInstallmentPayment && (
         <InstallmentCheckoutModal
@@ -725,9 +812,20 @@ export default function MyPaymentsPage() {
             <span className="text-zinc-500 dark:text-zinc-400 text-[10px] uppercase tracking-wider font-bold truncate">
               {selectedPayment.childName} — {selectedPayment.teamName}
             </span>
-            <span className="font-bold text-xl text-indigo-400 dark:text-indigo-300">
-              {formatCurrency(selectedPayment.amount)}
-            </span>
+            {selectedPayment.discount_eligible && (selectedPayment.discount_amount ?? 0) > 0 ? (
+              <div className="flex items-baseline gap-1.5 animate-in fade-in">
+                <span className="text-xs text-zinc-500 line-through font-normal">
+                  {formatCurrency(selectedPayment.amount)}
+                </span>
+                <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
+                  {formatCurrency(selectedPayment.amount - selectedPayment.discount_amount!)}
+                </span>
+              </div>
+            ) : (
+              <span className="font-bold text-xl text-emerald-400 dark:text-emerald-300">
+                {formatCurrency(selectedPayment.amount)}
+              </span>
+            )}
           </div>
           
           <div className="flex items-center gap-3">
@@ -739,7 +837,7 @@ export default function MyPaymentsPage() {
               Cancelar
             </Button>
             <Button 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 font-bold shadow-lg shadow-indigo-600/20"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 font-bold shadow-lg shadow-emerald-600/20"
               onClick={() => setShowCheckout(true)}
             >
               Pagar Ahora
@@ -790,20 +888,23 @@ export default function MyPaymentsPage() {
   );
 }
 
-function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice }: {
+function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice, openGlosa, onRespondGlosa }: {
   txn: Transaction;
   onSelect: (p: Transaction) => void;
   isSelected: boolean;
   onShowProof: (url: string, concept: string, amount: number) => void;
   onAbonar: (p: Transaction) => void;
   invoice?: { number: string | null; public_url: string | null };
+  openGlosa?: Glosa | null;
+  onRespondGlosa?: (g: Glosa) => void;
 }) {
   const config = statusConfig[txn.status] || statusConfig.pending;
   const StatusIcon = config.icon;
+  const nonInteractive = txn.status === 'approved' || txn.status === 'glosado';
 
   return (
     <Card
-      className={`transition-all overflow-hidden ${txn.status === 'approved' ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
+      className={`transition-all overflow-hidden ${nonInteractive ? 'cursor-default' : 'cursor-pointer hover:border-primary/30'} ${
         isSelected
           ? 'border-primary bg-primary/5 shadow-md ring-1 ring-primary/20'
           : 'border-border'
@@ -836,9 +937,20 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                   : (txn.concept || 'Mensualidad')}
               </h3>
               <div className="text-right shrink-0">
-                <p className="font-bold text-sm sm:text-base text-foreground">
-                  {formatCurrency(txn.amount)}
-                </p>
+                {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) ? (
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className="text-xs text-muted-foreground line-through font-normal">
+                      {formatCurrency(txn.amount)}
+                    </span>
+                    <span className="font-bold text-sm sm:text-base text-primary">
+                      {formatCurrency(txn.amount - txn.discount_amount!)}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="font-bold text-sm sm:text-base text-foreground">
+                    {formatCurrency(txn.amount)}
+                  </p>
+                )}
                 {txn.status === 'partial' && (
                   <p className="text-[10px] text-red-500 dark:text-red-400 font-bold">
                     PENDIENTE: {formatCurrency(txn.balance_pending || 0)}
@@ -847,6 +959,11 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                 {(txn.late_fee_amount ?? 0) > 0 && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
                     Incluye recargo por mora: {formatCurrency(txn.late_fee_amount as number)}
+                  </p>
+                )}
+                {txn.discount_eligible && (txn.discount_amount ?? 0) > 0 && PENDING_STATES.includes(txn.status) && (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    Ahorra {formatCurrency(txn.discount_amount!)} pagando antes del {txn.discount_valid_until}
                   </p>
                 )}
               </div>
@@ -862,6 +979,23 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                 REF: <span className="font-mono">{txn.reference}</span>
               </div>
             </div>
+
+            {txn.status === 'glosado' && (
+              <div className="mt-2 rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/30 p-2 text-xs text-orange-800 dark:text-orange-300">
+                <p className="font-semibold flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {openGlosa ? REASON_LABELS[openGlosa.reason] : 'Tu comprobante necesita una aclaración.'}
+                </p>
+                {openGlosa?.responds_by && (
+                  <p className="mt-0.5">
+                    Responde antes del{' '}
+                    <strong>
+                      {new Date(openGlosa.responds_by + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </strong>.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center justify-between pt-3 border-t mt-3 sm:mt-4">
               <Badge variant="outline" className={`h-6 text-[10px] font-bold ${config.color}`}>
@@ -911,6 +1045,20 @@ function PaymentCard({ txn, onSelect, isSelected, onShowProof, onAbonar, invoice
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" />
                     ABONAR
+                  </Button>
+                )}
+                {txn.status === 'glosado' && openGlosa && onRespondGlosa && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRespondGlosa(openGlosa);
+                    }}
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                    RESPONDER
                   </Button>
                 )}
               </div>

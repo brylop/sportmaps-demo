@@ -321,6 +321,7 @@ export interface PtSessionToday {
     display_name: string;
     avatar_url: string | null;
   } | null;
+  assignment_source?: string | null;
 }
 
 export interface TrainingTodayResponse {

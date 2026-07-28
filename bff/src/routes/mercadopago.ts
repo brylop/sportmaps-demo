@@ -362,6 +362,15 @@ async function handleSchoolPayment(args: HandlerArgs): Promise<HandlerResult> {
                 webhook_signature_valid: true,
             });
 
+        // Notificar al staff de la escuela (dispara Modo Recepción + outbox).
+        // No-bloqueante: el pago ya quedó paid igual.
+        const { error: notifErr } = await supabase.rpc('notify_school_payment_paid', {
+            p_payment_id: link.payment_id,
+        });
+        if (notifErr) {
+            req.log?.warn({ err: notifErr, paymentId: link.payment_id }, 'notify_school_payment_paid falló (no-bloqueante)');
+        }
+
         req.log?.info({ paymentId: link.payment_id, externalRef }, 'MP school payment confirmed');
         return { status: 200, body: { status: 'ok', kind: 'school_payment' } };
     }

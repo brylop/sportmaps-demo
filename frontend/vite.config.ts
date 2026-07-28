@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => ({
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
+      // NO inyectar el registerSW.js automático: registramos el SW manualmente
+      // en src/pwa/register.ts (como type:'module'). El script inyectado lo
+      // registraba en paralelo como worker clásico → doble registro del mismo
+      // scope con tipos distintos → controllerchange en bucle → recargas.
+      injectRegister: null,
       includeAssets: ['favicon.png', 'sportmaps-logo.png'],
       manifest: {
         name: 'SportMaps - Revolucionando el sistema deportivo',
@@ -56,24 +61,18 @@ export default defineConfig(({ mode }) => ({
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
+        // IMPORTANTE: usar los PNG reales de /icons/. Antes apuntaba a
+        // /sportmaps-logo.png y /favicon.png, que en realidad son JPEG con
+        // extensión .png → Chrome Android los rechaza como iconos inválidos y
+        // NO cumple los criterios de instalabilidad, por lo que
+        // `beforeinstallprompt` nunca se dispara (el banner no aparece).
         icons: [
-          {
-            src: '/favicon.png',
-            sizes: '64x64 32x32 24x24 16x16',
-            type: 'image/png'
-          },
-          {
-            src: '/sportmaps-logo.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any maskable'
-          },
-          {
-            src: '/sportmaps-logo.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
+          { src: '/icons/icon-72.png',  sizes: '72x72',   type: 'image/png' },
+          { src: '/icons/icon-96.png',  sizes: '96x96',   type: 'image/png' },
+          { src: '/icons/icon-128.png', sizes: '128x128', type: 'image/png' },
+          { src: '/icons/icon-144.png', sizes: '144x144', type: 'image/png' },
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
         ],
         categories: ['sports', 'education', 'lifestyle'],
         screenshots: [],
@@ -83,14 +82,14 @@ export default defineConfig(({ mode }) => ({
             short_name: 'Explorar',
             description: 'Buscar escuelas deportivas cerca de ti',
             url: '/explore',
-            icons: [{ src: '/sportmaps-logo.png', sizes: '192x192' }]
+            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }]
           },
           {
             name: 'Mi Dashboard',
             short_name: 'Dashboard',
             description: 'Acceder a tu panel de control',
             url: '/dashboard',
-            icons: [{ src: '/sportmaps-logo.png', sizes: '192x192' }]
+            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }]
           }
         ]
       },
@@ -134,7 +133,9 @@ export default defineConfig(({ mode }) => ({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
       devOptions: {
-        enabled: true,
+        // Desactivado: el dev-SW se regenera con cada HMR y provoca recargas en
+        // bucle durante el desarrollo. Solo activamos el SW en producción.
+        enabled: false,
         type: 'module',
       }
     })

@@ -1,0 +1,20 @@
+{
+  "name": "pago_pendiente_directo",
+  "language": "es_CO",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "{{1}}, la mensualidad de {{2}} en {{3}} presenta {{4}} días de vencida (valor: {{5}}). Puedes pagar el total o solicitar un acuerdo de pago desde el botón.",
+      "example": {
+        "body_text": [["Carolina", "Samuel", "Academia Tigres FC", "7", "$150.000"]]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        { "type": "URL", "text": "Ver opciones de pago", "url": "https://sportmaps.co/p/{{1}}", "example": ["https://sportmaps.co/p/cD5yL2nR"] }
+      ]
+    }
+  ]
+}

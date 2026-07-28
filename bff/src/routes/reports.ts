@@ -378,14 +378,60 @@ router.get(
 
             if (rosterErr) throw rosterErr;
 
-            // Match results
-            const { data: results, error: resultsErr } = await supabase
-                .from('match_results')
-                .select('*')
-                .eq('team_id', teamId)
-                .order('match_date', { ascending: false });
+            // Match results — el deporte decide si usa sets (jsonb) o marcador plano (match_results)
+            let usesSets = false;
+            if (team.sport) {
+                const { data: sportCat } = await supabase
+                    .from('sports_categories')
+                    .select('uses_sets_scoring')
+                    .ilike('name', team.sport)
+                    .maybeSingle();
+                usesSets = sportCat?.uses_sets_scoring ?? false;
+            }
+            let results: any[] = [];
 
-            if (resultsErr) throw resultsErr;
+            if (usesSets) {
+                const { data: compResults, error: resultsErr } = await supabase
+                    .from('competition_results')
+                    .select('id, competition_date, result_type, result_data, opponent, notes')
+                    .eq('team_id', teamId)
+                    .order('competition_date', { ascending: false });
+
+                if (resultsErr) throw resultsErr;
+
+                results = (compResults || []).map((r: any) => {
+                    const rData = r.result_data || {};
+                    const sets = rData.sets || [];
+                    const setsWonTeam = rData.sets_won_team || 0;
+                    const setsWonOpponent = rData.sets_won_opponent || 0;
+
+                    const setsStr = sets
+                        .map((s: any) => `${s.team_score}-${s.opponent_score}`)
+                        .join(', ');
+                    const score = sets.length > 0
+                        ? `${setsWonTeam} - ${setsWonOpponent} (${setsStr})`
+                        : null;
+
+                    return {
+                        id: r.id,
+                        match_date: r.competition_date,
+                        opponent: r.opponent,
+                        result: rData.match_result || 'unknown',
+                        score,
+                        match_type: r.result_type === 'competencia_oficial' ? 'Competencia' : 'Amistoso',
+                        notes: r.notes
+                    };
+                });
+            } else {
+                const { data: matchResults, error: resultsErr } = await supabase
+                    .from('match_results')
+                    .select('*')
+                    .eq('team_id', teamId)
+                    .order('match_date', { ascending: false });
+
+                if (resultsErr) throw resultsErr;
+                results = matchResults || [];
+            }
 
             // Attendance
             const { data: attendance, error: attendanceErr } = await supabase
@@ -428,10 +474,15 @@ router.get(
                 };
             }).sort((a: any, b: any) => b.percentage - a.percentage);
 
+            const playedResults = usesSets
+                ? results.filter((r: any) => r.result !== 'unknown')
+                : results;
+
             return res.json({
                 team: { id: team.id, name: team.name, age_group: team.age_group, sport: team.sport },
                 roster: roster || [],
                 results: results || [],
+                results_played_count: playedResults.length,
                 attendance: attendanceReport,
                 scorers: [],
             });

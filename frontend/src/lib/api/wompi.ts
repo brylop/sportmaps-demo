@@ -164,18 +164,26 @@ export async function openWompiCheckout(
                 return;
             }
 
+            // Wompi RECHAZA customerData con phoneNumber vacío ("El valor de
+            // phoneNumber no puede estar vacío"). Solo incluimos el teléfono si
+            // realmente lo tenemos; si no, el Widget lo pide en su formulario.
+            const phone = (customerPhone || '').replace(/[^\d]/g, '');
+            const customerData: Record<string, unknown> = {
+                email: customerEmail,
+                fullName: customerName,
+            };
+            if (phone) {
+                customerData.phoneNumber = phone;
+                customerData.phoneNumberPrefix = '+57';
+            }
+
             const widgetConfig: Record<string, unknown> = {
                 currency: 'COP',
                 amountInCents: effectiveAmountInCents,
                 reference,
                 publicKey: WOMPI_PUBLIC_KEY,
                 redirectUrl: redirectUrl || `${window.location.origin}/payment-result`,
-                customerData: {
-                    email: customerEmail,
-                    fullName: customerName,
-                    phoneNumber: customerPhone || '',
-                    phoneNumberPrefix: '+57',
-                },
+                customerData,
             };
 
             // Solo incluir firma si se obtuvo del servidor

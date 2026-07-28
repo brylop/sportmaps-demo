@@ -53,6 +53,7 @@ const SchoolPublicProfilePage = lazy(() => import("./pages/school/SchoolPublicPr
 const VendorPublicProfilePage = lazy(() => import("./pages/vendor/VendorPublicProfilePage"));
 const MyAppointmentsPage = lazy(() => import("./pages/wellness/MyAppointmentsPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const RecepcionPage = lazy(() => import("./pages/recepcion/RecepcionPage"));
 
 // ─── Events (public, lazy) ────────────────────────────────────────────────────
 const EventsMapPage = lazy(() => import("./pages/events/EventsMapPage"));
@@ -189,6 +190,11 @@ const OrganizerOnboardingPage = lazy(() => import("./pages/organizer/OrganizerOn
 const OrganizerDashboardPage = lazy(() => import("./pages/organizer/OrganizerDashboardPage"));
 const OrganizerProfilePage = lazy(() => import("./pages/organizer/OrganizerProfilePage"));
 const CreateEventPage = lazy(() => import("./pages/organizer/CreateEventPage"));
+const SchoolTournamentsPage = lazy(() => import("./pages/school/SchoolTournamentsPage"));
+const SchoolEquipmentPage = lazy(() => import("./pages/school/SchoolEquipmentPage"));
+const CoachEquipmentPage = lazy(() => import("./pages/coach/CoachEquipmentPage"));
+const SchoolTournamentDetailPage = lazy(() => import("./pages/school/SchoolTournamentDetailPage"));
+const CreateTournamentPage = lazy(() => import("./pages/school/CreateTournamentPage"));
 const EventManagementPage = lazy(() => import("./pages/organizer/EventManagementPage"));
 const OrganizerEventsPage = lazy(() => import("./pages/organizer/OrganizerEventsPage"));
 const OrganizerFinancesPage = lazy(() => import("./pages/organizer/OrganizerFinancesPage"));
@@ -199,6 +205,7 @@ const EventEnrollmentPage = lazy(() => import("./pages/school/EventEnrollmentPag
 const SchoolDelegationsPage = lazy(() => import("./pages/school/SchoolDelegationsPage"));
 const SchoolDelegationDetailPage = lazy(() => import("./pages/school/SchoolDelegationDetailPage"));
 const AccessControlPage = lazy(() => import('./pages/school/AccessControlPage'));
+const SchoolRoutines = lazy(() => import("./pages/school/SchoolRoutines"));
 
 // ─── Trainer pages (lazy) ────────────────────────────────────────────────────
 const TrainerOnboarding = lazy(() => import("./pages/trainer/TrainerOnboarding"));
@@ -339,6 +346,14 @@ const App = () => (
                     {/* Public trainer profile — no auth required */}
                     <Route path="/entrenador/:userId" element={<TrainerPublicProfile />} />
 
+                    {/* Modo Recepción (F-R) — kiosko full-screen para el admin/recepción.
+                        No usa AuthLayout (sin chrome). SchoolProvider ya vive en la raíz. */}
+                    <Route path="/recepcion" element={
+                      <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'reporter']}>
+                        <RecepcionPage />
+                      </ProtectedRoute>
+                    } />
+
                     {/* ── Rutas autenticadas — SchoolProvider vive aquí ── */}
                     <Route element={
                       <ProtectedRoute>
@@ -433,9 +448,49 @@ const App = () => (
                           <SchoolDelegationsPage />
                         </ProtectedRoute>
                       } />
+                      <Route path="school/tournaments" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolTournamentsPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/tournaments/new" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <CreateTournamentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/tournaments/:id" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolTournamentDetailPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/equipment" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/dotacion" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
+                          <SchoolEquipmentPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="coach/dotacion" element={
+                        <ProtectedRoute allowedRoles={['coach', 'school', 'admin', 'school_admin']}>
+                          <CoachEquipmentPage />
+                        </ProtectedRoute>
+                      } />
                       <Route path="school/delegations/:id" element={
                         <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin']}>
                           <SchoolDelegationDetailPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/routines" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <SchoolRoutines />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="school/routines/:routineId" element={
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'coach']}>
+                          <TrainerRoutineDetail />
                         </ProtectedRoute>
                       } />
                       <Route path="students" element={
@@ -444,7 +499,7 @@ const App = () => (
                         </ProtectedRoute>
                       } />
                       <Route path="mi-plan" element={
-                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin']}>
+                        <ProtectedRoute allowedRoles={['school', 'admin', 'school_admin', 'super_admin', 'athlete', 'parent', 'coach', 'wellness_professional', 'store_owner', 'organizer', 'reporter', 'personal_trainer']}>
                           <MiPlanPage />
                         </ProtectedRoute>
                       } />

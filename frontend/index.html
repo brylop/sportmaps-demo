@@ -4,8 +4,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="apple-touch-icon" href="/sportmaps-logo.png" />
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <!-- Captura beforeinstallprompt lo antes posible: Chrome Android dispara este
+       evento durante la carga, a veces ANTES de que React monte InstallBanner.
+       Guardarlo en window evita perderlo por esa carrera. -->
+  <script>
+    window.__installPrompt = null;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      window.__installPrompt = e;
+      window.dispatchEvent(new Event('pwa:can-install'));
+    });
+    window.addEventListener('appinstalled', function () {
+      window.__installPrompt = null;
+      window.dispatchEvent(new Event('pwa:installed'));
+    });
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">

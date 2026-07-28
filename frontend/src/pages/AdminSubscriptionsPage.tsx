@@ -55,7 +55,8 @@ export default function AdminSubscriptionsPage() {
         p_search: debounced || null, p_verified: null, p_limit: 25, p_offset: 0,
       });
       if (error) throw error;
-      setSchools((data as any[])?.map((s) => ({ id: s.id, name: s.name, city: s.city })) ?? []);
+      const rows = ((data as any)?.rows ?? []) as any[];
+      setSchools(rows.map((s) => ({ id: s.id, name: s.name, city: s.city })));
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
     } finally {

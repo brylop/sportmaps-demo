@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { translate } from '@vitalets/google-translate-api';
+import { supabase } from '../../config/supabase';
 
 const router = Router();
 
@@ -103,7 +105,12 @@ function loadLocalTranslations(): Map<string, LocalTranslation> {
     
     for (const item of list) {
       translations.set(String(item.id), item);
-      translations.set(normalizeText(item.name_en), item);
+      if (item.name_en) {
+        translations.set(normalizeText(item.name_en), item);
+      }
+      if (item.name_es) {
+        translations.set(normalizeText(item.name_es), item);
+      }
     }
     console.log(`[exercises] ${translations.size} traducciones locales cargadas en memoria`);
     
@@ -116,27 +123,106 @@ function loadLocalTranslations(): Map<string, LocalTranslation> {
   }
 }
 
+export function estimateRoutineCalories(routine: any, weightKg: number): number {
+  let duration = routine.estimated_minutes || 0;
+  if (!duration && routine.blocks && routine.blocks.length > 0) {
+    let totalSeconds = 0;
+    for (const b of routine.blocks) {
+      const sets = b.sets || 3;
+      const reps = b.reps || 10;
+      const rest = b.rest_seconds || 60;
+      totalSeconds += sets * (reps * 4 + rest);
+    }
+    duration = Math.round(totalSeconds / 60);
+  }
+  if (!duration || duration < 10) {
+    duration = 45;
+  }
+
+  let met = 5.0;
+  const diff = (routine.difficulty || '').toLowerCase();
+  if (diff.includes('begin') || diff.includes('easy') || diff.includes('principiante') || diff.includes('facil')) {
+    met = 3.5;
+  } else if (diff.includes('inter') || diff.includes('medium') || diff.includes('medio')) {
+    met = 5.5;
+  } else if (diff.includes('adv') || diff.includes('hard') || diff.includes('avanzado') || diff.includes('dificil')) {
+    met = 8.0;
+  }
+
+  return Math.round((met * 3.5 * weightKg * duration) / 200);
+}
+
+export function hydrateRoutineWithCalories(routine: any, weightKg: number = 70): any {
+  if (!routine) return routine;
+  let calories = routine.estimated_calories || 0;
+  if (calories > 0) {
+    calories = Math.round(calories * (weightKg / 70));
+  } else {
+    calories = estimateRoutineCalories(routine, weightKg);
+  }
+  return {
+    ...routine,
+    estimated_calories: calories,
+    blocks: hydrateBlocksWithLocalTranslations(routine.blocks),
+  };
+}
+
 export function hydrateBlocksWithLocalTranslations(blocks: any[]): any[] {
   if (!blocks || !Array.isArray(blocks)) return blocks;
   const localMap = loadLocalTranslations();
+  const exercises = mergedCache?.exercises || [];
   
   return blocks.map(block => {
-    if (!block.wger_id && !block.free_db_id) return block;
     const idKey = String(block.wger_id ?? block.free_db_id ?? '');
-    const nameKey = (block.wger_name_en ?? '')
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ').trim();
+    const nameKey = normalizeText(block.wger_name_en ?? block.wger_name_es ?? block.name ?? '');
+    const altNameKey = normalizeText(block.name ?? '');
 
-    const local = localMap.get(idKey) ?? localMap.get(nameKey);
+    // 1. First search in local translation map (by ID or normalizations)
+    const local = localMap.get(idKey) ?? localMap.get(nameKey) ?? localMap.get(altNameKey);
+    
+    // 2. Fallback to cache of exercises (already translated/fetched)
+    let matchedEx: WgerExercise | undefined;
+    if (!local && exercises.length > 0) {
+      matchedEx = exercises.find(ex => {
+        const exId = String(ex.wger_id ?? ex.free_db_id ?? '');
+        if (idKey && exId === idKey) return true;
+        
+        const esNorm = ex.name_es ? normalizeText(ex.name_es) : '';
+        const enNorm = normalizeText(ex.name_en);
+        return esNorm === nameKey || enNorm === nameKey || esNorm === altNameKey || enNorm === altNameKey;
+      });
+    }
+
     if (local) {
+      const isNumeric = /^\d+$/.test(String(local.id));
+      const wger_id = isNumeric ? parseInt(String(local.id), 10) : null;
+      const free_db_id = isNumeric ? null : String(local.id);
+
       return {
         ...block,
-        wger_name_es: local.name_es ?? block.wger_name_es,
-        wger_description: local.description ?? block.wger_description
+        wger_id: wger_id || block.wger_id,
+        free_db_id: free_db_id || block.free_db_id,
+        wger_name_es: local.name_es ?? block.wger_name_es ?? block.name,
+        wger_name_en: local.name_en ?? block.wger_name_en,
+        wger_description: local.description ?? block.wger_description,
+        wger_images: block.wger_images && block.wger_images.length > 0 
+          ? block.wger_images 
+          : (matchedEx?.images || []),
+      };
+    } else if (matchedEx) {
+      return {
+        ...block,
+        wger_id: matchedEx.wger_id || block.wger_id,
+        free_db_id: matchedEx.free_db_id || block.free_db_id,
+        wger_name_es: matchedEx.name_es ?? block.wger_name_es ?? block.name,
+        wger_name_en: matchedEx.name_en ?? block.wger_name_en,
+        wger_description: matchedEx.description ?? block.wger_description,
+        wger_images: block.wger_images && block.wger_images.length > 0 
+          ? block.wger_images 
+          : (matchedEx.images || []),
       };
     }
+
     return block;
   });
 }
@@ -422,76 +508,137 @@ function mergeDatasets(wgerList: WgerExercise[], freeList: FreeDbExercise[]): Wg
 
 // ── Carga combinada ───────────────────────────────────────────────────────────
 
+function isEnglishText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const enWords = [' the ', ' and ', ' with ', ' your ', ' back ', ' to ', ' from '];
+  return enWords.some(w => lower.includes(w)) && !lower.includes('siéntate') && !lower.includes('acuéstate') && !lower.includes('con');
+}
+
 async function translateNames(exercises: WgerExercise[]): Promise<WgerExercise[]> {
   const DEEPL_API_KEY = process.env.DEEPL_API_KEY ?? '';
-  if (!DEEPL_API_KEY) {
-    console.warn('[deepl] DEEPL_API_KEY no configurada — nombres sin traducir');
-    return exercises;
-  }
+  let result = exercises;
 
-  const needsTranslation = exercises.filter(ex => !ex.name_es && ex.name_en);
-  if (needsTranslation.length === 0) return exercises;
+  if (DEEPL_API_KEY) {
+    const needsTranslation = exercises.filter(ex => !ex.name_es && ex.name_en);
+    if (needsTranslation.length > 0) {
+      console.log(`[deepl] Traduciendo ${needsTranslation.length} nombres sin español...`);
+      const BATCH = 50;
+      const translated      = new Map<string, string>();
+      const translatedDescs = new Map<string, string>();
 
-  console.log(`[deepl] Traduciendo ${needsTranslation.length} nombres sin español...`);
+      for (let i = 0; i < needsTranslation.length; i += BATCH) {
+        const batch = needsTranslation.slice(i, i + BATCH);
+        try {
+          const namesSlice = batch.map(ex => ex.name_en);
+          const descsSlice = batch.map(ex =>
+            ex.description ? ex.description.slice(0, 300) : ''
+          );
 
-  const BATCH = 50;
-  const translated      = new Map<string, string>();
-  const translatedDescs = new Map<string, string>();
+          const body = new URLSearchParams();
+          body.append('target_lang', 'ES');
+          body.append('source_lang', 'EN');
+          [...namesSlice, ...descsSlice].forEach(text => body.append('text', text));
 
-  for (let i = 0; i < needsTranslation.length; i += BATCH) {
-    const batch = needsTranslation.slice(i, i + BATCH);
-    try {
-      const namesSlice = batch.map(ex => ex.name_en);
-      const descsSlice = batch.map(ex =>
-        ex.description ? ex.description.slice(0, 300) : ''
-      );
+          const res = await fetch(DEEPL_URL, {
+            method: 'POST',
+            body,
+            headers: {
+              'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+            },
+            signal: AbortSignal.timeout(15_000),
+          });
 
-      const body = new URLSearchParams();
-      body.append('target_lang', 'ES');
-      body.append('source_lang', 'EN');
-      [...namesSlice, ...descsSlice].forEach(text => body.append('text', text));
+          if (!res.ok) {
+            console.error(`[deepl] Error ${res.status} en batch ${i / BATCH + 1}`);
+            break;
+          }
 
-      const res = await fetch(DEEPL_URL, {
-        method: 'POST',
-        body,
-        headers: {
-          'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
-        },
-        signal: AbortSignal.timeout(15_000),
-      });
+          const data: any = await res.json();
+          const translations = data.translations ?? [];
 
-      if (!res.ok) {
-        console.error(`[deepl] Error ${res.status} en batch ${i / BATCH + 1}`);
-        break;
+          translations.slice(0, batch.length).forEach((t: any, idx: number) => {
+            translated.set(batch[idx].name_en, toSentenceCase(t.text));
+          });
+          translations.slice(batch.length).forEach((t: any, idx: number) => {
+            if (batch[idx].description && t.text) {
+              translatedDescs.set(batch[idx].name_en, t.text);
+            }
+          });
+        } catch (err: any) {
+          console.error(`[deepl] Timeout/error en batch ${i / BATCH + 1}:`, err.message);
+          break;
+        }
       }
 
-      const data: any = await res.json();
-      const translations = data.translations ?? [];
-
-      // Las primeras batch.length son nombres, las siguientes son descripciones
-      translations.slice(0, batch.length).forEach((t: any, idx: number) => {
-        translated.set(batch[idx].name_en, toSentenceCase(t.text));
-      });
-      translations.slice(batch.length).forEach((t: any, idx: number) => {
-        if (batch[idx].description && t.text) {
-          translatedDescs.set(batch[idx].name_en, t.text);
-        }
-      });
-    } catch (err: any) {
-      console.error(`[deepl] Timeout/error en batch ${i / BATCH + 1}:`, err.message);
-      break;
+      result = exercises.map(ex => ({
+        ...ex,
+        name_es: ex.name_es ?? translated.get(ex.name_en) ?? null,
+        description: ex.description
+          ? (translatedDescs.get(ex.name_en) ?? ex.description)
+          : null,
+      }));
+      console.log(`[deepl] ${translated.size} nombres y descripciones traducidas`);
     }
+  } else {
+    console.warn('[deepl] DEEPL_API_KEY no configurada — usando fallback de traducción...');
   }
 
-  const result = exercises.map(ex => ({
-    ...ex,
-    name_es: ex.name_es ?? translated.get(ex.name_en) ?? null,
-    description: ex.description
-      ? (translatedDescs.get(ex.name_en) ?? ex.description)
-      : null,
-  }));
+  // Google Translate Fallback para lo que esté en uso en las rutinas (para evitar rate limit de traducir todo el catálogo)
+  try {
+    const { data: routines } = await supabase
+      .from('trainer_routines')
+      .select('blocks');
 
-  console.log(`[deepl] ${translated.size} nombres y descripciones traducidas`);
+    const usedNames = new Set<string>();
+    const usedIds = new Set<string>();
+
+    (routines || []).forEach((r: any) => {
+      (r.blocks || []).forEach((b: any) => {
+        if (b.wger_id) usedIds.add(String(b.wger_id));
+        if (b.free_db_id) usedIds.add(String(b.free_db_id));
+        if (b.name) usedNames.add(normalizeText(b.name));
+        if (b.wger_name_en) usedNames.add(normalizeText(b.wger_name_en));
+      });
+    });
+
+    const needsTranslation = result.filter(ex => {
+      const idKey = String(ex.wger_id ?? ex.free_db_id ?? '');
+      const nameKey = normalizeText(ex.name_en);
+      const isUsed = usedIds.has(idKey) || usedNames.has(nameKey);
+      if (!isUsed) return false;
+
+      const needsName = !ex.name_es;
+      const needsDesc = ex.description && isEnglishText(ex.description);
+      return needsName || needsDesc;
+    });
+
+    if (needsTranslation.length > 0) {
+      console.log(`[translate] Traduciendo ${needsTranslation.length} ejercicios de catálogo en uso con Google Translate...`);
+      let count = 0;
+      for (const ex of needsTranslation) {
+        count++;
+        try {
+          if (!ex.name_es) {
+            const resName = await translate(ex.name_en, { to: 'es' });
+            ex.name_es = toSentenceCase(resName.text);
+          }
+          if (ex.description && isEnglishText(ex.description)) {
+            const resDesc = await translate(ex.description, { to: 'es' });
+            ex.description = resDesc.text;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        } catch (err: any) {
+          console.warn(`[translate] Error traduciendo "${ex.name_en}" en fallback:`, err.message);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      console.log('[translate] Traducción de catálogo finalizada.');
+    }
+  } catch (err: any) {
+    console.error('[translate] Error en fallback de Google Translate:', err.message);
+  }
+
   return result;
 }
 
@@ -545,7 +692,7 @@ async function loadAllExercises(): Promise<WgerExercise[]> {
   return translateNames(withLocal);
 }
 
-async function getExercises(): Promise<WgerExercise[]> {
+export async function getExercises(): Promise<WgerExercise[]> {
   const now = Date.now();
   if (mergedCache && now - mergedCache.loadedAt < CACHE_TTL_MS) {
     return mergedCache.exercises;

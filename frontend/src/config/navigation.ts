@@ -31,7 +31,9 @@ import {
   FileCheck2,
   QrCode,
   Truck,
-  ShieldCheck
+  ShieldCheck,
+  CreditCard,
+  MonitorSpeaker
 } from 'lucide-react';
 import { UserRole } from '@/types/dashboard';
 import { SHOW_EXPLORE } from '@/lib/feature-flags';
@@ -150,6 +152,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       },
@@ -188,6 +191,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Mis Citas', href: '/wellness/appointments', icon: Heart },
           { title: 'Carnets de mis hijos', href: '/my-cards', icon: IdCard },
           { title: 'Mis Constancias', href: '/my-certificates', icon: FileCheck2 },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -200,6 +204,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           { title: 'Dashboard', href: '/dashboard', icon: Home },
           { title: 'Mis Equipos', href: '/teams', icon: Users },
           { title: 'Mis Planes', href: '/coach-plans', icon: FileText },
+          { title: 'Mi Dotación', href: '/coach/dotacion', icon: Dumbbell },
           { title: 'Mis Deportistas', href: '/students', icon: Users },
           { title: 'Calendario', href: '/calendar', icon: Calendar }
         ]
@@ -217,6 +222,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Resultados', href: '/results', icon: Trophy },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
           { title: 'Reportes', href: '/coach-reports', icon: FileText }
         ]
       },
@@ -225,6 +231,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Mensajes', href: '/messages', icon: MessageSquare },
           { title: 'Anuncios', href: '/announcements', icon: Bell },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -253,6 +260,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
           { title: 'Métricas y Rendimiento', href: '/training-plans', icon: Activity },
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
           {
             title: 'Asistencias',
             icon: BarChart3,
@@ -261,13 +269,16 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
             title: 'Finanzas y Contabilidad',
             icon: BookOpen,
@@ -312,6 +323,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Mi Perfil Público', href: '/school/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -352,6 +364,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -386,6 +399,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/vendor/public-profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -414,7 +428,8 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         items: [
           { title: 'Configuración',     href: '/admin/config',  icon: Settings },
           { title: 'Notificaciones',    href: '/notifications', icon: Bell },
-          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare }
+          { title: 'Mensajes',          href: '/messages',      icon: MessageSquare },
+          { title: 'Facturación',       href: '/mi-plan',       icon: CreditCard }
         ]
       }
     ],
@@ -476,6 +491,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
             ]
           },
           { title: 'Calendario', href: '/calendar', icon: Calendar },
+          { title: 'Rutinas del Gym', href: '/school/routines', icon: Dumbbell },
           {
             title: 'Asistencias',
             icon: BarChart3,
@@ -484,13 +500,16 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
               { title: 'Encuestas', href: '/dashboard/polls', icon: ClipboardList },
             ],
           },
-          { title: 'Resultados', href: '/results-overview', icon: Trophy }
+          { title: 'Resultados', href: '/results-overview', icon: Trophy },
+          { title: 'Mis Torneos', href: '/school/tournaments', icon: Trophy },
+          { title: 'Dotación', href: '/school/equipment', icon: Dumbbell },
         ]
       },
       {
         title: 'Finanzas',
         items: [
           { title: 'Pagos', href: '/payments-automation', icon: DollarSign },
+          { title: 'Modo Recepción', href: '/recepcion', icon: MonitorSpeaker },
           {
             title: 'Finanzas y Contabilidad',
             icon: BookOpen,
@@ -534,6 +553,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
       {
         title: 'Cuenta',
         items: [
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }
@@ -560,6 +580,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Perfil', href: '/organizer/profile', icon: Users },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/organizer/settings', icon: Settings }
         ]
       }
@@ -578,6 +599,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Cuenta',
         items: [
           { title: 'Notificaciones', href: '/notifications', icon: Bell },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings }
         ]
       }
@@ -610,6 +632,7 @@ export function getNavigationByRole(role: UserRole): NavGroup[] {
         title: 'Perfil',
         items: [
           { title: 'Mi Perfil Público', href: '/trainer/profile', icon: User },
+          { title: 'Facturación', href: '/mi-plan', icon: CreditCard },
           { title: 'Configuración', href: '/settings', icon: Settings },
         ]
       }

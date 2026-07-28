@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
 import type { MpCreatePaymentResult } from '@/lib/api/mercadopago';
@@ -22,6 +23,7 @@ import { getUserFriendlyError } from '@/lib/error-translator';
 import { maskSensitive } from '@/lib/utils';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
+import { blockPwaReload, unblockPwaReload } from '@/pwa/reloadGuard';
 import { useNextUnpaidPeriod, isPeriodActive, type PeriodStatus } from '@/hooks/usePaymentPeriod';
 
 /** Intenta parsear un string como JSON; devuelve null si no es JSON valido. */
@@ -99,6 +101,13 @@ export default function ParentCheckoutPage() {
   const [checkingDian, setCheckingDian] = useState<boolean>(true);
 
   // Fetch DIAN Profile Data
+  // Bloquear auto-recarga del PWA mientras el acudiente está en el checkout
+  // (evita perder el comprobante subido si un SW nuevo toma control).
+  useEffect(() => {
+    blockPwaReload();
+    return () => unblockPwaReload();
+  }, []);
+
   useEffect(() => {
     if (user?.id) {
       const checkProfile = async () => {
@@ -286,12 +295,24 @@ export default function ParentCheckoutPage() {
       ocr_bank:      manualOcrResult?.extractedBank      ?? null,
       ocr_reference: manualOcrResult?.extractedReference ?? null,
       ocr_provider:  manualOcrResult?.provider           ?? null,
+      ocr_destination:      manualOcrResult?.extractedDestination     ?? null,
+      ocr_destination_name: manualOcrResult?.extractedDestinationName ?? null,
+      ocr_origin_name:      manualOcrResult?.extractedOriginName      ?? null,
+      ocr_time:             manualOcrResult?.extractedTime            ?? null,
       ocr_raw_response: manualOcrResult?.rawResponse
         ? safeParseJson(manualOcrResult.rawResponse) ?? manualOcrResult.rawResponse
         : null,
+      // Veredicto de reglas (modo sombra): se guarda pero NO cambia el status.
+      receipt_verdict:             manualOcrResult?.verdict           ?? null,
+      receipt_verdict_reasons:     manualOcrResult?.verdictReasons    ?? null,
+      receipt_reference_norm:      manualOcrResult?.referenceNorm     ?? null,
+      receipt_image_sha256:        manualOcrResult?.imageSha256       ?? null,
+      receipt_image_sha256_source: manualOcrResult?.imageSha256Source ?? null,
+      receipt_verdict_at:          manualOcrResult?.verdict ? new Date().toISOString() : null,
     };
 
     let insertError;
+    let resolvedPaymentId: string | null = paymentIdParam || null;
     if (paymentIdParam) {
       // Vino del QR: ACTUALIZA el pago ya creado (no duplicar). Conserva
       // amount/concept/child/school del pago original.
@@ -299,7 +320,7 @@ export default function ParentCheckoutPage() {
         .update({ ...mutableFields, updated_at: new Date().toISOString() } as any)
         .eq('id', paymentIdParam));
     } else {
-      ({ error: insertError } = await supabase.from('payments').insert({
+      const ins = await supabase.from('payments').insert({
         parent_id: user?.id,
         child_id: childId || null,
         team_id: teamId || null,
@@ -311,16 +332,19 @@ export default function ParentCheckoutPage() {
         payment_type: 'one_time',
         school_id: schoolId,
         ...mutableFields,
-      } as any));
+      } as any).select('id').single();
+      insertError = ins.error;
+      resolvedPaymentId = ins.data?.id ?? null;
     }
 
     if (insertError) {
       console.error('Error inserting payment:', insertError);
-      // Conflicto del unique index uq_payments_school_ocr_reference: el
-      // numero de operacion bancaria del comprobante ya fue usado en otro
-      // pago de esta escuela.
+      // Conflicto de unique index: el comprobante ya fue usado en otro pago de
+      // esta escuela — sea por numero de operacion (uq_payments_school_ocr_reference)
+      // o por hash de imagen re-subida (uq_payments_school_receipt_hash).
+      const dupMsg = insertError.message?.toLowerCase() ?? '';
       const isOcrDuplicate = insertError.code === '23505'
-        && (insertError.message?.toLowerCase().includes('ocr_reference') ?? false);
+        && (dupMsg.includes('ocr_reference') || dupMsg.includes('receipt_hash') || dupMsg.includes('receipt_image_sha256'));
       toast({
         title: isOcrDuplicate ? 'Comprobante ya usado' : 'Error',
         description: isOcrDuplicate
@@ -329,6 +353,12 @@ export default function ParentCheckoutPage() {
         variant: 'destructive',
       });
       return;
+    }
+
+    // Evaluación post-insert (Fase 5). Fire-and-forget: el BFF decide server-side
+    // auto-aprobar (verde+doble extracción+toggle+tope) / abrir glosa (amarillo) / nada.
+    if (resolvedPaymentId && (manualOcrResult?.verdict === 'verde' || manualOcrResult?.verdict === 'amarillo')) {
+      autoEvaluateGlosa(resolvedPaymentId).catch(() => { /* dormant/no-op tolerado */ });
     }
 
     const periodSuffix = periodLabel ? ` — ${periodLabel}` : '';
@@ -748,6 +778,8 @@ export default function ParentCheckoutPage() {
                               onUploadComplete={(url) => setManualReceiptUrl(url)}
                               onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
+                              schoolId={schoolId}
+                              paymentId={paymentIdParam || undefined}
                               expectedAmount={chargeAmount}
                               conceptKind={conceptKind}
                               allowPartial={installmentCfg.allow_installments}

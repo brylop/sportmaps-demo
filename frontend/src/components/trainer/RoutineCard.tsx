@@ -19,6 +19,7 @@ interface RoutineCardProps {
   onUse: (id: string) => void;
   onClick: (id: string) => void;
   onDelete?: (id: string) => void;
+  onTagClick?: (tag: string, e: React.MouseEvent) => void;
 }
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -35,7 +36,7 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   avanzado: 'text-destructive bg-destructive/10',
 };
 
-export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardProps) {
+export function RoutineCard({ routine, onUse, onClick, onDelete, onTagClick }: RoutineCardProps) {
   const categoryKey = (routine.category || '').toLowerCase();
   const bgStyle = CATEGORY_STYLES[categoryKey] || 'from-slate-500/20 via-slate-500/10 to-background border-slate-500/20';
 
@@ -96,7 +97,16 @@ export function RoutineCard({ routine, onUse, onClick, onDelete }: RoutineCardPr
           <div className="flex flex-wrap gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
             <Tag className="h-3 w-3 text-muted-foreground mt-0.5" />
             {routine.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="text-[10px] text-muted-foreground bg-slate-500/5 px-1.5 py-0.5 rounded">
+              <span 
+                key={tag} 
+                className="text-[10px] text-muted-foreground bg-slate-500/5 px-1.5 py-0.5 rounded hover:bg-primary/10 hover:text-primary transition-colors"
+                onClick={(e) => {
+                  if (onTagClick) {
+                    e.stopPropagation();
+                    onTagClick(tag, e);
+                  }
+                }}
+              >
                 #{tag}
               </span>
             ))}

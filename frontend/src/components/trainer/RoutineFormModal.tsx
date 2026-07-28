@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { calculateExerciseCalories } from '@/lib/trainer/calorieUtils';
 import { Switch } from '@/components/ui/switch';
 import { BlockBuilder, ExerciseBlock } from './BlockBuilder';
-import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame, Activity } from 'lucide-react';
+import { Loader2, ChevronRight, ChevronLeft, Save, Dumbbell, Info, Flame, Activity, Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -27,6 +27,11 @@ interface RoutineFormModalProps {
   routine?: any;
   onSave: (data: any) => Promise<void>;
   isLoading?: boolean;
+  /**
+   * 'trainer' (default): flujo PT clásico — biblioteca personal, switch "Guardar como plantilla".
+   * 'school': flujo de gimnasio — selector Personalizada/Predeterminada + switch "Visible para atletas".
+   */
+  context?: 'trainer' | 'school';
 }
 
 const CATEGORIES = ['Fuerza', 'Cardio', 'Funcional', 'HIIT', 'Flexibilidad', 'Yoga', 'Otro'];
@@ -81,8 +86,9 @@ function detectAnalyzerCode(block: any): string | null {
   return null;
 }
 
-export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: RoutineFormModalProps) {
+export function RoutineFormModal({ open, onClose, routine, onSave, isLoading, context = 'trainer' }: RoutineFormModalProps) {
   const ent = useEntitlements();
+  const isSchoolContext = context === 'school';
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<any>({
     name: '',
@@ -96,6 +102,8 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
     estimated_calories: 0,
     tags: [],
     is_template: true,
+    routine_type: 'custom',
+    visible_to_athletes: false,
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -132,17 +140,19 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
       setFormData({
         ...routine,
         // Campos normalizados — deben ir DESPUÉS del spread para sobrescribir
-        name:               routine.name               ?? '',
-        description:        routine.description        ?? '',
-        warmup:             routine.warmup             ?? '',
-        cooldown:           routine.cooldown           ?? '',
-        estimated_minutes:  routine.estimated_minutes  ?? 60,
-        is_template:        routine.is_template        ?? true,
-        category:           matchedCategory,
-        difficulty:         matchedDifficulty,
-        blocks:             initialBlocks,
-        estimated_calories: initialTotalCals,
-        tags:               routine.tags               ?? [],
+        name:                 routine.name                 ?? '',
+        description:          routine.description          ?? '',
+        warmup:               routine.warmup                ?? '',
+        cooldown:             routine.cooldown              ?? '',
+        estimated_minutes:    routine.estimated_minutes     ?? 60,
+        is_template:          routine.is_template           ?? true,
+        routine_type:         routine.routine_type          ?? 'custom',
+        visible_to_athletes:  routine.visible_to_athletes   ?? false,
+        category:             matchedCategory,
+        difficulty:           matchedDifficulty,
+        blocks:               initialBlocks,
+        estimated_calories:   initialTotalCals,
+        tags:                 routine.tags                  ?? [],
       });
     } else {
       setFormData({
@@ -157,6 +167,8 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
         estimated_calories: 0,
         tags: [],
         is_template: true,
+        routine_type: 'custom',
+        visible_to_athletes: false,
       });
     }
     setStep(1);
@@ -311,16 +323,39 @@ export function RoutineFormModal({ open, onClose, routine, onSave, isLoading }: 
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-primary/5 rounded-xl border border-primary/10">
-                  <div className="space-y-0.5">
-                    <Label className="text-sm font-bold">Guardar como plantilla</Label>
-                    <p className="text-xs text-muted-foreground">Estará disponible en tu biblioteca para usar con otros clientes.</p>
+                {/* ── Contexto PT: switch clásico "Guardar como plantilla" ── */}
+                {!isSchoolContext && (
+                  <div className="flex items-center justify-between p-4 bg-primary/5 rounded-xl border border-primary/10">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-bold">Guardar como plantilla</Label>
+                      <p className="text-xs text-muted-foreground">Estará disponible en tu biblioteca para usar con otros clientes.</p>
+                    </div>
+                    <Switch 
+                      checked={formData.is_template} 
+                      onCheckedChange={(val) => setFormData({ ...formData, is_template: val })}
+                    />
                   </div>
-                  <Switch 
-                    checked={formData.is_template} 
-                    onCheckedChange={(val) => setFormData({ ...formData, is_template: val })}
-                  />
-                </div>
+                )}
+
+                {/* ── Contexto Gimnasio: visibilidad para atletas ── */}
+                {isSchoolContext && (
+                  <div className="flex items-center justify-between p-4 bg-muted/20 rounded-xl border border-border/40">
+                    <div className="space-y-0.5 flex items-center gap-2">
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <Label className="text-sm font-bold">Visible para atletas</Label>
+                        <p className="text-xs text-muted-foreground">
+                          El atleta podrá verla en su perfil (sin poder auto-asignársela). Esta rutina queda
+                          disponible para todo el staff del gimnasio (dueño y coaches).
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={formData.visible_to_athletes}
+                      onCheckedChange={(val) => setFormData({ ...formData, visible_to_athletes: val })}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">

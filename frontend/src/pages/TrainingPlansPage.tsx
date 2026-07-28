@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2 } from 'lucide-react';
+import { Plus, Calendar, Target, ClipboardList, Trash2, Activity, Users, Loader2, TrendingUp } from 'lucide-react';
 import { TrainingPlanFormDialog } from '@/components/coach/TrainingPlanFormDialog';
 import { TeamPerformanceEntryModal } from '@/components/school/TeamPerformanceEntryModal';
 import { PerformanceEntryModal } from '@/components/school/PerformanceEntryModal';
+import { AthleteEvolutionModal } from '@/components/school/AthleteEvolutionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -38,6 +39,7 @@ export default function TrainingPlansPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
   const [individualStudent, setIndividualStudent] = useState<any>(null);
+  const [evolutionStudent, setEvolutionStudent] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Fetch teams
@@ -363,6 +365,8 @@ export default function TrainingPlansPage() {
             </div>
           )}
 
+
+
           {filterType === 'plans' && selectedPlanId && (
             <Card className="border-border/40 bg-background/50 backdrop-blur-sm shadow-sm">
               <CardContent className="pt-6 text-center">
@@ -442,15 +446,26 @@ export default function TrainingPlansPage() {
                             </Badge>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-primary hover:text-primary hover:bg-primary/10 px-2 gap-1"
-                          onClick={() => setIndividualStudent(student)}
-                        >
-                          <Activity className="w-3.5 h-3.5" />
-                          Evaluar
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-muted-foreground hover:text-primary hover:bg-primary/10 px-2 gap-1"
+                            onClick={() => setEvolutionStudent(student)}
+                          >
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            Evolución
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-primary hover:text-primary hover:bg-primary/10 px-2 gap-1"
+                            onClick={() => setIndividualStudent(student)}
+                          >
+                            <Activity className="w-3.5 h-3.5" />
+                            Evaluar
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -471,6 +486,8 @@ export default function TrainingPlansPage() {
         />
       )}
 
+
+
       {activeId && (
         <TeamPerformanceEntryModal
           open={performanceDialogOpen}
@@ -488,6 +505,16 @@ export default function TrainingPlansPage() {
           subjectType={individualStudent.athlete_type === 'adult' ? 'profile' : (individualStudent.athlete_type === 'child' ? 'child' : 'unregistered')}
           subjectId={individualStudent.id}
           subjectName={individualStudent.full_name}
+        />
+      )}
+
+      {evolutionStudent && (
+        <AthleteEvolutionModal
+          open={!!evolutionStudent}
+          onClose={() => setEvolutionStudent(null)}
+          subjectType={evolutionStudent.athlete_type === 'adult' ? 'profile' : (evolutionStudent.athlete_type === 'child' ? 'child' : 'unregistered')}
+          subjectId={evolutionStudent.id}
+          subjectName={evolutionStudent.full_name}
         />
       )}
 
