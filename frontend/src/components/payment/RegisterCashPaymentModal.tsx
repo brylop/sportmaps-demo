@@ -19,6 +19,16 @@ import { es } from 'date-fns/locale';
 import { FileUpload } from '@/components/common/FileUpload';
 import type { ReceiptValidationResult } from '@/hooks/useReceiptValidator';
 import { buildReceiptOcrFields, isDuplicateReceiptError } from '@/lib/receiptOcrFields';
+import {
+  type PaymentPeriod,
+  formatPeriodLabel,
+  isMonthlyConcept,
+  currentPeriodBogota,
+  periodOptions,
+  periodKey,
+  parsePeriodKey,
+  isDuplicatePeriodError,
+} from '@/lib/paymentPeriod';
 
 interface RegisterCashPaymentModalProps {
   open: boolean;
@@ -52,6 +62,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [ocrResult, setOcrResult] = useState<ReceiptValidationResult | null>(null);
   // Key para remontar el FileUpload y limpiar su estado interno al quitar el soporte.
   const [uploadKey, setUploadKey] = useState(0);
+
+  // Periodo (mes cubierto) del cobro. Solo aplica a mensualidades y a cobros
+  // NUEVOS: cuando se aplica a un pendiente, ese cobro ya trae el suyo y
+  // pisarlo colisiona con los indices unicos de periodo.
+  const [period, setPeriod] = useState<PaymentPeriod | null>(null);
+  const [periodSuggested, setPeriodSuggested] = useState<PaymentPeriod | null>(null);
+  const [loadingPeriod, setLoadingPeriod] = useState(false);
 
   // Athlete search state
   const [athletePopoverOpen, setAthletePopoverOpen] = useState(false);
@@ -132,6 +149,51 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       setLoadingPending(false);
     }
   };
+
+  // Un cobro nuevo de mensualidad debe llevar periodo; aplicado a un pendiente NO
+  // (ese ya trae el suyo desde que se genero).
+  const periodApplies = selectedPaymentId === 'new' && !!selectedAthleteId && isMonthlyConcept(concept);
+
+  useEffect(() => {
+    if (!periodApplies) {
+      setPeriod(null);
+      setPeriodSuggested(null);
+      return;
+    }
+
+    const student = athletes.find(a => a.id === selectedAthleteId);
+    if (!student) return;
+
+    let cancelled = false;
+    (async () => {
+      setLoadingPeriod(true);
+      // next_unpaid_period solo resuelve menores (recibe p_child_id). Para
+      // adultos y no registrados no hay RPC: se arranca en el mes actual y el
+      // admin ajusta si esta poniendo al dia un mes atrasado.
+      const childId = (!student.user_id && !!student.parent_id) ? student.id : null;
+      let resolved: PaymentPeriod = currentPeriodBogota();
+
+      if (childId) {
+        try {
+          const { data, error } = await (supabase.rpc as any)('next_unpaid_period', { p_child_id: childId });
+          if (!error && data?.year && data?.month) {
+            resolved = { year: Number(data.year), month: Number(data.month) };
+          }
+        } catch {
+          // Sin RPC nos quedamos con el mes actual: es mejor un periodo poblado
+          // (entra al dedup) que dejarlo null.
+        }
+      }
+
+      if (!cancelled) {
+        setPeriodSuggested(resolved);
+        setPeriod(resolved);
+      }
+      setLoadingPeriod(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [periodApplies, selectedAthleteId, athletes]);
 
   const clearReceipt = () => {
     setReceiptUrl(null);
@@ -253,6 +315,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           approved_at: new Date().toISOString(),
           reference,
           amount_paid: numericAmount,
+          // Periodo solo en INSERT. En el UPDATE se respeta el que ya trae el
+          // cobro pendiente: pisarlo colisiona con uniq_payment_active_period_*.
+          period_year: periodApplies && period ? period.year : null,
+          period_month: periodApplies && period ? period.month : null,
           ...receiptFields,
         } as any);
 
@@ -293,7 +359,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       resetForm();
     } catch (err: any) {
       console.error(err);
-      if (isDuplicateReceiptError(err)) {
+      if (isDuplicatePeriodError(err)) {
+        toast({
+          title: 'Mes ya cobrado',
+          description: `Ya existe un cobro activo de ${period ? formatPeriodLabel(period.year, period.month) : 'ese mes'} para este deportista. Búscalo en "Aplicar a" en vez de crear uno nuevo.`,
+          variant: 'destructive',
+        });
+      } else if (isDuplicateReceiptError(err)) {
         toast({
           title: 'Comprobante ya registrado',
           description: 'Este soporte ya está vinculado a otro pago de la escuela. Revísalo en Validación de Cobros antes de volver a registrarlo.',
@@ -317,6 +389,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setPaymentDate(new Date());
     setAthleteSearchQuery('');
     setAthletePopoverOpen(false);
+    setPeriod(null);
+    setPeriodSuggested(null);
     clearReceipt();
   };
 
@@ -564,14 +638,47 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             <Label htmlFor="concept" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <FileText className="h-3.5 w-3.5" /> Concepto de pago
             </Label>
-            <Input 
-              id="concept" 
-              placeholder="Ej. Mensualidad Mayo..." 
-              value={concept} 
-              onChange={(e) => setConcept(e.target.value)} 
+            <Input
+              id="concept"
+              placeholder="Ej. Mensualidad Mayo..."
+              value={concept}
+              onChange={(e) => setConcept(e.target.value)}
               className="h-12 bg-background/50 border-border/40 rounded-xl font-medium focus-visible:ring-primary/20"
             />
           </div>
+
+          {/* Mes que cubre el cobro. NO es la fecha del pago: se puede registrar
+              hoy (julio) un pago que cubre agosto. Poblarlo mete el cobro en los
+              indices uniq_payment_active_period_* — sin esto la app le volveria a
+              ofrecer el mismo mes al acudiente y se cobraria dos veces. */}
+          {periodApplies && (
+            <div className="space-y-3">
+              <Label htmlFor="period" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <CalendarIcon className="h-3.5 w-3.5" /> Mes que cubre
+              </Label>
+              <Select
+                value={period ? periodKey(period) : ''}
+                onValueChange={(v) => { const p = parsePeriodKey(v); if (p) setPeriod(p); }}
+                disabled={loadingPeriod}
+              >
+                <SelectTrigger id="period" className="h-12 bg-background/50 border-border/40 rounded-xl font-bold">
+                  <SelectValue placeholder={loadingPeriod ? 'Calculando...' : 'Selecciona el mes'} />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-border/40 bg-background/95 backdrop-blur-md max-h-72">
+                  {(periodSuggested ? periodOptions(periodSuggested) : periodOptions(currentPeriodBogota())).map((p) => (
+                    <SelectItem key={periodKey(p)} value={periodKey(p)} className="rounded-lg py-2.5">
+                      {formatPeriodLabel(p.year, p.month)}
+                      {periodSuggested && periodKey(p) === periodKey(periodSuggested) ? ' — sugerido' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                El mes que se está pagando, no la fecha en que entró la plata. Se sugiere el
+                primer mes sin pagar; cámbialo si estás poniendo al día un mes atrasado.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-3">
