@@ -324,7 +324,53 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           ...receiptFields,
         } as any);
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          // 23505: ya existe un cobro para este atleta+período (el finder de
+          // pendientes no lo agarró, p.ej. estados distintos). En vez de romper
+          // con un 409 crudo, reutilizamos ese cobro: si sigue pendiente lo
+          // marcamos pagado; si YA está pagado, avisamos (no duplicar).
+          if ((insertError as any).code === '23505') {
+            let q = supabase.from('payments').select('id, status')
+              .eq('school_id', schoolId);
+            if (childId) q = q.eq('child_id', childId);
+            else if (userId) q = q.eq('user_id', userId);
+            else if (unregisteredId) q = q.eq('unregistered_athlete_id', unregisteredId);
+            if (periodApplies && period) {
+              q = q.eq('period_year', period.year).eq('period_month', period.month);
+            }
+            const { data: existing } = await q.order('created_at', { ascending: false }).limit(1);
+            const conflict = existing?.[0] as any;
+
+            if (conflict && conflict.status === 'paid') {
+              toast({
+                title: 'Ya existe un pago para este período',
+                description: 'Ese atleta ya tiene registrado el pago de este mes. No se duplicó.',
+              });
+              setLoading(false);
+              return;
+            }
+            if (conflict?.id) {
+              const { error: reuseErr } = await supabase.from('payments').update({
+                status: 'paid',
+                concept,
+                amount: numericAmount,
+                payment_method: paymentMethod === 'cash' ? 'cash' : 'transfer',
+                payment_channel: paymentMethod === 'cash' ? 'cash' : 'transfer',
+                payment_date: paymentDate.toISOString().split('T')[0],
+                approved_by: user.id,
+                approved_at: new Date().toISOString(),
+                reference,
+                amount_paid: numericAmount,
+                ...receiptFields,
+              } as any).eq('id', conflict.id);
+              if (reuseErr) throw reuseErr;
+            } else {
+              throw insertError;
+            }
+          } else {
+            throw insertError;
+          }
+        }
       }
 
       // Notificar al padre o al atleta (si tienen cuenta)
