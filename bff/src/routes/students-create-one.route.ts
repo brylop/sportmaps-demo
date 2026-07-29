@@ -54,7 +54,7 @@ const EnrollmentBase = z.object({
 const ChildSchema = EnrollmentBase.extend({
   type:          z.literal('child'),
   doc_type:      z.enum(['TI', 'CC', 'CE', 'PP']).default('TI'),
-  doc_number:    z.string().min(1),
+  doc_number:    z.string().trim().min(1).nullable().optional(),   // documento opcional
   full_name:     z.string().min(2).max(150).trim(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   gender:        z.string().nullable().optional(),
@@ -231,19 +231,21 @@ router.post(
       // FLUJO A — Menor de edad
       // ══════════════════════════════════════════════════════════════════════
       if (data.type === 'child') {
-        // 1. Verificar duplicado por doc_number en esta escuela
-        const { data: existing } = await supabase
-          .from('children')
-          .select('id')
-          .eq('school_id', schoolId)
-          .eq('doc_number', data.doc_number)
-          .maybeSingle();
+        // 1. Verificar duplicado por doc_number en esta escuela (solo si hay documento)
+        if (data.doc_number) {
+          const { data: existing } = await supabase
+            .from('children')
+            .select('id')
+            .eq('school_id', schoolId)
+            .eq('doc_number', data.doc_number)
+            .maybeSingle();
 
-        if (existing) {
-          return res.status(409).json({
-            error: `Ya existe un menor con el documento ${data.doc_number} en esta escuela.`,
-            existing_id: existing.id,
-          });
+          if (existing) {
+            return res.status(409).json({
+              error: `Ya existe un menor con el documento ${data.doc_number} en esta escuela.`,
+              existing_id: existing.id,
+            });
+          }
         }
 
         // 2. INSERT children
@@ -252,7 +254,7 @@ router.post(
           .insert({
             full_name:         data.full_name,
             doc_type:          data.doc_type,
-            doc_number:        data.doc_number,
+            doc_number:        data.doc_number || null,
             date_of_birth:     data.date_of_birth     || null,
             gender:            data.gender             || null,
             grade:             data.grade              || null,

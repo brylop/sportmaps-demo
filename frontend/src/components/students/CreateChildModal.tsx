@@ -494,7 +494,6 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validate = (): string | null => {
-    if (!docNumber.trim()) return 'El número de documento es obligatorio.';
     if (!fullName.trim())  return 'El nombre completo es obligatorio.';
     if (!dob)              return 'La fecha de nacimiento es obligatoria.';
     if (!parentName.trim() || parentName.trim().length < 2)
@@ -524,8 +523,8 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
     try {
       setSubmitting(true);
 
-      // Si no es un hijo existente, verificar duplicado localmente por si acaso
-      if (!selectedChildId) {
+      // Si no es un hijo existente y hay documento, verificar duplicado localmente
+      if (!selectedChildId && docNumber.trim()) {
         const { data: existingChild } = await supabase
           .from('children')
           .select('id, full_name')
@@ -569,9 +568,9 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
         result = await bffClient.post('/api/v1/students/create-one', {
           type: 'child',
           ...enrollmentData,
-          // Identificación
+          // Identificación (documento opcional)
           doc_type:   docType,
-          doc_number: docNumber.trim(),
+          doc_number: docNumber.trim() || null,
           // Datos personales
           full_name:    fullName.trim(),
           date_of_birth: dob || null,
@@ -765,7 +764,7 @@ export function CreateChildModal({ open, onClose, onSuccess, schoolId }: CreateC
                     </Select>
                   </div>
                   <div className="col-span-2">
-                    <Label>Número de Documento *</Label>
+                    <Label>Número de Documento <span className="text-muted-foreground font-normal">(opcional)</span></Label>
                     <Input placeholder="1234567890" value={docNumber} onChange={e => setDocNumber(e.target.value)} disabled={!!selectedChildId} />
                   </div>
                 </div>
