@@ -493,28 +493,44 @@ export function PaymentCheckoutModal({
       const idColumn = payloadChildId ? 'child_id' : 'user_id';
       const idValue = payloadChildId || user.id;
 
-      let duplicateQuery = supabase.from('payments').select('id, period_year, period_month')
+      // Si ya existe un cobro IMPAGO (pending/overdue) del mismo periodo, se
+      // REUTILIZA (se le adjunta el comprobante) en vez de insertar otro — un
+      // INSERT nuevo choca con el unique index uniq_payment_active_period_per_child
+      // (error 23505 "duplicate key ..."). Los estados en validacion/pagado sí bloquean.
+      let reuseId: string | null = null;
+
+      let duplicateQuery = supabase.from('payments').select('id, period_year, period_month, status')
         .eq(idColumn, idValue)
-        .in('status', ['awaiting_approval', 'paid', 'approved', 'partial']).limit(50);
+        .in('status', ['pending', 'overdue', 'awaiting_approval', 'paid', 'approved', 'partial']).limit(50);
       if (mode === 'update' && paymentId) {
         duplicateQuery = duplicateQuery.neq('id', paymentId);
       }
       const { data: pendingPayments, error: pendingError } = await duplicateQuery;
       if (pendingError) throw pendingError;
 
+      const REUSABLE = ['pending', 'overdue'];
+      const BLOCKING = ['awaiting_approval', 'paid', 'approved', 'partial'];
+
       if (conceptType === 'mensualidad' && effectivePeriod) {
         const samePeriod = (pendingPayments || []).find((p: any) =>
           p.period_year === effectivePeriod.year && p.period_month === effectivePeriod.month,
         );
         if (samePeriod) {
-          throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
+          if (REUSABLE.includes(samePeriod.status)) {
+            reuseId = samePeriod.id;              // adjuntar comprobante a ESTE
+          } else {
+            throw new Error(`Ya existe un pago activo para ${effectivePeriod.label}.`);
+          }
         }
-      } else if (pendingPayments && pendingPayments.some((p: any) =>
-        // Para no-mensualidades, mantener el bloqueo legacy: cualquier awaiting_approval
-        // sin periodo definido cuenta como duplicado.
-        !p.period_year && !p.period_month,
-      )) {
-        throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
+      } else if (conceptType !== 'mensualidad') {
+        // No-mensualidad (inscripcion / abono): reutilizar cualquier impago sin
+        // periodo; si hay uno en validacion/pagado, bloquear (legacy).
+        const reusable = (pendingPayments || []).find((p: any) =>
+          !p.period_year && !p.period_month && REUSABLE.includes(p.status));
+        const blocking = (pendingPayments || []).find((p: any) =>
+          !p.period_year && !p.period_month && BLOCKING.includes(p.status));
+        if (reusable) reuseId = reusable.id;
+        else if (blocking) throw new Error('Ya existe un pago pendiente de aprobación para este deportista.');
       }
 
       if (mode === 'update' && paymentId && paymentId !== '') {
@@ -527,6 +543,11 @@ export function PaymentCheckoutModal({
       // como inscripcion / abono libre).
       const periodYear = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.year : null;
       const periodMonth = conceptType === 'mensualidad' && effectivePeriod ? effectivePeriod.month : null;
+
+      // Objetivo de UPDATE compartido por TODOS los métodos: el pago de
+      // mode='update' o el impago del mismo periodo a reutilizar (reuseId).
+      // Si es null → se hace INSERT. Evita el 23505 del unique index de periodo.
+      const targetId = (mode === 'update' && paymentId) ? paymentId : reuseId;
 
       if (selectedMethod === 'transfer') {
         if (!proofUrl) throw new Error('Debes subir un comprobante de pago');
@@ -553,8 +574,8 @@ export function PaymentCheckoutModal({
           receipt_image_sha256_source: ocrResult?.imageSha256Source ?? null,
           receipt_verdict_at: ocrResult?.verdict ? new Date().toISOString() : null,
         };
-        let glosaPaymentId: string | null = (mode === 'update' && paymentId) ? paymentId : null;
-        if (mode === 'update' && paymentId) {
+        let glosaPaymentId: string | null = targetId;
+        if (targetId) {
           const { error: updateError } = await supabase.from('payments').update({
             status: 'awaiting_approval',
             payment_method: 'transfer',
@@ -565,7 +586,7 @@ export function PaymentCheckoutModal({
             early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
             ...receiptOcrFields,
             updated_at: new Date().toISOString()
-          } as any).eq('id', paymentId);
+          } as any).eq('id', targetId);
           if (updateError) throw updateError;
         } else {
           const ins = await supabase.from('payments').insert({
@@ -640,7 +661,7 @@ export function PaymentCheckoutModal({
 
       const receiptNumber = `MAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
       let error = null;
-      if (mode === 'update' && paymentId) {
+      if (targetId) {
         const { error: updateError } = await supabase.from('payments').update({
           status: 'paid',
           payment_method: selectedMethod,
@@ -650,7 +671,7 @@ export function PaymentCheckoutModal({
           period_month: periodMonth,
           early_payment_discount_applied: discountResult.eligible ? discountResult.discountAmount : null,
           updated_at: new Date().toISOString()
-        }).eq('id', paymentId);
+        }).eq('id', targetId);
         error = updateError;
       } else {
         const { error: insertError } = await supabase.from('payments').insert({
