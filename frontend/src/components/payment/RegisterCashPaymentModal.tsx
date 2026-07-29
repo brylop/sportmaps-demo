@@ -122,11 +122,13 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setLoadingPending(true);
     setSelectedPaymentId('new');
     try {
-      const hasUserId = !!student.user_id;
-      const hasParent = !!student.parent_id;
-      const userId         = hasUserId ? student.user_id : null;
-      const childId        = (!hasUserId && hasParent) ? student.id : null;
-      const unregisteredId = (!hasUserId && !hasParent) ? student.id : null;
+      // Clasificar por athlete_type de la vista school_athletes (fuente de verdad),
+      // NO por presencia de parent_id: un 'child' sin padre vinculado (parent_id
+      // null) se tomaba como 'unregistered' y su children.id chocaba la FK
+      // payments_unregistered_athlete_id_fkey.
+      const userId         = student.athlete_type === 'adult' ? student.id : null;
+      const childId        = student.athlete_type === 'child' ? student.id : null;
+      const unregisteredId = student.athlete_type === 'unregistered' ? student.id : null;
 
       let q = supabase
         .from('payments')
@@ -170,7 +172,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       // next_unpaid_period solo resuelve menores (recibe p_child_id). Para
       // adultos y no registrados no hay RPC: se arranca en el mes actual y el
       // admin ajusta si esta poniendo al dia un mes atrasado.
-      const childId = (!student.user_id && !!student.parent_id) ? student.id : null;
+      const childId = student.athlete_type === 'child' ? student.id : null;
       let resolved: PaymentPeriod = currentPeriodBogota();
 
       if (childId) {
@@ -249,12 +251,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       //   Flujo A (menores)      → child_id   (user_id null, parent_id null in view)
       //   Flujo B (adultos)      → user_id    (user_id set in view)
       //   Flujo C (sin cuenta)   → unregistered_athlete_id (user_id null, parent_id null)
-      const hasUserId  = !!selectedStudent.user_id;
-      const hasParent  = !!selectedStudent.parent_id;
-
-      const userId           = hasUserId ? selectedStudent.user_id : null;
-      const childId          = (!hasUserId && hasParent) ? selectedStudent.id : null;
-      const unregisteredId   = (!hasUserId && !hasParent) ? selectedStudent.id : null;
+      // Clasificar por athlete_type (fuente de verdad de la vista), NO por
+      // parent_id: un 'child' sin padre vinculado caía a 'unregistered' y su
+      // children.id violaba payments_unregistered_athlete_id_fkey.
+      const userId           = selectedStudent.athlete_type === 'adult' ? selectedStudent.id : null;
+      const childId          = selectedStudent.athlete_type === 'child' ? selectedStudent.id : null;
+      const unregisteredId   = selectedStudent.athlete_type === 'unregistered' ? selectedStudent.id : null;
 
       // Apply only to the selected pending payment, or create a new one.
       if (selectedPaymentId !== 'new') {
