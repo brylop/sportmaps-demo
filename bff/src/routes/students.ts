@@ -754,6 +754,9 @@ router.put(
         if (enrollment.team_id !== undefined) {
           const teamStartDate: string = enrollment.team_start_date || new Date().toISOString().split('T')[0];
           const teamFee: number | null = enrollment.team_monthly_fee ?? null;
+          // Plan manda: si hay plan seleccionado, el equipo es SOLO roster y no
+          // genera cobro propio (evita el doble cobro equipo+plan).
+          const hasPlan = !!enrollment.offering_plan_id;
 
           const { data: existingTeam } = await applyAthleteFilter(
             supabase.from('enrollments').select('id, team_id, monthly_fee')
@@ -767,17 +770,24 @@ router.put(
               .update({ team_id: enrollment.team_id || null, start_date: teamStartDate, monthly_fee: teamFee, updated_at: new Date().toISOString() })
               .eq('id', existingTeam.id).eq('school_id', schoolId);
 
-            if (oldTeamId && oldTeamId !== enrollment.team_id) {
+            if (hasPlan) {
+              // Con plan, el equipo NO cobra: cancelar cualquier cobro pendiente
+              // de equipo (sin plan) de este atleta.
+              await applyAthleteFilter(
+                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('school_id', schoolId).not('team_id', 'is', null).is('offering_plan_id', null).eq('status', 'pending')
+              );
+            } else if (oldTeamId && oldTeamId !== enrollment.team_id) {
               // Equipo cambió: cancelar pagos pending del equipo anterior
               await applyAthleteFilter(
                 supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
                   .eq('school_id', schoolId).eq('team_id', oldTeamId).eq('status', 'pending')
               );
-              // Crear pago nuevo para el equipo nuevo
+              // Crear pago nuevo para el equipo nuevo (solo si tiene cuota > 0)
               if (enrollment.team_id) {
                 const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
-                const amount = teamFee ?? teamData?.price_monthly ?? 0;
-                await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+                const amount = teamFee ?? Number(teamData?.price_monthly ?? 0);
+                if (amount > 0) await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
               }
             } else {
               // Mismo equipo: actualizar pagos pending (monto y/o fecha)
@@ -795,9 +805,12 @@ router.put(
             row[athleteCol] = id;
             const { error } = await supabase.from('enrollments').insert(row);
             if (error) throw new Error(`Error creando enrollment equipo: ${error.message}`);
-            const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
-            const amount = teamFee ?? teamData?.price_monthly ?? 0;
-            await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+            // Cobro del equipo solo si NO hay plan y hay cuota > 0.
+            if (!hasPlan) {
+              const { data: teamData } = await supabase.from('teams').select('name, price_monthly').eq('id', enrollment.team_id).maybeSingle();
+              const amount = teamFee ?? Number(teamData?.price_monthly ?? 0);
+              if (amount > 0) await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
+            }
           }
         }
 
