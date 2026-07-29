@@ -86,6 +86,10 @@ export default function ParentCheckoutPage() {
   const schoolNameParam  = searchParams.get('school')  || '';
   const [resolvedStudentName, setResolvedStudentName] = useState('');
   const [resolvedSchoolName,  setResolvedSchoolName]  = useState('');
+  // Escuela del cobro: viene en la URL o se deriva del equipo. Se necesita en el
+  // render (no solo al pagar) para que el OCR del comprobante pueda computar el
+  // veredicto y correr el dedup contra los cobros de ESTA escuela.
+  const [resolvedSchoolId,    setResolvedSchoolId]    = useState<string | null>(null);
   const studentName = resolvedStudentName || studentNameParam || 'Deportista';
   const schoolName  = resolvedSchoolName  || schoolNameParam  || '';
   const teamName = searchParams.get('team') || '';
@@ -231,6 +235,7 @@ export default function ParentCheckoutPage() {
         const { data: t } = await supabase.from('teams').select('school_id').eq('id', teamId).maybeSingle();
         sid = t?.school_id ?? null;
       }
+      if (!cancelled) setResolvedSchoolId(sid);
       if (sid) {
         const { data: s } = await supabase.from('schools').select('name').eq('id', sid).maybeSingle();
         if (!cancelled && s?.name) setResolvedSchoolName(s.name);
@@ -831,7 +836,7 @@ export default function ParentCheckoutPage() {
                               onUploadComplete={(url) => setManualReceiptUrl(url)}
                               onValidationResult={(r) => setManualOcrResult(r)}
                               validateReceipt={true}
-                              schoolId={schoolId}
+                              schoolId={resolvedSchoolId || undefined}
                               paymentId={paymentIdParam || undefined}
                               expectedAmount={chargeAmount}
                               conceptKind={conceptKind}
