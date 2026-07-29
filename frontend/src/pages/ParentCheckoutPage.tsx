@@ -280,6 +280,11 @@ export default function ParentCheckoutPage() {
     const periodLabel = isMensualidad && nextPeriod ? nextPeriod.label : null;
 
     // Campos que se setean al pagar (comunes a insertar y actualizar).
+    // OJO: period_year/period_month NO van aquí. Al pagar un cobro EXISTENTE
+    // (viene del QR con payment_id) el cobro ya trae su propio período; si lo
+    // sobreescribiéramos con el que calcula next_unpaid_period, colisionaría con
+    // uniq_payment_active_period_per_child cuando hay otros cobros activos del
+    // mismo hijo → "Pago rechazado / duplicate key". Solo se setea en INSERT.
     const mutableFields = {
       // Manual paga "awaiting_approval" (admin valida); Wompi paga "paid" directo
       status: paymentFlow === 'manual' ? 'awaiting_approval' : 'paid',
@@ -287,8 +292,6 @@ export default function ParentCheckoutPage() {
       receipt_number: reference,
       payment_method: paymentFlow === 'wompi' ? 'card' : 'transfer',
       receipt_url: manualReceiptUrl,
-      period_year:  periodYear,
-      period_month: periodMonth,
       // Persistir OCR del comprobante (solo manual). Admin lo usa para detectar discrepancias.
       ocr_amount:    manualOcrResult?.extractedAmount    ?? null,
       ocr_currency:  manualOcrResult?.extractedCurrency  ?? null,
@@ -332,6 +335,9 @@ export default function ParentCheckoutPage() {
         due_date: new Date().toISOString().split('T')[0],
         payment_type: 'one_time',
         school_id: schoolId,
+        // El período solo se estampa al CREAR el cobro (no al actualizar uno del QR).
+        period_year:  periodYear,
+        period_month: periodMonth,
         ...mutableFields,
       } as any).select('id').single();
       insertError = ins.error;
@@ -346,10 +352,14 @@ export default function ParentCheckoutPage() {
       const dupMsg = insertError.message?.toLowerCase() ?? '';
       const isOcrDuplicate = insertError.code === '23505'
         && (dupMsg.includes('ocr_reference') || dupMsg.includes('receipt_hash') || dupMsg.includes('receipt_image_sha256'));
+      const isPeriodDuplicate = insertError.code === '23505'
+        && dupMsg.includes('uniq_payment_active_period_per_child');
       toast({
-        title: isOcrDuplicate ? 'Comprobante ya usado' : 'Error',
+        title: isOcrDuplicate ? 'Comprobante ya usado' : isPeriodDuplicate ? 'Ya hay un cobro para este mes' : 'Error',
         description: isOcrDuplicate
           ? 'Este comprobante ya está vinculado a otro pago en esta escuela. Si crees que es un error, contacta a la administración.'
+          : isPeriodDuplicate
+          ? 'Ya existe un cobro activo para este mes de este atleta. Vuelve a la lista de cobros y paga el que aparece pendiente.'
           : 'No se pudo registrar el pago en la base de datos',
         variant: 'destructive',
       });
