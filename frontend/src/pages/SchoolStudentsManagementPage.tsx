@@ -354,7 +354,11 @@ export default function SchoolStudentsManagementPage() {
           offering_plan_id: data.offering_plan_id   || null,
           team_start_date:  data.team_start_date    || null,
           plan_start_date:  data.plan_start_date    || null,
-          team_monthly_fee: data.team_monthly_fee   ?? null,
+          // Campo vacío en la cuota de equipo = "equipo sin cobro" → 0 explícito.
+          // Con null el backend no tocaba nada y la vista volvía a heredar
+          // teams.price_monthly, así que el valor reaparecía tras guardar.
+          team_monthly_fee: data.team_monthly_fee   ?? 0,
+          // En el plan, vacío = usar el precio del plan (no forzar 0).
           plan_monthly_fee: data.plan_monthly_fee   ?? null,
         },
       });
@@ -867,7 +871,10 @@ export default function SchoolStudentsManagementPage() {
                         const v = val === '__none__' ? '' : val;
                         form.setValue('team_id', v);
                         const t = teams.find(t => t.id === v);
-                        if (t?.monthly_fee) form.setValue('team_monthly_fee' as any, t.monthly_fee);
+                        // Con plan activo el equipo no cobra (plan manda); sin
+                        // plan, la cuota es el precio del equipo (0 si no tiene).
+                        form.setValue('team_monthly_fee' as any,
+                          form.getValues('offering_plan_id') ? 0 : (t?.monthly_fee ?? 0));
                       }}
                     >
                       <SelectTrigger><SelectValue placeholder="Sin equipo" /></SelectTrigger>
@@ -929,7 +936,16 @@ export default function SchoolStudentsManagementPage() {
                         const v = val === '__none__' ? '' : val;
                         form.setValue('offering_plan_id', v);
                         const p = offeringPlans.find(p => p.id === v);
-                        if (p?.price) form.setValue('plan_monthly_fee' as any, p.price);
+                        form.setValue('plan_monthly_fee' as any, v ? (p?.price ?? 0) : 0);
+                        // El plan define el cobro: el equipo pasa a ser roster y
+                        // su cuota baja a 0. Al quitar el plan, vuelve el precio
+                        // del equipo.
+                        if (v) {
+                          form.setValue('team_monthly_fee' as any, 0);
+                        } else {
+                          const t = teams.find(t => t.id === form.getValues('team_id'));
+                          form.setValue('team_monthly_fee' as any, t?.monthly_fee ?? 0);
+                        }
                       }}
                     >
                       <SelectTrigger><SelectValue placeholder="Sin plan" /></SelectTrigger>
@@ -1022,7 +1038,12 @@ export default function SchoolStudentsManagementPage() {
               ? <Badge variant="outline" className="text-muted-foreground">Inactivo</Badge>
               : <Badge className="bg-green-500/10 text-green-700 border-green-500/30">Activo</Badge>;
 
-            const monthlyFee = (s as any).price_monthly || (s as any).team_monthly_fee || (s as any).plan_monthly_fee || s.monthly_fee || 0;
+            // Plan manda (igual que la vista y el motor de cobros): nunca suma
+            // equipo + plan; si hay plan, ese es el valor.
+            const monthlyFee = Number((s as any).price_monthly)
+              || Number((s as any).plan_monthly_fee)
+              || Number((s as any).team_monthly_fee)
+              || Number(s.monthly_fee) || 0;
 
             return (
               <>

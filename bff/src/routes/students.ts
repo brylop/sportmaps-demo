@@ -753,10 +753,14 @@ router.put(
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
         if (enrollment.team_id !== undefined) {
           const teamStartDate: string = enrollment.team_start_date || new Date().toISOString().split('T')[0];
-          const teamFee: number | null = enrollment.team_monthly_fee ?? null;
           // Plan manda: si hay plan seleccionado, el equipo es SOLO roster y no
           // genera cobro propio (evita el doble cobro equipo+plan).
           const hasPlan = !!enrollment.offering_plan_id;
+          // Con plan, la cuota del equipo se guarda en 0: el cobro lo define el
+          // plan y una cuota fantasma en el equipo reaparecía en la vista
+          // (school_athletes) y en el editor. Sin plan, un 0 explícito es
+          // "equipo sin cobro" y se respeta tal cual.
+          const teamFee: number | null = hasPlan ? 0 : (enrollment.team_monthly_fee ?? null);
 
           const { data: existingTeam } = await applyAthleteFilter(
             supabase.from('enrollments').select('id, team_id, monthly_fee')
@@ -789,6 +793,13 @@ router.put(
                 const amount = teamFee ?? Number(teamData?.price_monthly ?? 0);
                 if (amount > 0) await createPendingPayment(enrollment.team_id, null, amount, `Mensualidad ${teamData?.name || 'Equipo'}`, teamStartDate);
               }
+            } else if (teamFee !== null && teamFee <= 0) {
+              // Cuota de equipo en 0 = sin cobro por equipo: se cancelan los
+              // pendientes (payments_amount_positive prohíbe amount = 0).
+              await applyAthleteFilter(
+                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('school_id', schoolId).eq('team_id', oldTeamId || enrollment.team_id).eq('status', 'pending')
+              );
             } else {
               // Mismo equipo: actualizar pagos pending (monto y/o fecha)
               const dueDate = new Date(teamStartDate);
@@ -845,6 +856,13 @@ router.put(
                 const amount = planFee ?? planData?.price ?? 0;
                 await createPendingPayment(null, enrollment.offering_plan_id, amount, `Plan ${planData?.name || 'Plan'}`, planStartDate);
               }
+            } else if (planFee !== null && planFee <= 0) {
+              // Plan sin cobro: cancelar pendientes (amount = 0 rompe el
+              // constraint payments_amount_positive).
+              await applyAthleteFilter(
+                supabase.from('payments').update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                  .eq('school_id', schoolId).eq('offering_plan_id', oldPlanId || enrollment.offering_plan_id).eq('status', 'pending')
+              );
             } else {
               // Mismo plan: actualizar pagos pending
               const paymentUpdates: any = { due_date: expiresAtStr, updated_at: new Date().toISOString() };

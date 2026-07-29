@@ -386,6 +386,10 @@ export default function MyPaymentsPage() {
           const activeEnrollments = enrollsByChild[child.id] || [];
 
           if (activeEnrollments.length > 0) {
+            // Líneas de este hijo: si el atleta tiene plan + equipo, el equipo es
+            // roster (cuota 0) y NO debe aparecer como un cobro aparte — el
+            // acudiente veía equipo + plan y parecía doble cobro.
+            const childLines: Enrollment[] = [];
             activeEnrollments.forEach((enroll: any) => {
               const team = Array.isArray(enroll.team) ? enroll.team[0] : enroll.team;
               const plan = Array.isArray(enroll.offering_plans) ? enroll.offering_plans[0] : enroll.offering_plans;
@@ -396,7 +400,7 @@ export default function MyPaymentsPage() {
               const resolvedFee = enroll.monthly_fee ?? catalogPrice;
               const lineName = team?.name
                 ?? (plan ? (offering?.name ? `${offering.name} — ${plan.name}` : plan.name) : 'Mensualidad Deportista');
-              flattened.push({
+              childLines.push({
                 id: enroll.id,
                 child_id: child.id,
                 team_id: enroll.team_id || null,
@@ -406,6 +410,8 @@ export default function MyPaymentsPage() {
                 schools: enroll.schools,
               });
             });
+            const withFee = childLines.filter(l => Number(l.teams?.price_monthly) > 0);
+            flattened.push(...(withFee.length > 0 ? withFee : childLines));
           }
           else if (child.teams) {
             const directTeam = Array.isArray(child.teams) ? child.teams[0] : (child.teams as any);
