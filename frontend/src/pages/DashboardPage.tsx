@@ -168,6 +168,24 @@ export default function DashboardPage() {
         console.warn('claim_orphan_children no-op:', e);
       }
 
+      // Backstop de MEMBRESÍA: acepta TODAS las invitaciones pendientes de este
+      // correo (parent/athlete), sin depender de localStorage (que se pierde si
+      // el link se abre en otro dispositivo). Así queda school_members creado
+      // aunque el accept diferido no haya corrido. accept_invitation_pro es
+      // idempotente (marca 'accepted' + ON CONFLICT en la membresía).
+      try {
+        const { data: myInvites } = await (supabase.rpc as any)('get_my_invitations');
+        const pend = ((myInvites as any[]) || []).filter(
+          i => i?.status === 'pending' && ['parent', 'athlete'].includes(String(i?.role_to_assign || '').toLowerCase()),
+        );
+        for (const inv of pend) {
+          const { error: accErr } = await (supabase.rpc as any)('accept_invitation_pro', { p_invite_id: inv.id });
+          if (accErr) console.warn('auto-accept invite fallo', inv.id, accErr.message);
+        }
+      } catch (e) {
+        console.warn('auto-accept pending invites no-op:', e);
+      }
+
       // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
 
