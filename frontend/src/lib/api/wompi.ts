@@ -28,6 +28,10 @@ export interface WompiCheckoutConfig {
     customerName: string;
     customerPhone?: string;
     redirectUrl?: string;
+    // Documento del comprador — prellenar para no depender del desplegable
+    // interno del Widget (que en algunos Android no despliega opciones).
+    legalId?: string;
+    legalIdType?: string;
     // SportMaps metadata
     studentName?: string;
     teamName?: string;
@@ -120,6 +124,8 @@ export async function openWompiCheckout(
         customerPhone,
         redirectUrl,
         schoolId,
+        legalId,
+        legalIdType,
     } = config;
 
     if (!WOMPI_PUBLIC_KEY) {
@@ -175,6 +181,12 @@ export async function openWompiCheckout(
             if (phone) {
                 customerData.phoneNumber = phone;
                 customerData.phoneNumberPrefix = '+57';
+            }
+            // Prellenar el documento del comprador (evita el desplegable roto del
+            // Widget en algunos dispositivos). Wompi lo toma como legalId/legalIdType.
+            if (legalId && legalIdType) {
+                customerData.legalId = legalId;
+                customerData.legalIdType = legalIdType;
             }
 
             const widgetConfig: Record<string, unknown> = {
