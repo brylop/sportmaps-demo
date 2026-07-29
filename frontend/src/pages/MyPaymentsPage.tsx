@@ -160,7 +160,7 @@ export default function MyPaymentsPage() {
       }
       fetchPaymentData();
     }
-  }, [user, profile]);
+  }, [user?.id, profile?.role]);
 
   const fetchPaymentData = async () => {
     try {
@@ -567,7 +567,7 @@ export default function MyPaymentsPage() {
     ));
   };
 
-  if (loading) {
+  if (loading && transactions.length === 0) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />

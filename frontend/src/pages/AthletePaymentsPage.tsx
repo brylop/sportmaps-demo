@@ -109,7 +109,7 @@ export default function AthletePaymentsPage() {
       fetchPayments();
       setSelectedPayment(null);
     }
-  }, [user, profile, activeTab]);
+  }, [user?.id, profile?.role, activeTab]);
 
   const fetchPayments = async () => {
     try {

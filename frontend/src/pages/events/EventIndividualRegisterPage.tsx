@@ -72,7 +72,7 @@ export default function EventIndividualRegisterPage() {
         participant_phone: profile.phone || '',
       }));
     }
-  }, [profile, user]);
+  }, [profile?.id, user?.id]);
 
   const loadData = async () => {
     setLoading(true);
