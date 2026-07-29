@@ -159,6 +159,15 @@ export default function DashboardPage() {
         }
       }
 
+      // Adoptar hijos pre-cargados por la escuela cuyo parent_email_temp coincide
+      // con este correo (aunque la aceptación de invitación haya fallado). Evita
+      // que el acudiente no vea a su hijo pre-registrado y lo cree duplicado.
+      try {
+        await (supabase.rpc as any)('claim_orphan_children', { p_school_id: null });
+      } catch (e) {
+        console.warn('claim_orphan_children no-op:', e);
+      }
+
       // 1. Obtener status de onboarding desde RPC (La función SQL maestra)
       const { data: status, error: statusError } = await (supabase.rpc as any)('get_onboarding_status');
 
