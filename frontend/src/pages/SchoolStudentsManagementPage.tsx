@@ -45,8 +45,15 @@ const studentSchema = z.object({
   offering_plan_id: z.string().optional(),
   team_start_date:   z.string().optional(),
   plan_start_date:   z.string().optional(),
-  team_monthly_fee:  z.number().min(0).optional(),
-  plan_monthly_fee:  z.number().min(0).optional(),
+  // Cuotas opcionales: un input numérico vacío llega como NaN; lo normalizamos a
+  // undefined para que se pueda dejar VACÍO (p.ej. equipo sin cobro cuando el
+  // valor a pagar es el del plan).
+  team_monthly_fee:  z.preprocess(
+    v => (v === '' || v === null || (typeof v === 'number' && Number.isNaN(v))) ? undefined : v,
+    z.number().min(0).optional()),
+  plan_monthly_fee:  z.preprocess(
+    v => (v === '' || v === null || (typeof v === 'number' && Number.isNaN(v))) ? undefined : v,
+    z.number().min(0).optional()),
   medical_info:     z.string().max(1000).optional(),
   notes:            z.string().max(500).optional(),
   tshirt_size:      z.string().optional(),
@@ -288,7 +295,10 @@ export default function SchoolStudentsManagementPage() {
           branchId: selectedTeam?.branch_id || activeBranchId || undefined,
           teamId: data.team_id,
           teamName: selectedTeam?.name || 'Equipo',
-          monthlyFee: data.team_monthly_fee ?? data.plan_monthly_fee ?? 0,
+          // Cuota efectiva: el plan manda si hay plan; si no, la del equipo.
+          monthlyFee: (data.offering_plan_id && Number(data.plan_monthly_fee) > 0)
+            ? Number(data.plan_monthly_fee)
+            : (Number(data.team_monthly_fee) || Number(data.plan_monthly_fee) || 0),
           medicalInfo: data.medical_info,
           notes: data.notes,
         });
