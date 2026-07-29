@@ -1800,11 +1800,31 @@ export default function PaymentsAutomationPage() {
             <DialogTitle>Comprobante de Pago</DialogTitle>
             <DialogDescription>{viewingProof.student} — {formatCurrency(viewingProof.amount)}</DialogDescription>
           </DialogHeader>
-          <div className="p-4 flex items-center justify-center bg-muted rounded-lg min-h-[200px] sm:min-h-[300px]">
+          <div className="p-4 flex flex-col items-center justify-center bg-muted rounded-lg min-h-[200px] sm:min-h-[300px]">
             {viewingProof.url ? (
-              <img src={viewingProof.url} alt="Comprobante" className="max-h-[400px] sm:max-h-[500px] object-contain rounded w-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              /\.pdf(\?|$)/i.test(viewingProof.url) ? (
+                // Los comprobantes en PDF NO se renderizan con <img> (queda en
+                // blanco). Se muestran en un <iframe>; con enlace de respaldo.
+                <iframe
+                  src={viewingProof.url}
+                  title="Comprobante"
+                  className="w-full h-[60vh] rounded border-0 bg-white"
+                />
+              ) : (
+                <img src={viewingProof.url} alt="Comprobante" className="max-h-[400px] sm:max-h-[500px] object-contain rounded w-full" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              )
             ) : (
-              <div className="text-center text-muted-foreground p-8"><p>No hay imagen disponible.</p></div>
+              <div className="text-center text-muted-foreground p-8"><p>No hay comprobante disponible.</p></div>
+            )}
+            {viewingProof.url && (
+              <a
+                href={viewingProof.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 text-sm text-primary underline"
+              >
+                Abrir en pestaña nueva
+              </a>
             )}
           </div>
           <div className="flex justify-end">

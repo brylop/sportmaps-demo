@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { CheckCircle2, Loader2, AlertTriangle, ScanLine } from 'lucide-react';
+import { CheckCircle2, Loader2, AlertTriangle, ScanLine, FileText } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
+import { getSignedReceiptUrl } from '@/lib/normalizeReceiptUrl';
 
 interface ApprovePaymentMethodSheetProps {
   payment: any;
@@ -33,6 +34,7 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'full' | 'abono'>('full');
   const [abonoAmount, setAbonoAmount] = useState('');
+  const [viewingReceipt, setViewingReceipt] = useState(false);
 
   const expected = Number(payment?.amount) || 0;
   const existingPaid = Number(payment?.amount_paid) || 0;   // abonos previos
@@ -60,6 +62,25 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
   const newTotalPaid = existingPaid + abonoNum;            // acumulado tras este abono
   const isAbono = mode === 'abono' && newTotalPaid < expected;  // aún queda saldo
   const saldoPendiente = Math.max(expected - newTotalPaid, 0);
+
+  const handleViewReceipt = async () => {
+    if (!payment?.receipt_url) return;
+    setViewingReceipt(true);
+    try {
+      const url = await getSignedReceiptUrl(payment.receipt_url);
+      if (!url) {
+        toast({
+          title: 'No se pudo abrir el comprobante',
+          description: 'Verifica que el archivo exista y que tengas permiso para verlo.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setViewingReceipt(false);
+    }
+  };
 
   const handleApprove = async () => {
     if (!payment || !schoolId || !user) return;
@@ -213,6 +234,20 @@ export function ApprovePaymentMethodSheet({ payment, open, onOpenChange, onSucce
                 No se pudo leer el monto del comprobante automáticamente. <strong>Abre el comprobante y verifica el valor</strong> antes de aprobar. Si el pago fue menor al esperado, regístralo como <strong>abono</strong> con el monto real.
               </p>
             </div>
+          )}
+
+          {/* Ver el comprobante subido (URL firmada; requiere RLS de escuela) */}
+          {payment?.receipt_url && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={viewingReceipt}
+              onClick={handleViewReceipt}
+            >
+              {viewingReceipt ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileText className="h-4 w-4 mr-2" />}
+              Ver comprobante
+            </Button>
           )}
 
           {/* Selector Completo / Abono */}
