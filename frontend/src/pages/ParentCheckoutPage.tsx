@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { downloadReceipt } from '@/lib/receipt-generator';
 import { usePdfBranding } from '@/hooks/usePdfBranding';
 import { openWompiCheckout, generatePaymentReference } from '@/lib/api/wompi';
+import { bffClient } from '@/lib/api/bffClient';
 import { autoEvaluate as autoEvaluateGlosa } from '@/lib/api/glosas';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import MercadoPagoBrick from '@/components/checkout/MercadoPagoBrick';
@@ -387,19 +388,61 @@ export default function ParentCheckoutPage() {
       return;
     }
 
+    // El pago online necesita un pago real registrado: la referencia debe existir
+    // en payment_links (la crea create-session). Si generamos una referencia al
+    // vuelo, wompi-sign responde 404 "Reference no encontrada", la firma falla y
+    // el Widget nunca abre.
+    if (!paymentIdParam) {
+      toast({
+        title: 'No disponible',
+        description: 'No se pudo iniciar el pago en línea. Usa transferencia manual.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setProcessing(true);
-    const reference = generatePaymentReference();
-    setReceiptNumber(reference);
 
     try {
+      // 1. Crear la sesión server-side → registra la referencia en payment_links
+      //    y devuelve el monto firmado por el servidor (fuente de verdad del monto).
+      const session = await bffClient.post<{ reference: string; amountInCents: number }>(
+        '/api/v1/payments/create-session',
+        { paymentId: paymentIdParam, preferredProvider: 'wompi' },
+        schoolIdParam ? { 'x-school-id': schoolIdParam } : undefined,
+      );
+
+      const reference = session.reference;
+      setReceiptNumber(reference);
+
       const customerName = user.user_metadata?.full_name || user.email || 'Padre';
       const customerEmail = user.email || 'demo@sportmaps.co';
 
+      // Documento del comprador: se exige antes de pagar (BillingDetailsForm),
+      // así que el perfil ya lo tiene. Lo prellenamos en el Widget para que el
+      // padre no dependa del desplegable interno (que en algunos Android no abre).
+      let legalId: string | undefined;
+      let legalIdType: string | undefined;
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('document_type, document_number')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (prof?.document_number && prof?.document_type) {
+        legalId = String(prof.document_number).trim();
+        // Wompi usa PP para pasaporte; el resto (CC/CE/NIT/TI/RC) coincide.
+        const t = String(prof.document_type).trim().toUpperCase();
+        legalIdType = t === 'PASAPORTE' ? 'PP' : t;
+      }
+
+      // 2. Abrir el Widget con la referencia válida.
       const transaction = await openWompiCheckout({
         reference,
-        amountInCents: chargeAmount * 100,
+        amountInCents: session.amountInCents,
         customerEmail,
         customerName,
+        legalId,
+        legalIdType,
         studentName,
         teamName: concept,
         schoolName,
