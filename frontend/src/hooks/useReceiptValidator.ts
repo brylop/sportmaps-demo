@@ -11,8 +11,11 @@
  *   2. Convertir blob a base64
  *   3. Llamar POST /api/v1/payments/extract-receipt
  *   4. Validar resultado:
- *      - Fecha debe ser hoy en Bogota -> SIEMPRE bloquea si no coincide
- *        (evita reuso de comprobantes vencidos, independiente del conceptKind)
+ *      - Fecha dentro de la ventana permitida (por defecto hoy o ayer en Bogota)
+ *        -> bloquea si es mas vieja, independiente del conceptKind (evita reuso
+ *        de comprobantes vencidos). Una fecha futura tambien bloquea. Se desactiva
+ *        entera con dateMode:'any' para el registro manual desde el panel de la
+ *        escuela, donde el soporte ya le llego por WhatsApp dias antes.
  *      - Moneda debe ser COP -> SIEMPRE bloquea si OCR detecto otra (USD, etc.)
  *      - Si conceptKind === 'fixed':
  *          * monto debe coincidir con expectedAmount (tolerancia 0.5%)
@@ -62,6 +65,25 @@ export interface ReceiptValidationResult {
 
 export type ConceptKind = 'fixed' | 'lenient';
 
+/**
+ * 'window' → el comprobante debe caer dentro de la ventana permitida hacia atrás
+ *            (`dateWindowDays`, default 1 = hoy o ayer en Bogotá). Flujo del
+ *            acudiente: paga y sube casi en el momento, pero puede transferir de
+ *            noche y subir a la mañana siguiente. Más viejo que eso es reuso.
+ * 'any'    → no se bloquea por fecha. Flujo de la ESCUELA registrando desde su
+ *            panel un pago que ya recibió: el soporte le llegó por WhatsApp días
+ *            antes y solo se está adjuntando como evidencia. El veredicto del BFF
+ *            igual marca FECHA_FUERA_VENTANA en amarillo (informativo) y el dedup
+ *            por referencia/hash sigue vivo.
+ *
+ * En modo 'window' una fecha futura también bloquea (no existe comprobante de
+ * mañana). En 'any' no se mira la fecha en absoluto.
+ */
+export type DateMode = 'window' | 'any';
+
+/** Días hacia atrás aceptados por defecto en modo 'window' (1 = hoy o ayer). */
+export const DEFAULT_DATE_WINDOW_DAYS = 1;
+
 export interface ValidationOptions {
     expectedAmount?: number;
     conceptKind?: ConceptKind;
@@ -76,6 +98,10 @@ export interface ValidationOptions {
     schoolId?: string;
     /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
     paymentId?: string;
+    /** Ver DateMode. Default 'window' (flujo del acudiente). */
+    dateMode?: DateMode;
+    /** Días hacia atrás aceptados en modo 'window'. Default 1 (hoy o ayer). */
+    dateWindowDays?: number;
 }
 
 interface OcrResponse {
@@ -102,7 +128,7 @@ interface OcrResponse {
 // Util para variantes de redondeo o cuando el comprobante incluye un peso adicional.
 const AMOUNT_TOLERANCE_PCT = 0.5; // 0.5%
 
-const todayIsoBogota = (): string => {
+export const todayIsoBogota = (): string => {
     // en-CA formatea como YYYY-MM-DD. Intl resuelve la zona correctamente
     // para usuarios en cualquier tz (no solo UTC).
     return new Intl.DateTimeFormat('en-CA', {
@@ -111,6 +137,24 @@ const todayIsoBogota = (): string => {
         month: '2-digit',
         day: '2-digit',
     }).format(new Date());
+};
+
+/** Parsea 'YYYY-MM-DD' a epoch ms UTC (medianoche). null si no es fecha válida. */
+const parseIsoDate = (iso: string): number | null => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (!m) return null;
+    const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return Number.isNaN(ms) ? null : ms;
+};
+
+/** Días calendario entre dos ISO (a - b). null si alguna no parsea.
+ *  Positivo = `a` es posterior a `b`. Se compara en UTC-medianoche, así que no
+ *  depende del reloj ni de la tz del dispositivo (el "hoy" ya viene en Bogotá). */
+const diffDays = (aIso: string, bIso: string): number | null => {
+    const a = parseIsoDate(aIso);
+    const b = parseIsoDate(bIso);
+    if (a === null || b === null) return null;
+    return Math.round((a - b) / 86_400_000);
 };
 
 const formatCop = (n: number): string =>
@@ -229,18 +273,32 @@ export function useReceiptValidator() {
                 imageSha256: resolvedHash, imageSha256Source,
             };
 
-            // 3) Validacion de fecha (hoy en Bogota) — SIEMPRE bloquea fechas
-            //    distintas a hoy (vencidas o futuras), independiente del conceptKind.
-            //    Evita que se reusen comprobantes viejos para "pagar" de nuevo.
+            // 3) Validacion de fecha (referencia: hoy en Bogota). Independiente del
+            //    conceptKind. Evita que se reusen comprobantes viejos para "pagar"
+            //    de nuevo, pero tolera la ventana de `dateWindowDays` porque el papa
+            //    puede transferir de noche y subir el soporte a la manana siguiente.
+            //    En modo 'any' NO se valida fecha en absoluto (ni futura): el LLM
+            //    confunde DD/MM con MM/DD en comprobantes colombianos, y un falso
+            //    "futuro" bloquearia a la escuela justo donde no queremos validar.
             const today = todayIsoBogota();
-            const dateMatchesToday = date === today;
             const conceptKind: ConceptKind = opts.conceptKind ?? 'lenient';
             const expected = opts.expectedAmount;
             const errors: string[] = [];
 
-            if (date && !dateMatchesToday) {
+            const dateMode: DateMode = opts.dateMode ?? 'window';
+            const windowDays = Math.max(0, opts.dateWindowDays ?? DEFAULT_DATE_WINDOW_DAYS);
+            // Positivo = comprobante posterior a hoy (futuro); negativo = mas viejo.
+            const ageDays = date ? diffDays(date, today) : null;
+
+            if (ageDays !== null && dateMode === 'window' && ageDays > 0) {
                 errors.push(
-                    `El comprobante es del ${date}, pero debe ser de hoy (${today}).`,
+                    `El comprobante tiene fecha futura (${date}). Verifica que sea el archivo correcto.`,
+                );
+            } else if (ageDays !== null && dateMode === 'window' && -ageDays > windowDays) {
+                errors.push(
+                    windowDays === 0
+                        ? `El comprobante es del ${date}, pero debe ser de hoy (${today}).`
+                        : `El comprobante es del ${date}. Solo aceptamos comprobantes de los últimos ${windowDays === 1 ? '2 días (hoy o ayer)' : `${windowDays + 1} días`}.`,
                 );
             }
 

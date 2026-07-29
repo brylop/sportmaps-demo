@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Banknote, Building2, Wallet, Landmark, Calendar as CalendarIcon, User, FileText, CheckCircle2 } from 'lucide-react';
+import { Loader2, Banknote, Building2, Wallet, Landmark, Calendar as CalendarIcon, User, FileText, CheckCircle2, Paperclip, AlertTriangle } from 'lucide-react';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { useToast } from '@/hooks/use-toast';
@@ -16,6 +16,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { FileUpload } from '@/components/common/FileUpload';
+import type { ReceiptValidationResult } from '@/hooks/useReceiptValidator';
+import { buildReceiptOcrFields, isDuplicateReceiptError } from '@/lib/receiptOcrFields';
 
 interface RegisterCashPaymentModalProps {
   open: boolean;
@@ -41,6 +44,14 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
   const [concept, setConcept] = useState('Mensualidad');
   const [amount, setAmount] = useState<number | ''>(0);
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
+
+  // Soporte de la transferencia (comprobante que la familia envio por WhatsApp).
+  // Solo aplica a paymentMethod === 'transfer'; opcional, porque la escuela
+  // tambien concilia contra el extracto bancario sin tener la imagen.
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [ocrResult, setOcrResult] = useState<ReceiptValidationResult | null>(null);
+  // Key para remontar el FileUpload y limpiar su estado interno al quitar el soporte.
+  const [uploadKey, setUploadKey] = useState(0);
 
   // Athlete search state
   const [athletePopoverOpen, setAthletePopoverOpen] = useState(false);
@@ -122,6 +133,22 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     }
   };
 
+  const clearReceipt = () => {
+    setReceiptUrl(null);
+    setOcrResult(null);
+    setUploadKey(k => k + 1);
+  };
+
+  // Razones del veredicto que ameritan avisar al admin (duplicado, destino que no
+  // coincide, fecha fuera de ventana...). NO bloquean: el admin ya vio la plata.
+  const verdictWarnings: string[] = (() => {
+    if (!ocrResult?.verdict || ocrResult.verdict === 'verde') return [];
+    const reasons = Array.isArray(ocrResult.verdictReasons) ? ocrResult.verdictReasons : [];
+    return reasons
+      .map(r => (r as { message?: string })?.message)
+      .filter((m): m is string => typeof m === 'string' && m.length > 0);
+  })();
+
   const handlePendingSelect = (value: string) => {
     setSelectedPaymentId(value);
     if (value === 'new') return;
@@ -146,6 +173,14 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     try {
       const prefix = paymentMethod === 'cash' ? 'CASH' : 'TRF';
       const reference = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+
+      // Comprobante: solo se adjunta en transferencia. Los campos ocr_*/receipt_*
+      // alimentan los indices de dedup (uq_payments_school_ocr_reference y
+      // uq_payments_school_receipt_hash), asi que registrar dos veces el mismo
+      // soporte de WhatsApp revienta con 23505 en vez de duplicar el ingreso.
+      const receiptFields = paymentMethod === 'transfer' && receiptUrl
+        ? { receipt_url: receiptUrl, ...buildReceiptOcrFields(ocrResult) }
+        : {};
 
       // Resolve correct IDs from the school_athletes view.
       // Payments are created with exactly ONE of these three fields:
@@ -193,7 +228,8 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
             approved_at: new Date().toISOString(),
             reference,
             amount_paid: numericAmount,
-          })
+            ...receiptFields,
+          } as any)
           .eq('id', selectedPaymentId);
 
         if (updateError) throw updateError;
@@ -216,8 +252,9 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
           approved_by: user.id,
           approved_at: new Date().toISOString(),
           reference,
-          amount_paid: numericAmount
-        });
+          amount_paid: numericAmount,
+          ...receiptFields,
+        } as any);
 
         if (insertError) throw insertError;
       }
@@ -256,7 +293,15 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
       resetForm();
     } catch (err: any) {
       console.error(err);
-      toast({ title: 'Error al reportar', description: err.message, variant: 'destructive' });
+      if (isDuplicateReceiptError(err)) {
+        toast({
+          title: 'Comprobante ya registrado',
+          description: 'Este soporte ya está vinculado a otro pago de la escuela. Revísalo en Validación de Cobros antes de volver a registrarlo.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Error al reportar', description: err.message, variant: 'destructive' });
+      }
     } finally {
       setLoading(false);
     }
@@ -272,6 +317,7 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
     setPaymentDate(new Date());
     setAthleteSearchQuery('');
     setAthletePopoverOpen(false);
+    clearReceipt();
   };
 
   return (
@@ -306,7 +352,12 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                     ? "bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10" 
                     : "bg-muted/20 border-border/40 hover:border-border/80"
                 )}
-                onClick={() => setPaymentMethod('cash')}
+                onClick={() => {
+                  setPaymentMethod('cash');
+                  // El soporte solo aplica a transferencia: descartarlo evita
+                  // guardar un receipt_url en un pago marcado como efectivo.
+                  clearReceipt();
+                }}
               >
                 <div className={cn(
                   "p-2 rounded-xl transition-colors",
@@ -343,6 +394,85 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
               </button>
             </div>
           </div>
+
+          {/* Soporte de la transferencia. Aca el comprobante YA le llego a la escuela
+              (tipicamente por WhatsApp, dias antes), asi que dateMode='any': no se
+              valida la fecha, solo se adjunta como evidencia. La ventana de fechas
+              aplica al flujo del acudiente, no a este. El veredicto del BFF igual
+              avisa si algo no cuadra, y el dedup por referencia/hash sigue vivo. */}
+          {paymentMethod === 'transfer' && (
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <Paperclip className="h-3.5 w-3.5" /> Soporte de la transferencia
+                <span className="font-bold normal-case tracking-normal text-[10px] text-muted-foreground/70">(opcional)</span>
+              </Label>
+
+              {receiptUrl ? (
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-xs font-bold text-blue-500">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" /> Soporte adjunto
+                    </span>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={clearReceipt}>
+                      Quitar
+                    </Button>
+                  </div>
+
+                  {/* Sugerencias del OCR: el admin decide si las aplica al formulario. */}
+                  {(ocrResult?.extractedAmount != null || ocrResult?.extractedDate) && (
+                    <div className="flex flex-wrap gap-2">
+                      {ocrResult?.extractedAmount != null && ocrResult.extractedAmount !== amount && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs rounded-lg"
+                          onClick={() => setAmount(ocrResult.extractedAmount as number)}
+                        >
+                          Usar monto {formatCurrency(ocrResult.extractedAmount)}
+                        </Button>
+                      )}
+                      {ocrResult?.extractedDate && ocrResult.extractedDate !== format(paymentDate, 'yyyy-MM-dd') && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs rounded-lg"
+                          onClick={() => setPaymentDate(new Date(`${ocrResult.extractedDate}T00:00:00`))}
+                        >
+                          Usar fecha {ocrResult.extractedDate}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Avisos del motor de reglas. Informativos: el admin ya confirmo el ingreso. */}
+                  {verdictWarnings.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-500/10 p-2">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                      <div className="space-y-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                        <p className="font-bold">Revisa antes de confirmar:</p>
+                        {verdictWarnings.map((msg, i) => <p key={i}>{msg}</p>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <FileUpload
+                  key={uploadKey}
+                  bucket="payment-receipts"
+                  accept="image/*,application/pdf"
+                  validateReceipt
+                  dateMode="any"
+                  schoolId={schoolId || undefined}
+                  expectedAmount={typeof amount === 'number' && amount > 0 ? amount : undefined}
+                  paymentId={selectedPaymentId !== 'new' ? selectedPaymentId : undefined}
+                  onUploadComplete={(url) => setReceiptUrl(url)}
+                  onValidationResult={(r) => setOcrResult(r)}
+                />
+              )}
+            </div>
+          )}
 
           <div className="space-y-3">
             <Label htmlFor="student" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">

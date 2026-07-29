@@ -6,7 +6,7 @@ import {
   Calendar, Hash, DollarSign, ScanLine,
 } from 'lucide-react';
 import { useStorage, BucketName } from '@/hooks/useStorage';
-import { useReceiptValidator, ReceiptValidationResult, ConceptKind } from '@/hooks/useReceiptValidator';
+import { useReceiptValidator, ReceiptValidationResult, ConceptKind, DateMode, todayIsoBogota } from '@/hooks/useReceiptValidator';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +24,7 @@ interface FileUploadProps {
   /** Monto esperado (del plan/payment) para validar contra el OCR. Solo aplica si conceptKind='fixed'. */
   expectedAmount?: number;
   /** 'fixed' = bloquea por monto y fecha (mensualidad/inscripcion fija).
-   *  'lenient' = solo bloquea por fecha distinta a hoy (default). */
+   *  'lenient' = solo bloquea por fecha fuera de la ventana (default). */
   conceptKind?: ConceptKind;
   /** Si la escuela permite abonos. Si es false, el OCR bloquea comprobantes
    *  por menos del esperado (conceptKind='fixed'). Default: false. */
@@ -36,6 +36,12 @@ interface FileUploadProps {
   schoolId?: string;
   /** Pago en edición (update flow), para excluirlo del dedup en el BFF. */
   paymentId?: string;
+  /** 'window' (default) acepta comprobantes de hoy o de los `dateWindowDays`
+   *  dias anteriores. 'any' no valida la fecha: usar en el registro manual desde
+   *  el panel de la escuela, donde el soporte llego por WhatsApp dias antes. */
+  dateMode?: DateMode;
+  /** Dias hacia atras aceptados en modo 'window'. Default 1 (hoy o ayer). */
+  dateWindowDays?: number;
   /** Fuerza captura de cámara en móvil ('environment' = cámara trasera).
    *  No garantiza bloquear la galería en desktop (el browser puede ignorarlo). */
   capture?: boolean | 'user' | 'environment';
@@ -56,6 +62,8 @@ export function FileUpload({
   minPartialAmount,
   schoolId,
   paymentId,
+  dateMode = 'window',
+  dateWindowDays,
   capture,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -115,7 +123,7 @@ export function FileUpload({
     try {
       let result: ReceiptValidationResult;
       try {
-        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId });
+        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId, dateMode, dateWindowDays });
       } catch (ocrErr) {
         // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
         // comprobante igual y que la escuela lo valide visualmente. El OCR es
@@ -289,9 +297,13 @@ export function FileUpload({
                     <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-300">
                       <Calendar className="h-3 w-3 shrink-0" />
                       <span><strong>Fecha:</strong> {validation.extractedDate}</span>
-                      <Badge className="bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-100 text-[10px] h-4 px-1">
-                        Hoy
-                      </Badge>
+                      {/* Solo se afirma "Hoy" cuando de verdad lo es: con la ventana
+                          de fechas un comprobante de ayer tambien pasa. */}
+                      {validation.extractedDate === todayIsoBogota() && (
+                        <Badge className="bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-100 text-[10px] h-4 px-1">
+                          Hoy
+                        </Badge>
+                      )}
                     </div>
                   )}
 
