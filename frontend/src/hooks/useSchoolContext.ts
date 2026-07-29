@@ -404,7 +404,10 @@ function useSchoolContextManager(): SchoolContext {
                     teamsData.map((p: any) => ({
                         id: p.id,
                         name: p.name,
-                        monthly_fee: p.price_monthly || DEFAULT_MONTHLY_FEE,
+                        // Equipo sin precio configurado = cuota 0. Antes caía en
+                        // DEFAULT_MONTHLY_FEE e inyectaba una mensualidad
+                        // fantasma en inscripciones e invitaciones.
+                        monthly_fee: p.price_monthly ?? 0,
                         sport_type: p.sport,
                         branch_id: p.branch_id
                     }))
