@@ -42,9 +42,15 @@ export interface PaymentOriginInput {
 
 export interface PaymentOrigin {
     kind: PaymentOriginKind;
-    /** Etiqueta corta para el badge. */
+    /**
+     * Etiqueta del badge. Corta a propósito (una palabra donde se pueda): vive en
+     * una celda de tabla, y una etiqueta larga partía la pastilla en dos líneas
+     * dejando el texto cruzado por el borde inferior, como si estuviera tachado.
+     */
     label: string;
-    /** Explicación para el tooltip/title. */
+    /** Matiz que va DEBAJO del badge, no dentro ("sin soporte", "Tarjeta"). */
+    qualifier: string | null;
+    /** Explicación completa para el tooltip/title. */
     detail: string;
     /** El cobro nació de una inscripción por QR. */
     viaQr: boolean;
@@ -84,10 +90,11 @@ export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
 
     if (isGatewayPayment(p)) {
         const gw = gatewayName(p.payment_provider);
-        const via = METHOD_LABEL[method];
+        const via = METHOD_LABEL[method] ?? null;
         return {
             kind: 'gateway',
-            label: via ? `${gw} · ${via}` : gw,
+            label: gw,
+            qualifier: via,
             detail: `Pago en línea confirmado por ${gw}${via ? ` (${via})` : ''}. No requiere validación de la escuela.`,
             viaQr,
         };
@@ -97,6 +104,7 @@ export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
         return {
             kind: 'cash',
             label: 'Efectivo',
+            qualifier: null,
             detail: 'Efectivo recibido y registrado por la escuela.',
             viaQr,
         };
@@ -106,13 +114,15 @@ export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
         return p.receipt_url
             ? {
                 kind: 'transfer_receipt',
-                label: 'Transferencia · comprobante',
+                label: 'Transferencia',
+                qualifier: 'con comprobante',
                 detail: 'Transferencia con comprobante adjunto, validada por la escuela.',
                 viaQr,
             }
             : {
                 kind: 'transfer_manual',
-                label: 'Transferencia · sin soporte',
+                label: 'Transferencia',
+                qualifier: 'sin soporte',
                 detail: 'Transferencia registrada a mano por la escuela, sin comprobante adjunto.',
                 viaQr,
             };
@@ -121,7 +131,8 @@ export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
     if (method === 'card') {
         return {
             kind: 'card_manual',
-            label: 'Tarjeta · registrada',
+            label: 'Tarjeta',
+            qualifier: 'registrada a mano',
             detail: 'Tarjeta registrada a mano por la escuela (no pasó por la pasarela).',
             viaQr,
         };
@@ -130,28 +141,37 @@ export function resolvePaymentOrigin(p: PaymentOriginInput): PaymentOrigin {
     if (method === 'pse') {
         return {
             kind: 'pse_manual',
-            label: 'PSE · registrado',
+            label: 'PSE',
+            qualifier: 'registrado a mano',
             detail: 'PSE registrado a mano por la escuela (no pasó por la pasarela).',
             viaQr,
         };
     }
 
-    if (method && method !== 'other') {
+    if (method === 'other') {
+        return {
+            kind: 'other',
+            label: 'Otro',
+            qualifier: null,
+            detail: 'Otro medio de pago registrado por la escuela.',
+            viaQr,
+        };
+    }
+
+    if (method) {
         return {
             kind: 'other',
             label: METHOD_LABEL[method] ?? p.payment_method!,
+            qualifier: null,
             detail: `Método registrado: ${p.payment_method}.`,
             viaQr,
         };
     }
 
-    if (method === 'other') {
-        return { kind: 'other', label: 'Otro', detail: 'Otro medio de pago registrado por la escuela.', viaQr };
-    }
-
     return {
         kind: 'unknown',
         label: 'Sin registrar',
+        qualifier: null,
         detail: 'El pago no tiene medio registrado. Antes se mostraba como "Transferencia" sin serlo.',
         viaQr,
     };

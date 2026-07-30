@@ -398,7 +398,39 @@ export default function FinancesPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Mobile: tarjetas. Una tabla de 5 columnas en un teléfono obliga a
+              scrollear en horizontal para leer el monto, que es justo el dato
+              que se viene a buscar. */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {transactions.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">No hay transacciones con estos filtros.</p>
+            ) : pagedTransactions.map((t) => (
+              <div key={t.id} className="border rounded-lg p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">{t.athlete}</p>
+                    {t.payer && <p className="text-xs text-muted-foreground truncate">Paga: {t.payer}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-green-500 whitespace-nowrap">${t.amount.toLocaleString('es-CO')}</p>
+                    {t.isPartial && (
+                      <Badge variant="outline" className="text-[10px] py-0 bg-blue-50 text-blue-700 border-blue-200">abono</Badge>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{t.concept}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <PaymentOriginBadge payment={t.raw} />
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">
+                    {t.date ? new Date(t.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : '—'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

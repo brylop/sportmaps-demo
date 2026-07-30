@@ -1478,10 +1478,13 @@ export default function PaymentsAutomationPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">{new Date(payment.created_at).toLocaleDateString('es-CO')}</p>
+                          <PaymentOriginBadge payment={payment} compact />
+                        </div>
                         {payment.receipt_url && (
-                          <Button variant="ghost" size="sm" className="h-7 text-blue-600 hover:bg-blue-50" onClick={() => handleShowProof(payment)}>
+                          <Button variant="ghost" size="sm" className="h-7 text-blue-600 hover:bg-blue-50 shrink-0" onClick={() => handleShowProof(payment)}>
                             <Eye className="h-3.5 w-3.5 mr-1" /> Ver
                           </Button>
                         )}
@@ -1499,7 +1502,7 @@ export default function PaymentsAutomationPage() {
                       <TableHead>Deportista</TableHead>
                       <TableHead>Concepto</TableHead>
                       <TableHead>Monto</TableHead>
-                      <TableHead>Método</TableHead>
+                      <TableHead>Entró por</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead>Soporte</TableHead>
                     </TableRow>
