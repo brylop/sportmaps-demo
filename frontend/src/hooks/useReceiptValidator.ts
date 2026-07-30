@@ -100,6 +100,16 @@ export interface ValidationOptions {
     paymentId?: string;
     /** Ver DateMode. Default 'window' (flujo del acudiente). */
     dateMode?: DateMode;
+    /**
+     * Si un veredicto ROJO bloquea la subida en el momento del OCR. Default true.
+     *
+     * Se pasa `false` en el flujo de la ESCUELA registrando un pago que ya recibió:
+     * ahí el admin es la autoridad y decide con el soporte a la vista, así que el
+     * rojo se muestra pero no le cierra la puerta. Para el acudiente sí bloquea:
+     * antes un comprobante a una cuenta ajena subía como válido y se quedaba
+     * esperando validación sin que nadie le dijera qué estaba mal.
+     */
+    blockOnRedVerdict?: boolean;
     /** Días hacia atrás aceptados en modo 'window'. Default 1 (hoy o ayer). */
     dateWindowDays?: number;
 }
@@ -159,6 +169,59 @@ const diffDays = (aIso: string, bIso: string): number | null => {
 
 const formatCop = (n: number): string =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n);
+
+/** Forma mínima de una razón de veredicto (viene como jsonb desde el BFF). */
+type VerdictReasonLike = { code?: string; level?: string; message?: string; detail?: unknown };
+
+/**
+ * Traduce los motivos ROJOS del veredicto a mensajes para quien sube el archivo,
+ * nombrando el dato concreto que no cuadró (cuenta destino y titular leídos).
+ *
+ * FECHA_FUTURA se omite a propósito: en modo 'window' ya lo dice el check local de
+ * fecha (duplicaría el mensaje) y en modo 'any' la fecha se ignora deliberadamente
+ * porque el LLM confunde DD/MM con MM/DD en comprobantes colombianos.
+ */
+function redVerdictMessages(
+    reasons: unknown,
+    read: { destination: string | null; destinationName: string | null },
+): string[] {
+    if (!Array.isArray(reasons)) return [];
+    const out: string[] = [];
+    for (const raw of reasons as VerdictReasonLike[]) {
+        if (raw?.level !== 'rojo' || !raw?.code) continue;
+        switch (raw.code) {
+            case 'DESTINO_NO_COINCIDE': {
+                const quien = [
+                    read.destination ? `cuenta ${read.destination}` : null,
+                    read.destinationName ? `a nombre de ${read.destinationName}` : null,
+                ].filter(Boolean).join(' ');
+                out.push(
+                    quien
+                        ? `El comprobante muestra un envío a la ${quien}, que no corresponde a las cuentas registradas por la escuela. Verifica los datos de pago de la escuela y transfiere de nuevo.`
+                        : 'El comprobante muestra un envío a una cuenta que no está registrada por la escuela. Verifica los datos de pago y transfiere de nuevo.',
+                );
+                break;
+            }
+            case 'NOT_A_RECEIPT':
+                out.push('El archivo no parece un comprobante de pago.');
+                break;
+            case 'IS_TRANSACTION_LIST':
+                out.push('Subiste una lista de movimientos. Sube el comprobante individual de la transacción.');
+                break;
+            case 'REFERENCIA_DUPLICADA':
+                out.push('La referencia de este comprobante ya se usó en otro pago.');
+                break;
+            case 'IMAGEN_DUPLICADA':
+                out.push('Esta imagen de comprobante ya se había subido antes.');
+                break;
+            case 'FECHA_FUTURA':
+                break;
+            default:
+                if (raw.message) out.push(raw.message);
+        }
+    }
+    return out;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PDF -> primera pagina como blob de imagen
@@ -361,6 +424,18 @@ export function useReceiptValidator() {
             //      monto leído que no cuadra). Antes esto hacía un hard-block que
             //      dejaba al papá sin poder pagar cuando el OCR no leía la imagen.
             const ocrUnreadable = !date || typeof amount !== 'number';
+
+            // 5) Veredicto ROJO → se bloquea acá, en el momento del OCR, diciendo
+            //    exactamente qué no concuerda. Antes el validador solo miraba fecha,
+            //    moneda y monto: nunca leía el veredicto, así que un comprobante
+            //    girado a una cuenta ajena subía como válido y se quedaba en la cola
+            //    esperando que un humano lo notara.
+            if ((opts.blockOnRedVerdict ?? true) && verdict === 'rojo') {
+                errors.push(...redVerdictMessages(verdictReasons, {
+                    destination: extractedDestination,
+                    destinationName: extractedDestinationName,
+                }));
+            }
 
             if (errors.length > 0) {
                 return {

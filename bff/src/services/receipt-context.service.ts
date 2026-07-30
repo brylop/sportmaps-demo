@@ -61,6 +61,31 @@ export async function buildVerdictContext(
         // Sin settings legibles: ventana default, sin cuentas → check 4 se salta.
     }
 
+    // 1.b) Cuentas destino que viven en columnas DRIFT (existen en la base pero
+    //      ninguna migración las crea: transfer_key, breb_number, daviplata_number).
+    //      Van en un select APARTE a propósito: si se mezclan con el de arriba y
+    //      una columna no existe, PostgREST falla la query entera, `registeredAccounts`
+    //      queda vacío y el check 4 se salta por completo — o sea, dejaríamos de
+    //      detectar destinos ajenos por un problema de esquema.
+    //      Sin esto, la Llave de Transferencia de la escuela no se compara y un
+    //      pago legítimo hecho a esa llave sale ROJO (falso positivo que ahora
+    //      además rechazaría el pago).
+    try {
+        const { data: drift } = await supabase
+            .from('school_settings')
+            .select('transfer_key, breb_number, daviplata_number')
+            .eq('school_id', schoolId)
+            .single();
+        if (drift) {
+            const extra = [drift.transfer_key, drift.breb_number, drift.daviplata_number]
+                .map((a) => normalizeDestination(a))
+                .filter((a): a is string => a !== null);
+            registeredAccounts = Array.from(new Set([...registeredAccounts, ...extra]));
+        }
+    } catch {
+        // Columnas ausentes en este esquema: se comparan solo las garantizadas.
+    }
+
     // 2) Dedup de referencia normalizada en la escuela. Usamos .eq parametrizado
     //    (no .or con string interpolado) para no exponer un filtro PostgREST a
     //    referencias con comas/paréntesis. El valor crudo (ocr_reference) sigue

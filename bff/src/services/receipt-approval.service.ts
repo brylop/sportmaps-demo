@@ -34,18 +34,110 @@ type PaymentRow = {
     receipt_url: string | null; receipt_image_sha256: string | null;
     parent_id: string | null; child_id: string | null; team_id: string | null;
     concept: string | null; ocr_reference: string | null;
+    receipt_verdict: string | null; receipt_verdict_reasons: unknown;
 };
 
 export interface EvaluateResult {
-    action: 'approved' | 'glosa' | 'none';
+    action: 'approved' | 'glosa' | 'rejected' | 'none';
     glosaId?: string | null;
+    /** Motivo del rechazo automático, listo para mostrar. Solo con action='rejected'. */
+    reason?: string;
+}
+
+/** Forma mínima de una razón de veredicto tal como se persiste en jsonb. */
+type ReasonLike = { code?: string; level?: string; message?: string; detail?: unknown };
+
+/**
+ * Traduce los motivos ROJOS a un texto que el acudiente pueda entender, nombrando
+ * el dato concreto que no cuadró. Devuelve null si no hay ningún motivo rojo (y por
+ * tanto no hay nada que rechazar).
+ */
+export function redRejectionMessage(reasons: ReasonLike[]): string | null {
+    const red = reasons.filter((r) => r?.level === 'rojo' && r?.code);
+    if (red.length === 0) return null;
+
+    const parts = red.map((r) => {
+        const d = (r.detail ?? {}) as Record<string, unknown>;
+        switch (r.code) {
+            case 'DESTINO_NO_COINCIDE': {
+                const dest = typeof d.destination === 'string' ? d.destination : null;
+                return dest
+                    ? `el comprobante muestra un envío a la cuenta ${dest}, que no es ninguna de las cuentas registradas por la escuela`
+                    : 'el dinero se envió a una cuenta que no está registrada por la escuela';
+            }
+            case 'NOT_A_RECEIPT':
+                return 'el archivo no es un comprobante de pago';
+            case 'IS_TRANSACTION_LIST':
+                return 'el archivo es una lista de movimientos, no un comprobante individual';
+            case 'REFERENCIA_DUPLICADA':
+                return 'la referencia de ese comprobante ya se usó en otro pago';
+            case 'IMAGEN_DUPLICADA':
+                return 'esa imagen de comprobante ya se había subido antes';
+            case 'FECHA_FUTURA':
+                return 'el comprobante tiene una fecha futura';
+            default:
+                return r.message || String(r.code);
+        }
+    });
+
+    return `Rechazado automáticamente: ${parts.join('; ')}.`;
+}
+
+/**
+ * Rechaza el pago por veredicto ROJO, dejando el motivo en `rejection_reason` y
+ * avisando al acudiente. El UPDATE exige que el pago siga en `awaiting_approval`:
+ * si el admin ya lo aprobó o rechazó a mano, no se pisa su decisión.
+ *
+ * El rechazo libera el comprobante para reintento: el índice único de dedup por
+ * hash excluye los pagos rechazados, así que el acudiente puede subir el correcto.
+ *
+ * Devuelve null si no había motivo rojo o si el UPDATE no alcanzó ninguna fila.
+ */
+async function autoRejectRed(p: PaymentRow, reasons: ReasonLike[], log?: Logger): Promise<EvaluateResult | null> {
+    const message = redRejectionMessage(reasons);
+    if (!message) return null;
+
+    const { data, error } = await supabase
+        .from('payments')
+        .update({ status: 'rejected', rejection_reason: message })
+        .eq('id', p.id)
+        .eq('status', 'awaiting_approval')
+        .select('id');
+
+    if (error || !data || data.length === 0) {
+        (log ?? console).warn?.(
+            { paymentId: p.id, code: (error as { code?: string } | null)?.code },
+            '[auto-reject] no se aplicó (el admin ya actuó o falló el update) → queda manual',
+        );
+        return null;
+    }
+
+    if (p.parent_id) {
+        // Insert directo, NO el RPC notify_user: ese exige auth.uid() y lanza
+        // "No autenticado" con el cliente service-role del BFF. Mismo patrón que
+        // glosa-notifications.job. La columna es `message`, no `body`.
+        const { error: notifyErr } = await supabase.from('notifications').insert({
+            user_id: p.parent_id,
+            school_id: p.school_id,
+            type: 'error',
+            title: '❌ Comprobante rechazado',
+            message: `${message} Revisa los datos de pago de la escuela y vuelve a intentarlo.`,
+            link: '/my-payments',
+        });
+        if (notifyErr) {
+            (log ?? console).warn?.({ paymentId: p.id, code: notifyErr.code }, '[auto-reject] notificación falló');
+        }
+    }
+
+    (log ?? console).info?.({ paymentId: p.id, reason: message }, '[auto-reject] rechazado por veredicto rojo');
+    return { action: 'rejected', reason: message };
 }
 
 export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): Promise<EvaluateResult> {
     try {
         const { data: pay } = await supabase
             .from('payments')
-            .select('id, school_id, status, amount, receipt_url, receipt_image_sha256, parent_id, child_id, team_id, concept, ocr_reference')
+            .select('id, school_id, status, amount, receipt_url, receipt_image_sha256, parent_id, child_id, team_id, concept, ocr_reference, receipt_verdict, receipt_verdict_reasons')
             .eq('id', paymentId)
             .single();
         if (!pay || (pay as PaymentRow).status !== 'awaiting_approval') return { action: 'none' };
@@ -98,6 +190,14 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
                     });
                     const verdictA = evaluateVerdict(ocrA, ctx);
 
+                    // ROJO recomputado por el servidor (imagen real re-descargada y
+                    // re-extraída): rechazo automático. Es el veredicto más confiable
+                    // que tenemos, así que aquí no hay razón para dejarlo esperando.
+                    if (verdictA.verdict === 'rojo') {
+                        const rejected = await autoRejectRed(p, verdictA.reasons, log);
+                        if (rejected) return rejected;
+                    }
+
                     if (verdictA.verdict === 'verde') {
                         const providerB = providers.find((x) => x !== providerA);
                         if (providerB) {
@@ -138,6 +238,18 @@ export async function evaluatePaymentReceipt(paymentId: string, log?: Logger): P
 }
 
 async function glosaFallback(p: PaymentRow, log?: Logger): Promise<EvaluateResult> {
+    // Camino sin re-extracción (auto-approve apagado, PDF, o imagen no descargable):
+    // se decide con el veredicto ya persistido. Ese veredicto lo computó el BFF en
+    // /extract-receipt — el cliente solo lo relaya — y para RECHAZAR el sesgo juega
+    // a favor: un cliente hostil nunca se auto-rechaza. Antes un ROJO caía en
+    // maybeAutoCreateGlosa, que solo mapea motivos AMARILLOS y además exige
+    // auto_glosa_enabled, así que devolvía null y el comprobante se quedaba mudo
+    // en la cola esperando a que alguien lo viera.
+    if (p.receipt_verdict === 'rojo') {
+        const reasons = Array.isArray(p.receipt_verdict_reasons) ? (p.receipt_verdict_reasons as ReasonLike[]) : [];
+        const rejected = await autoRejectRed(p, reasons, log);
+        if (rejected) return rejected;
+    }
     const gid = await maybeAutoCreateGlosa(p.id, log);
     return { action: gid ? 'glosa' : 'none', glosaId: gid };
 }
