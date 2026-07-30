@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2, Percent } from 'lucide-react';
+import { CreditCard, Building2, Smartphone, Loader2, CheckCircle2, XCircle, Info, Clock, AlertTriangle, Globe, Download, Maximize2, Percent, Copy } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -157,7 +157,7 @@ export function PaymentCheckoutModal({
   useEffect(() => {
     if (open && schoolId) {
       supabase.from('school_settings')
-        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
+        .select('bank_name, bank_account_type, bank_account_number, nequi_number, daviplata_number, breb_number, transfer_key, bank_titular_name, bank_titular_id, payment_qr_url, wompi_enabled, online_fee_pct, allow_installments, min_installment_amount, early_payment_discount_enabled, early_payment_discount_days, early_payment_discount_percentage')
         .eq('school_id', schoolId).single()
         .then(({ data }) => {
           setBankDetails(data);
@@ -998,13 +998,42 @@ export function PaymentCheckoutModal({
                     <AlertDescription className="space-y-2 mt-2">
                       <p className="text-sm">Realiza tu transferencia a la siguiente cuenta:</p>
                       {bankDetails ? (
-                        <div className="bg-background/80 p-3 rounded border space-y-1 font-mono text-xs break-all">
-                          {bankDetails.bank_name && <p><strong>Banco:</strong> {bankDetails.bank_name} ({bankDetails.bank_account_type})</p>}
-                          {bankDetails.bank_account_number && <p><strong>Número:</strong> {bankDetails.bank_account_number}</p>}
-                          {bankDetails.nequi_number && <p><strong>Nequi:</strong> {bankDetails.nequi_number}</p>}
-                          {bankDetails.daviplata_number && <p><strong>Daviplata:</strong> {bankDetails.daviplata_number}</p>}
-                          {bankDetails.bank_titular_name && <p><strong>Titular:</strong> {bankDetails.bank_titular_name}</p>}
-                          {bankDetails.bank_titular_id && <p><strong>NIT/CC:</strong> {bankDetails.bank_titular_id}</p>}
+                        <div className="bg-background/80 p-3 rounded border space-y-1.5 text-xs break-all">
+                          {([
+                            bankDetails.bank_name && { label: 'Banco', value: `${bankDetails.bank_name}${bankDetails.bank_account_type ? ` (${bankDetails.bank_account_type})` : ''}`, copy: false },
+                            bankDetails.bank_account_number && { label: 'Número', value: bankDetails.bank_account_number, copy: true },
+                            bankDetails.transfer_key && { label: 'Llave de Transferencia', value: bankDetails.transfer_key, copy: true },
+                            bankDetails.nequi_number && { label: 'Nequi', value: bankDetails.nequi_number, copy: true },
+                            bankDetails.daviplata_number && { label: 'Daviplata', value: bankDetails.daviplata_number, copy: true },
+                            bankDetails.breb_number && { label: 'Bre-B', value: bankDetails.breb_number, copy: true },
+                            bankDetails.bank_titular_name && { label: 'Titular', value: bankDetails.bank_titular_name, copy: false },
+                            bankDetails.bank_titular_id && { label: 'NIT/CC', value: bankDetails.bank_titular_id, copy: true },
+                          ].filter(Boolean) as { label: string; value: string; copy: boolean }[]).map((f, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2">
+                              <span className="font-mono"><strong className="font-sans">{f.label}:</strong> {f.value}</span>
+                              {f.copy && (
+                                <button
+                                  type="button"
+                                  aria-label={`Copiar ${f.label}`}
+                                  className="shrink-0 text-primary hover:text-primary/70 p-1"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const text = String(f.value);
+                                    if (navigator.clipboard?.writeText) {
+                                      navigator.clipboard.writeText(text).then(
+                                        () => toast({ title: 'Copiado', description: `${f.label} copiado.` }),
+                                        () => toast({ title: 'No se pudo copiar', description: text }),
+                                      );
+                                    } else {
+                                      toast({ title: `${f.label}`, description: `Cópialo manualmente: ${text}` });
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       ) : (
                         <p className="text-xs italic text-muted-foreground">La escuela no ha configurado sus datos bancarios aún.</p>
