@@ -16,13 +16,21 @@ type EmailType =
     | "coach_invitation"
     | "payment_reminder";
 
-interface EmailPayload {
+interface EmailItem {
     type?: EmailType;
     to: string;
     data?: Record<string, string>;
     subject?: string;
     html?: string;
 }
+
+interface EmailPayload extends Partial<EmailItem> {
+    // Envío masivo: hasta 100 destinatarios en UNA sola llamada a Resend.
+    // 394 invitaciones = 4 requests en vez de 394 (y sin chocar el rate limit).
+    batch?: EmailItem[];
+}
+
+const RESEND_BATCH_LIMIT = 100;
 
 // ─── Shared Layout (matches Supabase Auth templates) ───
 const wrapTemplate = (body: string): string => `
@@ -196,7 +204,90 @@ Deno.serve(async (req: Request) => {
 
     try {
         const payload: EmailPayload = await req.json();
-        const { type, to, data, subject: rawSubject, html: rawHtml } = payload;
+        const { type, to, data, subject: rawSubject, html: rawHtml, batch } = payload;
+
+        // ── Envío masivo (POST /emails/batch) ──────────────────────────────
+        if (Array.isArray(batch)) {
+            if (batch.length === 0) {
+                return new Response(
+                    JSON.stringify({ error: "'batch' vacío" }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+            if (batch.length > RESEND_BATCH_LIMIT) {
+                return new Response(
+                    JSON.stringify({ error: `'batch' admite máximo ${RESEND_BATCH_LIMIT} destinatarios por llamada` }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            let emails;
+            try {
+                emails = batch.map((item) => {
+                    if (!item.to) throw new Error("Falta 'to' en un elemento del batch");
+                    const built = item.type
+                        ? getSubjectAndHtml(item.type, item.data || {})
+                        : { subject: item.subject!, html: item.html! };
+                    if (!built.subject || !built.html) {
+                        throw new Error(`Elemento sin 'type' ni ('subject' y 'html'): ${item.to}`);
+                    }
+                    return {
+                        from: "SportMaps <noreply@sportmaps.co>",
+                        to: [item.to],
+                        subject: built.subject,
+                        html: built.html,
+                    };
+                });
+            } catch (buildErr) {
+                return new Response(
+                    JSON.stringify({ error: (buildErr as Error).message }),
+                    { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            if (!RESEND_API_KEY) {
+                console.error("RESEND_API_KEY not configured");
+                return new Response(
+                    JSON.stringify({ success: true, simulated: true, count: emails.length }),
+                    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            const batchRes = await fetch("https://api.resend.com/emails/batch", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${RESEND_API_KEY}`,
+                },
+                body: JSON.stringify(emails),
+            });
+
+            const batchText = await batchRes.text();
+
+            if (!batchRes.ok) {
+                console.error("Resend batch error:", batchRes.status, batchText);
+                // 429 (rate limit) y 4xx de cuota se devuelven tal cual para que
+                // el BFF distinga "reintentable" de "se acabó el plan".
+                return new Response(
+                    JSON.stringify({ error: `Resend error: ${batchRes.status}`, details: batchText }),
+                    { status: batchRes.status === 429 ? 429 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+                );
+            }
+
+            // Resend devuelve { data: [{ id }, ...] } en el MISMO orden del request.
+            const parsed = JSON.parse(batchText);
+            const ids: string[] = (parsed?.data || []).map((d: { id: string }) => d?.id);
+            console.log(`Batch enviado: ${ids.length}/${emails.length}`);
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    count: ids.length,
+                    results: batch.map((item, i) => ({ to: item.to, id: ids[i] ?? null })),
+                }),
+                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+        }
 
         if (!to) {
             return new Response(

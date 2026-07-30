@@ -109,6 +109,47 @@ router.post('/', requireAuth, requireRole('owner', 'admin', 'school_admin', 'coa
             }
         }
 
+        // ✅ Anti-duplicado: el atleta lleva UNA inscripción activa por escuela —
+        //    el plan manda el cobro y el equipo es el roster. Si ya existe una fila
+        //    activa a la que solo le falta el dato que llega (equipo sin plan, o
+        //    plan sin equipo), se completa esa fila en vez de abrir una segunda.
+        //    Sin esto, asignar un plan a un atleta ya inscrito en su equipo dejaba
+        //    dos inscripciones activas: roster inflado y riesgo de doble cobro.
+        const { data: activeEnrollments } = await supabase
+            .from('enrollments')
+            .select('id, team_id, offering_plan_id')
+            .eq(studentField, studentId)
+            .eq('school_id', schoolId)
+            .eq('status', 'active')
+            .order('created_at', { ascending: true });
+
+        const mergeTarget = (activeEnrollments || []).find((row: any) =>
+            (!data.team_id || !row.team_id || row.team_id === data.team_id) &&
+            (!data.offering_plan_id || !row.offering_plan_id || row.offering_plan_id === data.offering_plan_id) &&
+            ((data.team_id && !row.team_id) || (data.offering_plan_id && !row.offering_plan_id))
+        );
+
+        if (mergeTarget) {
+            const { data: merged, error: mergeError } = await supabase
+                .from('enrollments')
+                .update({
+                    team_id: mergeTarget.team_id || data.team_id || null,
+                    offering_plan_id: mergeTarget.offering_plan_id || data.offering_plan_id || null,
+                    ...(expiresAt ? { expires_at: expiresAt } : {})
+                })
+                .eq('id', mergeTarget.id)
+                .select()
+                .single();
+
+            if (mergeError) throw mergeError;
+
+            return res.status(200).json({
+                message: 'Inscripción actualizada exitosamente',
+                data: merged,
+                merged: true
+            });
+        }
+
         // ✅ Crear inscripción
         const { data: enrollment, error: enrollError } = await supabase
             .from('enrollments')
