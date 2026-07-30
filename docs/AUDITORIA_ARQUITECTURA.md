@@ -48,7 +48,7 @@ sportmaps-demo/
 │   ├── functions/     # 8 Edge Functions (Deno)
 │   └── config.toml
 ├── docs/              # specs, arquitectura, roadmaps
-├── scripts/           # imports, scrapers, check-migration-timestamps
+├── scripts/           # imports, scrapers, migrations.mjs (ledger de migraciones)
 ├── backend/           # ⚠️ LEGADO Python (vestigial)
 ├── api/               # ⚠️ LEGADO
 ├── mobile/            # ⚠️ LEGADO Flutter (solo analysis_options.yaml)
@@ -366,7 +366,7 @@ RLS habilitada en ~50 tablas. Las policies **delegan toda decisión a funciones 
   3. `sportmaps-bff-stg` — Node, rama `staging` → `stg.sportmaps.co` (Supabase dev).
   4. `sportmaps-bff-prod` — Node, rama `main` → `app.sportmaps.co` (Supabase prod).
   > ⚠️ **dev y staging comparten el mismo proyecto Supabase**; solo prod está aislado.
-- **Supabase Cloud = DB + Edge Functions.** 8 funciones Deno (analyze-receipt, payment-reminders-cron, run-recurring-charges, send-email, send-push-notification, wompi-sign, wompi-webhook, platform-admin-hook). Migraciones aplicadas **manualmente** (no hay job de deploy de DB en CI; único guard: `scripts/check-migration-timestamps.mjs`).
+- **Supabase Cloud = DB + Edge Functions.** 8 funciones Deno (analyze-receipt, payment-reminders-cron, run-recurring-charges, send-email, send-push-notification, wompi-sign, wompi-webhook, platform-admin-hook). Migraciones aplicadas **manualmente** (no hay job de deploy de DB en CI; único guard: `scripts/migrations.mjs check` sobre el ledger versionado `supabase/migrations_ledger.json` — ver [docs/migrations-workflow.md](migrations-workflow.md)).
 
 ### 5.2 Build frontend
 
