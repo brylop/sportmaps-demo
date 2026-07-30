@@ -747,7 +747,15 @@ router.put(
           if (planId) row.offering_plan_id = planId;
           row[athleteCol] = id;
           const { error } = await supabase.from('payments').insert(row);
-          if (error) throw new Error(`Error creando cobro pendiente: ${error.message}`);
+          if (error) {
+            // 23505: ya existe un cobro activo para este atleta+período
+            // (uniq_payment_active_period_*). NO es un error: el cobro ya está
+            // creado, así que la edición del atleta continúa sin duplicar ni
+            // abortar el guardado (antes reventaba con "Error creando cobro
+            // pendiente" al editar un atleta que ya tenía su mensualidad).
+            if ((error as any).code === '23505') return;
+            throw new Error(`Error creando cobro pendiente: ${error.message}`);
+          }
         };
 
         // ── Enrollment de EQUIPO ────────────────────────────────────────────────
