@@ -33,6 +33,81 @@ export interface WompiSignaturePayload {
     currency?: string;
 }
 
+// ─── Credenciales por comercio (Connected Accounts) ────────────────────────────
+//
+// Antes este módulo leía process.env.WOMPI_* en cada función, lo que hacía imposible
+// cobrar con la cuenta de una escuela concreta: el resolver entregaba la public_key de
+// la escuela pero la firma se hacía con el integrity secret de ENV → firma inválida.
+// Ahora toda función acepta `creds` opcional; sin `creds` usa ENV (camino legacy).
+//
+// Ref: docs/payments-connected-accounts-fase0-cierre.md §2 quater.
+
+export interface WompiCreds {
+    publicKey: string;
+    privateKey: string;
+    integritySecret: string | null;
+    eventsSecret: string | null;
+    sandbox: boolean;
+}
+
+/**
+ * Resuelve las credenciales a usar.
+ *
+ * REGLA: no se mezcla. O vienen todas del `creds` recibido, o todas de ENV. Completar
+ * un `creds` parcial con valores de ENV es exactamente el bug que rutea el dinero de
+ * una escuela a la cuenta comercial de otra (las llaves de ENV son de una escuela real).
+ * Devuelve null si falta lo imprescindible; el caller falla explícito.
+ */
+function resolveCreds(creds?: WompiCreds): WompiCreds | null {
+    if (creds) {
+        return creds.publicKey && creds.privateKey ? creds : null;
+    }
+    const publicKey = process.env.WOMPI_PUBLIC_KEY;
+    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+    if (!publicKey || !privateKey) return null;
+    return {
+        publicKey,
+        privateKey,
+        integritySecret: process.env.WOMPI_INTEGRITY_SECRET ?? null,
+        eventsSecret: process.env.WOMPI_EVENTS_SECRET ?? null,
+        sandbox: (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase() !== 'production',
+    };
+}
+
+/**
+ * Adapta el resultado de `resolveProvider` a WompiCreds.
+ *
+ * Tipado estructural a propósito (no importa ResolvedProvider) para no acoplar este
+ * módulo al resolver. Ojo con el mapeo: en el shape del resolver, para Wompi el
+ * `accessToken` ES la private key, y `webhookSecret` ES el events secret.
+ */
+export function wompiCredsFrom(r: {
+    publicKey: string;
+    accessToken?: string;
+    integritySecret?: string | null;
+    webhookSecret?: string | null;
+    sandbox: boolean;
+} | null | undefined): WompiCreds | null {
+    // Sin public key o sin private key no hay credenciales usables. Devolver un objeto
+    // a medias haría que resolveCreds() lo rechace más tarde y con peor diagnóstico.
+    if (!r?.publicKey || !r.accessToken) return null;
+    return {
+        publicKey: r.publicKey,
+        privateKey: r.accessToken,
+        integritySecret: r.integritySecret ?? null,
+        eventsSecret: r.webhookSecret ?? null,
+        sandbox: r.sandbox,
+    };
+}
+
+/** Base URL según el sandbox del comercio (no según ENV global). */
+function baseUrlFor(creds?: WompiCreds): string {
+    const sandbox = creds
+        ? creds.sandbox
+        : (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase() !== 'production';
+    return sandbox ? WOMPI_BASE_URL_SANDBOX : WOMPI_BASE_URL_PROD;
+}
+
 /**
  * Genera una referencia unica para una transaccion Wompi.
  * Formato: <prefix>-<timestamp36>-<random>
@@ -63,10 +138,16 @@ export function generateReference(source: WompiSource): string {
  * Por defecto el frontend pide la firma a `wompi-sign` (Edge Function);
  * tener esto en el BFF es util para tests, scripts, o flujos server-to-server.
  */
-export function signIntegrity(payload: WompiSignaturePayload): string {
-    const integritySecret = process.env.WOMPI_INTEGRITY_SECRET;
+export function signIntegrity(payload: WompiSignaturePayload, creds?: WompiCreds): string {
+    const integritySecret = creds
+        ? creds.integritySecret
+        : process.env.WOMPI_INTEGRITY_SECRET;
     if (!integritySecret) {
-        throw new Error('WOMPI_INTEGRITY_SECRET no configurado en el BFF.');
+        throw new Error(
+            creds
+                ? 'La cuenta Wompi conectada no tiene integrity_secret: no se puede firmar el checkout.'
+                : 'WOMPI_INTEGRITY_SECRET no configurado en el BFF.',
+        );
     }
     const { reference, amountInCents, currency = 'COP' } = payload;
     const stringToSign = `${reference}${amountInCents}${currency}${integritySecret}`;
@@ -92,10 +173,14 @@ export function signIntegrity(payload: WompiSignaturePayload): string {
 // con su checksum correcto, si lo replays >5 min despues lo rechazamos.
 const WEBHOOK_MAX_AGE_SECONDS = 300;
 
-export function validateWebhookChecksum(body: any): boolean {
-    const eventsSecret = process.env.WOMPI_EVENTS_SECRET;
+export function validateWebhookChecksum(body: any, creds?: WompiCreds): boolean {
+    const eventsSecret = creds ? creds.eventsSecret : process.env.WOMPI_EVENTS_SECRET;
     if (!eventsSecret) {
-        console.error('[wompi.service] WOMPI_EVENTS_SECRET no configurado.');
+        console.error(
+            creds
+                ? '[wompi.service] la cuenta Wompi conectada no tiene events_secret: no se puede validar el webhook.'
+                : '[wompi.service] WOMPI_EVENTS_SECRET no configurado.',
+        );
         return false;
     }
 
@@ -169,7 +254,7 @@ function sanitizeWompiErrorBody(body: string): string {
  *  - Confirmar el monto en el webhook (defensa frente a webhook spoofing)
  *  - Polling desde paginas de resultado
  */
-export async function fetchTransaction(transactionId: string): Promise<{
+export async function fetchTransaction(transactionId: string, creds?: WompiCreds): Promise<{
     id: string;
     status: 'APPROVED' | 'DECLINED' | 'VOIDED' | 'ERROR' | 'PENDING';
     reference: string;
@@ -178,8 +263,8 @@ export async function fetchTransaction(transactionId: string): Promise<{
     payment_method_type: string;
     created_at: string;
 } | null> {
-    const env = (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase();
-    const baseUrl = env === 'production' ? WOMPI_BASE_URL_PROD : WOMPI_BASE_URL_SANDBOX;
+    // Endpoint público (no requiere llave); solo importa el ambiente del comercio.
+    const baseUrl = baseUrlFor(creds);
 
     try {
         const res = await fetch(`${baseUrl}/transactions/${transactionId}`);
@@ -197,21 +282,21 @@ export async function fetchTransaction(transactionId: string): Promise<{
  * Wompi hoy solo expone void de transaccion APPROVED en plazos cortos;
  * refund parcial se gestiona offline contra el merchant.
  */
-export async function voidTransaction(transactionId: string): Promise<{ ok: boolean; error?: string }> {
-    const env = (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase();
-    const baseUrl = env === 'production' ? WOMPI_BASE_URL_PROD : WOMPI_BASE_URL_SANDBOX;
-
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
-    if (!privateKey) {
-        return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado.' };
+export async function voidTransaction(
+    transactionId: string,
+    creds?: WompiCreds,
+): Promise<{ ok: boolean; error?: string }> {
+    const c = resolveCreds(creds);
+    if (!c) {
+        return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente).' };
     }
 
     try {
-        const res = await fetch(`${baseUrl}/transactions/${transactionId}/void`, {
+        const res = await fetch(`${baseUrlFor(c)}/transactions/${transactionId}/void`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${c.privateKey}`,
             },
         });
         if (!res.ok) {
@@ -320,13 +405,11 @@ interface AcceptanceTokens {
     fetchedAt: number;
 }
 
-let _acceptanceCache: AcceptanceTokens | null = null;
+// Cache POR COMERCIO (llave = public_key). Antes era un singleton de módulo, lo que con
+// más de un comercio conectado le habría entregado a una escuela el acceptance token
+// emitido para otra — Wompi los emite por merchant y habría rechazado la transacción.
+const _acceptanceCache = new Map<string, AcceptanceTokens>();
 const ACCEPTANCE_TTL_MS = 5 * 60 * 1000;
-
-function getWompiBaseUrl(): string {
-    const env = (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase();
-    return env === 'production' ? WOMPI_BASE_URL_PROD : WOMPI_BASE_URL_SANDBOX;
-}
 
 /**
  * Obtiene los dos JWT de aceptacion (Habeas Data + politica) desde Wompi.
@@ -336,16 +419,20 @@ function getWompiBaseUrl(): string {
  * Cachea por 5 min. Pasar `force=true` para refrescar tras un error de
  * aceptacion (el JWT pudo haber expirado).
  */
-export async function fetchAcceptanceTokens(force = false): Promise<{ ok: true; tokens: AcceptanceTokens } | { ok: false; error: string }> {
-    if (!force && _acceptanceCache && Date.now() - _acceptanceCache.fetchedAt < ACCEPTANCE_TTL_MS) {
-        return { ok: true, tokens: _acceptanceCache };
-    }
-
-    const publicKey = process.env.WOMPI_PUBLIC_KEY;
+export async function fetchAcceptanceTokens(
+    force = false,
+    creds?: WompiCreds,
+): Promise<{ ok: true; tokens: AcceptanceTokens } | { ok: false; error: string }> {
+    const publicKey = creds ? creds.publicKey : process.env.WOMPI_PUBLIC_KEY;
     if (!publicKey) return { ok: false, error: 'WOMPI_PUBLIC_KEY no configurado' };
 
+    const cached = _acceptanceCache.get(publicKey);
+    if (!force && cached && Date.now() - cached.fetchedAt < ACCEPTANCE_TTL_MS) {
+        return { ok: true, tokens: cached };
+    }
+
     try {
-        const res = await fetch(`${getWompiBaseUrl()}/merchants/${publicKey}`);
+        const res = await fetch(`${baseUrlFor(creds)}/merchants/${publicKey}`);
         if (!res.ok) return { ok: false, error: `merchants endpoint ${res.status}` };
         const json = await res.json();
         const presigned = json?.data?.presigned_acceptance;
@@ -353,14 +440,15 @@ export async function fetchAcceptanceTokens(force = false): Promise<{ ok: true; 
         if (!presigned?.acceptance_token || !personal?.acceptance_token) {
             return { ok: false, error: 'missing_acceptance_tokens_in_merchant_response' };
         }
-        _acceptanceCache = {
+        const tokens: AcceptanceTokens = {
             acceptanceToken: presigned.acceptance_token,
             personalDataAuthToken: personal.acceptance_token,
             acceptancePermalink: presigned.permalink ?? '',
             personalDataPermalink: personal.permalink ?? '',
             fetchedAt: Date.now(),
         };
-        return { ok: true, tokens: _acceptanceCache };
+        _acceptanceCache.set(publicKey, tokens);
+        return { ok: true, tokens };
     } catch (err: any) {
         return { ok: false, error: err.message || 'fetchAcceptanceTokens error' };
     }
@@ -382,16 +470,16 @@ export async function createPaymentSource(params: {
     acceptanceToken: string;
     personalDataAuthToken: string;
     type?: 'CARD' | 'NEQUI' | 'DAVIPLATA' | 'BANCOLOMBIA_TRANSFER';
-}): Promise<{ ok: true; paymentSourceId: number; status: string } | { ok: false; error: string; statusCode?: number }> {
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
-    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+}, creds?: WompiCreds): Promise<{ ok: true; paymentSourceId: number; status: string } | { ok: false; error: string; statusCode?: number }> {
+    const c = resolveCreds(creds);
+    if (!c) return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente)' };
 
     try {
-        const res = await fetch(`${getWompiBaseUrl()}/payment_sources`, {
+        const res = await fetch(`${baseUrlFor(c)}/payment_sources`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${c.privateKey}`,
             },
             body: JSON.stringify({
                 type: params.type ?? 'CARD',
@@ -436,21 +524,22 @@ export async function createTransactionWithPaymentSource(params: {
     reference: string;
     customerEmail: string;
     installments?: number;
-}): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string; statusCode?: number }> {
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
-    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+}, creds?: WompiCreds): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string; statusCode?: number }> {
+    const c = resolveCreds(creds);
+    if (!c) return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente)' };
 
     try {
+        // Firma con el integrity secret del MISMO comercio que autoriza el cobro.
         const signature = signIntegrity({
             reference: params.reference,
             amountInCents: params.amountInCents,
-        });
+        }, creds);
 
-        const res = await fetch(`${getWompiBaseUrl()}/transactions`, {
+        const res = await fetch(`${baseUrlFor(c)}/transactions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${c.privateKey}`,
             },
             body: JSON.stringify({
                 amount_in_cents: params.amountInCents,
@@ -469,7 +558,7 @@ export async function createTransactionWithPaymentSource(params: {
             const errBody = await res.text();
             const isDupRef = errBody.includes('reference') && /already|duplicat|exists/i.test(errBody);
             if (isDupRef) {
-                const existing = await fetchTransactionByReference(params.reference);
+                const existing = await fetchTransactionByReference(params.reference, creds);
                 if (existing) {
                     return { ok: true, transactionId: existing.id, status: existing.status };
                 }
@@ -497,9 +586,12 @@ export async function createTransactionWithPaymentSource(params: {
  * GET /v1/transactions?reference=... — usado para reconciliar cuando un
  * 422 "duplicate reference" nos hace pensar que ya cobramos.
  */
-async function fetchTransactionByReference(reference: string): Promise<{ id: string; status: string } | null> {
+async function fetchTransactionByReference(
+    reference: string,
+    creds?: WompiCreds,
+): Promise<{ id: string; status: string } | null> {
     try {
-        const res = await fetch(`${getWompiBaseUrl()}/transactions?reference=${encodeURIComponent(reference)}`);
+        const res = await fetch(`${baseUrlFor(creds)}/transactions?reference=${encodeURIComponent(reference)}`);
         if (!res.ok) return null;
         const json = await res.json();
         const arr = Array.isArray(json?.data) ? json.data : [];
@@ -519,16 +611,19 @@ async function fetchTransactionByReference(reference: string): Promise<{ id: str
  * Lo llamamos al borrar la tarjeta para que el provider tampoco la pueda
  * usar — defense-in-depth si nuestro RLS o backend fallaran.
  */
-export async function voidPaymentSource(paymentSourceId: number): Promise<{ ok: true } | { ok: false; error: string }> {
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
-    if (!privateKey) return { ok: false, error: 'WOMPI_PRIVATE_KEY no configurado' };
+export async function voidPaymentSource(
+    paymentSourceId: number,
+    creds?: WompiCreds,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+    const c = resolveCreds(creds);
+    if (!c) return { ok: false, error: 'Credenciales Wompi no disponibles (privateKey ausente)' };
 
     try {
-        const res = await fetch(`${getWompiBaseUrl()}/payment_sources/${paymentSourceId}/void`, {
+        const res = await fetch(`${baseUrlFor(c)}/payment_sources/${paymentSourceId}/void`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${c.privateKey}`,
             },
             body: JSON.stringify({ status: 'VOIDED' }),
         });
@@ -559,19 +654,16 @@ export async function createTransactionWithToken(params: {
     reference: string;
     customerEmail: string;
     paymentMethodType?: string;     // CARD por defecto
-}): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string }> {
-    const env = (process.env.WOMPI_ENV ?? 'sandbox').toLowerCase();
-    const baseUrl = env === 'production' ? WOMPI_BASE_URL_PROD : WOMPI_BASE_URL_SANDBOX;
-    const publicKey = process.env.WOMPI_PUBLIC_KEY;
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
-
-    if (!publicKey || !privateKey) {
+}, creds?: WompiCreds): Promise<{ ok: true; transactionId: string; status: string } | { ok: false; error: string }> {
+    const c = resolveCreds(creds);
+    if (!c) {
         return { ok: false, error: 'WOMPI keys not configured' };
     }
+    const baseUrl = baseUrlFor(c);
 
     try {
         // 1. Obtener acceptance_token (Wompi requiere este token de "aceptación de TyC")
-        const merchRes = await fetch(`${baseUrl}/merchants/${publicKey}`);
+        const merchRes = await fetch(`${baseUrl}/merchants/${c.publicKey}`);
         if (!merchRes.ok) {
             return { ok: false, error: `merchants endpoint failed (${merchRes.status})` };
         }
@@ -581,18 +673,18 @@ export async function createTransactionWithToken(params: {
             return { ok: false, error: 'no_acceptance_token' };
         }
 
-        // 2. Generar firma de integridad
+        // 2. Generar firma de integridad (mismo comercio que autoriza)
         const signature = signIntegrity({
             reference: params.reference,
             amountInCents: params.amountInCents,
-        });
+        }, creds);
 
         // 3. Crear transaccion server-to-server
         const txRes = await fetch(`${baseUrl}/transactions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${c.privateKey}`,
             },
             body: JSON.stringify({
                 acceptance_token: acceptanceToken,

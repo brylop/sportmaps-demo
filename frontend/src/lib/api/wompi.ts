@@ -37,6 +37,18 @@ export interface WompiCheckoutConfig {
     teamName?: string;
     schoolName?: string;
     schoolId?: string;
+    /**
+     * Firma de integridad ya calculada por el BFF (`create-session`), con el integrity
+     * secret de ESTA escuela. Si viene, no se llama a la Edge Function `wompi-sign`.
+     * Imprescindible para escuelas con cuenta propia (payment_mode='direct'): la EF tiene
+     * un único secret global y no puede firmar por escuela.
+     */
+    signature?: string | null;
+    /**
+     * Public key del comercio que cobra, resuelta por el BFF. Si viene, manda sobre
+     * VITE_WOMPI_PUBLIC_KEY — que es una sola llave de build y apunta a un único comercio.
+     */
+    publicKey?: string | null;
 }
 
 export interface WompiTransactionResult {
@@ -126,10 +138,16 @@ export async function openWompiCheckout(
         schoolId,
         legalId,
         legalIdType,
+        signature: signatureFromBff,
+        publicKey: publicKeyFromBff,
     } = config;
 
-    if (!WOMPI_PUBLIC_KEY) {
-        console.error('❌ WOMPI_PUBLIC_KEY no configurada. Verifica las variables de entorno.');
+    // La public key del BFF manda: identifica al comercio que realmente cobra. La de build
+    // (VITE_WOMPI_PUBLIC_KEY) es una sola y apunta a un único comercio, así que solo sirve
+    // como fallback del camino legacy.
+    const effectivePublicKey = publicKeyFromBff || WOMPI_PUBLIC_KEY;
+    if (!effectivePublicKey) {
+        console.error('❌ Sin public key de Wompi: no la devolvió el BFF ni está VITE_WOMPI_PUBLIC_KEY.');
         return null;
     }
 
@@ -137,26 +155,34 @@ export async function openWompiCheckout(
     // El servidor es la fuente de verdad para el monto. Si el cliente envió
     // un monto tampered, lo sobreescribimos con el que devuelve el EF.
     let effectiveAmountInCents = amountInCents;
-    try {
-        const result = await getIntegritySignature(reference, 'COP');
-        signature = result.signature;
-        effectiveAmountInCents = result.amountInCents;
-        if (result.amountInCents !== amountInCents) {
-            console.warn(
-                `⚠️ amountInCents del cliente (${amountInCents}) difiere del servidor ` +
-                `(${result.amountInCents}). Usando el del servidor.`,
-            );
+
+    if (signatureFromBff) {
+        // Camino nuevo: el BFF ya firmó con el integrity secret de esta escuela. El monto
+        // también viene del servidor (create-session lo calcula, no el cliente), así que no
+        // hace falta el cruce contra la Edge Function.
+        signature = signatureFromBff;
+    } else {
+        try {
+            const result = await getIntegritySignature(reference, 'COP');
+            signature = result.signature;
+            effectiveAmountInCents = result.amountInCents;
+            if (result.amountInCents !== amountInCents) {
+                console.warn(
+                    `⚠️ amountInCents del cliente (${amountInCents}) difiere del servidor ` +
+                    `(${result.amountInCents}). Usando el del servidor.`,
+                );
+            }
+        } catch (err) {
+            console.error('❌ No se pudo generar la firma de integridad:', err);
+            // En sandbox se puede continuar sin firma (modo de prueba)
+            // En producción: retornar null para bloquear el pago
+            if (import.meta.env.PROD) {
+                return null;
+            }
+            // Fallback SOLO sandbox — nunca llega a producción
+            console.warn('⚠️ Usando modo sandbox sin firma (solo desarrollo)');
+            signature = '';
         }
-    } catch (err) {
-        console.error('❌ No se pudo generar la firma de integridad:', err);
-        // En sandbox se puede continuar sin firma (modo de prueba)
-        // En producción: retornar null para bloquear el pago
-        if (import.meta.env.PROD) {
-            return null;
-        }
-        // Fallback SOLO sandbox — nunca llega a producción
-        console.warn('⚠️ Usando modo sandbox sin firma (solo desarrollo)');
-        signature = '';
     }
 
     return new Promise((resolve) => {
@@ -193,7 +219,7 @@ export async function openWompiCheckout(
                 currency: 'COP',
                 amountInCents: effectiveAmountInCents,
                 reference,
-                publicKey: WOMPI_PUBLIC_KEY,
+                publicKey: effectivePublicKey,
                 redirectUrl: redirectUrl || `${window.location.origin}/payment-result`,
                 customerData,
             };
