@@ -445,7 +445,11 @@ export default function SchoolStudentsManagementPage() {
     }
     const teamStartDate: string = (student as any).enrollment_start_date || '';
     const planStartDate: string  = (student as any).plan_start_date       || '';
-    const teamFee: number        = (student as any).team_monthly_fee      || 0;
+    // Con plan activo el equipo es SOLO roster y no cobra: la cuota de equipo se
+    // muestra en 0 aunque la fila (fusionada equipo+plan) comparta el monthly_fee
+    // del plan. Sin plan, se respeta la cuota real del equipo.
+    const hasPlan: boolean       = !!(student.offering_plan_id);
+    const teamFee: number        = hasPlan ? 0 : ((student as any).team_monthly_fee || 0);
     const planFee: number        = (student as any).plan_monthly_fee      || 0;
     form.reset({
       full_name:        student.full_name,
@@ -1133,7 +1137,11 @@ export default function SchoolStudentsManagementPage() {
                   <div className="space-y-1">
                     <Label htmlFor="team_monthly_fee" className="text-xs text-muted-foreground">Mensualidad equipo (COP)</Label>
                     <Input id="team_monthly_fee" type="number" step={1000}
+                      disabled={!!form.watch('offering_plan_id')}
                       {...form.register('team_monthly_fee', { valueAsNumber: true })} />
+                    {form.watch('offering_plan_id') ? (
+                      <p className="text-[11px] text-muted-foreground">El plan define el cobro; el equipo no cobra (queda en 0).</p>
+                    ) : null}
                   </div>
                 </div>
                 {/* Columna Plan */}
