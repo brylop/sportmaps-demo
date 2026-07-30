@@ -42,6 +42,10 @@ interface FileUploadProps {
   dateMode?: DateMode;
   /** Dias hacia atras aceptados en modo 'window'. Default 1 (hoy o ayer). */
   dateWindowDays?: number;
+  /** Si un veredicto ROJO (destino ajeno, comprobante reusado, no-es-comprobante)
+   *  bloquea la subida. Default true. Se pasa false en el registro manual desde el
+   *  panel de la escuela: ahí el admin decide con el soporte a la vista. */
+  blockOnRedVerdict?: boolean;
   /** Fuerza captura de cámara en móvil ('environment' = cámara trasera).
    *  No garantiza bloquear la galería en desktop (el browser puede ignorarlo). */
   capture?: boolean | 'user' | 'environment';
@@ -64,6 +68,7 @@ export function FileUpload({
   paymentId,
   dateMode = 'window',
   dateWindowDays,
+  blockOnRedVerdict = true,
   capture,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -123,7 +128,7 @@ export function FileUpload({
     try {
       let result: ReceiptValidationResult;
       try {
-        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId, dateMode, dateWindowDays });
+        result = await validate(toUse[0], { expectedAmount, conceptKind, allowPartial, minPartialAmount, schoolId, paymentId, dateMode, dateWindowDays, blockOnRedVerdict });
       } catch (ocrErr) {
         // OCR NO disponible (BFF 502/caído/cold-start). NO bloquear: subir el
         // comprobante igual y que la escuela lo valide visualmente. El OCR es
@@ -143,8 +148,10 @@ export function FileUpload({
       setValidation(result);
       onValidationResult?.(result);
 
-      // Bloqueo SOLO cuando el OCR detecto conflicto duro: fecha distinta a hoy
-      // (siempre) o monto distinto al esperado (solo en concept FIXED).
+      // Bloqueo SOLO cuando hay conflicto duro: fecha distinta a hoy (siempre),
+      // monto distinto al esperado (solo en concept FIXED), o veredicto ROJO del
+      // motor de reglas — destino ajeno, comprobante reusado, no-es-comprobante
+      // (salvo blockOnRedVerdict={false}, el registro manual de la escuela).
       // Si el OCR no detecto fecha/monto (o no estaba disponible), se sube y el
       // admin valida visualmente.
       if (!result.valid) {
@@ -267,7 +274,7 @@ export function FileUpload({
       {validation && !validating && (
         <div className="animate-in fade-in slide-in-from-top-1 duration-300">
 
-          {/* Bloqueo duro: concept fixed con monto/fecha en conflicto -> NO sube */}
+          {/* Bloqueo duro: monto/fecha en conflicto, o veredicto rojo -> NO sube */}
           {!validation.valid && (
             <Alert className="border-red-300 bg-red-50 dark:bg-red-950/30">
               <AlertTriangle className="h-4 w-4 text-red-500" />

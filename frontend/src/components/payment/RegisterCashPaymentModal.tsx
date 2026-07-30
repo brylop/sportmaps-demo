@@ -586,6 +586,10 @@ export function RegisterCashPaymentModal({ open, onOpenChange, onSuccess }: Regi
                   accept="image/*,application/pdf"
                   validateReceipt
                   dateMode="any"
+                  // El admin ya vio la plata: un rojo se le muestra arriba en
+                  // `verdictWarnings` pero no le bloquea el registro. Al
+                  // acudiente sí lo bloquea (default true).
+                  blockOnRedVerdict={false}
                   schoolId={schoolId || undefined}
                   expectedAmount={typeof amount === 'number' && amount > 0 ? amount : undefined}
                   paymentId={selectedPaymentId !== 'new' ? selectedPaymentId : undefined}
