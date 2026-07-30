@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ import { GlosaConciliationDialog } from '@/components/payment/GlosaConciliationD
 import { ReconciliationTab } from '@/components/payment/ReconciliationTab';
 import { CreateGlosaDialog } from '@/components/payment/CreateGlosaDialog';
 import { listBySchool as listSchoolGlosas, REASON_ADMIN_LABELS, STATUS_LABELS, OPEN_GLOSA_STATUSES, type Glosa } from '@/lib/api/glosas';
+import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
+import { isGatewayPayment } from '@/lib/paymentOrigin';
 
 
 interface BillingSettings {
@@ -145,6 +147,52 @@ function VerdictBadge({ verdict }: { verdict?: string | null }) {
   );
 }
 
+// ── Qué estados se traen del servidor ────────────────────────────────────────
+// Estados que SIEMPRE se piden: los que representan plata reportada o un
+// desenlace real. Los cobros emitidos y no pagados (pending/overdue sin
+// comprobante) NO se traen: son cartera y ya viven en Finanzas. Eran el 98% de
+// las filas de la escuela, y con `limit(100)` por created_at desplazaban los
+// comprobantes reales fuera de la ventana: un comprobante por validar de
+// Dynasty quedó en la posición ~362 de 499 y nunca llegaba al navegador.
+// `glosado` va aquí sí o sí: es un comprobante EN DISCUSIÓN (create_glosa lo
+// mueve a ese estado y lo saca de la cola de aprobación a propósito). Si no se
+// trae, un pago reclamado desaparece de la pantalla — la misma fuga que este
+// filtro viene a cerrar.
+const CORE_STATUSES = ['paid', 'partial', 'rejected', 'awaiting_approval', 'glosado'] as const;
+
+// Estados que solo se piden si el selector del Historial los pide explícitamente.
+// `cancelled` son ~2.4k filas globales (cobros anulados por las limpiezas de
+// duplicados): traerlas siempre reintroduce el problema de volumen.
+// La lista completa de estados válidos la fija el CHECK payments_status_check
+// (mig 20260717000002): pending, paid, overdue, failed, cancelled,
+// awaiting_approval, rejected, partial, glosado. No existen refunded ni declined.
+const OPT_IN_STATUSES = ['cancelled', 'overdue', 'pending', 'failed'] as const;
+
+// Historial = movimientos con plata, con desenlace real, o en discusión abierta.
+const HISTORY_DEFAULT_STATUSES = ['paid', 'partial', 'rejected', 'glosado'] as const;
+
+// Periodo del Historial. Se aplica en el SERVIDOR: es el filtro explícito que
+// acota el volumen, en vez de un tope de filas que corta en silencio. 'all' es
+// el único caso donde el límite de seguridad puede quedarse corto, y se avisa.
+const HISTORY_PERIODS = [
+  { value: '3m', label: 'Últimos 3 meses', months: 3 },
+  { value: '12m', label: 'Últimos 12 meses', months: 12 },
+  { value: 'all', label: 'Todo el histórico', months: null as number | null },
+] as const;
+type HistoryPeriod = typeof HISTORY_PERIODS[number]['value'];
+
+/** Fecha ISO desde la cual pedir, o null para no acotar. */
+function periodSince(period: HistoryPeriod): string | null {
+  const months = HISTORY_PERIODS.find(p => p.value === period)?.months ?? null;
+  if (months == null) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString();
+}
+
+/** Tope de seguridad de la consulta. No es el filtro: es la red por si acaso. */
+const HISTORY_FETCH_CAP = 500;
+
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   paid: { label: 'Pagado', className: 'bg-green-500 text-white border-transparent' },
   rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-700 border-red-200' },
@@ -154,6 +202,9 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   cancelled: { label: 'Cancelado', className: 'bg-gray-100 text-gray-500 border-gray-200' },
   pending: { label: 'Pendiente', className: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
   partial: { label: 'Abono parcial', className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  // Comprobante con glosa abierta: sale de la cola de aprobación y espera la
+  // aclaración del acudiente. Sin esta entrada la tabla mostraba el string crudo.
+  glosado: { label: 'En aclaración', className: 'bg-orange-100 text-orange-700 border-orange-200' },
 };
 
 interface PaymentTransaction {
@@ -191,6 +242,15 @@ interface PaymentTransaction {
   ocr_destination?: string | null;
   receipt_verdict_reasons?: unknown[] | null;
   reconciliation_status?: string | null;
+  // Señales para distinguir un pago gestionado por pasarela de uno manual.
+  // OJO: payment_provider NO sirve solo — tiene DEFAULT 'wompi' en la columna
+  // (mig 20260504000001), así que efectivo y transferencias también lo traen.
+  payment_channel?: string | null;
+  payment_provider?: string | null;
+  wompi_reference?: string | null;
+  wompi_transaction_id?: string | null;
+  provider_transaction_id?: string | null;
+  qr_id?: string | null;
 }
 
 // Devuelto por el RPC school_payment_kpis: agregados sobre TODO el histórico de
@@ -254,6 +314,7 @@ export default function PaymentsAutomationPage() {
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyTeamFilter, setHistoryTeamFilter] = useState('all');
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('12m');
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 10;
 
@@ -268,7 +329,7 @@ export default function PaymentsAutomationPage() {
   const [activeTeams, setActiveTeams] = useState<{ id: string; name: string }[]>([]);
 
   // Reset de la paginación del historial cuando cambian los filtros
-  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter]);
+  useEffect(() => { setHistoryPage(1); }, [historySearch, historyStatusFilter, historyTeamFilter, historyPeriod]);
 
   useEffect(() => {
     const teamsMap = new Map();
@@ -285,6 +346,18 @@ export default function PaymentsAutomationPage() {
       fetchGlosas();
     }
   }, [schoolId, activeBranchId]);
+
+  // Los estados opt-in (hoy solo 'Cancelado') no vienen en la carga base, así
+  // que elegirlos exige volver a consultar. Se salta el primer render para no
+  // duplicar el fetch del efecto de arriba.
+  const extraStatusRequested = (OPT_IN_STATUSES as readonly string[]).includes(historyStatusFilter)
+    ? historyStatusFilter
+    : null;
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    if (schoolId) fetchPayments();
+  }, [extraStatusRequested, historyPeriod]);
 
   const fetchGlosas = async () => {
     if (!schoolId) return;
@@ -356,6 +429,15 @@ export default function PaymentsAutomationPage() {
     if (!schoolId) return;
     setLoading(true);
     try {
+      // El estado se filtra en el SERVIDOR. Antes se pedían las 100 filas más
+      // recientes y se repartían en el cliente entre cola e historial: con 355
+      // cobros de cartera creados después, los comprobantes por validar no
+      // entraban en esas 100 y la escuela no tenía forma de verlos.
+      const extraStatus = (OPT_IN_STATUSES as readonly string[]).includes(historyStatusFilter)
+        ? [historyStatusFilter]
+        : [];
+      const statuses = [...CORE_STATUSES, ...extraStatus].join(',');
+
       let query = supabase
         .from('payments')
         .select(`
@@ -363,6 +445,8 @@ export default function PaymentsAutomationPage() {
           receipt_url, concept, child_id, parent_id, user_id, team_id,
           unregistered_athlete_id, early_payment_discount_applied,
           period_year, period_month,
+          payment_channel, payment_provider, wompi_reference, wompi_transaction_id,
+          provider_transaction_id, qr_id,
           ocr_amount, ocr_currency, ocr_date, ocr_bank, ocr_reference, ocr_provider,
           receipt_verdict, ocr_destination, receipt_verdict_reasons, reconciliation_status,
           parent:profiles!payments_parent_id_fkey(full_name, email),
@@ -372,10 +456,25 @@ export default function PaymentsAutomationPage() {
           plan:offering_plans!payments_offering_plan_id_fkey(name)
         `)
         .eq('school_id', schoolId)
+        // El segundo término es defensivo: si algún día un cobro pending/overdue
+        // recibe comprobante sin pasar por awaiting_approval, igual se ve.
+        .or(`status.in.(${statuses}),and(status.in.(pending,overdue),receipt_url.not.is.null)`)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(HISTORY_FETCH_CAP);
 
-      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+      // Periodo, también en el servidor. Los comprobantes por validar NUNCA se
+      // recortan por fecha: si un comprobante viejo sigue esperando aprobación
+      // tiene que verse, y esconderlo por antigüedad es justo el bug que
+      // dejó uno de Dynasty invisible.
+      const since = periodSince(historyPeriod);
+      if (since) {
+        query = query.or(`created_at.gte.${since},status.in.(awaiting_approval,partial,glosado)`);
+      }
+
+      // Un pago con branch_id NULL no es "de otra sede": es un pago sin sede
+      // asignada (207 de 499 en Dynasty). Con .eq() se caían todos al
+      // seleccionar una sede, incluidos comprobantes esperando validación.
+      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
       const { data, error } = await query;
       if (error) throw error;
 
@@ -414,6 +513,12 @@ export default function PaymentsAutomationPage() {
         receipt_url: p.receipt_url, concept: p.concept,
         child_id: p.child_id, parent_id: p.parent_id, user_id: p.user_id,
         team_id: p.team_id,
+        payment_channel: p.payment_channel ?? null,
+        payment_provider: p.payment_provider ?? null,
+        wompi_reference: p.wompi_reference ?? null,
+        wompi_transaction_id: p.wompi_transaction_id ?? null,
+        provider_transaction_id: p.provider_transaction_id ?? null,
+        qr_id: p.qr_id ?? null,
         unregistered_athlete_id: p.unregistered_athlete_id,
         early_payment_discount_applied: p.early_payment_discount_applied,
         ocr_amount: p.ocr_amount, ocr_currency: p.ocr_currency,
@@ -677,9 +782,15 @@ export default function PaymentsAutomationPage() {
   // y Wompi NO aparecen aqui — los valida el gateway automaticamente y se
   // marcan paid via webhook. Si se mostraran aqui, la escuela podria aprobar
   // por error un pago que MP / Wompi todavia esta procesando.
+  // ¿Lo gestiona una pasarela (lo confirma un webhook) o lo valida la escuela?
+  // La regla vive en lib/paymentOrigin para que Finanzas y esta pantalla no se
+  // contradigan. Antes se leía `payment_provider`, que no venía en el select →
+  // undefined → la protección llevaba años muerta y los awaiting_approval de
+  // pasarela sí caían en la cola de aprobación manual.
+  const isGatewayManaged = isGatewayPayment;
+
   const rawPendingPayments = payments.filter(p => {
-    const provider = (p as any).payment_provider;
-    const isGateway = provider === 'mercadopago' || provider === 'wompi';
+    const isGateway = isGatewayManaged(p);
     // "Por aprobar" = cobros con un PAGO REPORTADO que la escuela debe validar:
     //  - awaiting_approval: transferencia/comprobante reportado.
     //  - partial: abono en curso (completar saldo).
@@ -704,22 +815,20 @@ export default function PaymentsAutomationPage() {
       p.team?.name?.toLowerCase().includes(term);
   });
 
-  // Historial muestra todo lo que NO esta en cola de validacion manual:
-  //  - paid / refunded / declined / cancelled (estados terminales)
-  //  - pending de MercadoPago / Wompi (gateway esta procesando, escuela ve solo lectura)
-  //  - awaiting_approval de MercadoPago / Wompi (igual, gateway-managed)
-  // Excluye los `awaiting_approval` de transferencia manual porque ya estan en
-  // "Validación de Cobros" arriba.
+  // Historial = plata que entró o un desenlace real, nada más:
+  //  - paid / partial / rejected → movimiento con plata o con veredicto final
+  //  - awaiting_approval DE PASARELA → transacción iniciada, solo lectura (la
+  //    confirma el webhook; la escuela no la aprueba a mano)
+  //  - el estado que se pida explícitamente en el selector (p.ej. Cancelado)
+  // Un cobro emitido y no pagado (pending/overdue sin comprobante) YA NO entra:
+  // no es una transacción y su lugar es la cartera de Finanzas. La regla vieja
+  // era "todo lo que no está en la cola", y por eso el Historial mostraba 100
+  // filas 'Pendiente' con Soporte N/A que nadie había pagado, mientras el KPI
+  // "Transacciones" contaba solo paid|partial y nunca cuadraba con la tabla.
   const rawHistoryPayments = payments.filter(p => {
-    const provider = (p as any).payment_provider;
-    const isGatewayPayment = provider === 'mercadopago' || provider === 'wompi';
-    // pending CON comprobante o awaiting_approval SIN pasarela → están en
-    // "Validación de Cobros" (la escuela los aprueba), no en historial.
-    // pending SIN comprobante (inscripción por cobrar) → SÍ va al historial como
-    // "Pendiente": es visible pero no está en cola de aprobación hasta que paguen.
-    if (p.status === 'pending') return isGatewayPayment || !p.receipt_url;
-    if (p.status === 'awaiting_approval') return isGatewayPayment;
-    return true;
+    if ((HISTORY_DEFAULT_STATUSES as readonly string[]).includes(p.status)) return true;
+    if (p.status === 'awaiting_approval') return isGatewayManaged(p);
+    return p.status === historyStatusFilter;
   });
   const historyPayments = rawHistoryPayments.filter(p => {
     const searchMatch = !historySearch ||
@@ -843,7 +952,7 @@ export default function PaymentsAutomationPage() {
                   <Clock className="h-5 w-5 text-amber-600 shrink-0" />
                   Cobros por Aprobar
                 </CardTitle>
-                <CardDescription>Confirma los cobros con pago reportado (comprobantes y abonos). Las inscripciones sin pagar aparecen como “Pendiente” en el historial.</CardDescription>
+                <CardDescription>Confirma los cobros con pago reportado (comprobantes y abonos). Los cobros emitidos que nadie ha pagado están en la cartera, en Finanzas.</CardDescription>
               </div>
               <div className="w-full sm:w-auto">
                 <Input
@@ -1275,7 +1384,7 @@ export default function PaymentsAutomationPage() {
             <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div>
                 <CardTitle className="text-base sm:text-lg">Transacciones</CardTitle>
-                <CardDescription>Registro completo de todos los movimientos financieros.</CardDescription>
+                <CardDescription>Pagos que entraron: comprobante aprobado (manual o automático), efectivo, QR y pasarela. Los cobros por cobrar no son transacciones — están en la cartera de Finanzas.</CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 <Input
@@ -1284,6 +1393,15 @@ export default function PaymentsAutomationPage() {
                   onChange={(e) => setHistorySearch(e.target.value)}
                   className="w-full sm:w-[250px] h-9"
                 />
+                <select
+                  className="flex h-9 w-full sm:w-[170px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={historyPeriod}
+                  onChange={(e) => setHistoryPeriod(e.target.value as HistoryPeriod)}
+                >
+                  {HISTORY_PERIODS.map(p => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
                 <select
                   className="flex h-9 w-full sm:w-[150px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={historyTeamFilter}
@@ -1299,15 +1417,30 @@ export default function PaymentsAutomationPage() {
                   value={historyStatusFilter}
                   onChange={(e) => setHistoryStatusFilter(e.target.value)}
                 >
+                  {/* Solo estados que existen en la base. 'Cancelado' es opt-in:
+                      no viene en la carga base (son ~2.4k cobros anulados) y al
+                      elegirlo se vuelve a consultar al servidor. */}
                   <option value="all">Todos los estados</option>
                   <option value="paid">Pagado</option>
+                  <option value="partial">Abono parcial</option>
+                  <option value="glosado">En aclaración</option>
                   <option value="rejected">Rechazado</option>
-                  <option value="failed">Fallido</option>
-                  <option value="cancelled">Cancelado</option>
+                  <option value="cancelled">Cancelado (anulados)</option>
                 </select>
               </div>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
+              {/* Si la consulta llegó al tope, el usuario tiene que saberlo: una
+                  tabla truncada en silencio se lee como "esto es todo". */}
+              {payments.length >= HISTORY_FETCH_CAP && (
+                <div className="mx-4 sm:mx-0 mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Se alcanzó el máximo de {HISTORY_FETCH_CAP} movimientos por consulta.
+                    Acota el periodo o el estado para ver el resto — lo que falta no está perdido, solo no cabe en esta carga.
+                  </span>
+                </div>
+              )}
               {/* Mobile cards */}
               <div className="grid grid-cols-1 gap-3 p-4 md:hidden">
                 {historyPayments.length === 0 ? (
@@ -1403,7 +1536,9 @@ export default function PaymentsAutomationPage() {
                             </div>
                           </TableCell>
                           <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
-                          <TableCell className="text-xs uppercase">{payment.payment_method || 'TRANSFER'}</TableCell>
+                          {/* Antes: {payment.payment_method || 'TRANSFER'} — inventaba
+                              "TRANSFER" en los pagos sin método registrado. */}
+                          <TableCell><PaymentOriginBadge payment={payment} /></TableCell>
                           <TableCell><Badge variant="outline" className={`text-xs ${cfg.className}`}>{cfg.label}</Badge></TableCell>
                           <TableCell>
                             {payment.receipt_url ? (

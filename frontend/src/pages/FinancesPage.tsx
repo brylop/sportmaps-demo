@@ -11,6 +11,15 @@ import { useToast } from '@/hooks/use-toast';
 import { ReminderHistoryModal, ReminderRecord } from '@/components/finances/ReminderHistoryModal';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { todayColombia, daysDiffFromToday } from '@/lib/dateUtils';
+import { Input } from '@/components/ui/input';
+import { PaymentOriginBadge } from '@/components/payment/PaymentOriginBadge';
+import {
+  resolvePaymentOrigin,
+  ORIGIN_FILTERS,
+  type PaymentOrigin,
+  type PaymentOriginInput,
+  type PaymentOriginKind,
+} from '@/lib/paymentOrigin';
 
 interface OverdueAccount {
   id: string;
@@ -26,16 +35,29 @@ interface OverdueAccount {
 interface Transaction {
   id: string;
   date: string;
-  parent: string;
+  /** Deportista del cobro. Es lo que distingue dos pagos del mismo pagador. */
+  athlete: string;
+  /** Acudiente, solo cuando es distinto del deportista (menores). */
+  payer: string | null;
   concept: string;
   amount: number;
-  method: string;
+  isPartial: boolean;
+  origin: PaymentOrigin;
+  raw: PaymentOriginInput;
 }
+
+const TX_PAGE_SIZE = 10;
 
 export default function FinancesPage() {
   const { toast } = useToast();
   const { schoolId, activeBranchId } = useSchoolContext();
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+
+  // Filtros de la tabla de transacciones.
+  const [txSearch, setTxSearch] = useState('');
+  const [txOrigin, setTxOrigin] = useState<PaymentOriginKind | 'all'>('all');
+  const [txPage, setTxPage] = useState(1);
+  useEffect(() => { setTxPage(1); }, [txSearch, txOrigin]);
 
   // Fetch payments from Supabase — filtrado por school_id y branch
   const { data: payments, isLoading, isError, refetch } = useQuery({
@@ -46,17 +68,30 @@ export default function FinancesPage() {
         .select(`
           id,
           amount,
+          amount_paid,
           status,
           due_date,
           payment_date,
+          created_at,
           concept,
+          payment_method,
+          payment_channel,
+          payment_provider,
+          receipt_url,
+          wompi_reference,
+          wompi_transaction_id,
+          provider_transaction_id,
+          qr_id,
           student:children(full_name),
-          parent:profiles!payments_parent_id_fkey(full_name) 
+          parent:profiles!payments_parent_id_fkey(full_name)
         `)
         .order('due_date', { ascending: false });
 
       if (schoolId) query = query.eq('school_id', schoolId);
-      if (activeBranchId) query = query.eq('branch_id', activeBranchId);
+      // Un pago sin sede asignada (branch_id NULL) no es "de otra sede": con
+      // .eq() se caía de la vista al seleccionar sede, igual que pasaba en
+      // Gestión de Pagos y hacía desaparecer plata real de la pantalla.
+      if (activeBranchId) query = query.or(`branch_id.is.null,branch_id.eq.${activeBranchId}`);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -93,15 +128,45 @@ export default function FinancesPage() {
   }, [payments]);
 
 
-  // Map Recent Transactions
-  const recentTransactions = payments?.filter(p => p.status === 'paid').slice(0, 5).map(p => ({
-    id: p.id,
-    date: p.payment_date || p.due_date,
-    parent: (Array.isArray(p.parent) ? p.parent[0]?.full_name : p.parent?.full_name) || 'Desconocido',
-    concept: p.concept,
-    amount: Number(p.amount),
-    method: 'Transferencia' // Default as method might not be in query yet
-  })) || [];
+  // ── Transacciones ──────────────────────────────────────────────────────────
+  // Antes: los 5 primeros `paid` ordenados por due_date (no por fecha de pago),
+  // mostrando solo el PADRE y con `method: 'Transferencia'` hardcodeado. Eso hacía
+  // que (a) dos atletas de la misma familia con el mismo plan se vieran como filas
+  // duplicadas, (b) un pago por Wompi se anunciara como transferencia, y (c) el
+  // orden pareciera aleatorio. Ahora: atleta + pagador, origen real, y filtros.
+  const nameOf = (v: unknown): string | null =>
+    (Array.isArray(v) ? (v[0] as { full_name?: string })?.full_name : (v as { full_name?: string })?.full_name) || null;
+
+  const allTransactions: Transaction[] = (payments || [])
+    .filter(p => p.status === 'paid' || p.status === 'partial')
+    .map(p => ({
+      id: p.id,
+      // La fecha del movimiento es cuándo se pagó; due_date es cuándo se debía.
+      date: p.payment_date || p.created_at || p.due_date,
+      athlete: nameOf(p.student) || nameOf(p.parent) || 'Sin nombre',
+      // Solo se muestra el pagador si es alguien distinto del atleta (menores).
+      payer: nameOf(p.student) ? nameOf(p.parent) : null,
+      concept: p.concept,
+      amount: Number(p.status === 'partial' ? (p.amount_paid ?? 0) : p.amount),
+      isPartial: p.status === 'partial',
+      origin: resolvePaymentOrigin(p),
+      raw: p as PaymentOriginInput,
+    }))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const transactions = allTransactions.filter(t => {
+    const term = txSearch.trim().toLowerCase();
+    const matchesTerm = !term ||
+      t.athlete.toLowerCase().includes(term) ||
+      (t.payer || '').toLowerCase().includes(term) ||
+      (t.concept || '').toLowerCase().includes(term);
+    const matchesOrigin = txOrigin === 'all' || t.origin.kind === txOrigin;
+    return matchesTerm && matchesOrigin;
+  });
+
+  const txTotalPages = Math.max(1, Math.ceil(transactions.length / TX_PAGE_SIZE));
+  const pagedTransactions = transactions.slice((txPage - 1) * TX_PAGE_SIZE, txPage * TX_PAGE_SIZE);
+  const txTotal = transactions.reduce((sum, t) => sum + t.amount, 0);
 
   const [reminderHistory, setReminderHistory] = useState<ReminderRecord[]>([]);
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
@@ -307,38 +372,96 @@ export default function FinancesPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Historial de Transacciones Recientes</CardTitle>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <CardTitle>Transacciones</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Pagos que entraron: pasarela, transferencia, efectivo y QR. La cartera por cobrar está arriba.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Input
+              placeholder="Buscar deportista, acudiente o concepto..."
+              value={txSearch}
+              onChange={(e) => setTxSearch(e.target.value)}
+              className="w-full sm:w-[260px] h-9"
+            />
+            <select
+              className="flex h-9 w-full sm:w-[230px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={txOrigin}
+              onChange={(e) => setTxOrigin(e.target.value as PaymentOriginKind | 'all')}
+            >
+              {ORIGIN_FILTERS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Padre</TableHead>
-                <TableHead>Concepto</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Método</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentTransactions.map((transaction) => (
-                <TableRow key={transaction.id}>
-                  <TableCell>
-                    {new Date(transaction.date).toLocaleDateString('es-ES')}
-                  </TableCell>
-                  <TableCell>{transaction.parent}</TableCell>
-                  <TableCell>{transaction.concept}</TableCell>
-                  <TableCell className="font-bold text-green-500">
-                    ${transaction.amount.toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{transaction.method}</Badge>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Deportista</TableHead>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead>Monto</TableHead>
+                  <TableHead>Entró por</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {transactions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No hay transacciones con estos filtros.
+                    </TableCell>
+                  </TableRow>
+                ) : pagedTransactions.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {t.date ? new Date(t.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {/* El deportista es lo que diferencia dos pagos del mismo
+                          acudiente: antes solo se veía el padre y dos hijos con
+                          el mismo plan parecían la misma fila repetida. */}
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{t.athlete}</span>
+                        {t.payer && <span className="text-xs text-muted-foreground">Paga: {t.payer}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{t.concept}</TableCell>
+                    <TableCell className="font-bold text-green-500 whitespace-nowrap">
+                      ${t.amount.toLocaleString('es-CO')}
+                      {t.isPartial && (
+                        <Badge variant="outline" className="ml-1 text-[10px] py-0 h-4 bg-blue-50 text-blue-700 border-blue-200">
+                          abono
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell><PaymentOriginBadge payment={t.raw} /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {transactions.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-2 py-3 mt-2 border-t text-sm">
+              <span className="text-muted-foreground">
+                {transactions.length} transacción(es) · ${txTotal.toLocaleString('es-CO')}
+                {txTotalPages > 1 && ` · página ${txPage} de ${txTotalPages}`}
+              </span>
+              {txTotalPages > 1 && (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={txPage <= 1}
+                    onClick={() => setTxPage(p => Math.max(1, p - 1))}>Anterior</Button>
+                  <Button variant="outline" size="sm" disabled={txPage >= txTotalPages}
+                    onClick={() => setTxPage(p => Math.min(txTotalPages, p + 1))}>Siguiente</Button>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
