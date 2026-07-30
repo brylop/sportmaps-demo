@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,7 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin } from 'lucide-react';
+import { UserPlus, FileUp, Search, Send, UserMinus, UserCheck, Edit, Loader2, CheckSquare, MoreVertical, Trophy, Zap, CalendarIcon, User, Phone, Mail, FileText, Download, Heart, MapPin, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
@@ -63,6 +63,40 @@ const studentSchema = z.object({
 
 type StudentFormData = z.infer<typeof studentSchema>;
 
+// ── Helpers de filtrado (puros, compartidos por los filtros y los badges) ─────
+type PaymentState = 'paid' | 'overdue' | 'pending' | 'none' | 'other';
+
+const PAYMENT_STATE_LABELS: Record<PaymentState, string> = {
+  paid:    'Al día',
+  overdue: 'Vencido',
+  pending: 'Pendiente',
+  none:    'Sin cobro',
+  other:   'Otros',
+};
+
+/** Misma lógica que el badge de la tabla, para que filtro y badge nunca difieran. */
+const getPaymentState = (student: any): PaymentState => {
+  const ps  = student.payment_status;
+  const due = student.payment_due_date;
+  if (!ps) return 'none';
+  if (ps === 'paid') return 'paid';
+  if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
+    return 'overdue';
+  if (ps === 'pending' || ps === 'awaiting_approval') return 'pending';
+  return 'other';
+};
+
+/**
+ * Equipo del atleta tal como se muestra en la tabla: si no hay `team_name` la
+ * fila se pinta "Sin asignar", así que tampoco cuenta como equipo para el filtro
+ * (children pueden traer `team_id` sin inscripción de equipo activa).
+ */
+const getTeamKey = (student: any): string | null =>
+  student.team_name ? (student.enrolled_team_id || student.team_id || null) : null;
+
+const getPlanKey = (student: any): string | null =>
+  student.plan_name ? (student.offering_plan_id || student.plan_name) : null;
+
 export default function SchoolStudentsManagementPage() {
   const { user, profile } = useAuth();
   const { toast } = useToast();
@@ -79,6 +113,13 @@ export default function SchoolStudentsManagementPage() {
   const [showCreateAdultModal, setShowCreateAdultModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
+  // Filtros del listado. 'all' = sin filtrar.
+  //   teamFilter:    'all' | 'none' (sin equipo) | <team_id>
+  //   planFilter:    'all' | 'with' (con plan) | 'none' (sin plan) | <offering_plan_id>
+  //   paymentFilter: 'all' | 'paid' | 'pending' | 'overdue' | 'none' | 'other'
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
   const [viewingStudent, setViewingStudent] = useState<(StudentViewRow & { display_parent_name?: string | null, display_parent_phone?: string | null }) | null>(null);
   const [editingStudent, setEditingStudent] = useState<StudentViewRow | null>(null);
   const [editingAthleteType, setEditingAthleteType] = useState<'child' | 'adult' | 'unregistered' | null>(null);
@@ -517,7 +558,7 @@ export default function SchoolStudentsManagementPage() {
     return params.toString();
   };
 
-  const enhancedStudents = students.map(student => {
+  const enhancedStudents = useMemo(() => students.map(student => {
     const emergencyContact = student.emergency_contact || '';
     const hasEmergencyContactParts = emergencyContact.includes(' - ');
     const fallbackParentName = hasEmergencyContactParts ? emergencyContact.split(' - ')[0] : emergencyContact;
@@ -532,32 +573,116 @@ export default function SchoolStudentsManagementPage() {
       display_parent_name: student.parent_name || (fallbackParentName ? fallbackParentName.trim() : null),
       display_parent_phone: student.parent_phone || (fallbackParentPhone ? fallbackParentPhone.trim() : null),
     };
-  });
+  }), [students]);
 
-  const filteredStudents = enhancedStudents.filter(student => {
-    const matchesTab = activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive');
-    if (!matchesTab) return false;
+  // Atletas de la pestaña activa (antes de filtros): base para las opciones de
+  // los selects, así solo se ofrecen equipos/planes/estados que existen aquí.
+  const tabStudents = useMemo(() => enhancedStudents.filter(student =>
+    activeTab === 'todos' || (activeTab === 'active' ? student.status !== 'inactive' : student.status === 'inactive')
+  ), [enhancedStudents, activeTab]);
+
+  const filterOptions = useMemo(() => {
+    const teamMap = new Map<string, { label: string; count: number }>();
+    const planMap = new Map<string, { label: string; count: number }>();
+    const paymentCounts = new Map<PaymentState, number>();
+    let noTeam = 0, noPlan = 0;
+
+    const bump = (map: Map<string, { label: string; count: number }>, key: string, label: string) => {
+      const prev = map.get(key);
+      if (prev) prev.count++;
+      else map.set(key, { label, count: 1 });
+    };
+
+    for (const s of tabStudents as any[]) {
+      const teamKey = getTeamKey(s);
+      if (teamKey) bump(teamMap, teamKey, s.team_name); else noTeam++;
+      const planKey = getPlanKey(s);
+      if (planKey) bump(planMap, planKey, s.plan_name); else noPlan++;
+      const pState = getPaymentState(s);
+      paymentCounts.set(pState, (paymentCounts.get(pState) || 0) + 1);
+    }
+
+    const toSortedList = (map: Map<string, { label: string; count: number }>) =>
+      [...map.entries()]
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+
+    const order: PaymentState[] = ['paid', 'pending', 'overdue', 'none', 'other'];
+
+    return {
+      teams:    toSortedList(teamMap),
+      plans:    toSortedList(planMap),
+      payments: order.filter(p => paymentCounts.has(p)).map(p => ({ id: p, count: paymentCounts.get(p)! })),
+      noTeam,
+      noPlan,
+      withPlan: tabStudents.length - noPlan,
+    };
+  }, [tabStudents]);
+
+  const filteredStudents = tabStudents.filter(student => {
     const q = normalizeText(searchQuery);
-    if (!q) return true;
-    return (
+    if (q && !(
       normalizeText(student.full_name).includes(q) ||
       normalizeText(student.display_parent_name).includes(q)
-    );
+    )) return false;
+
+    if (teamFilter !== 'all') {
+      const teamKey = getTeamKey(student);
+      if (teamFilter === 'none' ? !!teamKey : teamKey !== teamFilter) return false;
+    }
+
+    if (planFilter !== 'all') {
+      const planKey = getPlanKey(student);
+      if (planFilter === 'none') { if (planKey) return false; }
+      else if (planFilter === 'with') { if (!planKey) return false; }
+      else if (planKey !== planFilter) return false;
+    }
+
+    if (paymentFilter !== 'all' && getPaymentState(student) !== paymentFilter) return false;
+
+    return true;
   });
+
+  const activeFilterCount =
+    (teamFilter !== 'all' ? 1 : 0) + (planFilter !== 'all' ? 1 : 0) + (paymentFilter !== 'all' ? 1 : 0);
+
+  const clearFilters = () => {
+    setTeamFilter('all');
+    setPlanFilter('all');
+    setPaymentFilter('all');
+  };
+
+  // Si cambia la pestaña, un equipo/plan seleccionado puede no existir ahí:
+  // se limpia para no dejar un listado vacío sin explicación.
+  useEffect(() => {
+    const teamStillThere =
+      teamFilter === 'all' ? true
+      : teamFilter === 'none' ? filterOptions.noTeam > 0
+      : filterOptions.teams.some(t => t.id === teamFilter);
+    if (!teamStillThere) setTeamFilter('all');
+
+    const planStillThere =
+      planFilter === 'all' ? true
+      : planFilter === 'none' ? filterOptions.noPlan > 0
+      : planFilter === 'with' ? filterOptions.withPlan > 0
+      : filterOptions.plans.some(p => p.id === planFilter);
+    if (!planStillThere) setPlanFilter('all');
+
+    if (paymentFilter !== 'all' && !filterOptions.payments.some(p => p.id === paymentFilter))
+      setPaymentFilter('all');
+  }, [activeTab, filterOptions]);
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(amount);
 
   const getPaymentBadge = (student: any) => {
-    const ps  = student.payment_status;
-    const due = student.payment_due_date;
-    if (!ps) return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
-    if (ps === 'paid') return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
-    if (ps === 'overdue' || ((ps === 'pending' || ps === 'awaiting_approval') && due && new Date(due) < new Date()))
-      return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
-    if (ps === 'pending' || ps === 'awaiting_approval')
-      return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
-    return <Badge variant="secondary" className="text-xs">{ps}</Badge>;
+    switch (getPaymentState(student)) {
+      case 'none':    return <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-500">Sin cobro</Badge>;
+      case 'paid':    return <Badge className="bg-green-500 text-xs text-white">Al día</Badge>;
+      case 'overdue': return <Badge variant="destructive" className="text-xs">Vencido</Badge>;
+      case 'pending': return <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">Pendiente</Badge>;
+      default:        return <Badge variant="secondary" className="text-xs">{student.payment_status}</Badge>;
+    }
   };
 
   const calculateAge = (dateOfBirth?: string | null) => {
@@ -601,7 +726,8 @@ export default function SchoolStudentsManagementPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Atletas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''} en <strong>{schoolName}</strong>
+            {filteredStudents.length} atleta{filteredStudents.length !== 1 ? 's' : ''}
+            {filteredStudents.length !== tabStudents.length && ` de ${tabStudents.length}`} en <strong>{schoolName}</strong>
           </p>
         </div>
         {canManageStudents && (
@@ -634,6 +760,61 @@ export default function SchoolStudentsManagementPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input placeholder="Buscar por nombre o acudiente..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
           </div>
+
+          {/* Filtros dinámicos: las opciones se derivan de los atletas de la pestaña */}
+          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+            <Select value={teamFilter} onValueChange={setTeamFilter}>
+              <SelectTrigger className="sm:w-[220px]">
+                <SelectValue placeholder="Equipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los equipos</SelectItem>
+                {filterOptions.noTeam > 0 && (
+                  <SelectItem value="none">Sin equipo ({filterOptions.noTeam})</SelectItem>
+                )}
+                {filterOptions.teams.map(t => (
+                  <SelectItem key={t.id} value={t.id}>{t.label} ({t.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={planFilter} onValueChange={setPlanFilter}>
+              <SelectTrigger className="sm:w-[220px]">
+                <SelectValue placeholder="Plan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los planes</SelectItem>
+                {filterOptions.withPlan > 0 && (
+                  <SelectItem value="with">Con plan ({filterOptions.withPlan})</SelectItem>
+                )}
+                {filterOptions.noPlan > 0 && (
+                  <SelectItem value="none">Sin plan ({filterOptions.noPlan})</SelectItem>
+                )}
+                {filterOptions.plans.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.label} ({p.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+              <SelectTrigger className="sm:w-[200px]">
+                <SelectValue placeholder="Estado de pago" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Cualquier estado de pago</SelectItem>
+                {filterOptions.payments.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{PAYMENT_STATE_LABELS[p.id]} ({p.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="sm:self-center text-muted-foreground">
+                <X className="h-4 w-4 mr-1" />
+                Limpiar filtro{activeFilterCount !== 1 ? 's' : ''}
+              </Button>
+            )}
+          </div>
           {selectedStudentIds.length > 0 && (
             <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-1">
               <div className="flex items-center gap-2 text-sm font-medium text-primary">
@@ -651,7 +832,17 @@ export default function SchoolStudentsManagementPage() {
           )}
         </CardHeader>
         <CardContent className="p-0 sm:p-6">
-          {filteredStudents.length === 0 ? (
+          {filteredStudents.length === 0 && tabStudents.length > 0 ? (
+            /* Hay atletas, pero los filtros/búsqueda no dejan ninguno */
+            <div className="p-6">
+              <EmptyState
+                icon={Search}
+                title="Ningún atleta coincide"
+                description="Ajusta la búsqueda o los filtros de equipo, plan y estado de pago."
+                {...(activeFilterCount > 0 ? { actionLabel: "Limpiar filtros", onAction: clearFilters } : {})}
+              />
+            </div>
+          ) : filteredStudents.length === 0 ? (
             <div className="p-6">
               <EmptyState
                 icon={UserPlus}
