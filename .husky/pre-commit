@@ -3,12 +3,22 @@
 
 echo "🛡️  Zero-Tolerance Gatekeeper: Checking Code Quality..."
 
-# 0. Migraciones: sin colisiones de timestamp nuevas
-echo "🗂️  Checking migration timestamps..."
-node scripts/check-migration-timestamps.mjs
+# 0. Migraciones: versión única, orden correcto, inmutabilidad y ledger al día
+echo "🗂️  Checking migrations ledger..."
+node scripts/migrations.mjs check
 if [ $? -ne 0 ]; then
-    echo "❌ Migraciones: colisión de timestamp. Renombra a un prefijo único."
+    echo "❌ Migraciones: revisa los errores de arriba (npm run migrations:list para el inventario)."
     exit 1
+fi
+
+# El .sql y el ledger viajan en el MISMO commit, o el registro queda mintiendo.
+STAGED=$(git diff --cached --name-only)
+if echo "$STAGED" | grep -q '^supabase/migrations/.*\.sql$'; then
+    if ! echo "$STAGED" | grep -q '^supabase/migrations_ledger\.json$'; then
+        echo "❌ Estás commiteando migraciones sin el ledger."
+        echo "   → npm run migrations:sync && git add supabase/migrations_ledger.json"
+        exit 1
+    fi
 fi
 
 # 1. Frontend Checks (Next.js)

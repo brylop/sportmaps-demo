@@ -194,6 +194,18 @@ router.post(
             // Devolver null es tolerado: el frontend cae a la Edge Function (camino legacy).
             const signFor = (reference: string, amountInCents: number): string | null => {
                 if (provider !== 'wompi') return null;
+
+                // SOLO para escuelas con cuenta propia. Para el camino legacy ('env', la
+                // escuela en 'aggregator') se devuelve null a propósito y el frontend sigue
+                // pidiendo la firma a la Edge Function, exactamente como hasta hoy.
+                //
+                // Motivo: el integrity secret vive en DOS lugares independientes — ENV de
+                // Render (BFF) y secrets de Supabase (Edge Function). Si se hubieran
+                // desincronizado, firmar en el BFF rompería el checkout de una escuela que
+                // hoy cobra de verdad. En 'direct' el problema no existe: el secreto sale
+                // de payment_provider_secrets y la Edge Function queda fuera del camino.
+                if (resolved.source !== 'school_direct') return null;
+
                 const creds = wompiCredsFrom(resolved);
                 if (!creds) return null;
                 try {
