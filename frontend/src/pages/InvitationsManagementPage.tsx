@@ -21,6 +21,7 @@ import { es } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
+import { dbErrorMessage } from '@/lib/errors/dbErrorMessage';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -540,10 +541,11 @@ export default function InvitationsManagementPage() {
       }
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message
-        : (typeof error === 'object' && error !== null && 'message' in error)
-          ? String((error as any).message) : String(error);
-      toast({ title: '❌ Error', description: `No se pudo enviar la invitación: ${message}`, variant: 'destructive' });
+      toast({
+        title: '❌ No se pudo crear la invitación',
+        description: dbErrorMessage(error, 'No se pudo crear la invitación. Intenta de nuevo.'),
+        variant: 'destructive',
+      });
     },
   });
 
@@ -573,8 +575,11 @@ export default function InvitationsManagementPage() {
       toast({ title: '✅ Asignación guardada', description: 'Equipo, plan y mensualidad actualizados.' });
     },
     onError: (error: unknown) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      toast({ title: '❌ Error', description: msg, variant: 'destructive' });
+      toast({
+        title: '❌ No se pudo guardar',
+        description: dbErrorMessage(error, 'No se pudo guardar la asignación.'),
+        variant: 'destructive',
+      });
     },
   });
 
@@ -622,8 +627,11 @@ export default function InvitationsManagementPage() {
       toast({ title: 'Invitación cancelada', description: 'La invitación fue cancelada correctamente.' });
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({ title: '❌ Error', description: `No se pudo cancelar: ${message}`, variant: 'destructive' });
+      toast({
+        title: '❌ No se pudo cancelar',
+        description: dbErrorMessage(error, 'No se pudo cancelar la invitación.'),
+        variant: 'destructive',
+      });
     },
   });
 
