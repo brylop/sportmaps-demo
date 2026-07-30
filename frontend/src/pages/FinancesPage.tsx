@@ -20,6 +20,20 @@ import {
   type PaymentOriginInput,
   type PaymentOriginKind,
 } from '@/lib/paymentOrigin';
+import { StatFilterBar, type StatFilterTone } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
+
+// Color de cada origen en las tarjetas de filtro de Transacciones.
+const ORIGIN_TONES: Record<string, StatFilterTone> = {
+  gateway: 'blue',
+  transfer_receipt: 'emerald',
+  transfer_manual: 'yellow',
+  cash: 'violet',
+  card_manual: 'orange',
+  pse_manual: 'primary',
+  other: 'neutral',
+  unknown: 'rose',
+};
 
 interface OverdueAccount {
   id: string;
@@ -60,7 +74,7 @@ export default function FinancesPage() {
   useEffect(() => { setTxPage(1); }, [txSearch, txOrigin]);
 
   // Fetch payments from Supabase — filtrado por school_id y branch
-  const { data: payments, isLoading, isError, refetch } = useQuery({
+  const { data: payments, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['school-payments-all', schoolId, activeBranchId],
     queryFn: async () => {
       let query = supabase
@@ -154,15 +168,22 @@ export default function FinancesPage() {
     }))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-  const transactions = allTransactions.filter(t => {
+  // Base = solo búsqueda. De acá salen los contadores de las tarjetas de origen,
+  // para que el número de cada tarjeta cuadre con lo que muestra la tabla.
+  const txBase = allTransactions.filter(t => {
     const term = txSearch.trim().toLowerCase();
-    const matchesTerm = !term ||
+    return !term ||
       t.athlete.toLowerCase().includes(term) ||
       (t.payer || '').toLowerCase().includes(term) ||
       (t.concept || '').toLowerCase().includes(term);
-    const matchesOrigin = txOrigin === 'all' || t.origin.kind === txOrigin;
-    return matchesTerm && matchesOrigin;
   });
+
+  const transactions = txBase.filter(t => txOrigin === 'all' || t.origin.kind === txOrigin);
+
+  const txOriginCounts = txBase.reduce<Record<string, number>>((acc, t) => {
+    acc[t.origin.kind] = (acc[t.origin.kind] ?? 0) + 1;
+    return acc;
+  }, {});
 
   const txTotalPages = Math.max(1, Math.ceil(transactions.length / TX_PAGE_SIZE));
   const pagedTransactions = transactions.slice((txPage - 1) * TX_PAGE_SIZE, txPage * TX_PAGE_SIZE);
@@ -263,10 +284,16 @@ export default function FinancesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Finanzas</h1>
           <p className="text-muted-foreground">Panel de control financiero</p>
         </div>
-        <Button variant="outline" onClick={() => setShowHistoryModal(true)}>
-          <History className="mr-2 h-4 w-4" />
-          Ver Historial de Recordatorios
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
+          <Button variant="outline" onClick={() => setShowHistoryModal(true)}>
+            <History className="mr-2 h-4 w-4" />
+            Ver Historial de Recordatorios
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -368,6 +395,12 @@ export default function FinancesPage() {
               ))}
             </TableBody>
           </Table>
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={`${overdueAccounts.length} cuenta(s) por cobrar`}
+          />
         </CardContent>
       </Card>
 
@@ -386,18 +419,29 @@ export default function FinancesPage() {
               onChange={(e) => setTxSearch(e.target.value)}
               className="w-full sm:w-[260px] h-9"
             />
-            <select
-              className="flex h-9 w-full sm:w-[230px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={txOrigin}
-              onChange={(e) => setTxOrigin(e.target.value as PaymentOriginKind | 'all')}
-            >
-              {ORIGIN_FILTERS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
           </div>
         </CardHeader>
         <CardContent>
+          {/* Filtro por origen en tarjetas. Solo se muestran los orígenes que
+              existen en los datos: con los 9 siempre visibles la mayoría
+              quedaba en 0 y el filtro se volvía ruido. */}
+          <div className="mb-4">
+            <StatFilterBar
+              columns={4}
+              value={txOrigin === 'all' ? null : txOrigin}
+              onChange={(v) => setTxOrigin((v as PaymentOriginKind) ?? 'all')}
+              items={[
+                { key: null, label: 'Todos', value: txBase.length, tone: 'neutral' },
+                ...ORIGIN_FILTERS.filter(o => o.value !== 'all').map(o => ({
+                  key: o.value as PaymentOriginKind,
+                  label: o.label,
+                  value: txOriginCounts[o.value] ?? 0,
+                  tone: ORIGIN_TONES[o.value] ?? 'neutral',
+                  hidden: (txOriginCounts[o.value] ?? 0) === 0 && txOrigin !== o.value,
+                })),
+              ]}
+            />
+          </div>
           {/* Mobile: tarjetas. Una tabla de 5 columnas en un teléfono obliga a
               scrollear en horizontal para leer el monto, que es justo el dato
               que se viene a buscar. */}
@@ -478,22 +522,24 @@ export default function FinancesPage() {
             </Table>
           </div>
 
-          {transactions.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-2 py-3 mt-2 border-t text-sm">
-              <span className="text-muted-foreground">
-                {transactions.length} transacción(es) · ${txTotal.toLocaleString('es-CO')}
-                {txTotalPages > 1 && ` · página ${txPage} de ${txTotalPages}`}
-              </span>
-              {txTotalPages > 1 && (
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={txPage <= 1}
-                    onClick={() => setTxPage(p => Math.max(1, p - 1))}>Anterior</Button>
-                  <Button variant="outline" size="sm" disabled={txPage >= txTotalPages}
-                    onClick={() => setTxPage(p => Math.min(txTotalPages, p + 1))}>Siguiente</Button>
-                </div>
-              )}
-            </div>
-          )}
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              `${transactions.length} transacción(es) · $${txTotal.toLocaleString('es-CO')}` +
+              (txTotalPages > 1 ? ` · página ${txPage} de ${txTotalPages}` : '')
+            }
+          >
+            {txTotalPages > 1 && (
+              <>
+                <Button variant="outline" size="sm" disabled={txPage <= 1}
+                  onClick={() => setTxPage(p => Math.max(1, p - 1))}>Anterior</Button>
+                <Button variant="outline" size="sm" disabled={txPage >= txTotalPages}
+                  onClick={() => setTxPage(p => Math.min(txTotalPages, p + 1))}>Siguiente</Button>
+              </>
+            )}
+          </TableRefreshBar>
         </CardContent>
       </Card>
 

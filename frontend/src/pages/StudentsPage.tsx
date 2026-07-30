@@ -19,11 +19,14 @@ import { getUserFriendlyError } from '@/lib/error-translator';
 
 import { EnrollStudentModal } from '@/components/enrollment/EnrollStudentModal';
 import { MedicalAlertBadge } from '@/components/common/MedicalAlertBadge';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 export default function StudentsPage() {
   const { profile } = useAuth();
   const { schoolId, schoolName } = useSchoolContext();
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [showCreateChildModal, setShowCreateChildModal] = useState(false);
@@ -119,6 +122,7 @@ export default function StudentsPage() {
   };
 
   const filteredStudents = students.filter((student: any) => {
+    if (statusFilter && student.status !== statusFilter) return false;
     const q = normalizeText(searchQuery);
     if (!q) return true;
     return (
@@ -127,6 +131,12 @@ export default function StudentsPage() {
       normalizeText(student.parent_email).includes(q)
     );
   });
+
+  const statusCounts = {
+    active: students.filter(s => s.status === 'active').length,
+    inactive: students.filter(s => s.status === 'inactive').length,
+    suspended: students.filter(s => s.status === 'suspended').length,
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -227,47 +237,18 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Total</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold">{students.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Activos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-green-600">
-              {students.filter(s => s.status === 'active').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Inactivos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-gray-600">
-              {students.filter(s => s.status === 'inactive').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-3 md:p-6">
-            <CardTitle className="text-sm md:text-base">Suspendidos</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 md:p-6 pt-0">
-            <div className="text-xl md:text-2xl font-bold text-red-600">
-              {students.filter(s => s.status === 'suspended').length}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Cards — ahora filtran la tabla al hacer clic */}
+      <StatFilterBar
+        columns={4}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        items={[
+          { key: null, label: 'Total', value: students.length, tone: 'neutral' },
+          { key: 'active', label: 'Activos', value: statusCounts.active, tone: 'emerald' },
+          { key: 'inactive', label: 'Inactivos', value: statusCounts.inactive, tone: 'neutral' },
+          { key: 'suspended', label: 'Suspendidos', value: statusCounts.suspended, tone: 'rose' },
+        ]}
+      />
 
       {/* Search */}
       <Card>
@@ -353,6 +334,16 @@ export default function StudentsPage() {
               </Table>
             </div>
           )}
+          <TableRefreshBar
+            className="-mx-3 -mb-3 md:-mx-6 md:-mb-6 mt-2 rounded-b-lg"
+            onRefresh={handleRefresh}
+            loading={refreshing || loading}
+            summary={
+              filteredStudents.length === students.length
+                ? `${students.length} deportista(s)`
+                : `${filteredStudents.length} de ${students.length} deportista(s)`
+            }
+          />
         </CardContent>
       </Card>
 

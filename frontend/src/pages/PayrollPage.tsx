@@ -16,6 +16,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Users, Plus, Loader2, AlertCircle, RefreshCw, Play, DollarSign, FileText } from 'lucide-react';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zDocument, zAmountNonNeg, zOptionalText } from '@/lib/formValidation';
 
@@ -58,6 +60,7 @@ export default function PayrollPage() {
     const [year, setYear] = useState(now.getFullYear());
     const [month, setMonth] = useState(now.getMonth() + 1);
     const [selectedRun, setSelectedRun] = useState<string | null>(null);
+    const [runStatusFilter, setRunStatusFilter] = useState<string | null>(null);
 
     const employeesQuery = useQuery({
         queryKey: ['payroll-employees', schoolId],
@@ -196,6 +199,14 @@ export default function PayrollPage() {
 
     const runs = runsQuery.data ?? [];
     const selected = runs.find(r => r.id === selectedRun);
+    // 'draft' agrupa todo lo que no está pagado, igual que el badge de la tabla.
+    const filteredRuns = !runStatusFilter ? runs
+        : runStatusFilter === 'paid' ? runs.filter(r => r.status === 'paid')
+        : runs.filter(r => r.status !== 'paid');
+    const runCounts = {
+        paid: runs.filter(r => r.status === 'paid').length,
+        draft: runs.filter(r => r.status !== 'paid').length,
+    };
 
     return (
         <div className="container mx-auto p-6 space-y-6">
@@ -303,10 +314,24 @@ export default function PayrollPage() {
                     <Card>
                         <CardHeader><CardTitle>Períodos</CardTitle></CardHeader>
                         <CardContent className="p-0">
+                            <div className="px-6 pb-4">
+                                <StatFilterBar
+                                    columns={3}
+                                    value={runStatusFilter}
+                                    onChange={setRunStatusFilter}
+                                    items={[
+                                        { key: null, label: 'Todas', value: runs.length, tone: 'neutral' },
+                                        { key: 'paid', label: 'Pagadas', value: runCounts.paid, tone: 'emerald' },
+                                        { key: 'draft', label: 'Borradores', value: runCounts.draft, tone: 'yellow' },
+                                    ]}
+                                />
+                            </div>
                             {runsQuery.isLoading ? (
                                 <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-                            ) : runs.length === 0 ? (
-                                <div className="py-10 text-center text-sm text-muted-foreground">Aún no has corrido nóminas.</div>
+                            ) : filteredRuns.length === 0 ? (
+                                <div className="py-10 text-center text-sm text-muted-foreground">
+                                    {runStatusFilter ? 'No hay nóminas en este estado.' : 'Aún no has corrido nóminas.'}
+                                </div>
                             ) : (
                                 <Table>
                                     <TableHeader>
@@ -320,7 +345,7 @@ export default function PayrollPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {runs.map((r) => (
+                                        {filteredRuns.map((r) => (
                                             <TableRow key={r.id} className={r.id === selectedRun ? 'bg-muted/50' : ''}>
                                                 <TableCell className="font-medium">{MONTHS[r.period_month - 1]} {r.period_year}</TableCell>
                                                 <TableCell className="text-right">{r.employee_count}</TableCell>
@@ -335,6 +360,15 @@ export default function PayrollPage() {
                                     </TableBody>
                                 </Table>
                             )}
+                            <TableRefreshBar
+                                onRefresh={() => runsQuery.refetch()}
+                                loading={runsQuery.isFetching}
+                                summary={
+                                    filteredRuns.length === runs.length
+                                        ? `${runs.length} período(s)`
+                                        : `${filteredRuns.length} de ${runs.length} período(s)`
+                                }
+                            />
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -379,6 +413,11 @@ export default function PayrollPage() {
                                     </TableBody>
                                 </Table>
                             )}
+                            <TableRefreshBar
+                                onRefresh={() => employeesQuery.refetch()}
+                                loading={employeesQuery.isFetching}
+                                summary={`${(employeesQuery.data ?? []).length} empleado(s)`}
+                            />
                         </CardContent>
                     </Card>
                 </TabsContent>

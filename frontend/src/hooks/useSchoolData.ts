@@ -51,7 +51,7 @@ export function useSchoolStaff() {
   const { schoolId } = useSchoolContext();
 
   // Fetch staff
-  const { data: staff, isLoading, error, refetch } = useQuery({
+  const { data: staff, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['school-staff', schoolId],
     queryFn: async () => {
       const res = await bffClient.get<Staff[]>('/api/v1/school-staff');
@@ -102,6 +102,7 @@ export function useSchoolStaff() {
   return {
     staff: staff || [],
     isLoading,
+    isFetching,
     error,
     schoolId,
     refetch,

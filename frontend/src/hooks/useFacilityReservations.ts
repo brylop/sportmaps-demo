@@ -64,7 +64,7 @@ export function useFacilityReservations() {
 
   // ── READ ──────────────────────────────────────────────────────────────────
 
-  const { data: reservations = [], isLoading } = useQuery<FacilityReservation[]>({
+  const { data: reservations = [], isLoading, isFetching, refetch } = useQuery<FacilityReservation[]>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
       if (!schoolId) return [];
@@ -221,6 +221,8 @@ export function useFacilityReservations() {
   return {
     reservations,
     isLoading,
+    isFetching,
+    refetch,
     stats,
     // mutations
     createReservation,

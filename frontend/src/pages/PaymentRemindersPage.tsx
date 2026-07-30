@@ -18,6 +18,8 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { emailClient } from '@/lib/email-client';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
@@ -409,23 +411,31 @@ export default function PaymentRemindersPage() {
                                 ))}
                             </TableBody>
                         </Table>
+                        <TableRefreshBar
+                            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+                            onRefresh={loadReminders}
+                            loading={loading || loadingWithout}
+                            summary={`${athletesWithoutPayment.length} atleta(s) sin cobro`}
+                        />
                     </CardContent>
                 </Card>
             )}
 
+            {/* Filtro por estado en tarjetas */}
+            <StatFilterBar
+                columns={3}
+                value={filterStatus === 'all' ? null : filterStatus}
+                onChange={(v) => setFilterStatus((v as 'pending' | 'overdue') ?? 'all')}
+                items={[
+                    { key: null, label: 'Todos', value: batch?.totalReminders || 0, tone: 'neutral' },
+                    { key: 'pending', label: 'Pendientes', value: batch?.byStatus.pending || 0, tone: 'yellow' },
+                    { key: 'overdue', label: 'Vencidos', value: batch?.byStatus.overdue || 0, tone: 'rose' },
+                ]}
+            />
+
             {/* Filter Bar */}
             <div className="flex items-center gap-3 flex-wrap">
                 <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-                    <SelectTrigger className="w-[180px]">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todos ({batch?.totalReminders || 0})</SelectItem>
-                        <SelectItem value="pending">Pendientes ({batch?.byStatus.pending || 0})</SelectItem>
-                        <SelectItem value="overdue">Vencidos ({batch?.byStatus.overdue || 0})</SelectItem>
-                    </SelectContent>
-                </Select>
 
                 {planOptions.length > 0 && (
                     <Select value={filterPlan} onValueChange={setFilterPlan}>
@@ -676,6 +686,11 @@ export default function PaymentRemindersPage() {
                             })}
                         </TableBody>
                     </Table>
+                    <TableRefreshBar
+                        onRefresh={loadReminders}
+                        loading={loading}
+                        summary={`${filteredReminders.length} recordatorio(s) · ${filteredStats.parents} acudiente(s)`}
+                    />
                 </Card>
             )}
         </div>

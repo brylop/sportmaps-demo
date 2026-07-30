@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSchoolContext } from '@/hooks/useSchoolContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { bffClient } from '@/lib/api/bffClient';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 type Row = {
   id: string;
@@ -44,6 +45,15 @@ export default function SchoolCertificatesAdminPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('all');
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const countBy = (st: string) =>
+    status === 'all' || status === st ? rows.filter((r) => r.status === st).length : ('—' as const);
+  const statusCounts = {
+    pending_review: countBy('pending_review'),
+    pending_payment: countBy('pending_payment'),
+    issued: countBy('issued'),
+    revoked: countBy('revoked'),
+  };
 
   useEffect(() => {
     if (!schoolId) return;
@@ -163,17 +173,23 @@ export default function SchoolCertificatesAdminPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="pending_review">Por aprobar</SelectItem>
-                <SelectItem value="pending_payment">Pendiente pago</SelectItem>
-                <SelectItem value="issued">Emitidas</SelectItem>
-                <SelectItem value="revoked">Revocadas</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
+
+          {/* El estado se filtra en el servidor; con un filtro activo solo se
+              puede contar ese estado, el resto va en '—'. */}
+          <StatFilterBar
+            className="mb-4"
+            columns={5}
+            value={status === 'all' ? null : status}
+            onChange={(v) => setStatus(v ?? 'all')}
+            items={[
+              { key: null, label: 'Todas', value: status === 'all' ? rows.length : '—', tone: 'neutral' },
+              { key: 'pending_review', label: 'Por aprobar', value: statusCounts.pending_review, tone: 'blue' },
+              { key: 'pending_payment', label: 'Pendiente pago', value: statusCounts.pending_payment, tone: 'yellow' },
+              { key: 'issued', label: 'Emitidas', value: statusCounts.issued, tone: 'emerald' },
+              { key: 'revoked', label: 'Revocadas', value: statusCounts.revoked, tone: 'rose' },
+            ]}
+          />
 
           {loading ? (
             <div className="py-12 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -237,6 +253,12 @@ export default function SchoolCertificatesAdminPage() {
               </TableBody>
             </Table>
           )}
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={load}
+            loading={loading}
+            summary={`${rows.length} constancia(s)`}
+          />
         </CardContent>
       </Card>
     </div>

@@ -13,8 +13,10 @@ import {
   UserPlus, Search, X as XIcon, Clock, Check,
   Copy, MessageCircle, Send, Link as LinkIcon, Mail,
   Users, CreditCard, ChevronDown, Ban, Gift, Building2,
-  Pencil,
+  Pencil, RefreshCw,
 } from 'lucide-react';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -241,7 +243,7 @@ export default function InvitationsManagementPage() {
   }, [schoolId, formData.role]);
 
   // ── Query invitaciones ───────────────────────────────────────────────────────
-  const { data: invitations = [], isLoading } = useQuery<Invitation[]>({
+  const { data: invitations = [], isLoading, isFetching, refetch } = useQuery<Invitation[]>({
     queryKey: ['invitations', schoolId, activeBranchId],
     queryFn: async () => {
       if (!schoolId) return [];
@@ -877,6 +879,10 @@ export default function InvitationsManagementPage() {
               Limpiar filtros
             </Button>
           )}
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
           <Button onClick={() => setDialogOpen(true)}>
             <UserPlus className="w-4 h-4 mr-2" />
             Nueva Invitación
@@ -885,26 +891,20 @@ export default function InvitationsManagementPage() {
       </div>
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 md:grid-cols-5">
-        {[
-          { label: 'Total', value: stats.total, filter: 'all', color: 'primary' },
-          { label: 'Aceptadas', value: stats.accepted, filter: 'accepted', color: 'green-500' },
-          { label: 'Pendientes', value: stats.pending, filter: 'pending', color: 'yellow-500' },
-          { label: 'Rechazadas', value: stats.rejected, filter: 'rejected', color: 'red-500' },
-          { label: 'Expiradas', value: stats.expired, filter: 'expired', color: 'orange-500' },
-        ].map(s => (
-          <Card key={s.filter}
-            className={`cursor-pointer transition-all hover:ring-2 hover:ring-${s.color}/20 ${statusFilter === s.filter ? `ring-2 ring-${s.color} ring-offset-2` : 'opacity-80 hover:opacity-100'}`}
-            onClick={() => setStatusFilter(s.filter)}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${s.color !== 'primary' ? `text-${s.color}` : ''}`}>{s.value}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Antes las clases de color se armaban interpolando (`ring-${color}`) y
+          Tailwind no las generaba: las tarjetas nunca se veían resaltadas. */}
+      <StatFilterBar
+        columns={5}
+        value={statusFilter === 'all' ? null : statusFilter}
+        onChange={(v) => setStatusFilter(v ?? 'all')}
+        items={[
+          { key: null, label: 'Total', value: stats.total, tone: 'neutral' },
+          { key: 'accepted', label: 'Aceptadas', value: stats.accepted, tone: 'emerald' },
+          { key: 'pending', label: 'Pendientes', value: stats.pending, tone: 'yellow' },
+          { key: 'rejected', label: 'Rechazadas', value: stats.rejected, tone: 'rose' },
+          { key: 'expired', label: 'Expiradas', value: stats.expired, tone: 'orange' },
+        ]}
+      />
 
       {/* ── Tabla ─────────────────────────────────────────────────────────── */}
       <Card>
@@ -1040,6 +1040,16 @@ export default function InvitationsManagementPage() {
               )}
             </TableBody>
           </Table>
+          <TableRefreshBar
+            className="-mx-6 -mb-6 mt-2 rounded-b-lg"
+            onRefresh={refetch}
+            loading={isFetching}
+            summary={
+              filteredInvitations.length === invitations.length
+                ? `${invitations.length} invitación(es)`
+                : `${filteredInvitations.length} de ${invitations.length} invitación(es)`
+            }
+          />
         </CardContent>
       </Card>
 

@@ -34,6 +34,8 @@ import {
 } from '@/components/ui/table';
 import { Users, Plus, Mail, Building, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 
 interface SchoolMember {
     id: string;
@@ -338,22 +340,19 @@ export default function AdminUsersPage() {
                 </Dialog>
             </div>
 
-            {/* Stats cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                    { label: 'Admins de Sede', count: roleCounts.school_admin || 0, color: 'text-blue-600' },
-                    { label: 'Entrenadores', count: roleCounts.coach || 0, color: 'text-green-600' },
-                    { label: 'Padres', count: roleCounts.parent || 0, color: 'text-orange-600' },
-                    { label: 'Atletas', count: roleCounts.athlete || 0, color: 'text-yellow-600' },
-                ].map(stat => (
-                    <Card key={stat.label}>
-                        <CardContent className="p-4 text-center">
-                            <p className={`text-3xl font-bold ${stat.color}`}>{stat.count}</p>
-                            <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
+            {/* Stats cards — filtran la tabla por rol al hacer clic */}
+            <StatFilterBar
+                columns={5}
+                value={roleFilter === 'all' ? null : roleFilter}
+                onChange={(v) => setRoleFilter(v ?? 'all')}
+                items={[
+                    { key: null, label: 'Todos', value: members.length, tone: 'neutral' },
+                    { key: 'school_admin', label: 'Admins de Sede', value: roleCounts.school_admin || 0, tone: 'blue' },
+                    { key: 'coach', label: 'Entrenadores', value: roleCounts.coach || 0, tone: 'emerald' },
+                    { key: 'parent', label: 'Padres', value: roleCounts.parent || 0, tone: 'orange' },
+                    { key: 'athlete', label: 'Atletas', value: roleCounts.athlete || 0, tone: 'yellow' },
+                ]}
+            />
 
             {/* Filters */}
             <div className="flex gap-3 flex-wrap">
@@ -445,6 +444,15 @@ export default function AdminUsersPage() {
                             </TableBody>
                         </Table>
                     )}
+                    <TableRefreshBar
+                        onRefresh={fetchMembers}
+                        loading={loading}
+                        summary={
+                            filtered.length === members.length
+                                ? `${members.length} usuario(s)`
+                                : `${filtered.length} de ${members.length} usuario(s)`
+                        }
+                    />
                 </CardContent>
             </Card>
         </div>

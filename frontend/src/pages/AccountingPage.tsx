@@ -27,6 +27,8 @@ import {
     BookOpen, TrendingUp, TrendingDown, Scale, Plus, Loader2, AlertCircle, RefreshCw, Paperclip, Lock,
 } from 'lucide-react';
 import { InvoicingTab } from '@/components/accounting/InvoicingTab';
+import { StatFilterBar } from '@/components/common/StatFilterBar';
+import { TableRefreshBar } from '@/components/common/TableRefreshBar';
 import { z } from 'zod';
 import { validate, zRequiredText, zAmountPositive } from '@/lib/formValidation';
 
@@ -125,6 +127,12 @@ export default function AccountingPage() {
     });
 
     const rows = ledgerQuery.data ?? [];
+    const [directionFilter, setDirectionFilter] = useState<string | null>(null);
+    const filteredRows = directionFilter ? rows.filter(r => r.direction === directionFilter) : rows;
+    const directionCounts = {
+        income: rows.filter(r => r.direction === 'income').length,
+        expense: rows.filter(r => r.direction === 'expense').length,
+    };
     const totals = useMemo(() => {
         let income = 0, expense = 0;
         for (const r of rows) {
@@ -283,14 +291,30 @@ export default function AccountingPage() {
                     <CardTitle>Movimientos</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
+                    <div className="px-6 pb-4">
+                        <StatFilterBar
+                            columns={3}
+                            value={directionFilter}
+                            onChange={setDirectionFilter}
+                            items={[
+                                { key: null, label: 'Todos', value: rows.length, tone: 'neutral' },
+                                { key: 'income', label: 'Ingresos', value: directionCounts.income, tone: 'emerald' },
+                                { key: 'expense', label: 'Egresos', value: directionCounts.expense, tone: 'rose' },
+                            ]}
+                        />
+                    </div>
                     {ledgerQuery.isLoading ? (
                         <div className="flex items-center justify-center py-12">
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
-                    ) : rows.length === 0 ? (
+                    ) : filteredRows.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
                             <BookOpen className="h-10 w-10 opacity-30" />
-                            <p className="text-sm">Aún no hay movimientos. Registra un gasto o confirma un pago.</p>
+                            <p className="text-sm">
+                                {directionFilter
+                                    ? `No hay ${directionFilter === 'income' ? 'ingresos' : 'egresos'} en este periodo.`
+                                    : 'Aún no hay movimientos. Registra un gasto o confirma un pago.'}
+                            </p>
                         </div>
                     ) : (
                         <Table>
@@ -304,7 +328,7 @@ export default function AccountingPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {rows.map((r) => (
+                                {filteredRows.map((r) => (
                                     <TableRow key={`${r.source}-${r.id}`}>
                                         <TableCell className="text-sm">
                                             {r.movement_date ? new Date(r.movement_date).toLocaleDateString('es-CO') : '—'}
@@ -340,6 +364,15 @@ export default function AccountingPage() {
                             </TableBody>
                         </Table>
                     )}
+                    <TableRefreshBar
+                        onRefresh={() => ledgerQuery.refetch()}
+                        loading={ledgerQuery.isFetching}
+                        summary={
+                            filteredRows.length === rows.length
+                                ? `${rows.length} movimiento(s)`
+                                : `${filteredRows.length} de ${rows.length} movimiento(s)`
+                        }
+                    />
                 </CardContent>
             </Card>
                 </TabsContent>
